@@ -1,0 +1,255 @@
+# app/auto_group_core.py
+"""
+Core logic for:
+- running the VLM page classifier over a folder of raw scans
+- grouping pages into inferred student submissions
+
+This refactors the reusable pieces from scripts/auto_group_scans.py
+so they can be used both by the CLI script and the FastAPI app.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Set
+
+from .models import RosterEntry
+
+# These imports assume you have app/vlm_client.py and app/vlm_classifier.py
+# in your real repo, as in the CLI script.
+from .vlm_client import LMStudioQwenClient  # type: ignore
+from .vlm_classifier import classify_page  # type: ignore
+
+
+# --- Helper types ------------------------------------------------------------
+
+@dataclass
+class SubmissionGroup:
+    """A contiguous chunk of pages, inferred to be one student's submission."""
+
+    group_index: int
+    pages: List[Any]  # PagePrediction objects (duck-typed)
+    inferred_student_id: Optional[str]
+    inferred_canvas_name: Optional[str]
+    flags: Set[str] = field(default_factory=set)
+    notes: List[str] = field(default_factory=list)
+
+
+# --- Filename / sorting utilities -------------------------------------------
+
+EXTS = {".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"}
+
+
+def natural_sort_key(path: Path) -> List[Any]:
+    """
+    Return a key for natural sorting of filenames, so that
+    ..._1.jpg, ..._2.jpg, ..., ..._10.jpg is ordered numerically.
+    """
+    import re
+
+    parts = re.split(r"(\d+)", path.name)
+    key: List[Any] = []
+    for part in parts:
+        if part.isdigit():
+            key.append(int(part))
+        else:
+            key.append(part.lower())
+    return key
+
+
+def slugify_name(name: Optional[str]) -> str:
+    """
+    Turn a Canvas-style 'Last, First' name into 'last_first'.
+    If name is None, return empty string.
+    """
+    import re
+
+    if not name:
+        return ""
+    # Replace commas with space, collapse whitespace, lower-case, replace spaces with underscores.
+    s = name.replace(",", " ")
+    s = re.sub(r"\s+", " ", s).strip().lower()
+    return s.replace(" ", "_")
+
+
+def canonical_filename(
+    quiz_id: str,
+    student_id: Optional[str],
+    canvas_name: Optional[str],
+    page_index: int,
+    unknown_index: Optional[int],
+    orig_suffix: str,
+) -> str:
+    """
+    Build a canonical filename like:
+
+        quiz1_12345_berry_sharon_p01.jpg
+
+    If student_id is None (unknown), we use:
+
+        quiz1_unknownXX_p01.jpg
+    """
+    base_quiz = quiz_id.strip().lower()
+    if student_id:
+        slug = slugify_name(canvas_name or "")
+        stem = f"{base_quiz}_{student_id}_{slug}_p{page_index:02d}"
+    else:
+        idx = unknown_index if unknown_index is not None else 0
+        stem = f"{base_quiz}_unknown{idx:02d}_p{page_index:02d}"
+    return stem + orig_suffix
+
+
+def build_roster_index(roster: List[RosterEntry]) -> Dict[str, str]:
+    """Map student_id -> name."""
+    return {r.student_id: r.name for r in roster}
+
+
+# --- Grouping logic ----------------------------------------------------------
+
+def group_pages(
+    preds: List[Any],
+    roster_by_id: Dict[str, str],
+    min_high_conf: float = 0.85,
+) -> List[SubmissionGroup]:
+    """
+    Group pages into submissions based on scan order and high-confidence name hits.
+
+    Rules (v1):
+    - We walk pages in filename order maintaining a single 'current' group.
+    - When we see a high-confidence name for a NEW student_id, we start a new group.
+    - When we see a high-confidence name for the SAME student_id, we keep appending.
+    - Pages with no reliable name just attach to the current group.
+    - After the pass, we flag students who show up in multiple groups as 'split_submission'.
+    """
+    groups: List[SubmissionGroup] = []
+    current_group: Optional[SubmissionGroup] = None
+    current_student_id: Optional[str] = None
+
+    for p in preds:
+        student_id = getattr(p, "student_id", None)
+        confidence = float(getattr(p, "confidence", 0.0))
+        name_visible = bool(getattr(p, "name_visible", False))
+
+        is_high = student_id is not None and confidence >= min_high_conf
+
+        if current_group is None:
+            # Start the very first group
+            inferred_sid = student_id if is_high else None
+            inferred_name = roster_by_id.get(inferred_sid) if inferred_sid else None
+            current_group = SubmissionGroup(
+                group_index=len(groups) + 1,
+                pages=[p],
+                inferred_student_id=inferred_sid,
+                inferred_canvas_name=inferred_name,
+            )
+            current_student_id = inferred_sid
+
+            if not name_visible:
+                current_group.flags.add("has_no_name_page")
+            if student_id is None:
+                current_group.flags.add("has_unmatched_page")
+            elif not is_high:
+                current_group.flags.add("has_low_conf_page")
+
+            continue
+
+        if is_high:
+            if current_student_id is None:
+                # We were in an anonymous group; now we've got a name. Attach & set.
+                current_group.pages.append(p)
+                current_group.inferred_student_id = student_id
+                current_group.inferred_canvas_name = roster_by_id.get(student_id)
+                current_student_id = student_id
+            elif student_id == current_student_id:
+                # Same student, high-confidence page
+                current_group.pages.append(p)
+            else:
+                # High-confidence different student → boundary
+                current_group.flags.add("name_switch_boundary")
+                groups.append(current_group)
+
+                current_group = SubmissionGroup(
+                    group_index=len(groups) + 1,
+                    pages=[p],
+                    inferred_student_id=student_id,
+                    inferred_canvas_name=roster_by_id.get(student_id),
+                )
+                current_student_id = student_id
+        else:
+            # No reliable name; just attach to current group
+            current_group.pages.append(p)
+
+            if not name_visible:
+                current_group.flags.add("has_no_name_page")
+            if student_id is None:
+                current_group.flags.add("has_unmatched_page")
+            else:
+                current_group.flags.add("has_low_conf_page")
+
+    # End for
+    if current_group is not None:
+        groups.append(current_group)
+
+    # Second pass: mark split submissions
+    student_to_groups: Dict[str, List[int]] = {}
+    for g in groups:
+        if g.inferred_student_id:
+            student_to_groups.setdefault(g.inferred_student_id, []).append(g.group_index)
+
+    for sid, idxs in student_to_groups.items():
+        if len(idxs) > 1:
+            for i in idxs:
+                groups[i - 1].flags.add("split_submission")
+
+    # Mark unknown groups (no name inferred at all)
+    for g in groups:
+        if g.inferred_student_id is None:
+            g.flags.add("unknown_student")
+
+    return groups
+
+
+# --- VLM runner for web + CLI -----------------------------------------------
+
+def run_name_recognition(
+    raw_scans_dir: Path,
+    roster: List[RosterEntry],
+    client: Optional[LMStudioQwenClient] = None,
+) -> List[Any]:
+    """
+    Run the page-level name classifier on all images in raw_scans_dir
+    and return the raw prediction objects (whatever classify_page returns).
+
+    We only require that each prediction object has:
+
+        .filename (str)
+        .student_id (Optional[str])
+        .confidence (float)
+        .name_visible (bool)
+        .raw_name (Optional[str])
+        .reasoning (str)  # optional but nice for debugging
+    """
+    if client is None:
+        # Adjust defaults to match your LM Studio setup.
+        client = LMStudioQwenClient()  # type: ignore
+
+    all_paths = [
+        p
+        for p in raw_scans_dir.iterdir()
+        if p.is_file() and p.suffix in EXTS
+    ]
+    if not all_paths:
+        raise RuntimeError(f"No image files found in {raw_scans_dir}")
+
+    all_paths.sort(key=natural_sort_key)
+
+    preds: List[Any] = []
+    for path in all_paths:
+        pred = classify_page(path, roster, client)
+        # Make sure we have a filename attribute for downstream code / templates
+        if getattr(pred, "filename", None) is None:
+            setattr(pred, "filename", path.name)
+        preds.append(pred)
+
+    return preds

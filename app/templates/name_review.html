@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Name Review – {{ quiz_slug }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f3f4f6;
+      color: #111827;
+    }
+
+    header {
+      background: #1f2937;
+      color: #f9fafb;
+      padding: 0.75rem 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    header h1 {
+      font-size: 1.25rem;
+      margin: 0;
+    }
+
+    header .sub {
+      font-size: 0.85rem;
+      color: #d1d5db;
+    }
+
+    main {
+      max-width: 1100px;
+      margin: 1rem auto 2rem;
+      padding: 0 1rem;
+    }
+
+    .controls-bar {
+      background: #e5e7eb;
+      border-radius: 0.5rem;
+      padding: 0.75rem 1rem;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+      font-size: 0.9rem;
+    }
+
+    .controls-bar label {
+      font-weight: 500;
+      margin-right: 0.25rem;
+    }
+
+    .controls-bar input[type="text"] {
+      padding: 0.25rem 0.5rem;
+      border-radius: 0.375rem;
+      border: 1px solid #d1d5db;
+      font-size: 0.9rem;
+    }
+
+    .controls-bar .hint {
+      color: #4b5563;
+      font-size: 0.8rem;
+    }
+
+    .page-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .page-row {
+      background: #ffffff;
+      border-radius: 0.75rem;
+      padding: 0.75rem;
+      display: grid;
+      grid-template-columns: 500px minmax(0, 1.5fr) 180px;
+      gap: 0.75rem;
+      align-items: flex-start;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+    }
+
+    .page-index {
+      font-size: 0.75rem;
+      color: #6b7280;
+      margin-bottom: 0.25rem;
+    }
+
+
+
+.thumb-box {
+  border-radius: 0.5rem;
+  border: 1px solid #e5e7eb;
+  overflow: hidden;
+  background: #f9fafb;
+
+  /* fixed visible strip height */
+  height: 130px; /* adjust as you like */
+}
+
+/* Always show full width, crop only vertically */
+.thumb-box img {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  object-position: top;
+}
+    .model-info {
+      font-size: 0.8rem;
+      color: #4b5563;
+      margin-top: 0.25rem;
+      line-height: 1.3;
+    }
+
+    .confidence {
+      font-weight: 600;
+    }
+
+    .raw-name {
+      font-style: italic;
+    }
+
+    .name-select {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .name-select label {
+      font-size: 0.8rem;
+      color: #4b5563;
+      font-weight: 500;
+    }
+
+    .name-select select {
+      width: 100%;
+      padding: 0.3rem 0.5rem;
+      font-size: 0.9rem;
+      border-radius: 0.375rem;
+      border: 1px solid #d1d5db;
+      background: #f9fafb;
+    }
+
+    .name-select option {
+      font-size: 0.9rem;
+    }
+
+    .full-toggle-area {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+      color: #4b5563;
+    }
+
+    .full-toggle-area button {
+      border: none;
+      border-radius: 999px;
+      padding: 0.3rem 0.75rem;
+      font-size: 0.8rem;
+      cursor: pointer;
+      background: #e5e7eb;
+      color: #111827;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+    }
+
+    .full-toggle-area button:hover {
+      background: #d1d5db;
+    }
+
+    .full-scan {
+      max-height: 360px;
+      overflow: auto;
+      border-radius: 0.5rem;
+      border: 1px solid #e5e7eb;
+      background: #f9fafb;
+      padding: 0.25rem;
+    }
+
+    .full-scan img {
+      display: block;
+      max-width: 100%;
+      height: auto;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .footer-actions {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 0.75rem;
+    }
+
+    .submit-button {
+      border: none;
+      border-radius: 999px;
+      padding: 0.75rem 1.5rem;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      background: #16a34a;
+      color: white;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      box-shadow: 0 4px 10px rgba(22, 163, 74, 0.3);
+    }
+
+    .submit-button:hover {
+      background: #15803d;
+    }
+
+    .submit-button:disabled {
+      opacity: 0.7;
+      cursor: wait;
+      box-shadow: none;
+    }
+
+    .footer-hint {
+      font-size: 0.8rem;
+      color: #6b7280;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 0.8rem;
+      background: #e5e7eb;
+      padding: 0.1rem 0.35rem;
+      border-radius: 0.25rem;
+    }
+
+    .run-refresh-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  border: none;
+  background: #2563eb;
+  color: #f9fafb;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.run-refresh-button:hover {
+  background: #1d4ed8;
+}
+
+
+    @media (max-width: 900px) {
+      .page-row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Name Recognition Review – {{ quiz_slug }}</h1>
+  <div class="sub">
+    Confirm or correct the student for each scanned page, then click the green button at the bottom
+    to group, rename, and download.
+  </div>
+</header>
+
+<main>
+  <form method="post" action="/name_review">
+    <div class="controls-bar">
+      <div>
+        <label for="quiz_id">Assignment slug:</label>
+        <input id="quiz_id" name="quiz_id" type="text" value="{{ quiz_slug }}" >
+      </div>
+      <div>
+        <label for="raw_scans_subdir">Raw scans subfolder:</label>
+        <input id="raw_scans_subdir" name="raw_scans_subdir" type="text"
+               value="{{ raw_scans_subdir }}">
+      </div>
+      <div class="hint">
+        Slug will be used in filenames like
+        <code>{{ quiz_slug }}_berrysh_berry_sharon_p01.jpg</code>.<br>
+        Subfolder is relative to <code>data/raw_scans</code> (leave blank for root).
+      </div>
+    </div>
+    <div class="controls-bar" style="margin-top: 0.5rem;">
+  <a
+    href="/name_review?quiz={{ quiz_slug }}&raw_scans_subdir={{ raw_scans_subdir }}&refresh=1"
+    class="run-refresh-button"
+  >
+    🔁 Run / refresh name recognition
+  </a>
+  <div class="hint">
+    Normally you don’t need this again—once predictions are cached, you can reload
+    the page and tweak the layout without re-running the model. Use this if you’ve
+    changed the scans, roster, or prompt and want fresh guesses.
+  </div>
+</div>
+
+    <div class="page-list">
+      {% for row in page_rows %}
+      <div class="page-row">
+        <!-- Left: thumbnail -->
+        <div>
+          <div class="page-index">
+            #{{ row.index + 1 }} – {{ row.filename }}
+          </div>
+          <div class="thumb-box">
+            <img src="{{ row.image_url }}" alt="Top of {{ row.filename }}">
+          </div>
+        </div>
+
+        <!-- Middle: name dropdown + model info -->
+        <div>
+          <input type="hidden" name="filename_{{ row.index }}" value="{{ row.filename }}">
+          <div class="name-select">
+            <label for="student_{{ row.index }}">Student:</label>
+            <select id="student_{{ row.index }}" name="student_{{ row.index }}">
+              <option value="">Unknown / no match</option>
+              {% for entry in roster %}
+              <option value="{{ entry.student_id }}"
+                {% if row.model_student_id == entry.student_id %}selected{% endif %}>
+                {{ entry.name }} ({{ entry.student_id }})
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="model-info">
+            {% if row.model_student_id %}
+              Model guess:
+              <strong>{{ row.model_canvas_name }}</strong>
+              ({{ row.model_student_id }})
+            {% else %}
+              Model guess: <strong>no roster match</strong>
+            {% endif %}
+            · conf <span class="confidence">{{ "%.3f"|format(row.confidence) }}</span><br>
+            Raw OCR name:
+            <span class="raw-name">"{{ row.raw_name or "—" }}"</span>
+          </div>
+        </div>
+
+        <!-- Right: full-scan toggle -->
+        <div class="full-toggle-area">
+          <button type="button"
+                  class="toggle-full"
+                  data-target="full-{{ row.index }}">
+            🔍 Show full page
+          </button>
+          <div id="full-{{ row.index }}" class="full-scan hidden">
+            <img src="{{ row.image_url }}" alt="Full scan {{ row.filename }}">
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <input type="hidden" name="page_count" value="{{ page_rows|length }}">
+
+    <div class="footer-actions">
+      <button class="submit-button" type="submit" id="submit-btn">
+        ✅ Name recognition & grouping looks good — rename & download
+      </button>
+      <div class="footer-hint">
+        After you click, the server will group pages by the names you chose,
+        write JSON/CSV summaries, rename the scans under
+        <code>data/auto_grouped/{{ quiz_slug }}/</code>, and return a ZIP.
+      </div>
+    </div>
+  </form>
+</main>
+
+<script>
+  document.querySelectorAll(".toggle-full").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      const id = btn.dataset.target;
+      const div = document.getElementById(id);
+      if (!div) return;
+      const hidden = div.classList.toggle("hidden");
+      btn.textContent = hidden ? "🔍 Show full page" : "🔽 Hide full page";
+    });
+  });
+
+  // Listen to FORM submit, not button click
+  const form = document.querySelector("form");
+  const submitBtn = document.getElementById("submit-btn");
+  
+  if (form && submitBtn) {
+    form.addEventListener("submit", function (e) {
+      // Don't prevent default - let the form submit naturally
+
+    });
+  }
+</script>
+</body>
+</html>

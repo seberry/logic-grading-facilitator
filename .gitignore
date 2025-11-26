@@ -1,0 +1,52 @@
+# ---- Python / tooling ----
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+.eggs/
+.dist/
+.build/
+.env
+.venv
+venv/
+env/
+.idea/
+.vscode/
+*.log
+
+# ---- OS cruft ----
+.DS_Store
+Thumbs.db
+
+# ---- App data (FERPA-sensitive) ----
+
+# All live data for current quiz run
+data/raw_scans/
+data/auto_grouped/
+data/grades/
+data/name_review_cache/
+data/debug/
+data_archive/
+
+# Roster contains student names and IDs; keep a fake/sample in docs instead
+data/roster.csv
+
+
+# Debug artifacts / overlays / crops
+debug_output/
+debug_output_segment_all/
+
+
+
+# ---- Optional: ignore any local scratch notebooks, etc. ----
+*.ipynb_checkpoints
+*.tmp
+
+# any exported zip bundles
+*.zip
+
+# optional: LM Studio cache dirs, model downloads, venv, etc.
+lmstudio/
+models/
+venv/

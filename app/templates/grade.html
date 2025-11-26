@@ -1,0 +1,549 @@
+<!DOCTYPE html> 
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Grade WorkUnit {{ work_unit.unit_id }}</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f5f5f5;
+    }
+    header {
+      background: #333;
+      color: #fff;
+      padding: 0.75rem 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.95rem;
+    }
+    main {
+      display: flex;
+      gap: 1rem;
+      padding: 1rem;
+      box-sizing: border-box;
+    }
+    .scans {
+      flex: 2;
+      max-height: calc(100vh - 80px);
+      overflow-y: auto;
+      background: #111;
+      padding: 0.5rem;
+      border-radius: 0.5rem;
+    }
+    .scans img {
+      width: 100%;
+      margin-bottom: 0.75rem;
+      border-radius: 0.5rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+    }
+    .panel {
+      flex: .6 ;
+      background: #fff;
+      border-radius: 0.5rem;
+      padding: 1rem;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      max-height: calc(100vh - 80px);
+      overflow-y: auto;
+    }
+
+      /* Make the grading strip stay narrow no matter what */
+.panel:last-child {
+  max-width: 260px;   /* tweak if desired */
+}
+
+
+    /* Middle pinned-note column */
+    .pinned-note-panel {
+      flex: 1.4;
+    }
+    .pinned-note-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.25rem;
+      font-size: 0.9rem;
+    }
+    .pinned-note-body {
+      font-size: 0.85rem;
+      background: #f9fafb;
+      border-radius: 0.5rem;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid #e5e7eb;
+      max-height: 50vh;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+    .pinned-note-editor {
+      margin-top: 0.75rem;
+      font-size: 0.85rem;
+    }
+    .pinned-note-editor summary {
+      cursor: pointer;
+      list-style: none;
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+    }
+    .pinned-note-editor summary::-webkit-details-marker {
+      display: none;
+    }
+    .pinned-note-form textarea {
+      width: 100%;
+      box-sizing: border-box;
+      margin-top: 0.5rem;
+      min-height: 5rem;
+      resize: vertical;
+      padding: 0.4rem 0.5rem;
+      border-radius: 0.4rem;
+      border: 1px solid #ccc;
+      font-size: 0.9rem;
+    }
+
+    .per-problem-comment {
+      width: 100%;
+      box-sizing: border-box;
+      font-size: 0.8rem;
+      padding: 0.25rem 0.4rem;
+      border-radius: 0.35rem;
+      border: 1px solid #d1d5db;
+      resize: vertical;
+      min-height: 1.6em;     /* collapsed height */
+      max-height: 4.5em;     /* expanded cap, JS will adjust height within */
+      overflow: hidden;
+    }
+
+
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 0.25rem;
+    }
+    select, input[type="number"], textarea {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.4rem 0.5rem;
+      border-radius: 0.4rem;
+      border: 1px solid #ccc;
+      font-size: 0.9rem;
+    }
+    textarea {
+      min-height: 4rem;
+      resize: vertical;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+    th, td {
+      padding: 0.3rem 0.4rem;
+      border-bottom: 1px solid #eee;
+    }
+    th {
+      text-align: left;
+      font-weight: 600;
+    }
+
+    .buttons {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    button {
+      border: none;
+      border-radius: 999px;
+      padding: 0.4rem 0.9rem;
+      font-size: 0.85rem;
+      cursor: pointer;
+      background: #2563eb;
+      color: #fff;
+    }
+
+    button.secondary {
+      background: #e5e7eb;
+      color: #111827;
+    }
+
+    button.danger {
+      background: #dc2626;
+    }
+
+    .hint {
+      font-size: 0.75rem;
+      color: #6b7280;
+    }
+
+        .max-points {
+      color: #9ca3af;     /* greyed-out max score */
+      font-size: 0.8rem;
+      margin-left: 0.15rem;
+    }
+
+    .comment-toggle {
+      font-size: 0.9rem;
+      padding: 0.1rem 0.25rem;
+      border-radius: 0.4rem;
+      border: 1px solid #d1d5db;
+      background: #f9fafb;
+      cursor: pointer;
+    }
+
+    .comment-toggle:hover {
+      background: #e5e7eb;
+    }
+
+    .per-problem-comment-row {
+      display: none;      /* hidden until toggled */
+    }
+
+    .per-problem-comment {
+      width: 100%;
+      box-sizing: border-box;
+      font-size: 0.85rem;
+      padding: 0.3rem 0.4rem;
+      border-radius: 0.35rem;
+      border: 1px solid #d1d5db;
+      resize: vertical;
+      min-height: 2.4em;
+    }
+
+    .student-select {
+    width: 120px;            /* or even 90px if you want it tiny */
+    max-width: 120px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .scans {
+  flex: 2;
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  background: #111;
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+}
+
+/* New: per-scan wrapper with overlay */
+.scan-wrapper {
+  position: relative;
+  margin-bottom: 0.75rem;
+}
+
+.scan-wrapper img {
+  width: 100%;
+  border-radius: 0.5rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+}
+
+/* Transparent click layer on top of the image */
+.scan-overlay {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+}
+
+/* The red X markers */
+.scan-marker {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font-size: 1.6rem;
+  color: #ef4444; /* red-500-ish */
+  pointer-events: none; /* don't block further clicks */
+}
+
+
+
+  </style>
+</head>
+<body>
+<header>
+  <div>
+    <strong>WorkUnit {{ work_unit.unit_id }}</strong>
+    {% if work_unit.student_id %}
+      &nbsp;—&nbsp; {{ work_unit.student_id }}
+    {% endif %}
+  </div>
+  <div>
+    Pages: {{ work_unit.page_filenames|length }} &nbsp;|&nbsp;
+    <a href="/export_renamed_scans" style="color:#9ca3af; text-decoration:none;">
+      Download renamed scans (ZIP)
+    </a>
+    &nbsp;|&nbsp;
+    <a href="/docs" style="color:#9ca3af; text-decoration:none;">API docs</a>
+  </div>
+  <div style="margin-top: 0.5rem; font-size: 0.9rem;">
+    <form method="post" action="/finalize"
+          onsubmit="return confirm('Archive current assignment and clear scans? This cannot be undone (except by manually restoring from data_archive).');"
+          style="display: inline-flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+      <label for="finalize-label">Archive name:</label>
+      <input id="finalize-label"
+             name="label"
+             type="text"
+             placeholder="e.g. quiz1_sectionA"
+             required
+             style="padding: 0.15rem 0.4rem; font-size: 0.9rem;" />
+      <button type="submit"
+              style="padding: 0.15rem 0.6rem; font-size: 0.9rem;">
+        Finalize &amp; Archive
+      </button>
+    </form>
+  </div>
+
+</header>
+
+<main>
+
+
+  <!-- Left: pinned grading note (session-wide) -->
+  <div class="panel pinned-note-panel">
+    <section>
+      <div class="pinned-note-header">
+        <strong>Pinned answer key / grading info</strong>
+      </div>
+      <div class="pinned-note-body">
+        {% if pinned_note %}
+          <pre style="margin:0;">{{ pinned_note }}</pre>
+        {% else %}
+          <p class="hint" style="margin:0;">
+            No pinned note yet. Add grading tips or answer-key snippets here; they’ll
+            show up on every work unit.
+          </p>
+        {% endif %}
+      </div>
+
+      <details class="pinned-note-editor">
+        <summary>✏️ Edit pinned note</summary>
+        <form method="post" class="pinned-note-form">
+          <textarea
+            name="pinned_note"
+            placeholder="Paste the answer key or grading notes here..."
+          >{{ pinned_note }}</textarea>
+          <div class="buttons">
+            <button type="submit" name="action" value="update_pinned_note">
+              Save pinned note
+            </button>
+            <span class="hint">
+              This note is shared across all work units in this session.
+            </span>
+          </div>
+        </form>
+      </details>
+    </section>
+  </div>
+
+  <!-- Middle: scans -->
+<div class="scans">
+  {% if image_urls %}
+    {% for url in image_urls %}
+      <div class="scan-wrapper">
+        <img src="{{ url }}" alt="Scan {{ loop.index }}">
+        <div class="scan-overlay"></div>
+      </div>
+    {% endfor %}
+  {% else %}
+    <p style="color:white;">No pages assigned to this WorkUnit yet.</p>
+  {% endif %}
+  <p class="hint" style="color:#d1d5db; margin:0.25rem 0 0;">
+  Click on a scan to drop a red ✖; right-click to clear marks on that page (visual only).
+</p>
+</div>
+
+  <!-- Right: grading controls -->
+  <div class="panel">
+    <form method="post">
+      <section>
+        <label for="student">Student</label>
+       <select name="student_id" class="student-select">
+          <option value="">— Unassigned —</option>
+          {% for s in roster %}
+            <option value="{{ s.student_id }}"
+                    {% if work_unit.student_id == s.student_id %}selected{% endif %}>
+              {{ s.name }} ({{ s.student_id }})
+            </option>
+          {% endfor %}
+        </select>
+        <div class="hint">
+          Choose a student from the roster. This must match Canvas for upload.
+        </div>
+      </section>
+
+      <section>
+        <label>Per-problem scores</label>
+        <table>
+  <thead>
+    <tr>
+      <th>#</th>
+      <th>Score</th>
+      <th>Note</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for p in grading_key.problems %}
+      {% set existing = work_unit.per_problem.get(p.id) %}
+      {% set existing_comment = (
+           work_unit.per_problem_comments.get(p.id)
+           if work_unit.per_problem_comments is not none
+           else ""
+      ) %}
+
+      <!-- Main compact row -->
+      <tr>
+        <td style="white-space: nowrap;">
+          {{ p.id }}
+        </td>
+        <td style="white-space: nowrap;">
+          <input
+            type="number"
+            step="0.5"
+            min="0"
+            max="{{ p.points }}"
+            name="score_{{ p.id }}"
+            value="{{ existing if existing is not none }}"
+            style="width: 3.0em; text-align: right;"
+          >
+          <span class="max-points">/ {{ p.points }}</span>
+        </td>
+        <td style="text-align: center;">
+          <button
+            type="button"
+            class="comment-toggle"
+            data-target="comment-row-{{ p.id }}"
+            title="Add/view note"
+          >
+            💬
+          </button>
+        </td>
+      </tr>
+
+      <!-- Hidden full-width comment row -->
+      <tr
+        id="comment-row-{{ p.id }}"
+        class="per-problem-comment-row"
+      >
+        <td colspan="3">
+          <textarea
+            name="comment_{{ p.id }}"
+            class="per-problem-comment"
+            placeholder="Note for {{ p.id }} (optional)"
+          >{{ existing_comment or "" }}</textarea>
+        </td>
+      </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+
+
+        </table>
+      </section>
+
+      <section>
+        <label for="comment">Comment (optional)</label>
+        <textarea id="comment" name="comment">{{ work_unit.comment or "" }}</textarea>
+      </section>
+
+<section class="buttons">
+  <button type="submit" name="action" value="save">Save</button>
+ <!-- New: auto-fill blank scores with full credit -->
+  <button type="button" id="fill-full-credit" class="secondary">
+    Fill blanks with full credit
+  </button>
+
+  <button type="submit" name="action" value="save_prev" >
+    Save &amp; Previous
+  </button>
+  <button type="submit" name="action" value="save_next">Save &amp; Next</button>
+  <button type="submit" name="action" value="append_scan">Append Next Scan</button>
+  <button type="submit" name="action" value="remove_scan">Remove Last Scan</button>
+<span class="hint">
+  Save updates this work unit.
+  Save &amp; Previous / Next jumps between existing ones.
+  Append adds the next scan in filename order to this work unit,
+  even if it was already used in a later unit.
+  Remove takes the last page off this work unit and returns it to the queue.
+</span>
+</section>
+
+    </form>
+  </div>
+</main>
+
+
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    // --- Toggle per-problem comment rows ---
+    document.querySelectorAll('.comment-toggle').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var targetId = btn.getAttribute('data-target');
+        var row = document.getElementById(targetId);
+        if (!row) return;
+
+        var isHidden = (row.style.display === '' || row.style.display === 'none');
+        row.style.display = isHidden ? 'table-row' : 'none';
+
+        if (isHidden) {
+          var textarea = row.querySelector('textarea');
+          if (textarea) {
+            textarea.focus();
+          }
+        }
+      });
+    });
+
+    // --- Visual-only X marks on scans ---
+    document.querySelectorAll('.scan-overlay').forEach(function (overlay) {
+      overlay.addEventListener('click', function (e) {
+        var rect = overlay.getBoundingClientRect();
+        var x = (e.clientX - rect.left) / rect.width;
+        var y = (e.clientY - rect.top) / rect.height;
+
+        var marker = document.createElement('div');
+        marker.className = 'scan-marker';
+        marker.textContent = '✖';
+
+        marker.style.left = (x * 100) + '%';
+        marker.style.top = (y * 100) + '%';
+
+        overlay.appendChild(marker);
+      });
+
+      overlay.addEventListener('contextmenu', function (e) {
+        e.preventDefault();
+        overlay.querySelectorAll('.scan-marker').forEach(function (m) {
+          m.remove();
+        });
+      });
+    });
+
+    // --- Fill blank score boxes with full credit ---
+    var fillButton = document.getElementById('fill-full-credit');
+    if (fillButton) {
+      fillButton.addEventListener('click', function () {
+        // Find all per-problem score inputs
+        var inputs = document.querySelectorAll('input[type="number"][name^="score_"]');
+        inputs.forEach(function (input) {
+          var current = (input.value || '').trim();
+          if (current === '') {
+            var maxAttr = input.getAttribute('max');
+            if (maxAttr !== null && maxAttr !== '') {
+              input.value = maxAttr;
+            }
+          }
+        });
+      });
+    }
+  });
+</script>
+
+
+</body>
+</html>
