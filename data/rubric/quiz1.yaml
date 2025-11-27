@@ -1,24 +1,6 @@
-quiz_id: "default_rubric"
-max_points: 7
+quiz_id: "fake_bbox_demo"
+max_points: 10
 problems:
   - id: "Q1"
-    label: "true/false problem"
-    points: 1
-  - id: "Q2"
-    label:  "true/false problem"
-    points: 1
-  - id: "Q3"
-    label:  "true/false problem"
-    points: 1
-  - id: "Q4"
-    label: "true/false problem"
-    points: 1
-  - id: "Q5"
-    label:  "true/false problem"
-    points: 1
-  - id: "Q6"
-    label:  "true/false problem"
-    points: 1
-  - id: "Q7"
-    label:  "true/false problem"
-    points: 1
+    label: "Sample short-answer region (fake data)"
+    points: 10

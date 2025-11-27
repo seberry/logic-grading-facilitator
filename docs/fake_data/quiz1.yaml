@@ -1,0 +1,6 @@
+quiz_id: "fake_bbox_demo"
+max_points: 10
+problems:
+  - id: "Q1"
+    label: "Sample short-answer region (fake data)"
+    points: 10
