@@ -16,28 +16,37 @@ import threading
 import io
 import csv
 import json
+from datetime import datetime
 from pathlib import Path
+import shutil
 import zipfile
 from urllib.parse import quote
 
-from fastapi import FastAPI, HTTPException, Response, Request, Form
+from fastapi import FastAPI, HTTPException, Response, Request, Form, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from .storage import load_session, save_session, RAW_SCANS_DIR, GRADES_DIR, archive_current_data
 from .segmentation_core import segment_page_for_problem, QuestionSegment
 
 from .models import Session, WorkUnit, RosterEntry
 from .storage import (
-    load_session,
-    save_session,
+    DEFAULT_ROSTER_PATH,
     DEFAULT_SESSION_PATH,
     RAW_SCANS_DIR,  # we’ll use this to serve images
     DATA_DIR,
-    load_roster,
+    GRADES_DIR,
+    ROSTERS_DIR,
+    archive_current_data,
+    list_raw_scan_subdirs,
+    list_roster_files,
     load_grading_key,
+    load_roster,
+    load_session,
+    save_current_assignment_metadata,
+    save_session,
+    slugify_label,
 )
 from .auto_group_core import (
     run_name_recognition,
@@ -88,6 +97,12 @@ NAME_REVIEW_CACHE_DIR = DATA_DIR / "name_review_cache"
 NAME_REVIEW_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _format_relative_to_data(path: Path) -> str:
+    try:
+        return str(path.relative_to(DATA_DIR))
+    except ValueError:
+        return path.name
+
 def natural_sort_key(path: Path) -> List:
   """
   Sort filenames like '..._10.jpg' after '..._2.jpg' numerically.
@@ -98,6 +113,126 @@ def natural_sort_key(path: Path) -> List:
       int(text) if text.isdigit() else text.lower()
       for text in re.split(r"(\d+)", s)
   ]
+
+
+@app.get("/start_assignment", response_class=HTMLResponse)
+async def start_assignment_form(request: Request):
+    roster_options = [
+        {"value": str(p), "label": _format_relative_to_data(p)}
+        for p in list_roster_files()
+    ]
+    scan_subdirs = list_raw_scan_subdirs()
+
+    return templates.TemplateResponse(
+        "start_assignment.html",
+        {
+            "request": request,
+            "roster_options": roster_options,
+            "scan_subdirs": scan_subdirs,
+        },
+    )
+
+
+def _write_upload_file(upload: UploadFile, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("wb") as f:
+        shutil.copyfileobj(upload.file, f)
+
+
+def _extract_scans_zip(upload: UploadFile, dest_dir: Path) -> None:
+    if dest_dir.exists():
+        shutil.rmtree(dest_dir)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    upload.file.seek(0)
+    with zipfile.ZipFile(upload.file) as zf:
+        zf.extractall(dest_dir)
+
+
+def _collect_scan_filenames(scan_dir: Path) -> List[str]:
+    exts = {".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"}
+    filenames = [p for p in scan_dir.iterdir() if p.is_file() and p.suffix in exts]
+    filenames.sort(key=natural_sort_key)
+    return [p.name for p in filenames]
+
+
+@app.post("/start_assignment")
+async def start_assignment_submit(
+    request: Request,
+    assignment_name: str = Form(...),
+    roster_choice: str = Form(""),
+    scans_choice: str = Form(""),
+    roster_upload: UploadFile | None = File(None),
+    scans_zip: UploadFile | None = File(None),
+):
+    assignment_slug = slugify_label(assignment_name)
+
+    # Resolve roster path
+    selected_roster: Optional[Path] = None
+    if roster_upload and roster_upload.filename:
+        dest = ROSTERS_DIR / roster_upload.filename
+        roster_upload.file.seek(0)
+        _write_upload_file(roster_upload, dest)
+        selected_roster = dest
+    elif roster_choice:
+        candidate = Path(roster_choice)
+        if candidate.exists() and candidate.is_file():
+            selected_roster = candidate
+    if selected_roster is None:
+        raise HTTPException(status_code=400, detail="A roster file is required")
+
+    # Normalize roster into DEFAULT_ROSTER_PATH for downstream steps
+    DEFAULT_ROSTER_PATH.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(selected_roster, DEFAULT_ROSTER_PATH)
+
+    # Resolve raw scans location
+    selected_raw_scans_subdir = ""
+    scans_dir: Path
+    if scans_zip and scans_zip.filename:
+        selected_raw_scans_subdir = assignment_slug
+        scans_dir = RAW_SCANS_DIR / selected_raw_scans_subdir
+        scans_zip.file.seek(0)
+        _extract_scans_zip(scans_zip, scans_dir)
+    elif scans_choice:
+        scans_dir = RAW_SCANS_DIR / scans_choice
+        if not scans_dir.exists() or not scans_dir.is_dir():
+            raise HTTPException(status_code=400, detail="Selected scans folder missing")
+        selected_raw_scans_subdir = scans_choice
+    else:
+        raise HTTPException(status_code=400, detail="Scan images are required")
+
+    scan_filenames = _collect_scan_filenames(scans_dir)
+
+    roster = load_roster(selected_roster)
+    grading_key = load_grading_key()
+
+    session = Session(
+        roster=roster,
+        grading_key=grading_key,
+        work_units=[],
+        unclaimed_pages=scan_filenames,
+        pinned_note=None,
+        problem_notes={},
+        assignment_name=assignment_name,
+        raw_scans_subdir=selected_raw_scans_subdir,
+        roster_path=str(selected_roster),
+    )
+
+    global _session
+    _session = session
+    save_session(session, DEFAULT_SESSION_PATH)
+
+    metadata = {
+        "assignment_name": assignment_name,
+        "assignment_slug": assignment_slug,
+        "roster_path": str(selected_roster),
+        "raw_scans_subdir": selected_raw_scans_subdir,
+        "session_path": str(DEFAULT_SESSION_PATH),
+        "created_at": datetime.now().isoformat(),
+    }
+    save_current_assignment_metadata(metadata)
+
+    next_url = f"/name_review?quiz={quote(assignment_slug)}&raw_scans_subdir={quote(selected_raw_scans_subdir)}"
+    return RedirectResponse(url=next_url, status_code=303)
 
 
 def canonical_filename(
