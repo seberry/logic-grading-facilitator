@@ -1,0 +1,45 @@
+{
+  "roster": [
+    {"student_id": "SID001", "name": "Alpha Student"},
+    {"student_id": "SID002", "name": "Beta Student"},
+    {"student_id": "SID003", "name": "Gamma Student"}
+  ],
+  "grading_key": {
+    "quiz_id": "fake_bbox_demo",
+    "max_points": 10,
+    "problems": [
+      {"id": "Q1", "label": "Sample short-answer region (fake data)", "points": 10}
+    ]
+  },
+  "work_units": [
+    {
+      "unit_id": 1,
+      "page_filenames": ["fake_quiz_1.jpg", "fake_quiz_2.jpg"],
+      "student_id": "SID001",
+      "per_problem": {"Q1": null},
+      "comment": null,
+      "per_problem_comments": {}
+    },
+    {
+      "unit_id": 2,
+      "page_filenames": ["fake_quiz_1.jpg", "fake_quiz_2.jpg"],
+      "student_id": "SID002",
+      "per_problem": {"Q1": null},
+      "comment": null,
+      "per_problem_comments": {}
+    },
+    {
+      "unit_id": 3,
+      "page_filenames": ["fake_quiz_1.jpg", "fake_quiz_2.jpg"],
+      "student_id": null,
+      "per_problem": {"Q1": null},
+      "comment": null,
+      "per_problem_comments": {}
+    }
+  ],
+  "unclaimed_pages": [],
+  "pinned_note": null,
+  "problem_notes": {
+    "Q1": "Synthetic bounding boxes are intentionally offset for testing manual edits."
+  }
+}

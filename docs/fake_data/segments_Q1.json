@@ -1,0 +1,32 @@
+[
+  {
+    "unit_id": 1,
+    "page_filename": "fake_quiz_1.jpg",
+    "page_index": 0,
+    "bbox": [0.18, 0.22, 0.62, 0.55],
+    "present": true,
+    "comment": "synthetic bbox (slightly up/left)",
+    "confidence": 0.82,
+    "source": "auto"
+  },
+  {
+    "unit_id": 2,
+    "page_filename": "fake_quiz_2.jpg",
+    "page_index": 1,
+    "bbox": [0.35, 0.45, 0.78, 0.78],
+    "present": true,
+    "comment": "synthetic bbox (low/right on page 2)",
+    "confidence": 0.8,
+    "source": "auto"
+  },
+  {
+    "unit_id": 3,
+    "page_filename": "fake_quiz_1.jpg",
+    "page_index": 0,
+    "bbox": [0.24, 0.28, 0.72, 0.58],
+    "present": true,
+    "comment": "synthetic bbox for unassigned unit",
+    "confidence": 0.75,
+    "source": "auto"
+  }
+]
