@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Start Assignment</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f6f7fb;
+      margin: 0;
+      padding: 0;
+      color: #111827;
+    }
+    header {
+      background: #111827;
+      color: white;
+      padding: 1rem 1.5rem;
+      font-weight: 600;
+      letter-spacing: 0.01em;
+    }
+    main {
+      max-width: 960px;
+      margin: 1.5rem auto;
+      background: white;
+      border-radius: 0.75rem;
+      padding: 1.5rem;
+      box-shadow: 0 10px 30px rgba(17, 24, 39, 0.08);
+    }
+    h1 {
+      margin: 0 0 1rem;
+      font-size: 1.4rem;
+    }
+    .field {
+      margin-bottom: 1.25rem;
+    }
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 0.35rem;
+    }
+    input[type="text"], select, input[type="file"] {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.5rem 0.6rem;
+      border-radius: 0.5rem;
+      border: 1px solid #d1d5db;
+      font-size: 0.95rem;
+      background: #fff;
+    }
+    .hint {
+      color: #6b7280;
+      font-size: 0.85rem;
+      margin-top: 0.25rem;
+    }
+    .two-col {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1rem;
+    }
+    .panel {
+      border: 1px solid #e5e7eb;
+      border-radius: 0.75rem;
+      padding: 1rem;
+      background: #fafafa;
+    }
+    button {
+      background: #2563eb;
+      color: white;
+      border: none;
+      padding: 0.65rem 1.2rem;
+      border-radius: 999px;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #1d4ed8;
+    }
+  </style>
+</head>
+<body>
+  <header>Logic Grading Facilitator · Start Assignment</header>
+  <main>
+    <h1>Create a new assignment</h1>
+    <p>Provide a name, roster, and scans. You can upload new files or reuse ones already in <code>data/</code>.</p>
+
+    <form method="post" enctype="multipart/form-data">
+      <div class="field">
+        <label for="assignment_name">Assignment name</label>
+        <input id="assignment_name" name="assignment_name" type="text" required placeholder="e.g., FOL Quiz 2 – Quantifiers" />
+      </div>
+
+      <div class="two-col">
+        <div class="panel">
+          <h2>Roster</h2>
+          <div class="field">
+            <label for="roster_upload">Upload roster CSV</label>
+            <input id="roster_upload" name="roster_upload" type="file" accept=".csv,text/csv" />
+            <div class="hint">File is saved under <code>data/rosters/</code>.</div>
+          </div>
+          <div class="field">
+            <label for="roster_choice">Or choose existing roster</label>
+            <select id="roster_choice" name="roster_choice">
+              <option value="">-- Select a roster --</option>
+              {% for roster in roster_options %}
+                <option value="{{ roster.value }}">{{ roster.label }}</option>
+              {% endfor %}
+            </select>
+            <div class="hint">CSV files found in <code>data/rosters/</code> or <code>data/roster.csv</code>.</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>Scan images</h2>
+          <div class="field">
+            <label for="scans_zip">Upload scans ZIP</label>
+            <input id="scans_zip" name="scans_zip" type="file" accept=".zip" />
+            <div class="hint">Contents will be extracted to <code>data/raw_scans/&lt;assignment_slug&gt;/</code>.</div>
+          </div>
+          <div class="field">
+            <label for="scans_choice">Or choose existing scans folder</label>
+            <select id="scans_choice" name="scans_choice">
+              <option value="">-- Select a folder under data/raw_scans/ --</option>
+              {% for subdir in scan_subdirs %}
+                <option value="{{ subdir }}">{{ subdir }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div style="margin-top: 1.25rem; display: flex; justify-content: flex-end;">
+        <button type="submit">Create session</button>
+      </div>
+    </form>
+  </main>
+</body>
+</html>
