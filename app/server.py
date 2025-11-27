@@ -1526,6 +1526,20 @@ async def post_problem_strips(
                         detail=f"Invalid score for {problem_id} on unit {wu.unit_id}: {raw!r}",
                     )
 
+        # --- Update per-problem comments for this problem across WorkUnits ---
+        for wu in session.work_units:
+            comment_field = f"comment_{wu.unit_id}"
+            raw_comment = form.get(comment_field)
+
+            if raw_comment is None:
+                continue
+
+            text = raw_comment.strip()
+            if text:
+                wu.per_problem_comments[problem_id] = text
+            else:
+                wu.per_problem_comments[problem_id] = None
+
         # --- Update per-problem note ---
         note_raw = form.get("problem_note")
         if note_raw is not None:
