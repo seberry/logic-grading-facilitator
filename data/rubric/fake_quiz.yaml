@@ -1,0 +1,9 @@
+quiz_id: "fakedata_rubric"
+max_points: 7
+problems:
+  - id: "Q1"
+    label: "true/false problem"
+    points: 1
+  - id: "Q2"
+    label:  "true/false problem"
+    points: 1
