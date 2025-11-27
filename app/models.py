@@ -60,3 +60,8 @@ class Session(BaseModel):
 
     # NEW: optional per-problem notes (e.g. “Q1 = truth table for ¬(P→Q)”)
     problem_notes: Dict[str, str] = Field(default_factory=dict)
+
+    # Assignment metadata (optional, used by the Start Assignment flow)
+    assignment_name: Optional[str] = None
+    raw_scans_subdir: Optional[str] = None
+    roster_path: Optional[str] = None
