@@ -273,6 +273,14 @@ The architecture is intentionally minimal but designed so each future phase (seg
   2. A machine interpretation + visualization (e.g. graph of the Kripke model, structured proof steps with pass/fail indicators).
   3. Logic check results, feedback selection, and score entry.
 
+### Per-Problem Grading Flow (v0.3 update)
+
+The strip view now supports full grading interaction:
+- Each row (strip) displays a student’s cropped answer and scoring widget.
+- A dedicated POST endpoint saves scores across all WorkUnits.
+- Navigation buttons (“Save & Next”, “Save & Back”) step through the rubric order.
+- Per-problem rubric notes are stored in Session.problem_notes and displayed at the top of each strip view.
+
 
   # Repository Layout (Code vs Data)
 

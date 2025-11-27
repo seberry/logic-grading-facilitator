@@ -6,6 +6,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
+import json  # if not already present
+
+from .storage import GRADES_DIR, RAW_SCANS_DIR
+
+
 from .vlm_client import LMStudioQwenClient
 from .vlm_client import SINGLE_QUESTION_PROMPT  # or copy the prompt text here
 

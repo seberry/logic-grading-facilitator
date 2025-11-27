@@ -4,6 +4,7 @@ from typing import Dict, List, Optional
 import threading
 import io
 import csv
+import json
 from pathlib import Path
 import zipfile
 from urllib.parse import quote
@@ -14,7 +15,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from .storage import load_session, save_session, RAW_SCANS_DIR, archive_current_data
+from .storage import load_session, save_session, RAW_SCANS_DIR, GRADES_DIR, archive_current_data
 from .segmentation_core import segment_page_for_problem, QuestionSegment
 
 from .models import Session, WorkUnit, RosterEntry
@@ -1340,60 +1341,131 @@ async def name_review_submit(request: Request) -> Response:
         },
     )
 
+from fastapi import Query
+
 @app.get("/problem/{problem_id}/strips", response_class=HTMLResponse)
 def get_problem_strips(
     request: Request,
     problem_id: str,
+    refresh: int = 0,
 ):
-    """
-    Show one strip per student for a single problem.
-    Uses segmentation_core.segment_page_for_problem to get a bbox.
-    """
     session = get_session()
     grading_key = session.grading_key
 
-    # Find the problem in the grading key
+    # 1. Find the problem definition
     spec = next((p for p in grading_key.problems if p.id == problem_id), None)
     if spec is None:
         raise HTTPException(status_code=404, detail=f"Unknown problem id {problem_id!r}")
 
-    client = LMStudioQwenClient()
+    # 2. Setup Cache Path
+    # This resolves to: data/grades/segments_Q1.json
+    cache_path = GRADES_DIR / f"segments_{problem_id}.json"
+    
+    segments_data = None
+    
+    # --- STEP A: Get Segmentation Data (Cache or Compute) ---
+    
+    # If file exists AND we aren't forcing a refresh...
+    if cache_path.exists() and not refresh:
+        print(f"[CACHE HIT] Loading segmentation from {cache_path}")
+        try:
+            with cache_path.open("r", encoding="utf-8") as f:
+                segments_data = json.load(f)
+        except Exception as e:
+            print(f"[CACHE ERROR] Could not read cache: {e}. Recomputing.")
+            segments_data = None
 
-    def lookup_student_name(student_id: Optional[str]) -> str:
-        if not student_id:
-            return "(unknown student)"
-        for r in session.roster:
-            if r.student_id == student_id:
-                return r.name
-        return f"(unmatched: {student_id})"
+    if segments_data is None:
+        print(f"[CACHE MISS] Computing fresh segmentation for {problem_id}...")
+        client = LMStudioQwenClient()
+        segments_data = []
+        
+        for i, wu in enumerate(session.work_units):
+            print(f"  > Processing Unit {wu.unit_id} ({i+1}/{len(session.work_units)})...")
+            best_seg_dict = None
 
+            for idx, fname in enumerate(wu.page_filenames):
+                image_path = RAW_SCANS_DIR / fname
+                
+                # --- THE SLOW VLM CALL ---
+                seg = segment_page_for_problem(
+                    image_path=image_path,
+                    problem_id=problem_id,
+                    problem_description=spec.label,
+                    client=client,
+                )
+                
+                if seg.present and seg.bbox:
+                    # Found it! Save as dict for JSON serialization
+                    best_seg_dict = {
+                        "unit_id": wu.unit_id,
+                        "page_filename": seg.page_filename,
+                        "page_index": idx,
+                        "bbox": seg.bbox,
+                        "present": seg.present,
+                        "comment": seg.comment,
+                        "confidence": seg.confidence,
+                    }
+                    break # Stop checking other pages for this student
+            
+            # Add result (or placeholder if not found)
+            segments_data.append(best_seg_dict or {
+                "unit_id": wu.unit_id,
+                "present": False, 
+                "bbox": None
+            })
+
+        # Save to disk
+        print(f"[CACHE SAVE] Writing to {cache_path}")
+        GRADES_DIR.mkdir(parents=True, exist_ok=True)
+        with cache_path.open("w", encoding="utf-8") as f:
+            json.dump(segments_data, f, indent=2)
+
+    # --- STEP B: Build UI Objects (Fast) ---
+    
+    # Index data by unit_id for O(1) lookup
+    segments_map = {d["unit_id"]: d for d in segments_data}
+    
     strips = []
+    
+    def lookup_student_name(student_id):
+        if not student_id: return "(unknown)"
+        for r in session.roster:
+            if r.student_id == student_id: return r.name
+        return student_id
 
     for wu in session.work_units:
-        best_seg: Optional[QuestionSegment] = None
-
-        # Try each page in the WorkUnit until we find an answer
-        for idx, fname in enumerate(wu.page_filenames):
-            image_path = RAW_SCANS_DIR / fname
-            seg = segment_page_for_problem(
-                image_path=image_path,
+        seg_data = segments_map.get(wu.unit_id)
+        
+        # Reconstruct the QuestionSegment object for the template
+        seg_obj = None
+        if seg_data and seg_data.get("present"):
+            seg_obj = QuestionSegment(
                 problem_id=problem_id,
-                problem_description=spec.label,
-                client=client,
+                page_filename=seg_data["page_filename"],
+                page_index=seg_data.get("page_index", 0),
+                bbox=seg_data["bbox"],
+                present=True,
+                comment=seg_data.get("comment"),
+                confidence=seg_data.get("confidence", 0.0)
             )
-            seg.page_index = idx
-            if seg.present and seg.bbox:
-                best_seg = seg
-                break
 
-        strips.append(
-            {
-                "work_unit": wu,
-                "student_name": lookup_student_name(wu.student_id),
-                "segment": best_seg,  # may be None if the question isn't present for this student
-            }
+        strips.append({
+            "work_unit": wu,
+            "student_name": lookup_student_name(wu.student_id),
+            "segment": seg_obj
+        })
+
+    # --- STEP C: Handling the URL (The Fix) ---
+    # If we just forced a refresh, redirect to the clean URL so 
+    # hitting "Reload" later doesn't trigger a re-compute.
+    if refresh:
+        return RedirectResponse(
+            url=f"/problem/{problem_id}/strips", 
+            status_code=303
         )
 
+    # Standard render for normal (cached) views
     return templates.TemplateResponse(
         "problem_strips.html",
         {
@@ -1401,5 +1473,94 @@ def get_problem_strips(
             "problem_id": problem_id,
             "problem_label": spec.label,
             "strips": strips,
+            # NEW:
+            "max_points": spec.points,
+            "problem_note": session.problem_notes.get(problem_id, ""),
         },
+    )
+
+@app.post("/problem/{problem_id}/strips", response_class=HTMLResponse)
+async def post_problem_strips(
+    request: Request,
+    problem_id: str,
+):
+    """
+    Handle form submission from the per-problem strip view.
+
+    Expected form fields:
+      - score_<unit_id> for each WorkUnit shown (e.g. score_1, score_2, ...)
+      - problem_note (optional free-text)
+      - action = "save_next" | "save_back" | "save"
+    """
+    form = await request.form()
+    action = form.get("action", "save_next")  # default: move forward
+
+    with _session_lock:
+        session = get_session()
+
+        # Sanity-check that the problem exists
+        spec = next((p for p in session.grading_key.problems if p.id == problem_id), None)
+        if spec is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Unknown problem id {problem_id!r}",
+            )
+
+        # --- Update per-problem scores for this problem across WorkUnits ---
+        for wu in session.work_units:
+            field_name = f"score_{wu.unit_id}"
+            raw = form.get(field_name)
+
+            if raw is None:
+                continue  # no input for this unit
+
+            raw = raw.strip()
+            if raw == "":
+                wu.per_problem[problem_id] = None   # blank = clear
+            else:
+                try:
+                    wu.per_problem[problem_id] = float(raw)
+                except ValueError:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid score for {problem_id} on unit {wu.unit_id}: {raw!r}",
+                    )
+
+        # --- Update per-problem note ---
+        note_raw = form.get("problem_note")
+        if note_raw is not None:
+            note = note_raw.strip()
+            if note:
+                session.problem_notes[problem_id] = note
+            else:
+                session.problem_notes.pop(problem_id, None)
+
+        # --- Decide which problem to show next ---
+        problem_ids = [p.id for p in session.grading_key.problems]
+        try:
+            idx = problem_ids.index(problem_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Problem {problem_id!r} not found in grading key order.",
+            )
+
+        target_problem_id = problem_id
+
+        if action == "save_next":
+            if idx < len(problem_ids) - 1:
+                target_problem_id = problem_ids[idx + 1]
+        elif action == "save_back":
+            if idx > 0:
+                target_problem_id = problem_ids[idx - 1]
+        else:
+            target_problem_id = problem_id  # stay on page
+
+        # Persist session.json
+        persist_session()
+
+    # Redirect to GET so refresh doesn't re-post
+    return RedirectResponse(
+        url=f"/problem/{target_problem_id}/strips",
+        status_code=303,
     )

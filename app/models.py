@@ -57,3 +57,6 @@ class Session(BaseModel):
     work_units: List[WorkUnit]
     unclaimed_pages: List[str]
     pinned_note: Optional[str] = None  # PLANNED: session-wide answer key / notes
+
+    # NEW: optional per-problem notes (e.g. “Q1 = truth table for ¬(P→Q)”)
+    problem_notes: Dict[str, str] = Field(default_factory=dict)
