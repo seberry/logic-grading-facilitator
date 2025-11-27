@@ -1,5 +1,16 @@
 from __future__ import annotations
 
+"""
+FastAPI entrypoint for the Logic Grading Facilitator.
+
+High-level invariants (see README.md and docs/SCHEMA.md for details):
+- WorkUnit is the canonical unit of grading; each WorkUnit owns ordered scan filenames,
+  per-problem scores, and optional comments.
+- Data stays local under ``data/`` (raw scans, session.json, rubric); exported artifacts
+  such as renamed-scan ZIPs and Canvas-ready CSVs are derived from this state.
+- Human scores are authoritative even when VLM helpers are in play.
+"""
+
 from typing import Dict, List, Optional
 import threading
 import io
@@ -39,6 +50,9 @@ from .auto_group_core import (
 from .vlm_client import LMStudioQwenClient  # type: ignore
 from .vlm_classifier import classify_page  # type: ignore
 
+
+# === Config & helpers ===
+# FastAPI app configuration plus shared helper utilities.
 app = FastAPI(
     title="Logic Grading Facilitator v0",
     description="Minimal API + UI for manual grading based on WorkUnits and a Session file.",
@@ -60,6 +74,7 @@ app.mount(
     name="scans",
 )
 
+# Templates: keep the context variables in sync with grade.html/name_review.html/problem_strips.html
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
@@ -71,6 +86,7 @@ LMSTUDIO_MODEL_ID = "qwen/qwen3-vl-4b"  # or whatever you’re actually using
 
 NAME_REVIEW_CACHE_DIR = DATA_DIR / "name_review_cache"
 NAME_REVIEW_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
 
 def natural_sort_key(path: Path) -> List:
   """
@@ -117,6 +133,8 @@ _session_lock = threading.Lock()
 _session: Optional[Session] = None
 
 
+# === Session accessors ===
+# Single-session assumption: keep JSON on disk in sync with the in-memory cache.
 def get_session() -> Session:
     """Load the session from disk on first use, then cache in memory."""
     global _session
@@ -230,6 +248,7 @@ class WorkUnitSummary(BaseModel):
 
 
 
+# === Basic status & summaries ===
 @app.get("/")
 def root():
     """Tiny message at / so you don't just see 'Not Found'."""
@@ -262,6 +281,8 @@ def session_summary():
     }
 
 
+# === WorkUnit creation & page assembly ===
+# Minimal endpoints for assigning raw scans into ordered WorkUnits (see README.md lifecycle).
 def find_work_unit(session: Session, unit_id: int) -> WorkUnit:
     for wu in session.work_units:
         if wu.unit_id == unit_id:
@@ -327,6 +348,9 @@ def create_work_unit():
         return wu
 
 
+# === Name review & auto-grouping tools ===
+# Template: name_review.html expects page_rows, roster, quiz_slug, raw_scans_subdir.
+# Output artifacts (final_assignments.json, *_groups.csv) align with docs/SCHEMA.md.
 @app.get("/name_review", response_class=HTMLResponse)
 def get_name_review(
     request: Request,
@@ -466,7 +490,8 @@ async def post_name_review(request: Request):
             status_code=200,
         )
 
-# === JSON grading context (used by API clients or future JS UI) ===
+# === Grading (JSON API) ===
+# Contract matches docs/SCHEMA.md → WorkUnit JSON view.
 
 @app.get("/grade/{unit_id}")
 def get_grade(unit_id: int):
@@ -594,6 +619,8 @@ def roster_lookup(session: Session) -> Dict[str, str]:
     """Map student_id -> slugified name."""
     return {r.student_id: slugify_name(r.name) for r in session.roster}
 
+# === Exports (CSV + renamed scans ZIP) ===
+# See docs/SCHEMA.md for the renamed-scan convention and Canvas CSV schema.
 @app.get("/export_renamed_scans")
 def export_renamed_scans():
     """
@@ -701,6 +728,8 @@ def export_scores():
         },
     )
 
+# === Assignment lifecycle (finalize/archive/reset) ===
+# Mutates data/ by writing a snapshot to data_archive/ and clearing raw_scans/session.json.
 @app.post("/finalize", response_class=HTMLResponse)
 def finalize_assignment(label: str = Form(...)):
     """
@@ -743,6 +772,8 @@ def finalize_assignment(label: str = Form(...)):
 
 
 # === HTML Grading UI ===
+# Template: grade.html consumes work_unit, grading_key, roster, image_urls, pinned_note.
+# Mirrors the JSON grading schema from docs/SCHEMA.md.
 
 @app.get("/grade/{unit_id}/page", response_class=HTMLResponse)
 def grade_page(request: Request, unit_id: int):
@@ -1341,6 +1372,8 @@ async def name_review_submit(request: Request) -> Response:
         },
     )
 
+# === Per-problem strip grading (experimental) ===
+# Template: problem_strips.html expects strips, problem_label, max_points, problem_note.
 from fastapi import Query
 
 @app.get("/problem/{problem_id}/strips", response_class=HTMLResponse)
