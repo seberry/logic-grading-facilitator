@@ -10,6 +10,15 @@ The goal is to make **v0 grading** extremely easy while guaranteeing that the da
 
 ---
 
+## Documentation map
+
+- **This README**: best place to start for the current (FastAPI + Jinja) implementation and the end-to-end grading/archival flow.
+- **`docs/ARCHITECTURE.md`**: details on current components, API endpoints, templates, and how WorkUnits flow through the system.
+- **`docs/SCHEMA.md`**: canonical data contracts (Session/WorkUnit schema, CSV export, renamed-scan ZIP conventions).
+- **`docs/FUTURE_AUTOMATION.md`**: ideas and aspirational v1–v4 automation (OCR, clustering, autograding, VLM helpers); not required for v0 usage.
+
+---
+
 ## High-Level Features (v0)
 
 - Local browser-based UI (Flask/FastAPI backend).
@@ -40,96 +49,76 @@ See `docs/FUTURE_AUTOMATION.md` for details, but the major phases include:
 
 ---
 
-## Repository Structure (initial draft)
+## Day 1 flow (quick start)
+
+1. Export the Canvas gradebook CSV for the course → place as `data/roster.csv`.
+2. Put all raw scan images in `data/raw_scans/`.
+3. Add a grading key in `data/rubric/quizX.yaml`.
+4. Initialize the session once per assignment:
+   ```bash
+   python -m scripts.init_session
+   ```
+5. Start the server and open the grading UI:
+   ```bash
+   python -m uvicorn app.server:app --reload --port 5000
+   # browse http://127.0.0.1:5000/grade/1/page
+   ```
+6. Grade submissions (assign names, assemble pages, enter per-problem scores) and export CSV for Canvas when done.
+
+
+## Key local links & stability
+
+- `/docs` — FastAPI docs for all endpoints (current v0 surface).
+- `/grade/{unit_id}/page` — main grading UI; stable.
+- `/name_review` — optional ML-assisted name review; experimental.
+- `/problem/{unit_id}/strips` — per-problem strip view; experimental.
+
+
+## Assignment Lifecycle (v0.2)
+
+The system supports archiving and resetting between quizzes/exams.
+
+- Grade normally using the WorkUnit UI.
+- Download renamed scans (ZIP) from the grading page for Canvas/records; filenames follow `docs/SCHEMA.md` conventions.
+- Finalize & Archive (form at top of grading page):
+  - Provide a label (e.g., `quiz1_sectionA`).
+  - Copies `data/` → `data_archive/<timestamp>_<label>/` and writes `metadata.json`.
+  - Clears only `data/raw_scans/` and `data/grades/session.json`; keeps `data/roster.csv` and `data/rubric/` intact.
+- Start the next assignment:
+  - Place new scans into `data/raw_scans/`.
+  - Update the YAML rubric if needed.
+  - Run `python -m scripts.init_session`, then visit `/work_units/create` once to seed the first WorkUnit. Subsequent “Save & Next” actions auto-create more units.
+
+---
+
+## Repository Structure (current)
 
 ```text
 logic-grading-facilitator/
 │
-├── app/ # backend & UI (to be implemented)
-│
+├── app/
+│   ├── server.py          # FastAPI app + HTML routes/templates
+│   ├── templates/         # Jinja templates (grading UI, name review)
+│   ├── static/            # CSS/JS for the UI
+│   ├── models.py          # Session/WorkUnit dataclasses
+│   ├── storage.py         # Session loading, saving, archival utilities
+│   └── ...                # VLM helpers, segmentation, auto-grouping
 ├── data/
-│   ├── raw_scans/         # current assignment’s scans
-│   ├── grades/            # current session.json
+│   ├── raw_scans/         # current assignment’s scans (input)
+│   ├── grades/            # `session.json` + incremental grading state
 │   ├── rubric/            # grading keys (YAML)
-│   ├── roster.csv
-│   └── schema.md
+│   └── roster.csv         # Canvas roster export
 ├── data_archive/          # snapshots created by Finalize & Archive
 │   └── 2025-11-16T14-05-23_quiz1/
 │       ├── data/          # full snapshot of previous state
 │       └── metadata.json
 ├── docs/
-│ ├── ARCHITECTURE.md
-│ ├── FUTURE_AUTOMATION.md
-│ └── SCHEMA.md
-│
+│   ├── ARCHITECTURE.md
+│   ├── FUTURE_AUTOMATION.md
+│   └── SCHEMA.md
+├── scripts/               # session init and helper scripts
 └── README.md
 ```
-
-
-
-
-## Quick Start (for future implementers)
-
-1. Export the Canvas gradebook CSV for the course.
-2. Place all raw scan images in `data/raw_scans/`.
-3. Create a grading key file in `data/rubric/quizX.yaml`.
-4. Start the app → local browser UI opens.
-5. Grade:
-   - assign name,
-   - assemble pages into WorkUnits,
-   - mark per-problem scores.
-6. Export CSV → import into Canvas.
-
-
-## Assignment Lifecycle (v0.2)
-
-The system now supports a full assignment lifecycle, including archiving and resetting between quizzes or exams.
-
-Flow:
-
-Grade normally using the WorkUnit UI.
-
-Download renamed scans for Canvas or record-keeping:
-
-The grading page includes a link “Download renamed scans (ZIP)”.
-
-Generates clean filenames such as berry_sharon_1.jpg, berry_sharon_2.jpg, etc.
-
-Finalize & Archive (end of grading):
-
-Use the “Finalize & Archive” form at the top of the grading page.
-
-Enter a label (e.g., quiz1_sectionA).
-
-The system will:
-
-Copy the entire data/ directory into
-data_archive/<timestamp>_<label>/
-
-Write a small metadata.json file into the snapshot
-
-Clear only:
-
-data/raw_scans/
-
-data/grades/session.json
-
-Leave data/roster.csv and data/rubric/ intact
-
-Start a new assignment:
-
-Place new scans into data/raw_scans/
-
-Update the YAML rubric if needed
-
-Run:
-
-python -m scripts.init_session
-
-
-Then use /work_units/create once to create the first WorkUnit
-
-Continue grading as usual (Save & Next auto-creates subsequent units)
 
 ---
 
@@ -214,5 +203,26 @@ This CSV has columns:
 
 - `student_id`
 - `<quiz_id>_score`  (e.g. `quiz1_score`)
+
+---
+
+## Organizing `app/server.py` for readability (no code changes required)
+
+Suggested structure for keeping the long module easy to navigate:
+
+1. **Module banner & invariants**: A short comment/docstring near the top summarizing the WorkUnit-centric flow, data directories used, and the “human scores are authoritative” invariant.
+2. **Constants & helpers**: Group configuration (paths, models, cache dirs) and pure helpers (e.g., `natural_sort_key`, `canonical_filename`) under a header like `# === Config & helpers ===`.
+3. **Session accessors**: Keep `get_session()` and `persist_session()` together with a note about the threading lock and single-session expectation.
+4. **Route groups with headers**: Use Markdown-style separators to cluster related endpoints:
+   - `# === WorkUnit creation & page assembly ===`
+   - `# === Grading (JSON + HTML forms) ===`
+   - `# === Name review & auto-grouping tools ===`
+   - `# === Exports (CSV, renamed scans ZIP) ===`
+   - `# === Assignment lifecycle (finalize/archive/reset) ===`
+5. **Inline schema pointers**: Within each route block, add a 1–2 line comment referencing the relevant schema section (e.g., `docs/SCHEMA.md` → “WorkUnit JSON view”, “Renamed scans export”).
+6. **Side-effect callouts**: For routes that mutate disk state (archive/reset), include short comments summarizing which directories are written/cleared to align with the Assignment Lifecycle section above.
+7. **Template expectations**: Above HTML-rendering routes, note the template name and key context variables to help template edits stay in sync with backend changes.
+
+These headers and breadcrumbs keep search and scrolling manageable while preserving the single-file FastAPI app for now.
 
 
