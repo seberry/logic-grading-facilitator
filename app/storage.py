@@ -2,30 +2,31 @@ from __future__ import annotations
 
 import csv
 import json
+import re
+import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import List
 
 import yaml  # type: ignore
 
-from .models import RosterEntry, GradingKey, ProblemSpec, Session
-
-from pathlib import Path
-import shutil
-import json
-from datetime import datetime
-import re
+from .models import GradingKey, ProblemSpec, RosterEntry, Session
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT_DIR / "data"
 RAW_SCANS_DIR = DATA_DIR / "raw_scans"
 GRADES_DIR = DATA_DIR / "grades"
 RUBRIC_DIR = DATA_DIR / "rubric"
+ROSTERS_DIR = DATA_DIR / "rosters"
 
 DEFAULT_SESSION_PATH = GRADES_DIR / "session.json"
 DEFAULT_ROSTER_PATH = DATA_DIR / "roster.csv"
 DEFAULT_GRADING_KEY_PATH = RUBRIC_DIR / "quiz1.yaml"
 DATA_ARCHIVE_DIR = ROOT_DIR / "data_archive"
+CURRENT_ASSIGNMENT_PATH = DATA_DIR / "current_assignment.json"
 DATA_ARCHIVE_DIR.mkdir(exist_ok=True)
+ROSTERS_DIR.mkdir(parents=True, exist_ok=True)
+RAW_SCANS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def load_roster(path: Path = DEFAULT_ROSTER_PATH) -> List[RosterEntry]:
@@ -144,7 +145,36 @@ def init_session(
     save_session(session, session_path)
     return session
 
-def _slugify_label(label: str) -> str:
+
+def list_roster_files() -> List[Path]:
+    """Return available roster CSV files under the rosters directory.
+
+    Includes DEFAULT_ROSTER_PATH if it exists and isn't already inside rosters/.
+    """
+    rosters: List[Path] = []
+    if DEFAULT_ROSTER_PATH.exists():
+        rosters.append(DEFAULT_ROSTER_PATH)
+
+    for path in sorted(ROSTERS_DIR.glob("*.csv")):
+        if path not in rosters:
+            rosters.append(path)
+
+    return rosters
+
+
+def list_raw_scan_subdirs() -> List[str]:
+    """Return directory names directly under RAW_SCANS_DIR."""
+    subdirs = [p.name for p in RAW_SCANS_DIR.iterdir() if p.is_dir()]
+    subdirs.sort()
+    return subdirs
+
+
+def save_current_assignment_metadata(metadata: dict) -> None:
+    CURRENT_ASSIGNMENT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with CURRENT_ASSIGNMENT_PATH.open("w", encoding="utf-8") as f:
+        json.dump(metadata, f, indent=2, sort_keys=True)
+
+def slugify_label(label: str) -> str:
     """
     Turn an arbitrary label into a filesystem-safe slug.
     Example: "Quiz 1 – Section A" -> "quiz_1_section_a"
@@ -166,7 +196,7 @@ def archive_current_data(label: str) -> str:
     # Build snapshot id: timestamp + slugged label
     now = datetime.now()
     timestamp_str = now.strftime("%Y-%m-%dT%H-%M-%S")
-    slug = _slugify_label(label)
+    slug = slugify_label(label)
     snapshot_id = f"{timestamp_str}_{slug}"
 
     snapshot_root = DATA_ARCHIVE_DIR / snapshot_id
