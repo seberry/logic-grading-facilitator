@@ -215,7 +215,12 @@
     }
 
     .hidden { display: none; }
+
+    
   </style>
+
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" />
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
 </head>
 <body>
 
@@ -237,8 +242,19 @@
     </section>
 
   {% for item in strips %}
+    
     {% set wu = item.work_unit %}
     {% set seg = item.segment %}
+    <div class="controls">
+    <input type="hidden" 
+           id="bbox-input-{{ loop.index0 }}" 
+           name="bbox_update_{{ wu.unit_id }}" 
+           value="">
+
+    <label class="score-group">
+      </label>
+    </div>
+
     
     <div class="strip" id="strip-{{ loop.index0 }}">
       
@@ -281,21 +297,29 @@
         </div>
 
         <div class="btn-row">
-            {% if seg and seg.present and seg.bbox %}
-            <button class="btn btn-crop"
-                    type="button"
-                    data-index="{{ loop.index0 }}"
-                    onclick="toggleCrop(this)">
-              Show Full Page
-            </button>
-            {% endif %}
-            
-            <button class="btn btn-pin"
-                    type="button"
-                    onclick="togglePin(this)">
-              📌 Pin
-            </button>
-        </div>
+    {% if seg and seg.present and seg.bbox %}
+    <button class="btn btn-crop"
+            type="button"
+            data-index="{{ loop.index0 }}"
+            onclick="toggleCrop(this)"
+            tabindex="-1"> Show Full Page
+    </button>
+
+    <button class="btn btn-edit"
+            type="button"
+            id="btn-edit-{{ loop.index0 }}"
+            data-index="{{ loop.index0 }}"
+            onclick="toggleEditMode(this)"
+            tabindex="-1"> Fix Crop
+    </button>
+    {% endif %}
+    
+    <button class="btn btn-pin"
+            type="button"
+            onclick="togglePin(this)"
+            tabindex="-1"> 📌 Pin
+    </button>
+</div>
 
         <label class="score-group">
           <strong>Score</strong>
@@ -475,6 +499,108 @@
         }
       });
     });
+
+
+    // Store cropper instances so we can access them later
+const croppers = {};
+
+function toggleEditMode(btn) {
+  const index = btn.dataset.index;
+  const wrapper = document.getElementById(`wrapper-${index}`);
+  const img = wrapper.querySelector('.scan-image');
+  const cropBtn = document.getElementById(`btn-crop-${index}`);
+  
+  // 1. Check if we are already editing. If so, this acts as "Save/Apply"
+  if (croppers[index]) {
+    // --- SAVE PHASE ---
+    // 1. Get data in natural image pixels
+    const data = croppers[index].getData();
+    
+    const nW = img.naturalWidth;
+    const nH = img.naturalHeight;
+    
+    if (nW > 0 && nH > 0) {
+      // 2. Normalize to 0-1
+      const x1 = data.x / nW;
+      const y1 = data.y / nH;
+      const w = data.width / nW;
+      const h = data.height / nH;
+      
+      // Calculate x2, y2 (Backend expects [x1, y1, x2, y2])
+      const x2 = x1 + w;
+      const y2 = y1 + h;
+
+      // 3. Update DOM for visual consistency (existing code)
+      img.dataset.xmin = x1;
+      img.dataset.ymin = y1;
+      img.dataset.w = w;
+      img.dataset.h = h;
+      img.dataset.hasBbox = 'true';
+
+      // 4. NEW: Populate the hidden input for the POST request
+      // We format it as a JSON string for easy parsing in Python
+      const inputId = `bbox-input-${index}`;
+      const hiddenInput = document.getElementById(inputId);
+      if (hiddenInput) {
+          hiddenInput.value = JSON.stringify([x1, y1, x2, y2]);
+      }
+    }
+
+    // Destroy cropper to return to normal DOM
+    croppers[index].destroy();
+    delete croppers[index];
+    
+    // Update button text
+    btn.textContent = "Fix Crop";
+    btn.classList.remove('active');
+    
+    // Restore the "Visual Crop" (Zoomed View) using your existing logic
+    applyCrop(index, true); 
+    
+    // Re-enable the "Show Full Page" button
+    if(cropBtn) {
+        cropBtn.disabled = false;
+        cropBtn.textContent = "Show Full Page";
+    }
+
+  } else {
+    // --- EDIT PHASE ---
+    
+    // 1. Force Full Page Mode first (remove your CSS transforms)
+    // We pass 'false' to your existing function to un-crop
+    applyCrop(index, false);
+    
+    // Disable the "Show Full Page" toggle while editing to prevent confusion
+    if(cropBtn) cropBtn.disabled = true;
+
+    // 2. Initialize Cropper
+    // We need to calculate pixel values from your normalized data
+    const x = parseFloat(img.dataset.xmin) * img.naturalWidth;
+    const y = parseFloat(img.dataset.ymin) * img.naturalHeight;
+    const w = parseFloat(img.dataset.w) * img.naturalWidth;
+    const h = parseFloat(img.dataset.h) * img.naturalHeight;
+
+    const cropper = new Cropper(img, {
+      viewMode: 1, // Restrict crop box to within the canvas
+      zoomable: false, // Keep it simple for now
+      data: {
+        x: x,
+        y: y,
+        width: w,
+        height: h
+      },
+      ready() {
+        // Optional: Auto-focus or highlight
+      }
+    });
+    
+    croppers[index] = cropper;
+    
+    // Update button UI
+    btn.textContent = "✓ Apply";
+    btn.classList.add('active');
+  }
+}
   </script>
 </body>
 </html>
