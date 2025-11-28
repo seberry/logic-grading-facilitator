@@ -8,35 +8,61 @@ This project is built around a simple core abstraction:
 
 The goal is to make **v0 grading** extremely easy while guaranteeing that the data structures and UI flow will support **v1–v4 automation** without refactoring.
 
----
+Logic Grading Facilitator (v2 Hybrid Workflow)
+A privacy-first, local tool for grading handwritten logic exams. It uses a "Cyborg" workflow: a local Vision Language Model (VLM) handles the mechanical overhead (grouping scans, recognizing names, segmenting answers), while the human instructor focuses purely on grading logic via a high-speed "Strip View."
 
-## High-Level Features (v0)
+Core Philosophy:
 
-- Local browser-based UI (Flask/FastAPI backend).
-- Navigate through raw scans and assemble them into **WorkUnits**.
-- Handle multi-page submissions interactively:
-  - “Append next scan”
-  - “Remove last appended scan”
-- Fast **name assignment**:
-  - fuzzy-search name field (type 2–4 chars → auto-filtered list)
-  - “same as previous submission” hotkey for multi-page cases
-- Structured **per-problem grading** driven by a YAML grading key.
-- Persist incremental grading to disk (JSON/CSV).
-- Export a Canvas-importable CSV mapping student IDs → scores.
+Local-Only: Scans never leave your machine (FERPA compliant).
 
----
+Human Authority: AI suggests groupings and bounding boxes; the human makes the final score decisions.
+
+
+WorkUnit: The core data structure representing one student's grouped pages and scores.
+
+Core Features
+
+Auto-Grouping: scripts.auto_group_scans uses a local VLM (Qwen via LM Studio) to read names and group widely scattered pages into single student submissions.
+
+
+Name Review UI: A web interface to audit the AI's name guesses before finalizing the session.
+
+Strip View Grading: A vertical interface showing one problem across all students (e.g., "Grade Q1 for everyone"). Includes auto-segmentation to zoom in on the specific answer.
+
+
+
+Canvas Export: Generates an import-ready CSV for the Canvas gradebook.
+
+Architecture Overview
+Ingestion: Raw scans are placed in data/raw_scans/.
+
+AI Processing:
+
+Step 1 (Grouping): The VLM reads names and creates "WorkUnits" from raw pages.
+
+
+Step 2 (Segmentation): On-the-fly segmentation detects where "Q1" is on the page.
+
+Storage:
+
+
+session.json: The single source of truth for the active grading session.
+
+
+data_archive/: Snapshots of finished assignments.
 
 ## Future Extensions (planned, not required for v0)
 
-See `docs/FUTURE_AUTOMATION.md` for details, but the major phases include:
+Quality of life:
+- Create a scan uploading wizard (this could also have you a) name the assignment in a text area b) create a grading rubric for it and c) select a roster or upload and name a new roster)  
+- Avoid slugish loading of grading pages (after the first one) by having the local model segment question n+1 (if this has not already been done) while you are working on grading question n in the per unit grader. 
 
-- OCR-based detection of problem headings in handwritten scans.
-- Automated answer segmentation into per-problem regions.
-- Per-question grading views.
+More automation: See `docs/FUTURE_AUTOMATION.md` for details, but the major phases include:
 - Clustering/grouping of similar answers for consistent partial credit.
-- Deterministic autograding (symbolization equivalence checker, truth-table evaluator, Fitch checker).
+- Deterministic autograding (connect to existing code for: symbolization equivalence checker, truth-table evaluator, Fitch proof checker (I could use the special ocr->ascii->json->verification stuff I've already written for my fitch proof project), kripke model checker).
 - LLM-based “second-opinion” disagreement flags.
-- Optional programmatic upload of feedback comments to Canvas (safe; scans are **never** uploaded automatically).
+- Optional attachment of per question comments to scans which will be manually uploaded to canvas. 
+
 
 ---
 
@@ -66,19 +92,6 @@ logic-grading-facilitator/
 ```
 
 
-
-
-## Quick Start (for future implementers)
-
-1. Export the Canvas gradebook CSV for the course.
-2. Place all raw scan images in `data/raw_scans/`.
-3. Create a grading key file in `data/rubric/quizX.yaml`.
-4. Start the app → local browser UI opens.
-5. Grade:
-   - assign name,
-   - assemble pages into WorkUnits,
-   - mark per-problem scores.
-6. Export CSV → import into Canvas.
 
 
 ## Assignment Lifecycle (v0.2)

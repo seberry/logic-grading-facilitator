@@ -164,7 +164,7 @@ user_flows:
           purpose: "Segmentation cache of bounding boxes per WorkUnit (if present)."
       writes:
         - path: "data/grades/segments_{problem_id}.json"
-          what: "List of per-WorkUnit segmentation dicts produced by segment_page_for_problem."
+          what: "VLM results on first load, OR updated bboxes from manual 'Fix Crop' actions via POST."
         - path: "data/grades/session.json"
           what: "Updated per_problem scores for this problem across all WorkUnits and problem_notes[problem_id]."
 
@@ -195,8 +195,6 @@ user_flows:
         grading_key order and action = save_next | save_back | save.
 
     current_limitations:
-      - "Crops are entirely VLM-generated; there is no manual override or UI to edit bbox yet."
-      - "Segmentation cache invalidation is manual: delete segments_{problem_id}.json or use refresh=1."
       - "Each WorkUnit gets at most one segment per problem; multi-answer or multi-part layouts are not modeled."
 
   - id: flow_export_csv
@@ -295,9 +293,9 @@ data_files:
         comment: "string | null"
         confidence: "float"
     lifecycle:
-      created_by: "GET /problem/{problem_id}/strips when cache is missing or refresh=1"
-      used_by: "GET /problem/{problem_id}/strips when building strips list"
-      invalidation: "Delete file manually or call strips endpoint with refresh=1."
+      created_by: "GET /problem/{problem_id}/strips (VLM generation)."
+      updated_by: "POST /problem/{problem_id}/strips (User manual crop)."
+      used_by: "GET /problem/{problem_id}/strips (Source of truth for red boxes)."
 
   - path: "data/auto_grouped/{quiz}/quiz1_page_predictions.csv"
     role: "name_predictions"
@@ -426,7 +424,7 @@ critical_constraints:
     reason: "It will overwrite the active graded session and destroy WorkUnits."
   - id: constraint_segments_are_derived
     rule: "Do not hand-edit segments_{problem_id}.json except via a dedicated manual-crop feature."
-    reason: "They are derived from VLM results and expected to match what strip view shows."
+    reason: "They are a hybrid of VLM estimates and manual overrides; the JSON file is the persistence layer for both."
   - id: constraint_one_student_per_workunit
     rule: "A WorkUnit must be associated with at most one student_id."
     reason: "Export and UI logic assume a 1–1 mapping between WorkUnit and student."
@@ -448,6 +446,6 @@ version_history:
 
   - version: "v0.3"
     notes:
-      - "Introduced strip view grading /problem/{id}/strips with segmentation cache."
+      - "Introduced strip view grading /problem/{id}/strips with segmentation cache (updatable by user edits)."
       - "Added problem_notes per problem and per-problem POST handler."
-      - "Segment cache stored as segments_{problem_id}.json with normalized bboxes."
+      - "Segment cache/info stored as segments_{problem_id}.json with normalized bboxes."

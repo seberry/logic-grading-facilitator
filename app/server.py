@@ -1337,39 +1337,73 @@ async def post_problem_strips(
     request: Request,
     problem_id: str,
 ):
-    """
-    Handle form submission from the per-problem strip view.
-
-    Expected form fields:
-      - score_<unit_id> for each WorkUnit shown (e.g. score_1, score_2, ...)
-      - problem_note (optional free-text)
-      - action = "save_next" | "save_back" | "save"
-    """
     form = await request.form()
-    action = form.get("action", "save_next")  # default: move forward
+    action = form.get("action", "save_next")
 
     with _session_lock:
         session = get_session()
-
-        # Sanity-check that the problem exists
+        
+        # 1. Validation (Existing)
         spec = next((p for p in session.grading_key.problems if p.id == problem_id), None)
         if spec is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Unknown problem id {problem_id!r}",
-            )
+            raise HTTPException(status_code=404, detail=f"Unknown problem id {problem_id!r}")
 
-        # --- Update per-problem scores for this problem across WorkUnits ---
+        # --- NEW: Handle Bounding Box Updates ---
+        # We check if any bboxes were modified before processing scores
+        updates_map = {} # unit_id -> [x1, y1, x2, y2]
+        
+        for wu in session.work_units:
+            bbox_raw = form.get(f"bbox_update_{wu.unit_id}")
+            if bbox_raw and bbox_raw.strip():
+                try:
+                    # Parse "[0.1, 0.2, 0.5, 0.6]"
+                    new_bbox = json.loads(bbox_raw)
+                    if isinstance(new_bbox, list) and len(new_bbox) == 4:
+                        updates_map[wu.unit_id] = new_bbox
+                except json.JSONDecodeError:
+                    pass # Ignore malformed data
+
+        # If we have updates, load the segment cache, apply them, and save
+        if updates_map:
+            cache_path = GRADES_DIR / f"segments_{problem_id}.json"
+            if cache_path.exists():
+                try:
+                    # Read existing
+                    with cache_path.open("r", encoding="utf-8") as f:
+                        segments_data = json.load(f)
+                    
+                    # Update matched records
+                    # Note: segments_data is a list of dicts. 
+                    # We iterate over it to find matching unit_ids.
+                    updated_count = 0
+                    for seg in segments_data:
+                        uid = seg.get("unit_id")
+                        if uid in updates_map:
+                            seg["bbox"] = updates_map[uid]
+                            seg["present"] = True # If we manually cropped it, it's definitely present
+                            # Optional: mark confidence as 1.0 since human verified
+                            seg["confidence"] = 1.0 
+                            updated_count += 1
+                    
+                    # Write back
+                    with cache_path.open("w", encoding="utf-8") as f:
+                        json.dump(segments_data, f, indent=2)
+                        
+                    print(f"Updated {updated_count} manual crops for problem {problem_id}")
+                except Exception as e:
+                    print(f"Error updating segment cache: {e}")
+
+        # --- Existing Score Saving Logic ---
         for wu in session.work_units:
             field_name = f"score_{wu.unit_id}"
             raw = form.get(field_name)
 
             if raw is None:
-                continue  # no input for this unit
+                continue
 
             raw = raw.strip()
             if raw == "":
-                wu.per_problem[problem_id] = None   # blank = clear
+                wu.per_problem[problem_id] = None
             else:
                 try:
                     wu.per_problem[problem_id] = float(raw)
@@ -1379,7 +1413,7 @@ async def post_problem_strips(
                         detail=f"Invalid score for {problem_id} on unit {wu.unit_id}: {raw!r}",
                     )
 
-        # --- Update per-problem note ---
+        # --- Existing Note Logic ---
         note_raw = form.get("problem_note")
         if note_raw is not None:
             note = note_raw.strip()
@@ -1388,15 +1422,12 @@ async def post_problem_strips(
             else:
                 session.problem_notes.pop(problem_id, None)
 
-        # --- Decide which problem to show next ---
+        # --- Existing Navigation Logic ---
         problem_ids = [p.id for p in session.grading_key.problems]
         try:
             idx = problem_ids.index(problem_id)
         except ValueError:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Problem {problem_id!r} not found in grading key order.",
-            )
+            idx = 0
 
         target_problem_id = problem_id
 
@@ -1406,13 +1437,9 @@ async def post_problem_strips(
         elif action == "save_back":
             if idx > 0:
                 target_problem_id = problem_ids[idx - 1]
-        else:
-            target_problem_id = problem_id  # stay on page
 
-        # Persist session.json
         persist_session()
 
-    # Redirect to GET so refresh doesn't re-post
     return RedirectResponse(
         url=f"/problem/{target_problem_id}/strips",
         status_code=303,
