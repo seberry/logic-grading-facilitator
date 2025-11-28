@@ -89,6 +89,9 @@ Every key in per_problem must correspond to an id in the GradingKey.
 
 Missing values are allowed (e.g., ungraded problems) but must be resolved before export.
 
+per_problem_comments: { [problem_id: string]: string | null }
+Optional per-question comments stored alongside scores. This is used by the HTML grading UI and is preserved in session.json.
+
 4. WorkUnit Schema (future segmentation)
 After OCR segmentation:
 
