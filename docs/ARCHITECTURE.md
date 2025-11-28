@@ -1,3 +1,158 @@
+
+
+
+# System Architecture Overview
+
+This document describes the high-level architecture of the Logic Grading Facilitator (v2), covering the core data models, the "Cyborg" workflow, and the backend data pipelines.
+
+---
+
+# 1. Core Concept: WorkUnits
+
+A **WorkUnit** is the central abstraction of the entire system.
+
+It represents:
+- One student submission.
+- Containing one or more scanned pages.
+- With per-problem scores and optional comments.
+- Keyed to a unique `student_id` from the Canvas roster.
+
+All downstream workflows (Canvas export, per-question views, OCR segmentation, autograding) operate on the `WorkUnit`.
+
+---
+
+# 2. Backend Model
+
+The backend service (FastAPI) maintains the state of the grading session.
+
+### Key Data Stores
+1.  **`session.json` (The Database):**
+    * The single source of truth for the active grading session.
+    * Contains the list of **WorkUnits**, the **GradingKey**, and the **Roster**.
+    * Located at: `data/grades/session.json`.
+
+2.  **`raw_scans/` (The Images):**
+    * Originally contains raw uploads (e.g., `IMG_001.jpg`).
+    * After the "Hand-off," it contains canonical renamed files (e.g., `quiz1_berry_sharon_p01.jpg`).
+
+3.  **`segments_*.json` (The Geometry):**
+    * Stores bounding boxes for where specific answers are located on a page.
+    * Generated lazily by the VLM.
+    * Located at: `data/grades/segments_{problem_id}.json`.
+
+---
+
+# 3. UI Flow & Views
+
+The frontend serves specific interfaces for different phases of the grading lifecycle.
+
+### A. Name Review View (`GET /name_review`)
+* **Purpose:** rapid audit of VLM-grouped pages before grading begins.
+* **Input:** Reads draft predictions from CSV (CLI output) or JSON cache.
+* **Action:** User confirms identity matches.
+* **Transition:** Submitting this form triggers the **Hand-off** (see Section 8).
+
+### B. Strip View Grading (`GET /problem/{id}/strips`)
+* **Purpose:** High-speed grading of **one question across all students**.
+* **Display:**
+    * Shows a cropped "strip" of the student's answer (via segmentation).
+    * Provides full-page toggle and scoring inputs.
+* **Navigation:** "Save & Next" moves linearly through the rubric.
+
+### C. WorkUnit View (Legacy/Detail) (`GET /grade/{unit_id}`)
+* **Purpose:** Detailed view of a single student's full exam.
+* **Use Case:** Spot-checking a specific student or handling complex multi-page overrides.
+
+---
+
+# 4. Automation Integration Points
+
+The architecture is explicitly prepared for progressive automation:
+
+1.  **OCR-based Segmentation:**
+    * *Current:* VLM identifies bounding boxes for "Q1".
+    * *Future:* OCR detects specific headings (1., (a)) to refine these boxes.
+
+2.  **Clustering:**
+    * Future modules can group similar answers (via embeddings) to allow bulk-grading.
+
+3.  **Autograding:**
+    * Deterministic checkers (Truth Table, Fitch) can populate an `auto_score` field in the WorkUnit.
+    * Human scores always remain authoritative.
+
+---
+
+# 5. FERPA & Compliance
+
+* **Local-Only:** Scans are processed locally. They are **never** auto-uploaded to Canvas.
+* **Feedback:** Text comments are safe to upload (they contain no student PII from others).
+* **Archival:** The `finalize` flow moves data to a timestamped archive folder, ensuring no cross-contamination between quizzes.
+
+---
+
+# 6. Data Flow & Pipeline Lifecycle
+
+This section explains how data transforms from "Raw Images" to "Graded Assignments."
+
+### Phase 1: Ingestion & Drafting (CLI)
+* **Trigger:** User runs `scripts.auto_group_scans.py`.
+* **Input:** Raw images in `data/raw_scans/`.
+* **Process:** VLM predicts student names for every page.
+* **Output:** A **CSV Report** at `data/auto_grouped/{quiz}/{quiz}_page_predictions.csv`.
+* **State:** "Draft Mode." No files are moved; no session exists.
+
+### Phase 2: The Review-to-Grading Hand-off
+* **Trigger:** User clicks **"Confirm & Grade"** on the `/name_review` page.
+* **Backend Logic (`POST /name_review`):**
+    1.  **Renaming:** Copies raw files to `data/raw_scans/` with canonical names (e.g., `quiz1_student_p01.jpg`).
+    2.  **Session Creation:** Constructs `WorkUnit` objects in memory based on the approved groups.
+    3.  **Persistence:** Writes the **Source of Truth** to `data/grades/session.json`.
+    4.  **Redirect:** Sends the user immediately to the Strip View grader.
+* **State:** "Live Grading Mode." The system now ignores the CSV and relies on `session.json`.
+
+### Phase 3: Grading & Segmentation
+* **Trigger:** User loads `/problem/Q1/strips`.
+* **Logic:**
+    1.  Server checks `data/grades/segments_Q1.json`.
+    2.  **Cache Miss:** If missing, runs VLM on all pages to find "Q1" boxes. Saves to JSON.
+    3.  **Cache Hit:** If present, loads boxes instantly.
+* **Result:** User sees cropped answers. Scores are written back to `session.json`.
+
+---
+
+# 7. Caching Strategy
+
+To ensure speed and prevent "double-spending" on VLM tokens, the system uses a tiered caching strategy.
+
+### A. Name Recognition Cache
+Used by `GET /name_review` to display guesses.
+1.  **Tier 1 (CLI Output):** Looks for `*_page_predictions.csv` generated by the batch script. (Fastest)
+2.  **Tier 2 (Server Cache):** Looks for `data/name_review_cache/{quiz}__root.json`.
+3.  **Tier 3 (Live Inference):** Runs VLM live (Slow) and writes to Tier 2 cache.
+
+### B. Segmentation Cache
+Used by the Strip View to show cropped answers.
+* **Location:** `data/grades/segments_{problem_id}.json`.
+* **Invalidation:** Currently manual (delete file to re-run).
+* **Behavior:** Lazy-loaded. The first time you grade "Q1", you pay the wait time. Subsequent loads are instant.
+
+---
+
+# 8. Repository Layout (Code vs Data)
+
+* `app/` – Core application code (Server, Models, UI Logic).
+* `scripts/` – Offline CLI utilities (Auto-grouping, Debugging).
+* `docs/` – Design documentation.
+* `data/` – **Live quiz data** (FERPA-sensitive).
+    * `raw_scans/` – Images (both raw `IMG_*.jpg` and renamed `quiz_*.jpg`).
+    * `grades/` – The database (`session.json`) and segmentation cache.
+    * `auto_grouped/` – Intermediate CSV outputs from the CLI.
+* `data_archive/` – Snapshots of finished assignments.
+
+
+
+OLD
+
 # System Architecture Overview
 
 This document describes the high-level architecture of the Logic Grading Facilitator as of v0, with explicit notes about where and how future OCR/autograding modules will plug in.
@@ -137,81 +292,7 @@ unclaimed_pages
 
 This approach avoids brittle automatic inference while remaining fast.
 
-# 5. Future Automation Integration Points
 
-Although v0 includes no OCR or autograding, the architecture is explicitly prepared for:
-
-## 5.1 OCR-based segmentation
-
-After pages are part of a WorkUnit, a segmentation module may:
-
-run OCR,
-
-detect headings (Q1, 1., (a)),
-
-infer bounding boxes per problem,
-
-store:
-
-"answers": [
-  { "problem_id": "Q1", "page": 1, "bbox": [...], "text": "..." }
-]
-
-## 5.2 Per-question grading modes
-
-UI mode:
-
-/grade-by-problem/<problem_id>
-
-Show all answer regions for that problem
-
-Enter one score per answer or per cluster
-
-## Per-Problem Strip View (Segmentation UI)
-
-Route: /problem/{problem_id}/strips
-
-For each WorkUnit:
-
-Runs segment_page_for_problem on its pages using SINGLE_QUESTION_PROMPT.
-
-Picks the first present=True segment.
-
-Renders the underlying scan with an overlaid bbox.
-
-Shows a score field for that problem_id.
-
-This is the main UI for grading a single problem across all students.
-
-## 5.3 Clustering
-
-Embedding + clustering for similar answers
-
-UI provides drag-and-drop reclassification
-
-Cluster-level scoring
-
-5.4 Autograding
-
-Modules may plug into:
-
-symbolization equivalence
-
-truth-value checking
-
-Fitch-proof validation
-
-LLM second-opinion classifier
-
-Stored alongside human score:
-
-```
-{
-  "human_score": 3,
-  "auto_score": 3,
-  "flag_disagreement": false
-}
-```
 # 6. FERPA/Compliance Design Constraints
 
 Never auto-upload scans to Canvas.
@@ -244,7 +325,42 @@ This preserves a complete snapshot of the grading state while preparing the syst
 
 After archival, scripts/init_session.py must be run before new grading begins.
 
-# 7. Summary
+# 8Data Flow & Caching Strategy (v2)
+The system uses a Hybrid Caching Strategy to bridge offline scripts and the live server.
+
+A. The "Name Review" Pipeline
+This pipeline ensures we never run the VLM twice on the same data.
+
+Producer (CLI):
+
+Script: scripts.auto_group_scans.py
+
+Action: Runs VLM on all raw scans.
+
+Output: data/auto_grouped/{quiz_id}/{quiz_id}_page_predictions.csv
+
+Role: The canonical source of "batch" inference.
+
+Consumer (Server):
+
+Endpoint: GET /name_review
+
+Logic:
+
+Check CLI Output: First, looks for the CSV from the CLI. If found, loads it (Fast).
+
+Check Internal Cache: If no CSV, looks for data/name_review_cache/{quiz_id}__root.json.
+
+Fallback: If neither exists, runs VLM live (Slow) and saves to JSON cache.
+
+B. The Session Hand-off
+Trigger: User clicks "Rename & Download" in the UI.
+
+Action: Server creates a Session object in memory and writes data/grades/session.json.
+
+Critical Note: This session.json is the Source of Truth for the grading phase. Running scripts/init_session.py after this step is dangerous as it will overwrite the grouped session with a blank one.
+
+# 9. Summary
 
 The architecture is intentionally minimal but designed so each future phase (segmentation, clustering, autograding) snaps cleanly into place without refactoring core concepts. Everything revolves around the WorkUnit abstraction and the GradingKey specification.
 

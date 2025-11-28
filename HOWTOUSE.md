@@ -35,13 +35,9 @@ Finalize: Scroll to the bottom and click “Name recognition & grouping looks go
 
 Note: This confirms which pages belong to which student.
 
-5. Initialize the Grading Session
-In a new PowerShell window:
-
-PowerShell
-
+5. Initialize the Grading Session [edit: The latest version of name review finalizes by directly do the init session stuff. We should not redo it, as that will destroy things:
 python -m scripts.init_session
-This generates the fresh data/grades/session.json based on the grouped files.
+This generates the fresh data/grades/session.json based on the grouped files.]
 
 6. Grade in Strip View
 Navigate to: http://127.0.0.1:5000/problem/Q1/strips
