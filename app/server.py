@@ -328,163 +328,110 @@ def create_work_unit():
 
 
 @app.get("/name_review", response_class=HTMLResponse)
-def get_name_review(
+async def name_review_page(
     request: Request,
-    quiz: str,
     raw_scans_subdir: str = "",
-    refresh: int = 0,
+    quiz: str = "quiz1",
+    refresh: bool = False,
 ):
     """
-    Display the name review UI for all raw scans for this assignment.
-
-    For now, we always re-run the VLM; a simple JSON cache can be added later
-    keyed by (quiz, raw_scans_subdir).
+    Display one row per scanned page.
+    Priority: 1. Refresh -> 2. CLI CSV -> 3. JSON Cache -> 4. Run VLM
     """
-    # Resolve the actual folder of raw scans.
-    raw_scans_dir = RAW_SCANS_DIR / raw_scans_subdir if raw_scans_subdir else RAW_SCANS_DIR
-    if not raw_scans_dir.exists():
-        raise HTTPException(
-            status_code=400,
-            detail=f"Raw scans directory not found: {raw_scans_dir}",
-        )
+    # 1. Resolve scans directory (Standard checks)
+    base_dir = RAW_SCANS_DIR / raw_scans_subdir if raw_scans_subdir else RAW_SCANS_DIR
+    if not base_dir.exists():
+        raise HTTPException(404, detail=f"Not found: {base_dir}")
 
+    exts = {".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"}
+    paths = sorted([p for p in base_dir.iterdir() if p.is_file() and p.suffix in exts], key=natural_sort_key)
+    
+    # 2. Load Roster
     roster = load_roster()
-    preds = run_name_recognition(raw_scans_dir, roster)
+    roster_by_id = {r.student_id: r.name for r in roster}
 
-    page_rows = _build_page_rows_for_template(preds, roster, raw_scans_subdir)
+    # 3. Load Predictions
+    cache_path = name_review_cache_path(quiz, raw_scans_subdir)
+    csv_path = DATA_DIR / "auto_grouped" / quiz / f"{quiz}_page_predictions.csv"
+    
+    predictions = []
+    
+    # --- LOGIC BRANCHES ---
+    
+    # Branch A: Load from CLI CSV (Fastest & Most Accurate to CLI)
+    if (not refresh) and csv_path.exists():
+        print(f"[name_review] Loading from CLI CSV: {csv_path}")
+        import csv
+        with csv_path.open(newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                predictions.append({
+                    "filename": row["filename"],
+                    "student_id": row["predicted_student_id"] or None,
+                    "raw_name": row.get("raw_name"),
+                    "confidence": float(row.get("confidence", 0.0)),
+                    "reasoning": row.get("reasoning", ""),
+                    "name_visible": row.get("name_visible") == "True",
+                })
+        
+        # CRITICAL FIX: Save to JSON cache so POST /name_review can find it later
+        import json as _json
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(_json.dumps(predictions, indent=2), encoding="utf-8")
 
-    return templates.TemplateResponse(
-        "name_review.html",
-        {
-            "request": request,
-            "quiz_slug": quiz,
-            "raw_scans_subdir": raw_scans_subdir,
-            "page_rows": page_rows,
-            "roster": roster,
-        },
-    )
+    # Branch B: Load from JSON Cache (Fast)
+    elif (not refresh) and cache_path.exists():
+        print(f"[name_review] Loading from JSON cache: {cache_path}")
+        import json as _json
+        predictions = _json.loads(cache_path.read_text(encoding="utf-8"))
 
-@app.post("/name_review", response_class=HTMLResponse)
-async def post_name_review(request: Request):
-    """
-    Handle the '✅ Name recognition & grouping looks good' form submit.
-
-    Steps:
-    - Read filenames + chosen student_ids from the form.
-    - Group pages into SubmissionGroup objects using the same heuristic as the CLI.
-    - Create a fresh Session with WorkUnits for each group.
-    - Save it to DEFAULT_SESSION_PATH and update the in-memory _session.
-    - Redirect to /grade/1/page (first WorkUnit) for grading.
-    """
-    form = await request.form()
-    quiz_id = form["quiz_id"]
-    raw_scans_subdir = form.get("raw_scans_subdir", "")
-    page_count = int(form["page_count"])
-
-    # Reconstruct "predictions" from the form. We only need the attributes
-    # used by group_pages: .student_id, .confidence, .name_visible.
-    fake_preds: List[Any] = []
-    raw_scans_dir = RAW_SCANS_DIR / raw_scans_subdir if raw_scans_subdir else RAW_SCANS_DIR
-
-    for i in range(page_count):
-        filename = form[f"filename_{i}"]
-        student_id = form.get(f"student_{i}") or None
-
-        class _FormPred:
-            def __init__(self, path: Path, filename: str, student_id: Optional[str]):
-                self.path = path
-                self.filename = filename
-                self.student_id = student_id
-                self.confidence = 1.0  # user-approved
-                self.name_visible = True
-                self.raw_name = None
-                self.reasoning = "from_name_review_form"
-
-        fake_preds.append(
-            _FormPred(
-                path=raw_scans_dir / filename,
-                filename=filename,
-                student_id=student_id,
-            )
-        )
-
-    roster = load_roster()
-    roster_by_id = build_roster_index(roster)
-
-    groups: List[SubmissionGroup] = group_pages(fake_preds, roster_by_id)
-
-    grading_key = load_grading_key()  # adjust if you later key this by quiz_id
-
-    # Build WorkUnits: one per group, even if student_id is unknown.
-    work_units: List[WorkUnit] = []
-    next_id = 1
-    for g in groups:
-        filenames = []
-        for p in g.pages:
-            fn = getattr(p, "filename", None) or getattr(p, "path", None)
-            if isinstance(fn, Path):
-                fn = fn.name
-            if fn is None:
-                continue
-            filenames.append(fn)
-
-        wu = WorkUnit(
-            unit_id=next_id,
-            student_id=g.inferred_student_id,  # may be None for unknown groups
-            page_filenames=filenames,
-            per_problem={p.id: None for p in grading_key.problems},
-            comment=None,
-            # per_problem_comments will use its default_factory={}
-        )
-        work_units.append(wu)
-        next_id += 1
-
-    session = Session(
-        roster=roster,
-        grading_key=grading_key,
-        work_units=work_units,
-        unclaimed_pages=[],
-        pinned_note=None,
-    )
-
-    # Persist both on disk and in memory
-    global _session
-    _session = session
-    save_session(session, DEFAULT_SESSION_PATH)
-
-    # For now, just jump to the first WorkUnit's grading page.
-    if work_units:
-        first_id = work_units[0].unit_id
-        return RedirectResponse(url=f"/grade/{first_id}/page", status_code=303)
+    # Branch C: Run VLM (Slow Fallback)
     else:
-        # No groups/pages – show a tiny confirmation page.
-        return HTMLResponse(
-            content=(
-                f"<html><body><h1>Name review complete</h1>"
-                f"<p>No pages were grouped for quiz {quiz_id!r}.</p></body></html>"
-            ),
-            status_code=200,
-        )
+        print("[name_review] No cache found. Running VLM...")
+        client = LMStudioQwenClient(base_url=LMSTUDIO_BASE_URL, model=LMSTUDIO_MODEL_ID)
+        for path in paths:
+            pred = classify_page(path, roster, client)
+            predictions.append({
+                "filename": path.name,
+                "student_id": pred.student_id,
+                "raw_name": pred.raw_name,
+                "confidence": pred.confidence,
+                "reasoning": pred.reasoning,
+                "name_visible": pred.name_visible,
+            })
+        
+        # Save results for next time
+        import json as _json
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(_json.dumps(predictions, indent=2), encoding="utf-8")
 
-# === JSON grading context (used by API clients or future JS UI) ===
+    # 4. Build View Data
+    preds_map = {p["filename"]: p for p in predictions}
+    page_rows = []
+    
+    for idx, path in enumerate(paths):
+        info = preds_map.get(path.name, {})
+        sid = info.get("student_id")
+        
+        page_rows.append({
+            "index": idx,
+            "filename": path.name,
+            "image_url": f"/scans/{raw_scans_subdir}/{path.name}" if raw_scans_subdir else f"/scans/{path.name}",
+            "model_student_id": sid,
+            "model_canvas_name": roster_by_id.get(sid) if sid else None,
+            "confidence": float(info.get("confidence", 0.0)),
+            "raw_name": info.get("raw_name", ""),
+            "reasoning": info.get("reasoning", ""),
+            "name_visible": bool(info.get("name_visible", False)),
+        })
 
-@app.get("/grade/{unit_id}")
-def get_grade(unit_id: int):
-    """
-    Return full context for grading a particular WorkUnit.
-
-    Includes:
-    - the WorkUnit
-    - the grading key
-    - the roster (for name picker)
-    """
-    session = get_session()
-    wu = find_work_unit(session, unit_id)
-    return {
-        "work_unit": wu,
-        "grading_key": session.grading_key,
-        "roster": session.roster,
-    }
+    return templates.TemplateResponse("name_review.html", {
+        "request": request,
+        "page_rows": page_rows,
+        "roster": roster,
+        "quiz_slug": quiz,
+        "raw_scans_subdir": raw_scans_subdir,
+    })
 
 
 @app.post("/grade/{unit_id}", response_model=WorkUnit)
