@@ -1012,35 +1012,29 @@ async def name_review_page(
 @app.post("/name_review")
 async def name_review_submit(request: Request) -> Response:
     """
-    Read final dropdown choices, group pages in scan order using *human* names,
-    rename scans into data/auto_grouped/<quiz_id>/scans, write JSON/CSVs,
-    and return a ZIP of the output directory.
-
-    IMPORTANT: This does NOT call the LLM; it only *reads* cached predictions
-    if they exist, so finalize is fast and predictable.
+    1. Reads user approvals from the form.
+    2. Groups pages into WorkUnits.
+    3. Renames scans to 'quiz1_student_p01.jpg' and saves them in raw_scans.
+    4. Initializes session.json with these new WorkUnits.
+    5. Redirects to the Strip View grader.
     """
-    print("[name_review] POST: starting")
+    print("[name_review] POST: starting Hand-off...")
     form = await request.form()
 
     quiz_id = (form.get("quiz_id") or "quiz").strip()
     raw_scans_subdir = form.get("raw_scans_subdir") or ""
     page_count = int(form.get("page_count") or 0)
 
-    print(f"[name_review] quiz_id={quiz_id!r}, raw_scans_subdir={raw_scans_subdir!r}, page_count={page_count}")
-
-    if not quiz_id:
-        raise HTTPException(status_code=400, detail="quiz_id is required.")
+    # 1. Validation
     if page_count <= 0:
         raise HTTPException(status_code=400, detail="No pages submitted.")
 
     base_dir = RAW_SCANS_DIR / raw_scans_subdir if raw_scans_subdir else RAW_SCANS_DIR
-    if not base_dir.exists() or not base_dir.is_dir():
-        raise HTTPException(
-            status_code=404,
-            detail=f"Raw scans directory not found: {base_dir}",
-        )
+    if not base_dir.exists():
+        raise HTTPException(404, detail=f"Scan dir not found: {base_dir}")
 
-    # Parse assignments in scan order
+    # 2. Parse Form Data (Assignments)
+    # List of (original_filename, student_id)
     assignments: List[tuple[str, Optional[str]]] = []
     for i in range(page_count):
         fn = form.get(f"filename_{i}")
@@ -1048,246 +1042,158 @@ async def name_review_submit(request: Request) -> Response:
         if fn:
             assignments.append((fn, sid))
 
-    if not assignments:
-        raise HTTPException(status_code=400, detail="No filenames submitted.")
-
-    print(f"[name_review] parsed {len(assignments)} assignments")
-
-    # Load roster
+    # 3. Load Roster & Grading Key
     roster = load_roster()
-    roster_by_id: Dict[str, str] = {r.student_id: r.name for r in roster}
+    roster_by_id = {r.student_id: r.name for r in roster}
+    try:
+        grading_key = load_grading_key()
+    except Exception:
+        # Fallback if no key exists yet
+        grading_key = None
 
-    # Build filename -> Path map (for copying/renaming later)
-    exts = {".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"}
-    all_paths = [p for p in base_dir.iterdir() if p.is_file() and p.suffix in exts]
-    all_paths.sort(key=natural_sort_key)
-    path_by_name: Dict[str, Path] = {p.name: p for p in all_paths}
-
-    print(f"[name_review] found {len(all_paths)} files in {base_dir}")
-
-    # 🔍 Load cached predictions if available (for CSV metadata only).
-    # DO NOT re-run the LLM here.
-    cache_path = name_review_cache_path(quiz_id, raw_scans_subdir)
-    llm_predictions: List[Dict] = []
-
-    import json as _json
-
-    if cache_path.exists():
-        print(f"[name_review] loading cached predictions from {cache_path}")
-        cached = _json.loads(cache_path.read_text(encoding="utf-8"))
-        for idx, info in enumerate(cached, start=1):
-            fn = info.get("filename")
-            if not fn:
-                continue
-            student_id = info.get("student_id")
-            llm_predictions.append(
-                {
-                    "scan_order_index": idx,
-                    "filename": fn,
-                    "student_id": student_id,
-                    "canvas_name": roster_by_id.get(student_id) if student_id else None,
-                    "raw_name": info.get("raw_name"),
-                    "confidence": float(info.get("confidence", 0.0)),
-                    "name_visible": bool(info.get("name_visible", False)),
-                    "reasoning": info.get("reasoning") or "",
-                }
-            )
-    else:
-        print(
-            f"[name_review] WARNING: cache missing for "
-            f"(quiz_id={quiz_id!r}, raw_scans_subdir={raw_scans_subdir!r}). "
-            "Proceeding without llm_predictions."
-        )
-        llm_predictions = []
-
-    # Build final assignments JSON (from human choices)
-    final_assignments: List[Dict] = []
-    for idx, (filename, sid) in enumerate(assignments, start=1):
-        final_assignments.append(
-            {
-                "scan_order_index": idx,
-                "filename": filename,
-                "final_student_id": sid,
-                "final_canvas_name": roster_by_id.get(sid) if sid else None,
-            }
-        )
-
-    # Group pages by human-chosen student_id, in scan order
-    groups: List[Dict] = []
-    current_group: Optional[Dict] = None
+    # 4. Group Pages (Simple Logic)
+    # We group consecutive pages that share the same student_id
+    groups = []
+    current_group = None
 
     for filename, sid in assignments:
         if current_group is None:
             current_group = {
-                "group_index": 1,
                 "student_id": sid,
-                "canvas_name": roster_by_id.get(sid) if sid else None,
-                "page_filenames": [filename],
+                "pages": [filename]
             }
             continue
 
+        # If same student (and not None), append to group
+        # Note: We break groups on 'None' (unknowns) so they don't clump together?
+        # Actually, let's clump unknowns if they are consecutive? 
+        # For safety, let's break if student_id changes.
         if sid == current_group["student_id"]:
-            current_group["page_filenames"].append(filename)
+            current_group["pages"].append(filename)
         else:
             groups.append(current_group)
             current_group = {
-                "group_index": len(groups) + 1,
                 "student_id": sid,
-                "canvas_name": roster_by_id.get(sid) if sid else None,
-                "page_filenames": [filename],
+                "pages": [filename]
             }
-
-    if current_group is not None:
+    if current_group:
         groups.append(current_group)
 
-    print(f"[name_review] built {len(groups)} groups")
-
-    # Prepare output directories
-    out_root = AUTO_GROUPED_DIR / quiz_id
-    scans_out = out_root / "scans"
-    out_root.mkdir(parents=True, exist_ok=True)
-    scans_out.mkdir(parents=True, exist_ok=True)
-
-    print(f"[name_review] writing outputs under {out_root}")
-
-    # Write JSON files
-    (out_root / "llm_predictions.json").write_text(
-        _json.dumps(llm_predictions, indent=2),
-        encoding="utf-8",
-    )
-    (out_root / "final_assignments.json").write_text(
-        _json.dumps(final_assignments, indent=2),
-        encoding="utf-8",
-    )
-
-    # Write CSV summaries
-    page_csv_path = out_root / f"{quiz_id}_page_predictions.csv"
-    groups_csv_path = out_root / f"{quiz_id}_groups.csv"
-
-    # Build quick lookup for group/page indices
-    group_index_by_filename: Dict[str, int] = {}
-    page_index_by_filename: Dict[str, int] = {}
-    for g in groups:
-        for idx, fn in enumerate(g["page_filenames"], start=1):
-            group_index_by_filename[fn] = g["group_index"]
-            page_index_by_filename[fn] = idx
-
-    with page_csv_path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(
-            [
-                "scan_order_index",
-                "filename",
-                "group_index",
-                "page_in_group",
-                "final_student_id",
-                "final_canvas_name",
-                "llm_student_id",
-                "llm_canvas_name",
-                "llm_raw_name",
-                "llm_confidence",
-                "name_visible",
-            ]
-        )
-        for row in final_assignments:
-            fn = row["filename"]
-            gi = group_index_by_filename.get(fn)
-            pi = page_index_by_filename.get(fn)
-            llm = next((p for p in llm_predictions if p["filename"] == fn), None)
-            writer.writerow(
-                [
-                    row["scan_order_index"],
-                    fn,
-                    gi,
-                    pi,
-                    row["final_student_id"],
-                    row["final_canvas_name"],
-                    llm["student_id"] if llm else None,
-                    llm["canvas_name"] if llm else None,
-                    llm["raw_name"] if llm else None,
-                    llm["confidence"] if llm else None,
-                    llm["name_visible"] if llm else None,
-                ]
-            )
-
-    with groups_csv_path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(
-            ["group_index", "student_id", "canvas_name", "unknown_index", "num_pages"]
-        )
-        unknown_counter = 0
-        unknown_index_by_group: Dict[int, int] = {}
-        for g in groups:
-            if g["student_id"] is None:
-                unknown_counter += 1
-                unknown_index_by_group[g["group_index"]] = unknown_counter
-
-        for g in groups:
-            gi = g["group_index"]
-            writer.writerow(
-                [
-                    gi,
-                    g["student_id"],
-                    g["canvas_name"],
-                    unknown_index_by_group.get(gi),
-                    len(g["page_filenames"]),
-                ]
-            )
-
-    print("[name_review] copying & renaming scans...")
-    # Copy & rename scans into scans_out
-    unknown_index_by_group = {}
-    unknown_counter = 0
-    for g in groups:
-        if g["student_id"] is None:
-            unknown_counter += 1
-            unknown_index_by_group[g["group_index"]] = unknown_counter
+    # 5. Build WorkUnits and Rename Files
+    work_units: List[WorkUnit] = []
+    
+    # We need a path map to find the source files
+    # (Assuming filenames in form are relative to base_dir)
+    
+    unit_counter = 1
+    
+    # Helper to track page numbers per student for naming
+    student_page_counts = {} 
+    
+    print(f"[name_review] Processing {len(groups)} groups...")
 
     for g in groups:
-        gi = g["group_index"]
         sid = g["student_id"]
-        cname = g["canvas_name"]
-        unknown_index = unknown_index_by_group.get(gi)
-
-        for page_idx, filename in enumerate(g["page_filenames"], start=1):
-            src_path = path_by_name.get(filename)
-            if src_path is None:
+        
+        # Determine canonical name base
+        if sid:
+            cname = roster_by_id.get(sid, "student")
+            student_page_counts.setdefault(sid, 0)
+        else:
+            cname = "unknown"
+            # We track unknowns globally or per group? Let's just use unit_id
+        
+        new_filenames = []
+        
+        for raw_name in g["pages"]:
+            src = base_dir / raw_name
+            if not src.exists():
+                print(f"[WARN] Source file missing: {src}")
                 continue
-            new_name = canonical_filename(
-                quiz_id=quiz_id,
-                student_id=sid,
-                canvas_name=cname,
-                page_index=page_idx,
-                unknown_index=unknown_index,
-                orig_suffix=src_path.suffix,
-            )
-            dst_path = scans_out / new_name
-            data = src_path.read_bytes()
-            dst_path.write_bytes(data)
+            
+            # Generate new name
+            # Pattern: quiz1_student_p01.jpg
+            if sid:
+                student_page_counts[sid] += 1
+                p_num = student_page_counts[sid]
+                # Use the canonical_filename helper from server.py
+                new_name = canonical_filename(
+                    quiz_id=quiz_id, 
+                    student_id=sid, 
+                    canvas_name=cname, 
+                    page_index=p_num, 
+                    unknown_index=None, 
+                    orig_suffix=src.suffix
+                )
+            else:
+                # For unknowns, use unit_id as the unique index
+                new_name = canonical_filename(
+                    quiz_id=quiz_id, 
+                    student_id=None, 
+                    canvas_name=None, 
+                    page_index=len(new_filenames)+1, 
+                    unknown_index=unit_counter, 
+                    orig_suffix=src.suffix
+                )
 
-    print("[name_review] building ZIP...")
-    # Build a ZIP of the entire output directory
-    import io as _io
-    import zipfile as _zipfile
+            # COPY to RAW_SCANS_DIR (root) so the server can serve it at /scans/new_name
+            # We copy instead of rename to be safe? 
+            # Let's write bytes to ensure it works across file systems.
+            dst = RAW_SCANS_DIR / new_name
+            dst.write_bytes(src.read_bytes())
+            
+            new_filenames.append(new_name)
 
-    buf = _io.BytesIO()
-    with _zipfile.ZipFile(buf, "w", _zipfile.ZIP_DEFLATED) as z:
-        for p in out_root.rglob("*"):
-            if p.is_file():
-                # archive path relative to data/auto_grouped
-                rel = p.relative_to(AUTO_GROUPED_DIR)
-                z.write(p, str(rel))
+        # Create WorkUnit
+        # Initialize empty scores
+        per_problem = {}
+        per_problem_comments = {}
+        if grading_key:
+            for p in grading_key.problems:
+                per_problem[p.id] = None
+                per_problem_comments[p.id] = None
 
-    buf.seek(0)
-    print("[name_review] ZIP ready, returning response")
-    return Response(
-        content=buf.getvalue(),
-        media_type="application/zip",
-        headers={
-            "Content-Disposition": f'attachment; filename="{quiz_id}_auto_grouped.zip"'
-        },
+        wu = WorkUnit(
+            unit_id=unit_counter,
+            student_id=sid,
+            page_filenames=new_filenames,
+            per_problem=per_problem,
+            comment=None,
+            per_problem_comments=per_problem_comments
+        )
+        work_units.append(wu)
+        unit_counter += 1
+
+    # 6. Initialize Session
+    # Use existing grading key if loaded, else we need one.
+    if not grading_key:
+        # Fallback: try loading default or error out
+        # For now, let's assume one exists or creating session will fail
+        grading_key = load_grading_key() 
+
+    session = Session(
+        roster=roster,
+        grading_key=grading_key,
+        work_units=work_units,
+        unclaimed_pages=[], # We consumed them all?
+        pinned_note=None
     )
 
+    # 7. Save Session to Disk
+    # This creates data/grades/session.json
+    global _session
+    _session = session
+    save_session(session, DEFAULT_SESSION_PATH)
+    print(f"[name_review] Session initialized with {len(work_units)} units.")
+
+    # 8. Redirect to Grading
+    # Pick the first problem ID
+    first_problem = grading_key.problems[0].id if grading_key.problems else "Q1"
+    
+    return RedirectResponse(
+        url=f"/problem/{first_problem}/strips",
+        status_code=303
+    )
 from fastapi import Query
 
 @app.get("/problem/{problem_id}/strips", response_class=HTMLResponse)

@@ -1,0 +1,453 @@
+project_meta:
+  name: "Logic Grading Facilitator"
+  mission: "Fast, FERPA-safe grading of scanned quizzes with a clear path to future automation."
+  current_version: "2025-11-strip-view-prototype"
+
+# -------------------------------------------------------------------
+# 1. Core concepts & glossary (slow-changing)
+# -------------------------------------------------------------------
+
+core_concepts:
+  - id: work_unit
+    name: "WorkUnit"
+    description: >
+      One student's submission, with one or more scanned pages, per-problem scores,
+      and optional comments. All grading views and exports revolve around WorkUnits.
+  - id: grading_key
+    name: "GradingKey"
+    description: >
+      Per-assignment rubric loaded from YAML (quiz_id, problems[id,label,points]).
+      Per-problem scores in WorkUnits must match these ids exactly.
+  - id: session
+    name: "Session"
+    description: >
+      In-memory + on-disk object representing one active assignment:
+      roster, grading_key, list of WorkUnits, unclaimed_pages, pinned_note, problem_notes.
+      Serialized to data/grades/session.json.
+  - id: segmentation_cache
+    name: "Segmentation Cache"
+    description: >
+      Per-problem cache of answer bounding boxes, written to
+      data/grades/segments_{problem_id}.json by the strip view on first use.
+  - id: handoff
+    name: "Hand-off"
+    description: >
+      Moment when we convert auto_grouped groups into WorkUnits and write session.json.
+      After this, session.json is the source of truth; re-running init_session is dangerous.
+
+domain_terms:
+  WorkUnit: "One student’s submission (multi-page allowed, exactly one student_id)."
+  Strip: "Cropped image of one student's answer to one problem, shown in per-problem grading."
+  Segment: "Bounding box locating an answer on a page; stored in segments_{problem_id}.json."
+  Handoff: "Transition from name review + auto_grouped CSVs to session.json-based grading."
+  SourceOfTruth: "For grading phase, session.json; for answer geometry per problem, segments_{pid}.json."
+
+# -------------------------------------------------------------------
+# 2. User flows / entrypoints ("The Map")
+# -------------------------------------------------------------------
+
+user_flows:
+
+  - id: flow_name_review
+    human_name: "Name review & hand-off"
+    user_action: "Instructor reviews VLM name grouping and initializes the grading session."
+    status: "live"
+
+    entrypoints:
+      - method: "GET"
+        path: "/name_review"
+        file: "app/server.py"
+        template: "app/templates/name_review.html"
+      - method: "POST"
+        path: "/name_review"
+        file: "app/server.py"
+        template: "redirect → /grade/{first_unit_id}/page"
+
+    data_flow:
+      reads:
+        - path: "data/auto_grouped/{quiz}/quiz1_page_predictions.csv"
+          purpose: "Page-level name predictions from auto_group_scans CLI."
+        - path: "data/auto_grouped/{quiz}/quiz1_groups.csv"
+          purpose: "Grouped page clusters proposed as candidate WorkUnits."
+        - path: "data/roster.csv"
+          purpose: "Canvas roster; used to map student_id ↔ name."
+      writes:
+        - path: "data/raw_scans/"
+          what: "Canonical renamed copies of grouped page images (quiz_id_student_pXX.jpg)."
+        - path: "data/grades/session.json"
+          what: "New Session with WorkUnits built from groups; per_problem scores initialized to null."
+        - path: "data/name_review_cache/{quiz}__root.json"
+          what: "Cached predictions for faster reloads (optional)."
+
+    current_behavior:
+      description: >
+        Reads CLI-generated grouping CSVs, lets instructor confirm or fix student IDs
+        and grouping, then creates WorkUnits and writes session.json. Copies canonical
+        scan filenames into data/raw_scans for serving in the grading UI.
+      navigation_notes: >
+        After POST, redirects into the WorkUnit/strip grading flows; user doesn’t
+        directly handle session.json.
+
+    assumptions:
+      - "Rubric YAML for this quiz already exists in data/rubric/quizX.yaml."
+      - "auto_group_scans.py has been run and produced *_page_predictions.csv and *_groups.csv."
+
+    current_limitations:
+      - "No UI to re-run name review after hand-off without manually deleting session.json & resetting data."
+      - "Name review UI assumes single quiz_id active at a time in data/."
+
+  - id: flow_workunit_page
+    human_name: "Per-WorkUnit grading (legacy UI)"
+    user_action: "Instructor grades one student’s whole quiz at a time."
+    status: "live"
+
+    entrypoints:
+      - method: "GET"
+        path: "/grade/{unit_id}/page"
+        file: "app/server.py"
+        template: "app/templates/grade.html"
+      - method: "POST"
+        path: "/grade/{unit_id}/page"
+        file: "app/server.py"
+        template: "redirect → /grade/{target_unit_id}/page"
+
+    data_flow:
+      reads:
+        - path: "data/grades/session.json"
+          purpose: "Roster, GradingKey, list of WorkUnits and their scores."
+        - path: "data/raw_scans/"
+          purpose: "Page images referenced in WorkUnit.page_filenames."
+      writes:
+        - path: "data/grades/session.json"
+          what: "Updated per_problem scores, comments, page_filenames, student_id, pinned_note."
+
+    current_behavior:
+      description: >
+        Shows all pages for one WorkUnit, plus roster dropdown, per-problem score inputs,
+        comment, and pinned_note. Supports append/remove scan actions and creates new
+        WorkUnits from unclaimed pages when advancing past the last unit.
+      navigation_notes: >
+        Actions: save, save_prev, save_next, append_scan, remove_scan; POST always
+        redirects to a GET to avoid double-submit on browser refresh.
+
+    current_limitations:
+      - "Uses full-page images; no per-problem cropping."
+      - "Scan ordering logic is heuristic (next file after last_page in RAW_SCANS_DIR)."
+
+  - id: flow_strip_grading
+    human_name: "Per-problem strip grading"
+    user_action: "Instructor grades one question across all students using cropped strips."
+    status: "live"
+
+    entrypoints:
+      - method: "GET"
+        path: "/problem/{problem_id}/strips"
+        file: "app/server.py"
+        template: "app/templates/problem_strips.html"
+        query_params:
+          - name: "refresh"
+            type: "int"
+            default: 0
+            meaning: "If non-zero, recompute segmentation cache for this problem before rendering."
+      - method: "POST"
+        path: "/problem/{problem_id}/strips"
+        file: "app/server.py"
+        template: "redirect → /problem/{next_problem_id}/strips | /problem/{prev_problem_id}/strips | self"
+
+    data_flow:
+      reads:
+        - path: "data/grades/session.json"
+          purpose: "Current grading_key, problem_notes, and WorkUnits."
+        - path: "data/raw_scans/{page_filename}"
+          purpose: "Source page images for segmentation + cropping."
+        - path: "data/grades/segments_{problem_id}.json"
+          purpose: "Segmentation cache of bounding boxes per WorkUnit (if present)."
+      writes:
+        - path: "data/grades/segments_{problem_id}.json"
+          what: "List of per-WorkUnit segmentation dicts produced by segment_page_for_problem."
+        - path: "data/grades/session.json"
+          what: "Updated per_problem scores for this problem across all WorkUnits and problem_notes[problem_id]."
+
+    segmentation_behavior:
+      cache_location: "data/grades/segments_{problem_id}.json"
+      cache_strategy: >
+        On cache miss or refresh=1, iterates over all WorkUnits and their page_filenames,
+        calling segmentation_core.segment_page_for_problem() until it finds a present=True
+        segment. Writes one record per WorkUnit (real segment or present=False placeholder).
+      record_schema:
+        # derived from segments_Q1.json sample
+        unit_id: "int (WorkUnit.unit_id)"
+        page_filename: "string (optional if present=False)"
+        page_index: "int index into WorkUnit.page_filenames"
+        bbox: "[x1, y1, x2, y2] with coordinates normalized to [0,1]"
+        present: "bool (True if answer found on some page)"
+        comment: "string | null (VLM commentary)"
+        confidence: "float in [0,1]"
+
+    current_behavior:
+      description: >
+        For a given problem_id, ensures segmentation cache exists, then builds a list
+        of strips combining WorkUnits, student names, and QuestionSegment objects
+        built from the cached bbox data. Renders one row per student with cropped
+        answer, score input, and per-problem note.
+      navigation_notes: >
+        POST saves scores and problem_note, then decides next problem id based on
+        grading_key order and action = save_next | save_back | save.
+
+    current_limitations:
+      - "Crops are entirely VLM-generated; there is no manual override or UI to edit bbox yet."
+      - "Segmentation cache invalidation is manual: delete segments_{problem_id}.json or use refresh=1."
+      - "Each WorkUnit gets at most one segment per problem; multi-answer or multi-part layouts are not modeled."
+
+  - id: flow_export_csv
+    human_name: "Export grades for Canvas"
+    user_action: "Instructor downloads a Canvas-importable CSV of final scores."
+    status: "live"
+
+    entrypoints:
+      - method: "GET"
+        path: "/export"
+        file: "app/server.py"
+        template: "FastAPI JSON/streaming response (no Jinja template)."
+
+    data_flow:
+      reads:
+        - path: "data/grades/session.json"
+          purpose: "GradingKey, WorkUnits with per_problem scores."
+      writes: []
+
+    current_behavior:
+      description: >
+        Sums per_problem scores for each WorkUnit according to GradingKey, producing
+        <quiz_id>_score per student_id, and returns a CSV suitable for Canvas import.
+
+    current_limitations:
+      - "Assumes all per_problem scores are non-null before export; no partial export."
+
+  - id: flow_finalize_archive
+    human_name: "Finalize & Archive assignment"
+    user_action: "Instructor archives finished assignment and clears data/ for next quiz."
+    status: "live"
+
+    entrypoints:
+      - method: "POST"
+        path: "/finalize_and_archive"   # (actual path: see server.py; this is conceptual key)
+        file: "app/server.py"
+        template: "handled from grading UI; no dedicated template file."
+
+    data_flow:
+      reads:
+        - path: "data/"
+          purpose: "Snapshot of current session.json, raw_scans, rubric, auto_grouped outputs."
+      writes:
+        - path: "data_archive/{timestamp}_{label}/"
+          what: "Full snapshot of data/ + metadata.json for reproducibility."
+        - path: "data/raw_scans/"
+          what: "Cleared for next assignment."
+        - path: "data/grades/session.json"
+          what: "Deleted or reset; no active session."
+
+    current_limitations:
+      - "No UI to browse or restore archives; restore is manual via copying from data_archive."
+
+# -------------------------------------------------------------------
+# 3. Data files / schemas ("The Schema")
+# -------------------------------------------------------------------
+
+data_files:
+
+  - path: "data/grades/session.json"
+    role: "grading_db"
+    authority: "Source of truth for grading phase after hand-off."
+    schema_summary:
+      top_level_keys:
+        - "grading_key"
+        - "pinned_note"
+        - "problem_notes"
+        - "roster"
+        - "unclaimed_pages"
+        - "work_units"
+      grading_key:
+        quiz_id: "string"
+        max_points: "number"
+        problems: "list[{id,label,points}]"
+      work_units:
+        - unit_id: "int"
+          student_id: "string | null"
+          page_filenames: "list[str], filenames in data/raw_scans/"
+          per_problem: "map[problem_id → number | null]"
+          per_problem_comments: "map[problem_id → string | null]"
+          comment: "string | null (overall comment)"
+      problem_notes:
+        "[problem_id]": "string (rubric note displayed in strip view)"
+      pinned_note: "string | null (answer key / global grading notes)"
+      unclaimed_pages: "list[str] (unused scan filenames that can be assigned to new WorkUnits)"
+
+  - path: "data/grades/segments_{problem_id}.json"
+    role: "segmentation_cache"
+    authority: "Derived, but authoritative for which region is cropped in strip view until recomputed."
+    record_schema:
+      - unit_id: "int (WorkUnit.unit_id)"
+        page_filename: "string | null"
+        page_index: "int | null"
+        bbox: "[x1, y1, x2, y2] floats in [0,1]"
+        present: "bool"
+        comment: "string | null"
+        confidence: "float"
+    lifecycle:
+      created_by: "GET /problem/{problem_id}/strips when cache is missing or refresh=1"
+      used_by: "GET /problem/{problem_id}/strips when building strips list"
+      invalidation: "Delete file manually or call strips endpoint with refresh=1."
+
+  - path: "data/auto_grouped/{quiz}/quiz1_page_predictions.csv"
+    role: "name_predictions"
+    authority: "Primary VLM output for clustering pages by student before hand-off."
+    notes: "Used by auto_group_scans CLI and /name_review; safe to regenerate."
+
+  - path: "data/auto_grouped/{quiz}/quiz1_groups.csv"
+    role: "page_groups"
+    authority: "Input to name review UI; describes candidate WorkUnits before hand-off."
+    notes: "Hand-off converts these groups into WorkUnits and canonical filenames."
+
+  - path: "data/raw_scans/"
+    role: "images_live"
+    authority: "Canonical images for current assignment; used by WorkUnit UI and strip view."
+    notes: >
+      After hand-off, contains quiz_id_student_pXX.jpg copies named via canonical_filename().
+      Original source images may also exist under data_archive snapshots.
+
+  - path: "data/name_review_cache/{quiz}__root.json"
+    role: "name_cache"
+    authority: "Performance-only cache; can be deleted to force recomputation."
+
+  - path: "data/rubric/quiz1.yaml"
+    role: "rubric"
+    authority: "Defines GradingKey for this quiz; must match per_problem keys in session.json."
+
+  - path: "data_archive/{timestamp}_{label}/"
+    role: "archive"
+    authority: "Immutable snapshot of an entire run; never mutated after creation."
+
+# -------------------------------------------------------------------
+# 4. Code structure (where to look for what)
+# -------------------------------------------------------------------
+
+code_structure:
+
+  - file: "app/server.py"
+    purpose: "FastAPI application, routes, and UI orchestration."
+    key_endpoints:
+      - "GET  /name_review"
+      - "POST /name_review"
+      - "GET  /grade/{unit_id}/page"
+      - "POST /grade/{unit_id}/page"
+      - "GET  /problem/{problem_id}/strips"
+      - "POST /problem/{problem_id}/strips"
+      - "GET  /export"
+      - "POST /finalize_and_archive (or equivalent handler wired from grading UI)"
+    notes: >
+      Also defines canonical_filename, session load/save helpers via storage.py,
+      and hand-off logic that writes session.json.
+
+  - file: "app/models.py"
+    purpose: "Pydantic / dataclass models for Session, WorkUnit, GradingKey, QuestionSegment, etc."
+    key_models:
+      - "Session"
+      - "WorkUnit"
+      - "GradingKey"
+      - "RosterEntry"
+      - "QuestionSegment"
+
+  - file: "app/segmentation_core.py"
+    purpose: "VLM-based per-page question segmentation helper."
+    key_functions:
+      - name: "segment_page_for_problem(image_path, problem_id, problem_description, client)"
+        returns: "QuestionSegment (present, bbox, comment, confidence, page_filename)."
+      - name: "debug_segment_view"
+        purpose: "Write overlay + crop debug_output_segment_all/* images for a single problem."
+
+  - file: "app/auto_group_core.py"
+    purpose: "CLI pipeline for VLM name recognition + page grouping into candidate submissions."
+    key_functions:
+      - "run_auto_group_scans(...) → *_page_predictions.csv + *_groups.csv + renamed scans"
+
+  - file: "app/storage.py"
+    purpose: "Load/save helpers for roster, grading_key, and session.json."
+    key_functions:
+      - "load_roster()"
+      - "load_grading_key()"
+      - "save_session(session, path)"
+      - "get_session() / persist_session() (via server.py wrappers)."
+
+  - file: "app/templates/grade.html"
+    purpose: "Per-WorkUnit grading UI."
+  - file: "app/templates/name_review.html"
+    purpose: "Name review / VLM grouping correction UI."
+  - file: "app/templates/problem_strips.html"
+    purpose: "Per-problem strip grading UI."
+
+  - file: "scripts/init_session.py"
+    purpose: "Initialize a fresh data/ environment for a new assignment."
+  - file: "scripts/auto_group_scans.py"
+    purpose: "Batch VLM run to produce page_predictions + groups CSVs."
+  - file: "scripts/debug_segment_view.py"
+    purpose: "Debug segmentation for one problem; writes overlay and crop PNGs."
+
+# -------------------------------------------------------------------
+# 5. Design decisions & invariants
+# -------------------------------------------------------------------
+
+design_decisions:
+  - id: decision_session_json_source_of_truth
+    choice: "session.json is the single source of truth during grading."
+    rationale: >
+      Human-editable JSON, easy to diff in git, and avoids introducing a DB
+      while the system is still single-user and local-only.
+    implications:
+      - "All grading UIs must read/write through Session; CSV and ZIP exports are derived."
+
+  - id: decision_lazy_segmentation
+    choice: "Segmentation is computed lazily per problem and cached to disk."
+    rationale: "Avoids paying VLM cost for problems that are never graded via strip view."
+    implications:
+      - "First load of /problem/Qk/strips may be slow; subsequent loads hit the cache."
+      - "Deleting segments_{problem_id}.json or using refresh=1 forces recomputation."
+
+  - id: decision_local_only
+    choice: "Scans never leave the local machine automatically."
+    rationale: "FERPA and privacy: only CSV scores and text comments are intended for upload."
+    implications:
+      - "No Canvas API integration for auto-upload of images."
+      - "ZIP exports are for human-controlled upload or archival."
+
+critical_constraints:
+  - id: constraint_no_init_after_handoff
+    rule: "Do NOT run scripts/init_session.py after session.json has been created for a quiz."
+    reason: "It will overwrite the active graded session and destroy WorkUnits."
+  - id: constraint_segments_are_derived
+    rule: "Do not hand-edit segments_{problem_id}.json except via a dedicated manual-crop feature."
+    reason: "They are derived from VLM results and expected to match what strip view shows."
+  - id: constraint_one_student_per_workunit
+    rule: "A WorkUnit must be associated with at most one student_id."
+    reason: "Export and UI logic assume a 1–1 mapping between WorkUnit and student."
+
+# -------------------------------------------------------------------
+# 6. Version notes (lightweight)
+# -------------------------------------------------------------------
+
+version_history:
+  - version: "v0"
+    notes:
+      - "Legacy per-WorkUnit grading UI only (grade.html)."
+      - "No segmentation or strip view; all work done via /grade/{unit_id}/page."
+
+  - version: "v0.2"
+    notes:
+      - "Added pinned_note to Session."
+      - "Added Finalize & Archive flow and data_archive snapshots."
+
+  - version: "v0.3"
+    notes:
+      - "Introduced strip view grading /problem/{id}/strips with segmentation cache."
+      - "Added problem_notes per problem and per-problem POST handler."
+      - "Segment cache stored as segments_{problem_id}.json with normalized bboxes."
