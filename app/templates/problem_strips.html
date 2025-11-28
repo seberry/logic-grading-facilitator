@@ -51,9 +51,47 @@
       background: #eee;
       border-radius: 4px;
       width: 100%;
-      height: auto; 
+      height: auto;
       overflow: visible; /* Default to full view */
     }
+
+    .bbox-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    .thumb-wrapper.is-cropped .bbox-overlay {
+      display: none;
+    }
+
+    .bbox-rect {
+      position: absolute;
+      border: 2px solid rgba(239, 68, 68, 0.95);
+      background: rgba(239, 68, 68, 0.08);
+      box-sizing: border-box;
+      cursor: move;
+      pointer-events: auto;
+    }
+
+    .bbox-handle {
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      background: rgba(239, 68, 68, 0.95);
+      border: 1px solid #fff;
+      border-radius: 2px;
+      pointer-events: auto;
+    }
+
+    .bbox-handle.handle-nw { top: -6px; left: -6px; cursor: nwse-resize; }
+    .bbox-handle.handle-ne { top: -6px; right: -6px; cursor: nesw-resize; }
+    .bbox-handle.handle-sw { bottom: -6px; left: -6px; cursor: nesw-resize; }
+    .bbox-handle.handle-se { bottom: -6px; right: -6px; cursor: nwse-resize; }
+    .bbox-handle.handle-n { top: -6px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+    .bbox-handle.handle-s { bottom: -6px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
+    .bbox-handle.handle-e { right: -6px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
+    .bbox-handle.handle-w { left: -6px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
 
     /* Cropped State */
     .thumb-wrapper.is-cropped {
@@ -90,6 +128,28 @@
     }
     .student-name { font-weight: 600; font-size: 1.1rem; display: block; }
     .unit-id { font-size: 0.85rem; color: #888; margin-top: 0.2rem; }
+
+    .bbox-meta {
+      font-size: 0.85rem;
+      color: #555;
+      margin-top: 0.25rem;
+    }
+
+    .bbox-badge {
+      display: inline-block;
+      padding: 0.2rem 0.5rem;
+      border-radius: 999px;
+      border: 1px solid #fca5a5;
+      background: #fef2f2;
+      color: #b91c1c;
+      font-weight: 600;
+    }
+
+    .bbox-badge.is-manual {
+      border-color: #93c5fd;
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
 
     /* Button Row */
     .btn-row {
@@ -246,13 +306,20 @@
   {% for item in strips %}
     {% set wu = item.work_unit %}
     {% set seg = item.segment %}
-    
+    {% set fname = seg.page_filename if seg and seg.present else (wu.page_filenames[0] if wu.page_filenames else None) %}
+    {% set page_idx = seg.page_index if seg and seg.present else 0 %}
+
     <div class="strip" id="strip-{{ loop.index0 }}">
-      
-      <div class="thumb-wrapper" id="wrapper-{{ loop.index0 }}">
-        {% if wu.page_filenames %}
-            {% set fname = seg.page_filename if seg and seg.present else wu.page_filenames[0] %}
-            
+
+      <div class="thumb-wrapper"
+           id="wrapper-{{ loop.index0 }}"
+           data-unit-id="{{ wu.unit_id }}"
+           data-problem-id="{{ problem_id }}"
+           data-page-index="{{ page_idx }}"
+           data-page-filename="{{ fname or '' }}"
+           data-source="{{ seg.source if seg else 'auto' }}">
+        {% if wu.page_filenames and fname %}
+
             {% if seg and seg.present and seg.bbox %}
                {% set b_xmin = seg.bbox[0] %}
                {% set b_ymin = seg.bbox[1] %}
@@ -264,14 +331,26 @@
                {% set b_xmin, b_ymin, b_w, b_h = 0, 0, 1, 1 %}
             {% endif %}
 
-            <img class="scan-image" 
-                 src="/scans/{{ fname }}" 
+            <img class="scan-image"
+                 src="/scans/{{ fname }}"
                  alt="Scan"
                  data-has-bbox="{{ 'true' if seg and seg.present and seg.bbox else 'false' }}"
                  data-xmin="{{ b_xmin }}"
                  data-ymin="{{ b_ymin }}"
                  data-w="{{ b_w }}"
                  data-h="{{ b_h }}">
+            <div class="bbox-overlay" data-index="{{ loop.index0 }}">
+              <div class="bbox-rect">
+                <div class="bbox-handle handle-nw" data-dir="nw"></div>
+                <div class="bbox-handle handle-ne" data-dir="ne"></div>
+                <div class="bbox-handle handle-sw" data-dir="sw"></div>
+                <div class="bbox-handle handle-se" data-dir="se"></div>
+                <div class="bbox-handle handle-n" data-dir="n"></div>
+                <div class="bbox-handle handle-s" data-dir="s"></div>
+                <div class="bbox-handle handle-e" data-dir="e"></div>
+                <div class="bbox-handle handle-w" data-dir="w"></div>
+              </div>
+            </div>
         {% else %}
            <div style="padding:1rem;">No Scan</div>
         {% endif %}
@@ -285,20 +364,27 @@
         </div>
 
         <div class="btn-row">
-            {% if seg and seg.present and seg.bbox %}
+            {% if wu.page_filenames and fname %}
             <button class="btn btn-crop"
         type="button"
         data-index="{{ loop.index0 }}"
         onclick="toggleCrop(this)">
     Show Full Page
 </button>
+            <button class="btn" type="button" data-index="{{ loop.index0 }}" onclick="saveCrop(this)">
+    Save Crop
+</button>
             {% endif %}
-            
+
             <button class="btn btn-pin"
         type="button"
         onclick="togglePin(this)">
     📌 Pin
     </button>
+        </div>
+
+        <div class="bbox-meta">
+          <span class="bbox-badge {% if seg and seg.source == 'manual' %}is-manual{% endif %}">BBox: {{ 'Manual override' if seg and seg.source == 'manual' else 'Auto (model)' }}</span>
         </div>
 
         <label class="score-group">
@@ -349,6 +435,167 @@
 
   <script>
 
+      const PROBLEM_ID = "{{ problem_id }}";
+      const dragState = {
+        active: false,
+        wrapper: null,
+        mode: null,
+        startX: 0,
+        startY: 0,
+        startBox: null,
+      };
+
+      function clampBox(box) {
+        const minSize = 0.01;
+        let x = Math.max(0, Math.min(box.x, 1));
+        let y = Math.max(0, Math.min(box.y, 1));
+        let w = Math.max(minSize, Math.min(box.w, 1));
+        let h = Math.max(minSize, Math.min(box.h, 1));
+
+        if (x + w > 1) {
+          x = Math.max(0, 1 - w);
+        }
+        if (y + h > 1) {
+          y = Math.max(0, 1 - h);
+        }
+
+        return { x, y, w: Math.min(w, 1 - x), h: Math.min(h, 1 - y) };
+      }
+
+      function getBox(wrapper) {
+        const img = wrapper.querySelector('.scan-image');
+        if (!img) return { x: 0, y: 0, w: 1, h: 1 };
+        const x = parseFloat(img.dataset.xmin || '0');
+        const y = parseFloat(img.dataset.ymin || '0');
+        const w = parseFloat(img.dataset.w || '1');
+        const h = parseFloat(img.dataset.h || '1');
+        return clampBox({ x, y, w, h });
+      }
+
+      function updateOverlay(wrapper, box) {
+        const overlay = wrapper.querySelector('.bbox-overlay');
+        const rect = wrapper.querySelector('.bbox-rect');
+        if (!overlay || !rect) return;
+
+        const b = clampBox(box || getBox(wrapper));
+        rect.style.left = `${b.x * 100}%`;
+        rect.style.top = `${b.y * 100}%`;
+        rect.style.width = `${b.w * 100}%`;
+        rect.style.height = `${b.h * 100}%`;
+        overlay.style.display = 'block';
+      }
+
+      function setOverlayVisible(wrapper, visible) {
+        const overlay = wrapper.querySelector('.bbox-overlay');
+        if (!overlay) return;
+        overlay.style.display = visible ? 'block' : 'none';
+      }
+
+      function setBox(wrapper, box) {
+        const img = wrapper.querySelector('.scan-image');
+        if (!img) return;
+        const clean = clampBox(box);
+        img.dataset.xmin = clean.x;
+        img.dataset.ymin = clean.y;
+        img.dataset.w = clean.w;
+        img.dataset.h = clean.h;
+        updateOverlay(wrapper, clean);
+      }
+
+      function startInteraction(wrapper, mode, evt) {
+        evt.preventDefault();
+        dragState.active = true;
+        dragState.wrapper = wrapper;
+        dragState.mode = mode;
+        dragState.startX = evt.clientX;
+        dragState.startY = evt.clientY;
+        dragState.startBox = getBox(wrapper);
+        document.body.style.userSelect = 'none';
+      }
+
+      function onPointerMove(evt) {
+        if (!dragState.active || !dragState.wrapper) return;
+        const overlay = dragState.wrapper.querySelector('.bbox-overlay');
+        if (!overlay) return;
+        const bounds = overlay.getBoundingClientRect();
+        if (!bounds.width || !bounds.height) return;
+
+        const dx = (evt.clientX - dragState.startX) / bounds.width;
+        const dy = (evt.clientY - dragState.startY) / bounds.height;
+
+        let { x, y, w, h } = dragState.startBox;
+
+        switch (dragState.mode) {
+          case 'move':
+            x += dx; y += dy;
+            break;
+          case 'nw':
+            x += dx; y += dy; w -= dx; h -= dy;
+            break;
+          case 'ne':
+            y += dy; w += dx; h -= dy;
+            break;
+          case 'sw':
+            x += dx; w -= dx; h += dy;
+            break;
+          case 'se':
+            w += dx; h += dy;
+            break;
+          case 'n':
+            y += dy; h -= dy;
+            break;
+          case 's':
+            h += dy;
+            break;
+          case 'e':
+            w += dx;
+            break;
+          case 'w':
+            x += dx; w -= dx;
+            break;
+          default:
+            break;
+        }
+
+        setBox(dragState.wrapper, { x, y, w, h });
+      }
+
+      function onPointerUp() {
+        dragState.active = false;
+        dragState.wrapper = null;
+        dragState.mode = null;
+        document.body.style.userSelect = '';
+      }
+
+      document.addEventListener('mousemove', onPointerMove);
+      document.addEventListener('mouseup', onPointerUp);
+
+      function attachBBoxHandlers(wrapper) {
+        const rect = wrapper.querySelector('.bbox-rect');
+        if (!rect) return;
+
+        rect.addEventListener('mousedown', (evt) => {
+          if (evt.target.classList.contains('bbox-handle')) return;
+          startInteraction(wrapper, 'move', evt);
+        });
+
+        wrapper.querySelectorAll('.bbox-handle').forEach((handle) => {
+          handle.addEventListener('mousedown', (evt) => {
+            evt.stopPropagation();
+            startInteraction(wrapper, handle.dataset.dir, evt);
+          });
+        });
+      }
+
+      function updateSourceBadge(wrapper) {
+        const badge = wrapper.querySelector('.bbox-badge');
+        if (!badge) return;
+        const source = (wrapper.dataset.source || 'auto').toLowerCase();
+        const isManual = source === 'manual';
+        badge.textContent = isManual ? 'BBox: Manual override' : 'BBox: Auto (model)';
+        badge.classList.toggle('is-manual', isManual);
+      }
+
       // --- FILL FULL CREDIT FOR UNGRADED ---
     const fillBtn = document.getElementById('btn-fill-credits');
     if (fillBtn) {
@@ -365,7 +612,7 @@
     }
 
     // --- CROPPING LOGIC (Same as before, simplified params) ---
-    const PADDING_FACTOR = 0.2; 
+    const PADDING_FACTOR = 0.2;
     const MAX_SCALE = 2.5;
 
     function applyCrop(wrapperIndex, enable) {
@@ -373,8 +620,11 @@
       const img = wrapper.querySelector('.scan-image');
       const strip = wrapper.closest('.strip');
       const btn = strip.querySelector(`.btn-crop`);
-      
-      if (!img || img.dataset.hasBbox !== 'true') return;
+
+      if (!img) return;
+      const hasBbox = img.dataset.hasBbox === 'true';
+
+      if (enable && !hasBbox) return;
 
       if (enable) {
         let x = parseFloat(img.dataset.xmin);
@@ -405,12 +655,15 @@
         img.style.transform = `scale(${finalScale}) translate(${transX}%, ${transY}%)`;
         wrapper.classList.add('is-cropped');
         if(btn) btn.textContent = "Show Full Page";
+        setOverlayVisible(wrapper, false);
 
       } else {
         img.style.transform = 'none';
         wrapper.style.removeProperty('--aspect-ratio');
         wrapper.classList.remove('is-cropped');
         if(btn) btn.textContent = "Zoom to Answer";
+        updateOverlay(wrapper);
+        setOverlayVisible(wrapper, true);
       }
     }
 
@@ -419,6 +672,57 @@
       const wrapper = document.getElementById(`wrapper-${index}`);
       const isCropped = wrapper.classList.contains('is-cropped');
       applyCrop(index, !isCropped);
+    }
+
+    async function saveCrop(btn) {
+      const index = btn.dataset.index;
+      const wrapper = document.getElementById(`wrapper-${index}`);
+      if (!wrapper) return;
+      const img = wrapper.querySelector('.scan-image');
+      if (!img) return;
+
+      const box = getBox(wrapper);
+      const payload = {
+        unit_id: parseInt(wrapper.dataset.unitId, 10),
+        page_index: parseInt(wrapper.dataset.pageIndex || '0', 10),
+        page_filename: wrapper.dataset.pageFilename,
+        bbox: [box.x, box.y, box.x + box.w, box.y + box.h],
+      };
+
+      const originalText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Saving...';
+
+      try {
+        const resp = await fetch(`/problem/${PROBLEM_ID}/bbox`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+
+        if (!resp.ok) {
+          const msg = await resp.text();
+          throw new Error(msg || 'Server error');
+        }
+
+        const data = await resp.json();
+        img.dataset.hasBbox = 'true';
+        wrapper.dataset.source = data.source || 'manual';
+        wrapper.dataset.pageIndex = String(data.page_index ?? payload.page_index);
+        updateSourceBadge(wrapper);
+        updateOverlay(wrapper, box);
+
+        btn.textContent = 'Saved';
+      } catch (err) {
+        console.error(err);
+        alert(`Failed to save crop: ${err}`);
+        btn.textContent = 'Retry Save';
+      } finally {
+        setTimeout(() => {
+          btn.disabled = false;
+          btn.textContent = originalText;
+        }, 900);
+      }
     }
 
     // --- PINNING LOGIC ---
@@ -444,9 +748,15 @@
     // --- INITIALIZE ---
     window.addEventListener('load', () => {
         document.querySelectorAll('.thumb-wrapper').forEach((wrapper, index) => {
+            attachBBoxHandlers(wrapper);
+            updateSourceBadge(wrapper);
+            updateOverlay(wrapper);
+
             const img = wrapper.querySelector('.scan-image');
             if (img && img.dataset.hasBbox === 'true') {
                 applyCrop(index, true);
+            } else {
+                setOverlayVisible(wrapper, true);
             }
         });
     });

@@ -24,6 +24,7 @@ class QuestionSegment:
     present: bool
     comment: Optional[str]
     confidence: float
+    source: str = "auto"
 
 
 def segment_page_for_problem(
@@ -63,6 +64,7 @@ def segment_page_for_problem(
             present=False,
             comment=f"JSON parse error: {e}",
             confidence=0.0,
+            source="auto",
         )
 
     return QuestionSegment(
@@ -73,4 +75,5 @@ def segment_page_for_problem(
         present=bool(data.get("present", False)),
         comment=data.get("comment"),
         confidence=float(data.get("confidence", 0.0)),
+        source=str(data.get("source", "auto")) or "auto",
     )
