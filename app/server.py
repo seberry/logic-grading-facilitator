@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 import threading
 import io
 import csv
@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from .storage import load_session, save_session, RAW_SCANS_DIR, GRADES_DIR, archive_current_data
 from .segmentation_core import segment_page_for_problem, QuestionSegment
 
@@ -1343,6 +1343,102 @@ async def name_review_submit(request: Request) -> Response:
 
 from fastapi import Query
 
+
+class BBoxUpdate(BaseModel):
+    unit_id: int
+    page_index: int
+    page_filename: str
+    bbox: List[float] = Field(min_length=4, max_length=4)
+
+
+@app.post("/problem/{problem_id}/bbox")
+def update_problem_bbox(problem_id: str, payload: BBoxUpdate):
+    """Persist a manually-adjusted bounding box for a problem/work unit."""
+
+    with _session_lock:
+        session = get_session()
+
+        spec = next((p for p in session.grading_key.problems if p.id == problem_id), None)
+        if spec is None:
+            raise HTTPException(status_code=404, detail=f"Unknown problem id {problem_id!r}")
+
+        wu = next((w for w in session.work_units if w.unit_id == payload.unit_id), None)
+        if wu is None:
+            raise HTTPException(status_code=404, detail=f"Unknown WorkUnit {payload.unit_id}")
+
+        if not wu.page_filenames:
+            raise HTTPException(status_code=400, detail="WorkUnit has no pages to crop")
+
+        page_index = payload.page_index
+        if page_index < 0 or page_index >= len(wu.page_filenames) or wu.page_filenames[page_index] != payload.page_filename:
+            try:
+                page_index = wu.page_filenames.index(payload.page_filename)
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="page_filename must reference a page in this WorkUnit",
+                )
+
+        try:
+            bbox_values = [float(v) for v in payload.bbox]
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="bbox must contain numeric values")
+
+        if len(bbox_values) != 4:
+            raise HTTPException(status_code=400, detail="bbox must have four entries")
+
+        x_min, y_min, x_max, y_max = bbox_values
+        if not (0.0 <= x_min < x_max <= 1.0 and 0.0 <= y_min < y_max <= 1.0):
+            raise HTTPException(
+                status_code=400,
+                detail="bbox must be normalized floats with 0 <= x_min < x_max <= 1 and 0 <= y_min < y_max <= 1",
+            )
+
+        cache_path = GRADES_DIR / f"segments_{problem_id}.json"
+        try:
+            existing_data = json.load(cache_path.open("r", encoding="utf-8")) if cache_path.exists() else []
+        except Exception:
+            existing_data = []
+
+        segments_map = {d.get("unit_id"): d for d in existing_data}
+        updated_entry = segments_map.get(wu.unit_id) or {}
+        updated_entry.update(
+            {
+                "unit_id": wu.unit_id,
+                "page_filename": payload.page_filename,
+                "page_index": page_index,
+                "bbox": bbox_values,
+                "present": True,
+                "source": "manual",
+            }
+        )
+        segments_map[wu.unit_id] = updated_entry
+
+        segments_data: List[Dict[str, Any]] = []
+        for wu_entry in session.work_units:
+            entry = segments_map.get(wu_entry.unit_id)
+            if entry is None:
+                entry = {
+                    "unit_id": wu_entry.unit_id,
+                    "present": False,
+                    "bbox": None,
+                    "page_filename": wu_entry.page_filenames[0] if wu_entry.page_filenames else None,
+                    "page_index": 0,
+                    "source": "auto",
+                }
+            segments_data.append(entry)
+
+        GRADES_DIR.mkdir(parents=True, exist_ok=True)
+        with cache_path.open("w", encoding="utf-8") as f:
+            json.dump(segments_data, f, indent=2)
+
+    return {
+        "status": "ok",
+        "bbox": bbox_values,
+        "page_index": page_index,
+        "source": "manual",
+    }
+
 @app.get("/problem/{problem_id}/strips", response_class=HTMLResponse)
 def get_problem_strips(
     request: Request,
@@ -1360,33 +1456,62 @@ def get_problem_strips(
     # 2. Setup Cache Path
     # This resolves to: data/grades/segments_Q1.json
     cache_path = GRADES_DIR / f"segments_{problem_id}.json"
-    
-    segments_data = None
-    
-    # --- STEP A: Get Segmentation Data (Cache or Compute) ---
-    
-    # If file exists AND we aren't forcing a refresh...
-    if cache_path.exists() and not refresh:
+
+    existing_data = None
+    if cache_path.exists():
         print(f"[CACHE HIT] Loading segmentation from {cache_path}")
         try:
             with cache_path.open("r", encoding="utf-8") as f:
-                segments_data = json.load(f)
+                existing_data = json.load(f)
         except Exception as e:
             print(f"[CACHE ERROR] Could not read cache: {e}. Recomputing.")
-            segments_data = None
+            existing_data = None
 
-    if segments_data is None:
-        print(f"[CACHE MISS] Computing fresh segmentation for {problem_id}...")
-        client = LMStudioQwenClient()
-        segments_data = []
-        
+    def normalize_entry(unit_id: int, entry: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        entry = entry or {}
+        bbox = entry.get("bbox")
+        if not isinstance(bbox, list) or len(bbox) != 4:
+            bbox = None
+        return {
+            "unit_id": unit_id,
+            "page_filename": entry.get("page_filename"),
+            "page_index": int(entry.get("page_index", 0) or 0),
+            "bbox": bbox,
+            "present": bool(entry.get("present", False)),
+            "comment": entry.get("comment"),
+            "confidence": float(entry.get("confidence", 0.0) or 0.0),
+            "source": entry.get("source", "auto") or "auto",
+        }
+
+    # --- STEP A: Get Segmentation Data (Cache or Compute) ---
+    segments_data: List[Dict[str, Any]] = []
+    existing_map = {d.get("unit_id"): d for d in existing_data or []}
+
+    if existing_data is None or refresh:
+        action = "refresh" if refresh else "cache miss"
+        print(f"[CACHE {action.upper()}] Computing segmentation for {problem_id}...")
+        client: Optional[LMStudioQwenClient] = None
+
         for i, wu in enumerate(session.work_units):
             print(f"  > Processing Unit {wu.unit_id} ({i+1}/{len(session.work_units)})...")
+            cached = existing_map.get(wu.unit_id)
+            if cached and cached.get("source") == "manual":
+                segments_data.append(normalize_entry(wu.unit_id, cached))
+                print("    - preserving manual bbox override")
+                continue
+
+            if cached and not refresh:
+                segments_data.append(normalize_entry(wu.unit_id, cached))
+                continue
+
+            if client is None:
+                client = LMStudioQwenClient()
+
             best_seg_dict = None
 
             for idx, fname in enumerate(wu.page_filenames):
                 image_path = RAW_SCANS_DIR / fname
-                
+
                 # --- THE SLOW VLM CALL ---
                 seg = segment_page_for_problem(
                     image_path=image_path,
@@ -1394,7 +1519,7 @@ def get_problem_strips(
                     problem_description=spec.label,
                     client=client,
                 )
-                
+
                 if seg.present and seg.bbox:
                     # Found it! Save as dict for JSON serialization
                     best_seg_dict = {
@@ -1405,21 +1530,35 @@ def get_problem_strips(
                         "present": seg.present,
                         "comment": seg.comment,
                         "confidence": seg.confidence,
+                        "source": seg.source,
                     }
-                    break # Stop checking other pages for this student
-            
+                    break  # Stop checking other pages for this student
+
             # Add result (or placeholder if not found)
-            segments_data.append(best_seg_dict or {
-                "unit_id": wu.unit_id,
-                "present": False, 
-                "bbox": None
-            })
+            segments_data.append(
+                best_seg_dict
+                or {
+                    "unit_id": wu.unit_id,
+                    "present": False,
+                    "bbox": None,
+                    "page_filename": wu.page_filenames[0] if wu.page_filenames else None,
+                    "page_index": 0,
+                    "source": "auto",
+                }
+            )
 
         # Save to disk
         print(f"[CACHE SAVE] Writing to {cache_path}")
         GRADES_DIR.mkdir(parents=True, exist_ok=True)
         with cache_path.open("w", encoding="utf-8") as f:
             json.dump(segments_data, f, indent=2)
+    else:
+        print("[CACHE HIT] Using existing segmentation data (no refresh)")
+        for wu in session.work_units:
+            cached = existing_map.get(wu.unit_id)
+            if cached is None and wu.page_filenames:
+                cached = {"page_filename": wu.page_filenames[0], "page_index": 0}
+            segments_data.append(normalize_entry(wu.unit_id, cached))
 
     # --- STEP B: Build UI Objects (Fast) ---
     
@@ -1447,7 +1586,8 @@ def get_problem_strips(
                 bbox=seg_data["bbox"],
                 present=True,
                 comment=seg_data.get("comment"),
-                confidence=seg_data.get("confidence", 0.0)
+                confidence=seg_data.get("confidence", 0.0),
+                source=seg_data.get("source", "auto"),
             )
 
         strips.append({
