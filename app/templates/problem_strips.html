@@ -595,12 +595,30 @@ function toggleEditMode(btn) {
     });
     
     croppers[index] = cropper;
-    
+
     // Update button UI
     btn.textContent = "✓ Apply";
     btn.classList.add('active');
   }
 }
+
+    // --- PREFETCH NEXT PROBLEM ---
+    (function prefetchNextProblem() {
+      const nextProblemId = "{{ next_problem_id or '' }}";
+      if (!nextProblemId) return;
+
+      const encodedId = encodeURIComponent(nextProblemId);
+
+      setTimeout(() => {
+        fetch(`/problem/${encodedId}/prefetch`, { method: 'POST' })
+          .then((resp) => {
+            if (!resp.ok) {
+              console.warn(`Prefetch failed for ${nextProblemId}: ${resp.status}`);
+            }
+          })
+          .catch((err) => console.warn('Prefetch request failed', err));
+      }, 2000);
+    })();
   </script>
 </body>
 </html>
