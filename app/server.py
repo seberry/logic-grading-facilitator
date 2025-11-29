@@ -115,6 +115,7 @@ def canonical_filename(
 
 _session_lock = threading.Lock()
 _session: Optional[Session] = None
+_segmentation_lock = threading.Lock()
 
 
 def get_session() -> Session:
@@ -1196,6 +1197,112 @@ async def name_review_submit(request: Request) -> Response:
     )
 from fastapi import Query
 
+def _compute_segments_data(session: Session, spec, cache_path: Path) -> List[Dict]:
+    problem_id = spec.id
+    print(f"[CACHE MISS] Computing fresh segmentation for {problem_id}...")
+    client = LMStudioQwenClient()
+    segments_data: List[Dict] = []
+
+    for i, wu in enumerate(session.work_units):
+        print(f"  > Processing Unit {wu.unit_id} ({i+1}/{len(session.work_units)})...")
+        best_seg_dict = None
+
+        for idx, fname in enumerate(wu.page_filenames):
+            image_path = RAW_SCANS_DIR / fname
+
+            # --- THE SLOW VLM CALL ---
+            seg = segment_page_for_problem(
+                image_path=image_path,
+                problem_id=problem_id,
+                problem_description=spec.label,
+                client=client,
+            )
+
+            if seg.present and seg.bbox:
+                # Found it! Save as dict for JSON serialization
+                best_seg_dict = {
+                    "unit_id": wu.unit_id,
+                    "page_filename": seg.page_filename,
+                    "page_index": idx,
+                    "bbox": seg.bbox,
+                    "present": seg.present,
+                    "comment": seg.comment,
+                    "confidence": seg.confidence,
+                }
+                break  # Stop checking other pages for this student
+
+        # Add result (or placeholder if not found)
+        segments_data.append(
+            best_seg_dict
+            or {
+                "unit_id": wu.unit_id,
+                "present": False,
+                "bbox": None,
+            }
+        )
+
+    print(f"[CACHE SAVE] Writing to {cache_path}")
+    GRADES_DIR.mkdir(parents=True, exist_ok=True)
+    with cache_path.open("w", encoding="utf-8") as f:
+        json.dump(segments_data, f, indent=2)
+
+    return segments_data
+
+
+def ensure_segments_cached(
+    session: Session,
+    spec,
+    refresh: bool = False,
+    blocking: bool = True,
+) -> Optional[List[Dict]]:
+    problem_id = spec.id
+    cache_path = GRADES_DIR / f"segments_{problem_id}.json"
+    segments_data: Optional[List[Dict]] = None
+
+    if cache_path.exists() and not refresh:
+        print(f"[CACHE HIT] Loading segmentation from {cache_path}")
+        try:
+            with cache_path.open("r", encoding="utf-8") as f:
+                segments_data = json.load(f)
+        except Exception as e:
+            print(f"[CACHE ERROR] Could not read cache: {e}. Recomputing.")
+            segments_data = None
+
+    if segments_data is None:
+        acquired = _segmentation_lock.acquire(blocking=blocking)
+        if not acquired:
+            return None
+        try:
+            if cache_path.exists() and not refresh:
+                try:
+                    with cache_path.open("r", encoding="utf-8") as f:
+                        segments_data = json.load(f)
+                except Exception as e:
+                    print(f"[CACHE ERROR] Could not read cache: {e}. Recomputing.")
+                    segments_data = None
+
+            if segments_data is None:
+                segments_data = _compute_segments_data(session, spec, cache_path)
+        finally:
+            _segmentation_lock.release()
+
+    return segments_data
+
+
+@app.post("/problem/{problem_id}/prefetch")
+def prefetch_problem(problem_id: str):
+    session = get_session()
+    spec = next((p for p in session.grading_key.problems if p.id == problem_id), None)
+    if spec is None:
+        raise HTTPException(status_code=404, detail=f"Unknown problem id {problem_id!r}")
+
+    segments_data = ensure_segments_cached(session, spec, refresh=False, blocking=False)
+    if segments_data is None:
+        return Response(content="Busy", status_code=429)
+
+    return {"status": "cached", "segments": len(segments_data)}
+
+
 @app.get("/problem/{problem_id}/strips", response_class=HTMLResponse)
 def get_problem_strips(
     request: Request,
@@ -1210,69 +1317,15 @@ def get_problem_strips(
     if spec is None:
         raise HTTPException(status_code=404, detail=f"Unknown problem id {problem_id!r}")
 
-    # 2. Setup Cache Path
-    # This resolves to: data/grades/segments_Q1.json
-    cache_path = GRADES_DIR / f"segments_{problem_id}.json"
-    
-    segments_data = None
-    
-    # --- STEP A: Get Segmentation Data (Cache or Compute) ---
-    
-    # If file exists AND we aren't forcing a refresh...
-    if cache_path.exists() and not refresh:
-        print(f"[CACHE HIT] Loading segmentation from {cache_path}")
-        try:
-            with cache_path.open("r", encoding="utf-8") as f:
-                segments_data = json.load(f)
-        except Exception as e:
-            print(f"[CACHE ERROR] Could not read cache: {e}. Recomputing.")
-            segments_data = None
+    segments_data = ensure_segments_cached(
+        session=session,
+        spec=spec,
+        refresh=bool(refresh),
+        blocking=True,
+    )
 
     if segments_data is None:
-        print(f"[CACHE MISS] Computing fresh segmentation for {problem_id}...")
-        client = LMStudioQwenClient()
-        segments_data = []
-        
-        for i, wu in enumerate(session.work_units):
-            print(f"  > Processing Unit {wu.unit_id} ({i+1}/{len(session.work_units)})...")
-            best_seg_dict = None
-
-            for idx, fname in enumerate(wu.page_filenames):
-                image_path = RAW_SCANS_DIR / fname
-                
-                # --- THE SLOW VLM CALL ---
-                seg = segment_page_for_problem(
-                    image_path=image_path,
-                    problem_id=problem_id,
-                    problem_description=spec.label,
-                    client=client,
-                )
-                
-                if seg.present and seg.bbox:
-                    # Found it! Save as dict for JSON serialization
-                    best_seg_dict = {
-                        "unit_id": wu.unit_id,
-                        "page_filename": seg.page_filename,
-                        "page_index": idx,
-                        "bbox": seg.bbox,
-                        "present": seg.present,
-                        "comment": seg.comment,
-                        "confidence": seg.confidence,
-                    }
-                    break # Stop checking other pages for this student
-            
-            # Add result (or placeholder if not found)
-            segments_data.append(best_seg_dict or {
-                "unit_id": wu.unit_id,
-                "present": False, 
-                "bbox": None
-            })
-
-        # Save to disk
-        print(f"[CACHE SAVE] Writing to {cache_path}")
-        GRADES_DIR.mkdir(parents=True, exist_ok=True)
-        with cache_path.open("w", encoding="utf-8") as f:
-            json.dump(segments_data, f, indent=2)
+        raise HTTPException(status_code=503, detail="Segmentation currently busy")
 
     # --- STEP B: Build UI Objects (Fast) ---
     
@@ -1318,6 +1371,16 @@ def get_problem_strips(
             status_code=303
         )
 
+    problem_ids = [p.id for p in grading_key.problems]
+    try:
+        idx = problem_ids.index(problem_id)
+    except ValueError:
+        idx = -1
+
+    next_problem_id = None
+    if idx != -1 and idx < len(problem_ids) - 1:
+        next_problem_id = problem_ids[idx + 1]
+
     # Standard render for normal (cached) views
     return templates.TemplateResponse(
         "problem_strips.html",
@@ -1329,6 +1392,7 @@ def get_problem_strips(
             # NEW:
             "max_points": spec.points,
             "problem_note": session.problem_notes.get(problem_id, ""),
+            "next_problem_id": next_problem_id,
         },
     )
 
