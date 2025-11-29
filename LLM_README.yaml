@@ -153,6 +153,10 @@ user_flows:
         path: "/problem/{problem_id}/strips"
         file: "app/server.py"
         template: "redirect → /problem/{next_problem_id}/strips | /problem/{prev_problem_id}/strips | self"
+      - method: "POST"
+        path: "/problem/{problem_id}/prefetch"
+        file: "app/server.py"
+        template: "FastAPI JSON/empty response; invoked via client-side prefetch for next problem."
 
     data_flow:
       reads:
@@ -174,6 +178,8 @@ user_flows:
         On cache miss or refresh=1, iterates over all WorkUnits and their page_filenames,
         calling segmentation_core.segment_page_for_problem() until it finds a present=True
         segment. Writes one record per WorkUnit (real segment or present=False placeholder).
+        The frontend issues a client-side prefetch POST shortly after page load to warm
+        the cache for the next problem id.
       record_schema:
         # derived from segments_Q1.json sample
         unit_id: "int (WorkUnit.unit_id)"
@@ -341,6 +347,7 @@ code_structure:
       - "POST /grade/{unit_id}/page"
       - "GET  /problem/{problem_id}/strips"
       - "POST /problem/{problem_id}/strips"
+      - "POST /problem/{problem_id}/prefetch"
       - "GET  /export"
       - "POST /finalize_and_archive (or equivalent handler wired from grading UI)"
     notes: >
@@ -410,6 +417,16 @@ design_decisions:
     implications:
       - "First load of /problem/Qk/strips may be slow; subsequent loads hit the cache."
       - "Deleting segments_{problem_id}.json or using refresh=1 forces recomputation."
+
+  - id: decision_client_side_prefetch
+    choice: "Segmentation prefetch is initiated client-side rather than via background threads."
+    rationale: >
+      To prevent GPU contention on single-threaded local hardware. It allows the frontend
+      to delay the request until the page is interactive and gives visibility into the
+      network state.
+    implications:
+      - "Frontend triggers POST /problem/{problem_id}/prefetch shortly after strip page load."
+      - "Server-side background workers remain idle; segmentation still respects cache locks."
 
   - id: decision_local_only
     choice: "Scans never leave the local machine automatically."
