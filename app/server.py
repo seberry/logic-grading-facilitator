@@ -406,8 +406,10 @@ async def setup_upload_scans(
             _save_image_upload(img, dest)
             saved += 1
 
-    if pdf_file:
+    if pdf_file and pdf_file.filename:
         pdf_bytes = await pdf_file.read()
+        if not pdf_bytes:
+            raise HTTPException(status_code=400, detail="Uploaded PDF was empty.")
         stem = Path(pdf_file.filename or "scans").stem or "scans"
         saved += _save_pdf_pages(pdf_bytes, stem, RAW_SCANS_DIR)
 
