@@ -7,26 +7,29 @@ data/raw_scans/ contains your image files.
 
 data/roster.csv is present.
 
-1. Start Clean (Optional)
+## 1. Start Clean (Optional)
 If you have a stale session from a previous quiz, archive it first.
 
 PowerShell
 
 python scripts\finalize_helper.py
-# Or use the "Finalize & Archive" button in the UI if the server is running.
-2. Run Auto-Grouping (AI Name Recognition)
+ Or use the "Finalize & Archive" button in the UI if the server is running.
+ 
+## 2. Run Auto-Grouping (AI Name Recognition)
 This step uses the VLM to read names and group pages. Replace quiz1 with your actual quiz slug.
 
 PowerShell
 
 python -m scripts.auto_group_scans --quiz-id quiz1 --raw-scans-dir "data/raw_scans" --out-dir "data/auto_grouped/quiz1" --roster "data/roster.csv"
-3. Start the Server
+
+## 3. Start the Server
 Keep this terminal window open.
 
 PowerShell
 
 python -m uvicorn app.server:app --reload --port 5000
-4. Review and Approve Names
+
+## 4. Review and Approve Names
 Open your browser to: http://127.0.0.1:5000/name_review?quiz=quiz1
 
 Audit: Fix any incorrect dropdowns.
@@ -35,11 +38,11 @@ Finalize: Scroll to the bottom and click “Name recognition & grouping looks go
 
 Note: This confirms which pages belong to which student.
 
-5. Initialize the Grading Session [edit: The latest version of name review finalizes by directly do the init session stuff. We should not redo it, as that will destroy things:
-python -m scripts.init_session
-This generates the fresh data/grades/session.json based on the grouped files.]
+[This now also  runs  init session stuff. We should not redo it, as that will destroy things:
+python -m scripts.init_session]
 
-6. Grade in Strip View
+
+## 5. Grade in Strip View
 Navigate to: http://127.0.0.1:5000/problem/Q1/strips
 
 Grade: Enter scores for Q1.
@@ -48,19 +51,20 @@ Navigate: Use "Save & Next" to move to Q2, Q3, etc.
 
 Tip: If a crop looks wrong, you can view the full page or hit "resegment" (if implemented).
 
-7. Export Grades
+## 6. Export Grades
 When finished: http://127.0.0.1:5000/export
 
 Download the CSV and upload it to Canvas.
 
-8. Archive & Reset
+## 7. Archive & Reset
 When the assignment is complete, run:
 
 PowerShell
 
 python scripts\finalize_helper.py
 This moves current data to data_archive/ and clears the workspace for the next quiz.
-⭐ QUICK REFERENCE (copy/paste)
+
+⭐ QUICK REFERENCE 
 
 
 | UI/Page                                 | Route                               | Core Code                 | Primary Data / Cache Files                                     |
