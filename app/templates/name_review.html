@@ -376,13 +376,18 @@
     <input type="hidden" name="page_count" value="{{ page_rows|length }}">
 
     <div class="footer-actions">
-      <button class="submit-button" type="submit" id="submit-btn">
-        ✅ Name recognition & grouping looks good — rename & download
+      <button class="submit-button" type="submit" name="next_action" value="grade">
+        🚀 Save & Start Grading
       </button>
+      
+      <button class="submit-button" type="submit" name="next_action" value="download" 
+              style="background-color: #2563eb; margin-top: 10px;">
+        💾 Save & Download Scans (ZIP)
+      </button>
+
       <div class="footer-hint">
-        After you click, the server will group pages by the names you chose,
-        write JSON/CSV summaries, rename the scans under
-        <code>data/auto_grouped/{{ quiz_slug }}/</code>, and return a ZIP.
+        Both buttons will save your changes and rename the files. 
+        "Start Grading" takes you to the Strip View. "Download" gives you the ZIP file.
       </div>
     </div>
   </form>
@@ -410,5 +415,29 @@
     });
   }
 </script>
+
+<hr style="margin: 3rem 0; border: 0; border-top: 1px solid #e5e7eb;">
+
+<section style="background: #fef2f2; border: 1px solid #fca5a5; border-radius: 0.75rem; padding: 1.5rem; margin: 2rem auto; max-width: 800px;">
+  <h3 style="margin-top: 0; color: #991b1b;">⚠️ End of Assignment: Finalize & Archive</h3>
+  <p style="color: #7f1d1d; font-size: 0.9rem; margin-bottom: 1rem;">
+    Done with this quiz? This will:
+    1. Archive all current data to <code>data_archive/</code>.
+    2. <strong>Delete</strong> the current session and raw scans to clear the deck for the next assignment.
+  </p>
+
+  <form action="/finalize" method="post" onsubmit="return confirm('Are you sure? This will archive the current session and clear the workspace for the next quiz.');">
+    <div style="display: flex; gap: 0.5rem; align-items: center;">
+      <label for="label_input" style="font-weight: 500; color: #7f1d1d;">Archive Label:</label>
+      <input type="text" id="label_input" name="label" placeholder="e.g. quiz1_final" required
+             style="padding: 0.5rem; border: 1px solid #fca5a5; border-radius: 0.375rem;">
+      
+      <button type="submit" 
+              style="background-color: #dc2626; color: white; border: none; padding: 0.5rem 1rem; border-radius: 0.375rem; font-weight: 600; cursor: pointer;">
+        📦 Archive & Reset
+      </button>
+    </div>
+  </form>
+</section>
 </body>
 </html>
