@@ -20,12 +20,14 @@ DATA_DIR = ROOT_DIR / "data"
 RAW_SCANS_DIR = DATA_DIR / "raw_scans"
 GRADES_DIR = DATA_DIR / "grades"
 RUBRIC_DIR = DATA_DIR / "rubric"
+NAME_REVIEW_CACHE_DIR = DATA_DIR / "name_review_cache"
 
 DEFAULT_SESSION_PATH = GRADES_DIR / "session.json"
 DEFAULT_ROSTER_PATH = DATA_DIR / "roster.csv"
 DEFAULT_GRADING_KEY_PATH = RUBRIC_DIR / "quiz1.yaml"
 DATA_ARCHIVE_DIR = ROOT_DIR / "data_archive"
 DATA_ARCHIVE_DIR.mkdir(exist_ok=True)
+NAME_REVIEW_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def load_roster(path: Path = DEFAULT_ROSTER_PATH) -> List[RosterEntry]:
@@ -205,6 +207,16 @@ def archive_current_data(label: str) -> str:
     session_path = DATA_DIR / "grades" / "session.json"
     if session_path.exists():
         session_path.unlink()
+
+    # Clear cached name review results so the setup wizard can start fresh
+    if NAME_REVIEW_CACHE_DIR.exists():
+        for child in NAME_REVIEW_CACHE_DIR.iterdir():
+            if child.is_file():
+                child.unlink()
+            elif child.is_dir():
+                shutil.rmtree(child)
+    else:
+        NAME_REVIEW_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
     # Note: we intentionally *do not* touch roster.csv or rubric/ in DATA_DIR.
     return snapshot_id
