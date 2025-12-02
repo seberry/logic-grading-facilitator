@@ -23,7 +23,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from .storage import load_session, save_session, RAW_SCANS_DIR, GRADES_DIR, archive_current_data
+from .storage import RAW_SCANS_DIR, GRADES_DIR, archive_current_data, NAME_REVIEW_CACHE_DIR
 from .segmentation_core import segment_page_for_problem, QuestionSegment
 
 from .models import Session, WorkUnit, RosterEntry
@@ -82,9 +82,6 @@ AUTO_GROUPED_DIR = DATA_DIR / "auto_grouped"
 
 LMSTUDIO_BASE_URL = "http://127.0.0.1:1234/v1"
 LMSTUDIO_MODEL_ID = "qwen/qwen3-vl-4b"  # or whatever you’re actually using
-
-NAME_REVIEW_CACHE_DIR = DATA_DIR / "name_review_cache"
-NAME_REVIEW_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 def natural_sort_key(path: Path) -> List:
   """
@@ -231,10 +228,15 @@ def name_review_cache_path(quiz: str, raw_scans_subdir: str) -> Path:
 
 
 def _has_existing_session_state() -> bool:
-    """Return True if raw scans or a session.json already exist."""
-    has_scans = any(RAW_SCANS_DIR.glob("**/*"))
+    """Return True if a previous grading session is present on disk.
+
+    We only require an archive/reset when a prior session.json or cached
+    name-review state exists. Allowing raw scans alone prevents the setup
+    wizard from blocking itself immediately after uploading new files.
+    """
     has_session = DEFAULT_SESSION_PATH.exists()
-    return has_scans or has_session
+    has_name_review_cache = any(NAME_REVIEW_CACHE_DIR.glob("*.json"))
+    return has_session or has_name_review_cache
 
 
 def _read_default_rubric() -> tuple[str, str]:
