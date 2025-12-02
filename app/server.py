@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 import threading
 import io
 import csv
@@ -9,7 +9,15 @@ from pathlib import Path
 import zipfile
 from urllib.parse import quote
 
-from fastapi import FastAPI, HTTPException, Response, Request, Form
+from fastapi import (
+    FastAPI,
+    HTTPException,
+    Response,
+    Request,
+    Form,
+    UploadFile,
+    File,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -27,6 +35,9 @@ from .storage import (
     DATA_DIR,
     load_roster,
     load_grading_key,
+    RUBRIC_DIR,
+    DEFAULT_ROSTER_PATH,
+    DEFAULT_GRADING_KEY_PATH,
 )
 from .auto_group_core import (
     run_name_recognition,
@@ -34,6 +45,9 @@ from .auto_group_core import (
     build_roster_index,
     SubmissionGroup,
 )
+import shutil
+import yaml
+import fitz  # type: ignore
 
 
 from .vlm_client import LMStudioQwenClient  # type: ignore
@@ -216,6 +230,29 @@ def name_review_cache_path(quiz: str, raw_scans_subdir: str) -> Path:
     return NAME_REVIEW_CACHE_DIR / f"{key}.json"
 
 
+def _has_existing_session_state() -> bool:
+    """Return True if raw scans or a session.json already exist."""
+    has_scans = any(RAW_SCANS_DIR.glob("**/*"))
+    has_session = DEFAULT_SESSION_PATH.exists()
+    return has_scans or has_session
+
+
+def _read_default_rubric() -> tuple[str, str]:
+    """Load rubric YAML text and quiz_id for pre-filling the setup form."""
+    try:
+        yaml_text = DEFAULT_GRADING_KEY_PATH.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        yaml_text = """quiz_id: quiz1\nmax_points: 10\nproblems:\n  - id: Q1\n    label: Example problem\n    points: 10\n"""
+
+    try:
+        parsed = yaml.safe_load(yaml_text) or {}
+        quiz_id = str(parsed.get("quiz_id", "quiz1"))
+    except Exception:
+        quiz_id = "quiz1"
+
+    return yaml_text, quiz_id
+
+
 
 class GradeUpdate(BaseModel):
     student_id: Optional[str] = None
@@ -235,6 +272,204 @@ class WorkUnitSummary(BaseModel):
 def root():
     """Tiny message at / so you don't just see 'Not Found'."""
     return {"message": "Logic Grading Facilitator is running. See /docs for API, or /grade/1/page (etc.) to grade."}
+
+
+@app.get("/setup", response_class=HTMLResponse)
+async def setup_wizard(request: Request) -> Response:
+    """Entry point for the setup wizard UI."""
+    must_archive = _has_existing_session_state()
+    roster_dir = DATA_DIR / "rosters"
+    roster_dir.mkdir(parents=True, exist_ok=True)
+
+    available_rosters = sorted(
+        [p for p in roster_dir.glob("*.csv") if p.is_file()], key=lambda p: p.name.lower()
+    )
+
+    current_roster = DEFAULT_ROSTER_PATH if DEFAULT_ROSTER_PATH.exists() else None
+    rubric_text, quiz_id = _read_default_rubric()
+
+    message = request.query_params.get("message")
+    status = request.query_params.get("status", "")
+
+    return templates.TemplateResponse(
+        "setup.html",
+        {
+            "request": request,
+            "must_archive": must_archive,
+            "available_rosters": available_rosters,
+            "current_roster": current_roster,
+            "message": message,
+            "status": status,
+            "rubric_text": rubric_text,
+            "quiz_id": quiz_id,
+        },
+    )
+
+
+@app.post("/setup/archive_reset")
+async def setup_archive_reset(label: str = Form("Current session")) -> Response:
+    snapshot_id = archive_current_data(label)
+    return RedirectResponse(
+        url=f"/setup?status=success&message={quote(f'Archived as {snapshot_id}. Ready to start fresh.')}",
+        status_code=303,
+    )
+
+
+def _validate_roster_csv(content: str) -> None:
+    reader = csv.DictReader(io.StringIO(content))
+    if not reader.fieldnames or "student_id" not in reader.fieldnames or "name" not in reader.fieldnames:
+        raise HTTPException(
+            status_code=400,
+            detail="Roster CSV must include 'student_id' and 'name' columns.",
+        )
+
+
+@app.post("/setup/roster")
+async def setup_roster(
+    existing_roster: Optional[str] = Form(None),
+    new_roster: Optional[UploadFile] = File(None),
+) -> Response:
+    roster_dir = DATA_DIR / "rosters"
+    roster_dir.mkdir(parents=True, exist_ok=True)
+
+    selected_path: Optional[Path] = None
+
+    if new_roster and new_roster.filename:
+        content_bytes = await new_roster.read()
+        try:
+            decoded = content_bytes.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            raise HTTPException(status_code=400, detail="Roster must be UTF-8 encoded.")
+
+        _validate_roster_csv(decoded)
+
+        filename = Path(new_roster.filename).name
+        selected_path = roster_dir / filename
+        selected_path.write_text(decoded, encoding="utf-8")
+    elif existing_roster:
+        candidate = roster_dir / existing_roster
+        if not candidate.exists():
+            raise HTTPException(status_code=404, detail="Selected roster not found.")
+        selected_path = candidate
+
+    if selected_path is None:
+        raise HTTPException(status_code=400, detail="Please select or upload a roster CSV.")
+
+    DEFAULT_ROSTER_PATH.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(selected_path, DEFAULT_ROSTER_PATH)
+
+    return RedirectResponse(
+        url="/setup?status=success&message="
+        + quote(f"Roster set from {selected_path.name}."),
+        status_code=303,
+    )
+
+
+def _save_image_upload(upload: UploadFile, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    with destination.open("wb") as f:
+        shutil.copyfileobj(upload.file, f)
+
+
+def _save_pdf_pages(pdf_bytes: bytes, stem: str, output_dir: Path) -> int:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    count = 0
+    for idx, page in enumerate(doc):
+        matrix = fitz.Matrix(2, 2)
+        pix = page.get_pixmap(matrix=matrix)
+        filename = f"{stem}_p{idx + 1}.jpg"
+        pix.save(str(output_dir / filename))
+        count += 1
+    doc.close()
+    return count
+
+
+@app.post("/setup/upload_scans")
+async def setup_upload_scans(
+    images: Optional[List[UploadFile]] = File(None),
+    pdf_file: Optional[UploadFile] = File(None),
+) -> Response:
+    if (not images or len(images) == 0) and not pdf_file:
+        raise HTTPException(status_code=400, detail="Upload images or a PDF of scans.")
+
+    RAW_SCANS_DIR.mkdir(parents=True, exist_ok=True)
+    saved = 0
+
+    if images:
+        allowed_exts = {".jpg", ".jpeg", ".png"}
+        for img in images:
+            suffix = Path(img.filename or "").suffix.lower()
+            if suffix not in allowed_exts:
+                raise HTTPException(status_code=400, detail="Images must be JPG or PNG files.")
+            dest = RAW_SCANS_DIR / Path(img.filename).name
+            _save_image_upload(img, dest)
+            saved += 1
+
+    if pdf_file:
+        pdf_bytes = await pdf_file.read()
+        stem = Path(pdf_file.filename or "scans").stem or "scans"
+        saved += _save_pdf_pages(pdf_bytes, stem, RAW_SCANS_DIR)
+
+    return RedirectResponse(
+        url="/setup?status=success&message=" + quote(f"Uploaded {saved} scan files."),
+        status_code=303,
+    )
+
+
+@app.post("/setup/save_rubric")
+async def setup_save_rubric(yaml_text: str = Form(...)) -> Response:
+    try:
+        data = yaml.safe_load(yaml_text) or {}
+        grading_key = GradingKey(**data)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid rubric YAML: {e}")
+
+    RUBRIC_DIR.mkdir(parents=True, exist_ok=True)
+    target = RUBRIC_DIR / f"{grading_key.quiz_id}.yaml"
+    cleaned_yaml = yaml.safe_dump(grading_key.model_dump(), sort_keys=False)
+    target.write_text(cleaned_yaml, encoding="utf-8")
+
+    return RedirectResponse(
+        url="/setup?status=success&message=" + quote(f"Rubric saved to {target.name}."),
+        status_code=303,
+    )
+
+
+@app.post("/setup/run_auto_grouping")
+async def setup_run_auto_grouping(quiz_id: str = Form("quiz1")) -> Response:
+    roster = load_roster()
+    if not RAW_SCANS_DIR.exists() or not any(RAW_SCANS_DIR.iterdir()):
+        raise HTTPException(status_code=400, detail="Upload scans before running auto-grouping.")
+
+    predictions = run_name_recognition(RAW_SCANS_DIR, roster)
+    cache_path = name_review_cache_path(quiz_id, "")
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+    serializable = []
+    for pred in predictions:
+        filename = getattr(pred, "filename", None) or getattr(pred, "path", None)
+        if isinstance(filename, Path):
+            filename = filename.name
+        serializable.append(
+            {
+                "filename": filename,
+                "student_id": getattr(pred, "student_id", None),
+                "raw_name": getattr(pred, "raw_name", None),
+                "confidence": float(getattr(pred, "confidence", 0.0)),
+                "reasoning": getattr(pred, "reasoning", ""),
+                "name_visible": bool(getattr(pred, "name_visible", False)),
+            }
+        )
+
+    import json as _json
+
+    cache_path.write_text(_json.dumps(serializable, indent=2), encoding="utf-8")
+
+    return RedirectResponse(
+        url=f"/name_review?quiz={quote(quiz_id)}",
+        status_code=303,
+    )
 
 
 @app.get("/session/summary")
