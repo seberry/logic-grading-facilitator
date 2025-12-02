@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import zipfile
 from urllib.parse import quote
+from app.models import GradingKey
 
 from fastapi import (
     FastAPI,
