@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Setup Wizard</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      padding: 0;
+      background: #f5f5f5;
+      color: #111827;
+    }
+    header {
+      background: #333;
+      color: #fff;
+      padding: 0.75rem 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.95rem;
+    }
+    main {
+      max-width: 1200px;
+      margin: 1.5rem auto;
+      padding: 0 1rem 2rem;
+      box-sizing: border-box;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .card {
+      background: #fff;
+      border-radius: 0.5rem;
+      padding: 1rem;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.4rem;
+    }
+    h2 {
+      margin: 0;
+      font-size: 1.1rem;
+    }
+    p {
+      margin: 0.25rem 0;
+      line-height: 1.4;
+    }
+    label {
+      font-weight: 600;
+      display: block;
+      margin-bottom: 0.3rem;
+    }
+    input[type="text"], input[type="file"], textarea {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.5rem 0.65rem;
+      border: 1px solid #d1d5db;
+      border-radius: 0.45rem;
+      font-size: 0.95rem;
+    }
+    textarea {
+      min-height: 220px;
+      resize: vertical;
+      font-family: "SFMono-Regular", ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+    button {
+      border: none;
+      border-radius: 999px;
+      padding: 0.5rem 1rem;
+      font-size: 0.95rem;
+      cursor: pointer;
+      background: #2563eb;
+      color: #fff;
+      align-self: flex-start;
+    }
+    button.secondary { background: #e5e7eb; color: #111827; }
+    button.danger { background: #dc2626; }
+    .muted { color: #6b7280; font-size: 0.9rem; }
+    .badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 999px; background: #e5e7eb; font-size: 0.8rem; }
+    .alert {
+      padding: 0.75rem 1rem;
+      border-radius: 0.5rem;
+      margin: 0.5rem 0 1rem;
+    }
+    .alert.success { background: #ecfdf3; border: 1px solid #bbf7d0; color: #166534; }
+    .alert.error { background: #fef2f2; border: 1px solid #fecdd3; color: #991b1b; }
+  </style>
+</head>
+<body>
+  <header>
+    <div><strong>Logic Grading Facilitator</strong> — Setup Wizard</div>
+    <div class="muted">Initialize a new grading session</div>
+  </header>
+  <main>
+    <h1>Setup Wizard</h1>
+    <p class="muted">Walk through roster selection, scan upload, rubric definition, and auto-grouping before grading.</p>
+
+    {% if message %}
+      <div class="alert {{ 'success' if status == 'success' else 'error' }}">{{ message }}</div>
+    {% endif %}
+
+    {% if must_archive %}
+      <div class="card">
+        <h2>Archive &amp; Reset Required</h2>
+        <p>Existing scans or a session file were detected. Archive the current data before starting a new assignment.</p>
+        <form method="post" action="/setup/archive_reset">
+          <label for="label">Archive label</label>
+          <input type="text" id="label" name="label" placeholder="e.g., Quiz 1" value="Current session">
+          <button class="danger" type="submit">Archive &amp; Reset</button>
+        </form>
+      </div>
+    {% else %}
+      <div class="grid">
+        <div class="card">
+          <h2>Step 1: Roster Selection</h2>
+          {% if current_roster %}
+            <p class="muted">Current roster: <span class="badge">{{ current_roster.name }}</span></p>
+          {% endif %}
+          <form method="post" action="/setup/roster" enctype="multipart/form-data">
+            {% if available_rosters %}
+              <label>Choose an existing roster</label>
+              {% for roster in available_rosters %}
+                <div>
+                  <input type="radio" id="roster_{{ loop.index }}" name="existing_roster" value="{{ roster.name }}">
+                  <label for="roster_{{ loop.index }}" style="font-weight:400">{{ roster.name }}</label>
+                </div>
+              {% endfor %}
+            {% else %}
+              <p class="muted">No roster files found in <code>data/rosters/</code>.</p>
+            {% endif %}
+
+            <label for="new_roster">Or upload a new roster CSV</label>
+            <input type="file" id="new_roster" name="new_roster" accept=".csv">
+            <p class="muted">Must include <code>student_id</code> and <code>name</code> columns.</p>
+            <button type="submit">Save roster</button>
+          </form>
+        </div>
+
+        <div class="card">
+          <h2>Step 2: Scan Upload</h2>
+          <form method="post" action="/setup/upload_scans" enctype="multipart/form-data">
+            <label for="images">Upload images</label>
+            <input type="file" id="images" name="images" accept="image/jpeg,image/png" multiple>
+            <p class="muted">You can upload multiple JPG/PNG files.</p>
+
+            <label for="pdf_file">Or upload a single PDF</label>
+            <input type="file" id="pdf_file" name="pdf_file" accept="application/pdf">
+            <p class="muted">PDF pages will be converted to images and placed in <code>data/raw_scans/</code>.</p>
+            <button type="submit">Upload scans</button>
+          </form>
+        </div>
+
+        <div class="card" style="grid-column: 1 / -1;">
+          <h2>Step 3: Rubric Definition</h2>
+          <form method="post" action="/setup/save_rubric">
+            <label for="rubric_text">Edit rubric YAML</label>
+            <textarea id="rubric_text" name="yaml_text">{{ rubric_text }}</textarea>
+            <p class="muted">The YAML must parse into the <code>GradingKey</code> model. File will be saved as <code>{{ quiz_id }}.yaml</code> in <code>data/rubric/</code>.</p>
+            <button type="submit">Save rubric</button>
+          </form>
+        </div>
+
+        <div class="card" style="grid-column: 1 / -1;">
+          <h2>Step 4: Run Auto-Grouping</h2>
+          <p class="muted">Runs the VLM name recognition and prepares results for review.</p>
+          <form method="post" action="/setup/run_auto_grouping">
+            <label for="quiz_id">Quiz ID</label>
+            <input type="text" id="quiz_id" name="quiz_id" value="{{ quiz_id }}">
+            <button type="submit">Run Auto-Grouping &amp; Review Names</button>
+          </form>
+        </div>
+      </div>
+    {% endif %}
+  </main>
+</body>
+</html>
