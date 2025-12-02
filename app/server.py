@@ -934,12 +934,53 @@ async def name_review_page(
         predictions = _json.loads(cache_path.read_text(encoding="utf-8"))
     else:
         # 🔁 Run LM Studio and cache predictions
+        print(f"[name_review] Cache miss. inspecting {len(paths)} files...")
+
         client = LMStudioQwenClient(
             base_url=LMSTUDIO_BASE_URL,
             model=LMSTUDIO_MODEL_ID,
         )
         predictions = []
         for path in paths:
+            # --- START NEW LOGIC ---
+            # If the file is ALREADY renamed (e.g. "quiz1_ballard_sharon_p01.jpg"), 
+            # don't waste time running the VLM. Parse the name from the file.
+            
+            # Simple heuristic: Does it end in "_pXX.jpg"?
+            import re
+            match = re.search(r"(.+)_p\d+\.(jpg|png|jpeg)$", path.name, re.IGNORECASE)
+            
+            if match and "unknown" not in path.name.lower():
+                # Extract the likely name part: "quiz1_ballard_sharon"
+                # We try to match this against the roster to get the ID.
+                # This is a 'best effort' to restore state without VLM.
+                print(f"Skipping VLM for pre-labeled file: {path.name}")
+                
+                # Mock a prediction object
+                found_student_id = None
+                found_name = None
+                
+                # Try to find a roster match based on the filename parts
+                for r in roster:
+                    # simplistic check: if student's last name is in the filename
+                    slug_last = slugify_name(r.name.split(",")[0])
+                    if slug_last in path.name.lower():
+                        found_student_id = r.student_id
+                        found_name = r.name
+                        break
+                
+                predictions.append({
+                    "filename": path.name,
+                    "student_id": found_student_id,
+                    "raw_name": found_name or "(Recovered from filename)",
+                    "confidence": 1.0,
+                    "reasoning": "Filename indicates previous labeling.",
+                    "name_visible": True,
+                })
+                continue
+            # --- END NEW LOGIC ---
+
+            # Standard VLM run for truly new/raw files
             pred = classify_page(path, roster, client)
             if getattr(pred, "filename", None) is None:
                 setattr(pred, "filename", path.name)
@@ -1021,6 +1062,9 @@ async def name_review_submit(request: Request) -> Response:
     """
     print("[name_review] POST: starting Hand-off...")
     form = await request.form()
+
+    # NEW: Check which button started this request
+    next_action = form.get("next_action", "grade")
 
     quiz_id = (form.get("quiz_id") or "quiz").strip()
     raw_scans_subdir = form.get("raw_scans_subdir") or ""
@@ -1187,14 +1231,20 @@ async def name_review_submit(request: Request) -> Response:
     save_session(session, DEFAULT_SESSION_PATH)
     print(f"[name_review] Session initialized with {len(work_units)} units.")
 
-    # 8. Redirect to Grading
-    # Pick the first problem ID
-    first_problem = grading_key.problems[0].id if grading_key.problems else "Q1"
-    
-    return RedirectResponse(
-        url=f"/problem/{first_problem}/strips",
-        status_code=303
-    )
+    # 8. Check Next Action
+    if next_action == "download":
+        # The user clicked "Save & Download"
+        print("[name_review] User requested immediate ZIP download.")
+        return export_renamed_scans()
+    else:
+        # The user clicked "Save & Start Grading" (Default)
+        first_problem = grading_key.problems[0].id if grading_key.problems else "Q1"
+        return RedirectResponse(
+            url=f"/problem/{first_problem}/strips",
+            status_code=303
+        )
+
+
 from fastapi import Query
 
 def _compute_segments_data(session: Session, spec, cache_path: Path) -> List[Dict]:

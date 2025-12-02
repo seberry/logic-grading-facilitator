@@ -59,7 +59,7 @@ Quality of life:
 
 More automation: See `docs/FUTURE_AUTOMATION.md` for details, but the major phases include:
 - Clustering/grouping of similar answers for consistent partial credit.
-- Deterministic autograding (connect to existing code for: symbolization equivalence checker, truth-table evaluator, Fitch proof checker (I could use the special ocr->ascii->json->verification stuff I've already written for my fitch proof project), kripke model checker).
+- Deterministic autograding: connect to known existing code for: symbolization equivalence checker, truth-table evaluator, Fitch proof checker (I could use the special ocr->ascii->json->verification stuff I've already written for my fitch proof project), kripke model checker.
 - LLM-based “second-opinion” disagreement flags.
 - Optional attachment of per question comments to scans which will be manually uploaded to canvas. 
 
