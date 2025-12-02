@@ -410,8 +410,17 @@ async def setup_upload_scans(
         pdf_bytes = await pdf_file.read()
         if not pdf_bytes:
             raise HTTPException(status_code=400, detail="Uploaded PDF was empty.")
+
         stem = Path(pdf_file.filename or "scans").stem or "scans"
-        saved += _save_pdf_pages(pdf_bytes, stem, RAW_SCANS_DIR)
+        try:
+            saved += _save_pdf_pages(pdf_bytes, stem, RAW_SCANS_DIR)
+        except fitz.EmptyFileError:
+            raise HTTPException(
+                status_code=400,
+                detail="Uploaded PDF could not be read (file was empty or corrupted).",
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Failed to process PDF: {exc}")
 
     return RedirectResponse(
         url="/setup?status=success&message=" + quote(f"Uploaded {saved} scan files."),
