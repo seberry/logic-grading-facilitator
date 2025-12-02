@@ -23,7 +23,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from .storage import load_session, save_session, RAW_SCANS_DIR, GRADES_DIR, archive_current_data
+from .storage import RAW_SCANS_DIR, GRADES_DIR, archive_current_data, NAME_REVIEW_CACHE_DIR
 from .segmentation_core import segment_page_for_problem, QuestionSegment
 
 from .models import Session, WorkUnit, RosterEntry
@@ -82,9 +82,6 @@ AUTO_GROUPED_DIR = DATA_DIR / "auto_grouped"
 
 LMSTUDIO_BASE_URL = "http://127.0.0.1:1234/v1"
 LMSTUDIO_MODEL_ID = "qwen/qwen3-vl-4b"  # or whatever you’re actually using
-
-NAME_REVIEW_CACHE_DIR = DATA_DIR / "name_review_cache"
-NAME_REVIEW_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 def natural_sort_key(path: Path) -> List:
   """
