@@ -48,6 +48,70 @@ domain_terms:
 
 user_flows:
 
+  - id: flow_setup_wizard
+    human_name: "Setup wizard"
+    user_action: "Instructor preps a fresh assignment (archive, roster, scans, rubric, auto-grouping) via UI."
+    status: "live"
+
+    entrypoints:
+      - method: "GET"
+        path: "/setup"
+        file: "app/server.py"
+        template: "app/templates/setup.html"
+      - method: "POST"
+        path: "/setup/archive_reset"
+        file: "app/server.py"
+        template: "redirect → /setup"
+      - method: "POST"
+        path: "/setup/roster"
+        file: "app/server.py"
+        template: "redirect → /setup"
+      - method: "POST"
+        path: "/setup/upload_scans"
+        file: "app/server.py"
+        template: "redirect → /setup"
+      - method: "POST"
+        path: "/setup/save_rubric"
+        file: "app/server.py"
+        template: "redirect → /setup"
+      - method: "POST"
+        path: "/setup/run_auto_grouping"
+        file: "app/server.py"
+        template: "redirect → /name_review"
+
+    data_flow:
+      reads:
+        - path: "data/rosters/*.csv"
+          purpose: "List of uploaded rosters available for selection."
+        - path: "data/rubric/quiz1.yaml (or last-saved)"
+          purpose: "Pre-fills rubric editor and quiz_id." 
+      writes:
+        - path: "data/roster.csv"
+          what: "Selected or uploaded roster copied into canonical location."
+        - path: "data/raw_scans/"
+          what: "Uploaded JPG/PNG files or PDF pages converted to JPEGs."
+        - path: "data/rubric/<quiz_id>.yaml"
+          what: "Validated rubric YAML saved for the current quiz."
+        - path: "data/name_review_cache/{quiz_id}__root.json"
+          what: "Auto-grouping predictions used to drive /name_review."
+        - path: "data_archive/<timestamp>_<label>/"
+          what: "Snapshot produced when archiving/resetting before a new assignment."
+
+    current_behavior:
+      description: |
+        Blocks new setup if raw scans or session.json already exist until the user archives. Guides the
+        instructor through selecting/uploading a roster, uploading scans (images or PDF → per-page JPEGs),
+        editing/saving rubric YAML, and running VLM-based auto-grouping. On success, redirects directly
+        into the name review flow.
+
+    assumptions:
+      - "Server is running locally; LM Studio is available for auto-grouping when requested."
+      - "User has scans ready as JPG/PNG files or a PDF."
+
+    current_limitations:
+      - "No progress guardrails beyond form-level validation (e.g., running auto-grouping without a rubric will use defaults)."
+      - "Wizard does not yet surface segmentation or grading status; it focuses purely on initial setup."
+
   - id: flow_name_review
     human_name: "Name review & hand-off"
     user_action: "Instructor reviews VLM name grouping and initializes the grading session."
@@ -90,7 +154,7 @@ user_flows:
 
     assumptions:
       - "Rubric YAML for this quiz already exists in data/rubric/quizX.yaml."
-      - "auto_group_scans.py has been run and produced *_page_predictions.csv and *_groups.csv."
+      - "auto_group_scans.py has been run (CLI) or the /setup wizard triggered auto-grouping to produce predictions."
 
     current_limitations:
       - "No UI to re-run name review after hand-off without manually deleting session.json & resetting data."
