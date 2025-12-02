@@ -9,6 +9,26 @@ data/raw_scans/ contains your image files.
 
 data/roster.csv is present.
 
+## Recommended: Setup Wizard (UI)
+
+1. Start the server:
+
+   PowerShell
+
+   python -m uvicorn app.server:app --reload --port 5000
+
+2. Visit http://127.0.0.1:5000/setup and follow the prompts:
+
+   - Archive & reset if you see a warning about existing scans/session state.
+   - Choose an existing roster from `data/rosters/` or upload a new CSV (it gets copied to `data/roster.csv`).
+   - Upload scans (JPG/PNG) or a PDF; the wizard splits PDFs into pages under `data/raw_scans/`.
+   - Edit/save the rubric YAML; it writes to `data/rubric/<quiz_id>.yaml`.
+   - Click **Run auto-grouping** to generate name predictions; you’ll be redirected to `/name_review` to confirm.
+
+3. After name review, jump to **Step 5** below to grade in strip view. The CLI steps that follow are a legacy alternative.
+
+## Manual CLI Flow (legacy)
+
 ## 1. Start Clean (Optional)
 If you have a stale session from a previous quiz, archive it first.
 

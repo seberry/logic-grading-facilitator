@@ -51,11 +51,20 @@ session.json: The single source of truth for the active grading session.
 
 data_archive/: Snapshots of finished assignments.
 
+## Setup Wizard (new)
+
+Run the server (`python -m uvicorn app.server:app --reload --port 5000`), then open `http://127.0.0.1:5000/setup` to configure a fresh assignment without touching the CLI. The wizard lets you:
+
+- Archive any existing session before starting (protects against accidental data loss).
+- Pick an existing roster CSV from `data/rosters/` **or** upload a new one; the selected file is copied into `data/roster.csv`.
+- Upload scans as individual JPG/PNG files **or** as a PDF (auto-splits into per-page JPEGs under `data/raw_scans/`).
+- Edit and save the grading rubric YAML; it writes to `data/rubric/<quiz_id>.yaml` and pre-fills the quiz_id for downstream routes.
+- Kick off auto-grouping/name recognition; the wizard writes the name review cache and redirects you straight to `/name_review` for confirmation.
+
 ## Future Extensions (planned, not required for v0)
 
 Quality of life:
-- Create a scan uploading wizard (this could also have you a) name the assignment in a text area b) create a grading rubric for it and c) select a roster or upload and name a new roster)  
-- Avoid slugish loading of grading pages (after the first one) by having the local model segment question n+1 (if this has not already been done) while you are working on grading question n in the per unit grader. 
+- Avoid slugish loading of grading pages (after the first one) by having the local model segment question n+1 (if this has not already been done) while you are working on grading question n in the per unit grader.
 
 More automation: See `docs/FUTURE_AUTOMATION.md` for details, but the major phases include:
 - Clustering/grouping of similar answers for consistent partial credit.
@@ -131,18 +140,8 @@ Leave data/roster.csv and data/rubric/ intact
 
 Start a new assignment:
 
-Place new scans into data/raw_scans/
-
-Update the YAML rubric if needed
-
-Run:
-
-python -m scripts.init_session
-
-
-Then use /work_units/create once to create the first WorkUnit
-
-Continue grading as usual (Save & Next auto-creates subsequent units)
+- **Recommended:** Use the `/setup` wizard to archive the previous session (if any), choose or upload a roster, upload scans (images or PDF), edit/save the rubric YAML, and run auto-grouping. The wizard redirects straight to `/name_review` so you can confirm groups and start grading.
+- **Manual fallback:** Place new scans into `data/raw_scans/`, update the YAML rubric if needed, run `python -m scripts.init_session`, then hit `/work_units/create` once to create the first WorkUnit. Continue grading as usual (Save & Next auto-creates subsequent units).
 
 ---
 
