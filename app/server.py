@@ -231,10 +231,15 @@ def name_review_cache_path(quiz: str, raw_scans_subdir: str) -> Path:
 
 
 def _has_existing_session_state() -> bool:
-    """Return True if raw scans or a session.json already exist."""
-    has_scans = any(RAW_SCANS_DIR.glob("**/*"))
+    """Return True if a previous grading session is present on disk.
+
+    We only require an archive/reset when a prior session.json or cached
+    name-review state exists. Allowing raw scans alone prevents the setup
+    wizard from blocking itself immediately after uploading new files.
+    """
     has_session = DEFAULT_SESSION_PATH.exists()
-    return has_scans or has_session
+    has_name_review_cache = any(NAME_REVIEW_CACHE_DIR.glob("*.json"))
+    return has_session or has_name_review_cache
 
 
 def _read_default_rubric() -> tuple[str, str]:
