@@ -1,5 +1,7 @@
-Grading Workflow (PowerShell Edition)
-Prerequisites:
+# Grading Workflow (PowerShell Edition)
+
+
+## 0. Prerequisites:
 
 LM Studio is running with the qwen/qwen3-vl-4b model loaded.
 
