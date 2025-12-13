@@ -428,6 +428,18 @@ code_structure:
       - name: "debug_segment_view"
         purpose: "Write overlay + crop debug_output_segment_all/* images for a single problem."
 
+  - file: "app/syntax.py"
+    purpose: "Port of OpenLogicProject Fitch logic parser (propositional + predicate)."
+    notes: |
+      Exposes `parse_formula` and `Wff` helpers for converting Fitch symbols (¬ ∨ ∧ → ↔ ∀ ∃ ⊥)
+      into structured objects. Supports `predicate_settings` flag to toggle term/variable parsing.
+
+  - file: "app/verifier.py"
+    purpose: "Port of OpenLogicProject Fitch checker for rule validation."
+    notes: |
+      Uses `ProofLine` (wffstr + justification string + location stack) to validate steps via
+      `VerificationResult`. Intended to be fed by OCR-to-structure transforms for Fitch proofs.
+
   - file: "app/auto_group_core.py"
     purpose: "CLI pipeline for VLM name recognition + page grouping into candidate submissions."
     key_functions:
