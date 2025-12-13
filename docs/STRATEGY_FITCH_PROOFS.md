@@ -27,3 +27,13 @@ The VLM is easily distracted. For this strategy to work, the input image **must*
 3.  **Neighboring Text:** Any text outside the proof grid can bleed into the transcription.
 
 **Recommendation:** Use the "Strip View" manual crop tool to isolate the proof grid perfectly before running the "Coloring Book" script.
+
+## Linking OCR to Rule Checking
+
+Once a transcription pipeline produces structured lines, feed each line into `app/syntax.py` (for WFF parsing) and `app/verifier.py` (for Fitch rule validation). The verifier expects the OCR transform to provide:
+
+- `wffstr`: the raw line formula using Fitch symbols (¬ ∨ ∧ → ↔ ∀ ∃ ⊥),
+- `location`: an indentation stack for subproof scopes, and
+- `jstr`: the cited rule/line references.
+
+`VerificationResult` then reports per-line issues and whether the conclusion was reached, giving immediate grading signals without manual re-entry.
