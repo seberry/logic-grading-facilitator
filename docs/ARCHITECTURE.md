@@ -73,10 +73,15 @@ The architecture is explicitly prepared for progressive automation:
     * *Current:* VLM identifies bounding boxes for "Q1".
     * *Future:* OCR detects specific headings (1., (a)) to refine these boxes.
 
-2.  **Clustering:**
+2.  **Visual "Prompt Injection" (New):**
+    * For structural tasks (Fitch Proofs), we do not rely on the VLM to see geometry.
+    * [cite_start]We use OpenCV to detect geometric features (vertical bars) and "inject" them into the image as high-contrast **Color Overlays**[cite: 928].
+    * This converts a geometric problem ("which line is this text inside?") into a color perception problem ("what background color is this text on?"), which local VLMs handle significantly better.
+
+3.  **Clustering:**
     * Future modules can group similar answers (via embeddings) to allow bulk-grading.
 
-3.  **Autograding:**
+4.  **Autograding:**
     * Deterministic checkers (Truth Table, Fitch) can populate an `auto_score` field in the WorkUnit.
     * Human scores always remain authoritative.
 

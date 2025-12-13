@@ -19,6 +19,33 @@ This roadmap describes how more automation will be layered **on top of** the v2 
   - Proofs → structured line-by-line representation.
 
 All of this happens asynchronously after ingestion so that the grading UI is snappy.
+- **Details re C: Fitch Proof Transcription (The "Coloring Book" Pipeline)**
+  *Status: Prototyped & Verified*
+  
+  We have confirmed that LLMs struggle to recognize vertical assumption lines or align them with text. The solution is a hybrid CV+VLM pipeline:
+  
+  1.  **CV Pre-pass (Structure):**
+      - Use `scripts/highlight_fitch_lines.py` to detect vertical lines using morphological operations.
+      - Overlay transparent colored rectangles (Cyan, Magenta, Yellow) extending to the right of each line.
+      - Nested scopes naturally create mixed colors (e.g., Cyan + Magenta = Purple).
+      
+  2.  **VLM Pass (Transcription):**
+      - **Input:** The color-coded image.
+      - **Prompt:** *"Can you transcribe what you see on each line in black ink (ignore everything in red). Next to each numbered line mark the background color in brackets."*
+      - **Role:** The VLM acts as a scribe, reporting text and color. It does *not* calculate depth.
+      
+  3.  **Deterministic Parsing:**
+      - Map reported colors to integer depths (e.g., `[Cyan]` -> Depth 1).
+      - Combine with OCR text to build the structured proof object.
+
+### Critical Constraints (Lessons Learned)
+For the Fitch pipeline to work, the input image must be **aggressively cropped**:
+* **No Stray Numbers:** Visible question numbers (e.g., "6.") cause the VLM to hallucinate line numbers or alignment.
+* **No Stray Lines:** Ruled paper margins (red vertical lines) confuse the CV line detection.
+* **Implication:** The `segmentation_core.py` (or manual crop tool in Strip View) must provide a clean crop of *just* the logic grid before processing.
+
+
+
 
 ## Phase 2: Strip View + Verification Loop
 
