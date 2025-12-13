@@ -95,6 +95,11 @@ Truth-table / model checker
 
 Fitch-proof checker
 
+- **Status:** Ported from [OpenLogicProject/fitch-checker](https://github.com/OpenLogicProject/fitch-checker).
+- **Files:** `app/syntax.py` (formula parser) and `app/verifier.py` (rule checker).
+- **Input expectations:** per-line JSON-like records with `wffstr`, `location` (indent stack), and `jstr` (rule citation string). The parser accepts Fitch symbols (`¬ ∨ ∧ → ↔ ∀ ∃ ⊥`) and can run in propositional or predicate mode.
+- **Output:** `VerificationResult` with `issues` (per-line errors) and `conc_reached` flag for concluding lines. Designed to sit between OCR→structure transformation and UI feedback.
+
 Quantifier logic evaluations
 
 Each module returns an auto_score and optionally an explanation.
