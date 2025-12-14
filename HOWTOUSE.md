@@ -1,91 +1,111 @@
 # Grading Workflow (PowerShell Edition)
 
-
-## 0. Prerequisites:
-
-LM Studio is running with the qwen/qwen3-vl-4b model loaded.
-
-data/raw_scans/ contains your image files.
-
-data/roster.csv is present.
+## 0. Prerequisites
+* **LM Studio** is running with the `qwen/qwen3-vl-4b` model loaded.
+* `data/raw_scans/` contains your image files.
+* `data/roster.csv` is present.
 
 ## Recommended: Setup Wizard (UI)
 
-1. Start the server:
+1. **Start the server:**
+   ```powershell
+   python -m uvicorn app.server:app --reload --port 5000   
+   '''
 
-   PowerShell
+2. **Visit http://127.0.0.1:5000/setup and follow the prompts:**
 
-   python -m uvicorn app.server:app --reload --port 5000
 
-2. Visit http://127.0.0.1:5000/setup and follow the prompts:
+Archive & Reset: If you see a warning about an existing session, use the Archive & Reset button right there in the wizard to clear the deck.
 
-   - Archive & reset if you see a warning about existing scans/session state.
-   - Choose an existing roster from `data/rosters/` or upload a new CSV (it gets copied to `data/roster.csv`).
-   - Upload scans (JPG/PNG) or a PDF; the wizard splits PDFs into pages under `data/raw_scans/`.
-   - Edit/save the rubric YAML; it writes to `data/rubric/<quiz_id>.yaml`.
-   - Click **Run auto-grouping** to generate name predictions; you’ll be redirected to `/name_review` to confirm.
 
-3. After name review, jump to **Step 5** below to grade in strip view. The CLI steps that follow are a legacy alternative.
 
-## Manual CLI Flow (legacy)
+Roster: Choose an existing roster from data/rosters/ or upload a new CSV.
 
-## 1. Start Clean (Optional)
+
+
+Scans: Upload scans (JPG/PNG) or a PDF (auto-splits into data/raw_scans/).
+
+
+
+Rubric: Edit/save the rubric YAML (writes to data/rubric/<quiz_id>.yaml).
+
+
+
+
+Auto-Grouping: Click Run auto-grouping to generate name predictions.
+
+
+Confirm Groups: You will be redirected to /name_review. Once confirmed, you are ready to grade.
+
+
+
+Grade: Jump to Step 5 below (Strip View).
+
+Manual CLI Flow (Legacy)
+1. Start Clean (Optional)
 If you have a stale session from a previous quiz, archive it first.
 
-PowerShell
+Go to: http://127.0.0.1:5000/setup
 
-python scripts\finalize_helper.py
- Or use the "Finalize & Archive" button in the UI if the server is running.
- 
-## 2. Run Auto-Grouping (AI Name Recognition)
+If a session exists, you will see a prompt to Archive & Reset. Enter a label (e.g., quiz1_old) and click the button.
+
+
+2. Run Auto-Grouping (AI Name Recognition)
 This step uses the VLM to read names and group pages. Replace quiz1 with your actual quiz slug.
 
 PowerShell
 
 python -m scripts.auto_group_scans --quiz-id quiz1 --raw-scans-dir "data/raw_scans" --out-dir "data/auto_grouped/quiz1" --roster "data/roster.csv"
-
-## 3. Start the Server
+3. Start the Server
 Keep this terminal window open.
 
 PowerShell
 
 python -m uvicorn app.server:app --reload --port 5000
+4. Review and Approve Names
+Open your browser to: http://127.0.0.1:5000/name_review?quiz=quiz1.
 
-## 4. Review and Approve Names
-Open your browser to: http://127.0.0.1:5000/name_review?quiz=quiz1
 
 Audit: Fix any incorrect dropdowns.
 
-Finalize: Scroll to the bottom and click “Name recognition & grouping looks good — rename & download.”
 
-Note: This confirms which pages belong to which student.
-
-[This now also  runs  init session stuff. We should not redo it, as that will destroy things:
-python -m scripts.init_session]
+Finalize: Scroll to the bottom and click “Name recognition & grouping looks good — rename & download”.
 
 
-## 5. Grade in Strip View
-Navigate to: http://127.0.0.1:5000/problem/Q1/strips
+(Note: This creates the official session.json. Do not run init_session manually after this.).
+
+5. Grade in Strip View
+Navigate to: http://127.0.0.1:5000/problem/Q1/strips.
+
 
 Grade: Enter scores for Q1.
 
-Navigate: Use "Save & Next" to move to Q2, Q3, etc.
 
-Tip: If a crop looks wrong, you can view the full page or hit "resegment" (if implemented).
+Navigate: Use "Save & Next" to move to Q2, Q3, etc..
 
-## 6. Export Grades
-When finished: http://127.0.0.1:5000/export
+
+Tip: If a crop looks wrong, click "Show Full Page" or "Fix Crop".
+
+6. Export Grades
+When finished: http://127.0.0.1:5000/export.
 
 Download the CSV and upload it to Canvas.
 
-## 7. Archive & Reset
-When the assignment is complete, run:
+7. Archive & Reset
+When the assignment is complete, archive your data to prepare for the next quiz.
 
-PowerShell
 
-python scripts\finalize_helper.py
-This moves current data to data_archive/ and clears the workspace for the next quiz.
+Go to: http://127.0.0.1:5000/setup (or use the "Finalize & Archive" button at the top of any grading page).
 
+
+
+
+Action: Enter an archive label (e.g., quiz1_final) and submit.
+
+
+
+
+Result: This moves current data to data_archive/ and clears data/raw_scans and session.json.
 ⭐ QUICK REFERENCE 
 
 
