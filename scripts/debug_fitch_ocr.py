@@ -30,11 +30,11 @@ try:
     vlm_client = LMStudioQwenClient()
     print(f"   [Setup] Successfully loaded VLM Client: {type(vlm_client).__name__}")
     from app.verifier import ProofLine
-    
+
     # 2. Instantiate the client (create the object)
     # This assumes your class takes no arguments or standard args.
     # If your other files do vlm_client = LMStudioQwenClient(url="..."), copy that matching logic.
-    vlm_client = LMStudioQwenClient() 
+    vlm_client = LMStudioQwenClient()
 
 except ImportError as e:
     print(f"Warning: Could not import app modules ({e}). Using mocks for VLM/Verifier.")
@@ -220,44 +220,45 @@ def call_vlm(image_path: str, client) -> List[Dict]:
         "transcribe it EXACTLY as the 'wffstr' for that line. "
         "Do not interpret or correct the token."
     )
-    
+
     print(f"   [VLM] Sending {os.path.basename(image_path)}...")
-    
+
     # Mock response if no client provided
     if client is None:
         return [{"line": "?", "wffstr": "VLM_NOT_CONFIGURED", "jstr": "Error"}]
 
     try:
-        # Assuming typical usage of your wrapper
-        # You might need to adjust this call to match app/vlm_client.py signature
         import base64
-        
+
         with open(image_path, "rb") as f:
-            base64_image = base64.b64encode(f.read()).decode('utf-8')
-            
-        response = client.chat.completions.create(
-            model="local-model", # or whatever your default is
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}},
-                    ],
-                }
-            ],
-            max_tokens=1000,
-        )
-        content = response.choices[0].message.content
-        
+            base64_image = base64.b64encode(f.read()).decode("utf-8")
+
+        # LMStudioQwenClient exposes a simple chat(...) wrapper around the
+        # OpenAI-style /chat/completions endpoint, so we mirror its expected payload.
+        messages = [
+            {"role": "system", "content": prompt},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Provide the transcription as instructed."},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
+                    },
+                ],
+            },
+        ]
+
+        content = client.chat(messages)
+
         # Extract JSON from markdown blocks if present
         if "```json" in content:
             content = content.split("```json")[1].split("```")[0]
         elif "```" in content:
             content = content.split("```")[1].split("```")[0]
-            
+
         return json.loads(content)
-        
+
     except Exception as e:
         print(f"   [VLM Error] {e}")
         return []
