@@ -1336,6 +1336,51 @@ async def name_review_submit(request: Request) -> Response:
         if fn:
             assignments.append((fn, sid))
 
+    # Fast path: only update the cache and auto-fill unknowns in order
+    if next_action == "save_fill":
+        cache_path = name_review_cache_path(quiz_id, raw_scans_subdir)
+        import json as _json
+
+        if cache_path.exists():
+            try:
+                predictions = _json.loads(cache_path.read_text(encoding="utf-8"))
+            except Exception:
+                predictions = []
+        else:
+            predictions = []
+
+        preds_by_filename: Dict[str, Dict] = {p.get("filename"): p for p in predictions if p.get("filename")}
+        updated_predictions: List[Dict] = []
+        seen: set[str] = set()
+
+        last_sid: Optional[str] = None
+        for filename, sid in assignments:
+            applied_sid = sid or last_sid
+            if applied_sid:
+                last_sid = applied_sid
+
+            entry = dict(preds_by_filename.get(filename, {"filename": filename}))
+            entry["student_id"] = applied_sid
+            preds_by_filename[filename] = entry
+            seen.add(filename)
+            updated_predictions.append(entry)
+
+        # Preserve any extra prediction entries that were not part of this form
+        for pred in predictions:
+            fname = pred.get("filename")
+            if fname and fname not in seen:
+                updated_predictions.append(pred)
+
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(_json.dumps(updated_predictions, indent=2), encoding="utf-8")
+        print(f"[name_review] Saved {len(updated_predictions)} cache entries (auto-filled unknowns).")
+
+        redirect_url = f"/name_review?quiz={quote(quiz_id)}"
+        if raw_scans_subdir:
+            redirect_url += f"&raw_scans_subdir={quote(raw_scans_subdir)}"
+
+        return RedirectResponse(url=redirect_url, status_code=303)
+
     # 3. Load Roster & Grading Key
     roster = load_roster()
     roster_by_id = {r.student_id: r.name for r in roster}
