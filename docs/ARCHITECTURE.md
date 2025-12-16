@@ -49,7 +49,7 @@ The frontend serves specific interfaces for different phases of the grading life
 ### A. Name Review View (`GET /name_review`)
 * **Purpose:** rapid audit of VLM-grouped pages before grading begins.
 * **Input:** Reads draft predictions from CSV (CLI output) or JSON cache.
-* **Action:** User confirms identity matches.
+* **Action:** User confirms identity matches and can use **Save & Auto-Fill Unknowns** to cascade the last chosen student onto later "Unknown" rows without renaming files yet.
 * **Transition:** Submitting this form triggers the **Hand-off** (see Section 8).
 
 ### B. Strip View Grading (`GET /problem/{id}/strips`)
@@ -107,7 +107,7 @@ This section explains how data transforms from "Raw Images" to "Graded Assignmen
 * **State:** "Draft Mode." No files are moved; no session exists.
 
 ### Phase 2: The Review-to-Grading Hand-off
-* **Trigger:** User clicks **"Confirm & Grade"** on the `/name_review` page.
+* **Trigger:** User clicks **"Save & Start Grading"** or **"Save & Download Scans (ZIP)"** on the `/name_review` page (the earlier **"Save & Auto-Fill Unknowns"** button only updates the cache and does not rename files).
 * **Backend Logic (`POST /name_review`):**
     1.  **Renaming:** Copies raw files to `data/raw_scans/` with canonical names (e.g., `quiz1_student_p01.jpg`).
     2.  **Session Creation:** Constructs `WorkUnit` objects in memory based on the approved groups.
@@ -359,7 +359,7 @@ Check Internal Cache: If no CSV, looks for data/name_review_cache/{quiz_id}__roo
 Fallback: If neither exists, runs VLM live (Slow) and saves to JSON cache.
 
 B. The Session Hand-off
-Trigger: User clicks "Rename & Download" in the UI.
+Trigger: User clicks **Save & Start Grading** or **Save & Download Scans (ZIP)**. The **Save & Auto-Fill Unknowns** option is a pre-flight cache save only and does not touch the filesystem.
 
 Action: Server creates a Session object in memory and writes data/grades/session.json.
 

@@ -148,9 +148,13 @@ user_flows:
         Reads CLI-generated grouping CSVs, lets instructor confirm or fix student IDs
         and grouping, then creates WorkUnits and writes session.json. Copies canonical
         scan filenames into data/raw_scans for serving in the grading UI.
-      navigation_notes: >
-        After POST, redirects into the WorkUnit/strip grading flows; user doesn’t
-        directly handle session.json.
+      ui_controls:
+        - name: "Save & Auto-Fill Unknowns"
+          behavior: "Writes the edited assignments to the JSON cache and cascades the last known student onto subsequent Unknown rows. No file renaming or session.json writes occur."
+          use_case: "Quickly label long runs of the same student before doing the final hand-off."
+    navigation_notes: >
+      After POST, redirects into the WorkUnit/strip grading flows; user doesn’t
+      directly handle session.json.
 
     assumptions:
       - "Rubric YAML for this quiz already exists in data/rubric/quizX.yaml."
