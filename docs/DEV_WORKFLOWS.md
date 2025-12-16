@@ -37,3 +37,17 @@ Use these recipes to test individual "cogs" of the machine without running the f
     python -m app.ascii_to_json
     ```
 * **How to edit:** This runs the test block at the bottom of the file. Open `app/ascii_to_json.py` and modify the `test_ascii` string variable to test new proof formats.
+
+## 4. Recursive Fitch OCR (Strip -> Nested JSON)
+**Goal:** Run the end-to-end "chop, mask, transcribe, stitch" loop on a cropped Fitch proof scan.
+* **Script:** `scripts/debug_fitch_ocr.py`
+* **Input:** A single proof scan in `data/raw_scans/` (ideally pre-cropped to the proof grid).
+* **Command:**
+    ```bash
+    python scripts/debug_fitch_ocr.py quiz1_studentA_p1.jpg
+    ```
+* **What it does:**
+  - Detects vertical subproof bars and builds a nesting tree.
+  - Recursively masks each child subproof with placeholder tokens, calls the local VLM, and saves per-scope JSON.
+  - Stitches the placeholders back together, renumbers lines globally, and writes `data/debug_fitch/<scan_stem>/final_structure.json`.
+* **Debug artifacts:** The script drops intermediate crops, masks, and VLM responses into `data/debug_fitch/<scan_stem>/` so you can spot where a layer went wrong.
