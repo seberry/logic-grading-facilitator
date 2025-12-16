@@ -376,6 +376,16 @@
     <input type="hidden" name="page_count" value="{{ page_rows|length }}">
 
     <div class="footer-actions">
+      <button class="submit-button" type="submit" name="next_action" value="save_fill"
+              style="background-color: #0ea5e9;">
+        📝 Save & Auto-Fill Unknowns
+      </button>
+
+      <div class="footer-hint">
+        Saves your current assignments to the cache, then fills later "Unknown" rows
+        with the most recent assigned student. No files are renamed in this step.
+      </div>
+
       <button class="submit-button" type="submit" name="next_action" value="grade">
         🚀 Save & Start Grading
       </button>
