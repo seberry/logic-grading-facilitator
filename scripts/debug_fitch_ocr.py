@@ -40,6 +40,26 @@ except ImportError as e:
     print(f"Warning: Could not import app modules ({e}). Using mocks for VLM/Verifier.")
     vlm_client = None
 
+def renumber_lines(proof_structure: list, start_counter: int = 1) -> int:
+    """
+    Recursively walks the proof structure (lists of dicts/lists).
+    Overwrites 'line' numbers in-place with a global, incrementing counter.
+    Returns the next available line number.
+    """
+    current_counter = start_counter
+    
+    for item in proof_structure:
+        if isinstance(item, list):
+            # It's a subproof: Recurse into it.
+            # The subproof will consume some numbers and return the next one.
+            current_counter = renumber_lines(item, current_counter)
+        elif isinstance(item, dict):
+            # It's a proof line: Assign number and increment.
+            item['line'] = current_counter
+            current_counter += 1
+            
+    return current_counter
+
 # ==============================================================================
 # 1. Computer Vision Core (Adapted from bold_fitch_lines.py)
 # ==============================================================================
@@ -408,18 +428,33 @@ def main():
     print("\n--- Recursive Processing (Bottom-Up) ---")
     process_node_recursive(tree_root, img, output_base, library, client=vlm_client)
     
-    # 4. Stitch
+    # 4. Stitch & Renumber
     print("\n--- Stitching Results ---")
-    if "ROOT" in library:
-        final_structure = recursive_stitch(library["ROOT"], library)
-        
-        final_json_path = output_base / "final_structure.json"
-        with open(final_json_path, "w") as f:
-            json.dump(final_structure, f, indent=2)
-            
-        print(f"Final stitched structure saved to {final_json_path}")
+    
+    # HEURISTIC: If ROOT is empty/garbage but has children, 
+    # use the first child (ID_1) as the main proof.
+    # We check if ROOT has any actual content strings or just empty ones.
+    root_has_content = any(line.get("wffstr", "").strip() for line in library.get("ROOT", []))
+    
+    if not root_has_content and "1" in library:
+        print("   [Fix] ROOT was empty. Promoting 'ID_1' to top level.")
+        top_level_structure = library["1"]
     else:
-        print("Error: ROOT processing failed.")
+        top_level_structure = library.get("ROOT", [])
 
+    # A. Stitch: Replace token strings with actual lists
+    stitched_structure = recursive_stitch(top_level_structure, library)
+    
+    # B. Renumber: Fix the line numbers 1..N
+    total_lines = renumber_lines(stitched_structure)
+    print(f"   [Renumber] Proof contains {total_lines - 1} lines.")
+
+    # Save Final
+    final_json_path = output_base / "final_structure.json"
+    with open(final_json_path, "w") as f:
+        json.dump(stitched_structure, f, indent=2)
+        
+    print(f"Final stitched structure saved to {final_json_path}")
+    
 if __name__ == "__main__":
     main()
