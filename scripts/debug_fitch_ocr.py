@@ -8,6 +8,8 @@ Recursive "Chop-and-Mask" OCR for Fitch-style proofs.
 4. Stitches results into the nested format required by app/verifier.py.
 """
 
+from __future__ import annotations
+
 import sys
 import os
 import cv2
@@ -16,7 +18,7 @@ import json
 import re
 import argparse
 from pathlib import Path
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Union
 
 # Add project root to sys.path to import app modules
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -27,18 +29,21 @@ sys.path.append(project_root)
 try:
     # 1. Import the class
     from app.vlm_client import LMStudioQwenClient
+    from app.verifier import ProofLine, check_proof, flatten_proof
+
     vlm_client = LMStudioQwenClient()
     print(f"   [Setup] Successfully loaded VLM Client: {type(vlm_client).__name__}")
-    from app.verifier import ProofLine
 
     # 2. Instantiate the client (create the object)
     # This assumes your class takes no arguments or standard args.
     # If your other files do vlm_client = LMStudioQwenClient(url="..."), copy that matching logic.
     vlm_client = LMStudioQwenClient()
+    proof_checker_available = True
 
 except ImportError as e:
     print(f"Warning: Could not import app modules ({e}). Using mocks for VLM/Verifier.")
     vlm_client = None
+    proof_checker_available = False
 
 def renumber_lines(proof_structure: list, start_counter: int = 1) -> int:
     """
@@ -59,6 +64,62 @@ def renumber_lines(proof_structure: list, start_counter: int = 1) -> int:
             current_counter += 1
             
     return current_counter
+
+
+def structure_to_proof_lines(structure: List[Union[Dict, List]]) -> List[Union[ProofLine, List]]:
+    """
+    Convert a nested list/dict structure into ProofLine objects that the verifier can consume.
+    """
+    if not proof_checker_available:
+        return []
+
+    proof_lines: List[Union[ProofLine, List]] = []
+
+    for item in structure:
+        if isinstance(item, list):
+            proof_lines.append(structure_to_proof_lines(item))
+        elif isinstance(item, dict):
+            wffstr = str(item.get("wffstr", "")).strip()
+            jstr = str(item.get("jstr", "")).strip()
+            proof_lines.append(ProofLine(wffstr=wffstr, jstr=jstr, location=[]))
+
+    return proof_lines
+
+
+def infer_premises(flattened: List[ProofLine]) -> int:
+    """
+    Heuristically infer premises based on proof depth.
+
+    - If the final line is at depth 0 (top level), assume no premises.
+    - If the final line is at depth 1, treat the leading lines of that subproof
+      with empty justifications as premises.
+    """
+    if not flattened:
+        return 0
+
+    conclusion = flattened[-1]
+    conclusion_depth = len(conclusion.location) - 1
+
+    if conclusion_depth == 0:
+        return 0
+
+    if conclusion_depth == 1:
+        target_block = conclusion.location[0]
+        subproof_lines = [
+            line for line in flattened if len(line.location) == 2 and line.location[0] == target_block
+        ]
+        subproof_lines.sort(key=lambda l: l.location[1])
+
+        numprems = 0
+        for line in subproof_lines:
+            if line.jstr.strip() == "":
+                numprems += 1
+            else:
+                break
+        return numprems
+
+    # For deeper nesting, fall back to zero until a better heuristic is defined.
+    return 0
 
 # ==============================================================================
 # 1. Computer Vision Core (Adapted from bold_fitch_lines.py)
@@ -449,12 +510,45 @@ def main():
     total_lines = renumber_lines(stitched_structure)
     print(f"   [Renumber] Proof contains {total_lines - 1} lines.")
 
+    print("\n--- Final JSON Structure ---")
+    print(json.dumps(stitched_structure, indent=2, ensure_ascii=False))
+
     # Save Final
     final_json_path = output_base / "final_structure.json"
     with open(final_json_path, "w") as f:
         json.dump(stitched_structure, f, indent=2)
         
     print(f"Final stitched structure saved to {final_json_path}")
+
+    # 5. Verification
+    print("\n--- Proof Checker ---")
+    if not proof_checker_available:
+        print("   [Verifier] Proof checker unavailable (imports failed). Skipping verification.")
+        return
+
+    proofline_structure = structure_to_proof_lines(stitched_structure)
+    if not proofline_structure:
+        print("   [Verifier] No proof lines to verify.")
+        return
+
+    flattened = flatten_proof(proofline_structure, [])
+    conc_guess = flattened[-1].wffstr if flattened else ""
+    numprems = infer_premises(flattened)
+    conc_depth = (len(flattened[-1].location) - 1) if flattened else -1
+
+    print(f"   [Verifier] Inferred premises: {numprems}")
+    print(f"   [Verifier] Conclusion depth: {conc_depth}")
+    print(f"   [Verifier] Target conclusion (last line): {conc_guess or '(empty)'}")
+
+    result = check_proof(proofline_structure, numprems=numprems, conc=conc_guess)
+    print(f"   [Verifier] Conclusion reached? {'Yes' if result.conc_reached else 'No'}")
+
+    if result.issues:
+        print("   [Verifier] Issues:")
+        for issue in result.issues:
+            print(f"      - {issue}")
+    else:
+        print("   [Verifier] No issues detected.")
     
 if __name__ == "__main__":
     main()
