@@ -45,7 +45,8 @@ Use `scripts/debug_fitch_ocr.py` to exercise the full "chop, mask, transcribe, s
 1. Detects vertical bars, builds a subproof tree, and saves `debug_bars.jpg` for sanity checks.
 2. Masks each child scope with `<SUBPROOF_ID_X>` tokens before sending the parent to the local VLM.
 3. Stores every intermediate crop, mask, VLM response, and stitched JSON under `data/debug_fitch/<scan_stem>/`.
-4. Renumbers the stitched proof so lines are globally consistent before handing off to `app/verifier.py`.
+4. Normalizes the stitched proof into the verifier format (Unicode connectives, uppercase atoms, mapped rule labels, auto-Hyp on subproof starts, top-level Premise labeling) and renumbers lines so scopes are globally consistent before handing off to `app/verifier.py`.
+5. When the verifier is available, it flattens the proof, infers a target conclusion from the final line, and runs a rule check to surface any structural issues directly in the CLI output.
 
 Run it with:
 
