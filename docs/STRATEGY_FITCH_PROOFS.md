@@ -37,3 +37,20 @@ Once a transcription pipeline produces structured lines, feed each line into `ap
 - `jstr`: the cited rule/line references.
 
 `VerificationResult` then reports per-line issues and whether the conclusion was reached, giving immediate grading signals without manual re-entry.
+
+## Debugging the Recursive Pipeline
+
+Use `scripts/debug_fitch_ocr.py` to exercise the full "chop, mask, transcribe, stitch" loop on a single cropped scan. The script:
+
+1. Detects vertical bars, builds a subproof tree, and saves `debug_bars.jpg` for sanity checks.
+2. Masks each child scope with `<SUBPROOF_ID_X>` tokens before sending the parent to the local VLM.
+3. Stores every intermediate crop, mask, VLM response, and stitched JSON under `data/debug_fitch/<scan_stem>/`.
+4. Renumbers the stitched proof so lines are globally consistent before handing off to `app/verifier.py`.
+
+Run it with:
+
+```bash
+python scripts/debug_fitch_ocr.py quiz1_studentA_p1.jpg
+```
+
+Tip: Start with a tightly cropped proof grid—excluding question text and margin lines—to minimize hallucinated structure.
