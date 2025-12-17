@@ -49,5 +49,6 @@ Use these recipes to test individual "cogs" of the machine without running the f
 * **What it does:**
   - Detects vertical subproof bars and builds a nesting tree.
   - Recursively masks each child subproof with placeholder tokens, calls the local VLM, and saves per-scope JSON.
-  - Stitches the placeholders back together, renumbers lines globally, and writes `data/debug_fitch/<scan_stem>/final_structure.json`.
+  - Stitches the placeholders back together, normalizes symbols/justification labels for `app/verifier.py`, infers top-level premises, renumbers lines globally, and writes `data/debug_fitch/<scan_stem>/final_structure.json`.
+  - If the verifier imports cleanly, runs a proof check and prints any rule/structure issues alongside the inferred conclusion.
 * **Debug artifacts:** The script drops intermediate crops, masks, and VLM responses into `data/debug_fitch/<scan_stem>/` so you can spot where a layer went wrong.
