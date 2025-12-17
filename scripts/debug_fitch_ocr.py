@@ -150,8 +150,11 @@ def normalize_proof_structure(structure):
     # Map Justifications to Verifier Codes (from verifier.py TFL_RULES)
     justification_map = {
         "premise": "Pr",
+        "Premise": "Pr",
         "prem": "Pr",
+        "Prem": "Pr",
         "pr": "Pr",
+        "Pr": "Pr",
         "assumption": "Hyp",
         "assume": "Hyp",
         "hyp": "Hyp",
