@@ -83,6 +83,18 @@
       transform: translateY(-1px);
       box-shadow: 0 4px 10px rgba(37,99,235,0.2);
     }
+    button.text-btn {
+      background: transparent;
+      color: #dc2626;
+      padding: 0.25rem 0.35rem;
+      box-shadow: none;
+    }
+    button.text-btn:hover:not(:disabled) {
+      color: #b91c1c;
+      box-shadow: none;
+      background: transparent;
+      transform: none;
+    }
     .grid {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -167,6 +179,133 @@
       color: #6b7280;
       margin-top: 0.4rem;
     }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 0.4rem;
+    }
+    th, td {
+      border-bottom: 1px solid #e5e7eb;
+      padding: 0.4rem 0.5rem;
+      text-align: left;
+      font-size: 0.92rem;
+    }
+    th {
+      background: #f8fafc;
+      font-weight: 700;
+      color: #0f172a;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    td input {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 0.35rem 0.45rem;
+      border: 1px solid #d1d5db;
+      border-radius: 0.35rem;
+      font-size: 0.9rem;
+    }
+    td input:focus {
+      outline: 2px solid #93c5fd;
+      border-color: #60a5fa;
+    }
+    .editor-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+    .editor-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+      margin: 0.5rem 0;
+    }
+    .toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .toggle input {
+      accent-color: #2563eb;
+      width: 1rem;
+      height: 1rem;
+    }
+    .table-wrapper {
+      border: 1px solid #e5e7eb;
+      border-radius: 0.65rem;
+      overflow: hidden;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+      background: #fff;
+      max-height: 520px;
+      overflow-y: auto;
+    }
+    .depth-cell {
+      width: 140px;
+    }
+    .depth-visual {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .depth-bars {
+      width: 64px;
+      height: 14px;
+      border-radius: 999px;
+      background-image: repeating-linear-gradient(
+        to right,
+        #cbd5e1 0 2px,
+        transparent 2px 8px
+      );
+      background-size: calc(var(--depth, 0) * 8px) 100%;
+      background-repeat: no-repeat;
+      background-color: #e5e7eb;
+      border: 1px solid #cbd5e1;
+    }
+    .line-number {
+      font-variant-numeric: tabular-nums;
+      width: 34px;
+      display: inline-block;
+      color: #334155;
+      font-weight: 700;
+    }
+    .inline-warning {
+      color: #dc2626;
+      font-size: 0.85rem;
+    }
+    .raw-json {
+      width: 100%;
+      min-height: 240px;
+      border-radius: 0.55rem;
+      border: 1px solid #d1d5db;
+      padding: 0.75rem;
+      font-family: "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 0.9rem;
+      box-sizing: border-box;
+      background: #f8fafc;
+      color: #0f172a;
+      resize: vertical;
+    }
+    .hidden {
+      display: none;
+    }
+    .editor-note {
+      font-size: 0.85rem;
+      color: #475569;
+    }
+    .muted-pill {
+      background: #f1f5f9;
+      color: #475569;
+      padding: 0.25rem 0.55rem;
+      border-radius: 999px;
+      font-weight: 600;
+      font-size: 0.85rem;
+    }
     @media (max-width: 900px) {
       .grid {
         grid-template-columns: 1fr;
@@ -218,11 +357,43 @@
       </div>
 
       <div class="panel">
-        <h2>final_structure.json</h2>
+        <div class="editor-header">
+          <h2>final_structure.json</h2>
+          <span class="muted-pill">Table editor</span>
+        </div>
         {% if selected_scan %}
           <form id="structure-form">
             <input type="hidden" name="scan" value="{{ selected_scan }}">
-            <textarea id="structure-editor" name="structure" spellcheck="false" placeholder="[ ... JSON ... ]">{{ structure_text }}</textarea>
+            <input type="hidden" name="structure" id="structure-field" value="{{ structure_text }}">
+            <div class="editor-toolbar">
+              <button type="button" class="secondary" id="add-row-btn">Add line</button>
+              <span class="editor-note">Line numbers are automatic; adjust depth and text directly in the grid.</span>
+              <label class="toggle">
+                <input type="checkbox" id="raw-toggle">
+                Raw JSON
+              </label>
+            </div>
+            <div id="table-editor">
+              <div class="table-wrapper">
+                <table aria-label="Fitch proof editor">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Depth</th>
+                      <th>Formula</th>
+                      <th>Justification</th>
+                      <th>Warnings</th>
+                    </tr>
+                  </thead>
+                  <tbody id="proof-table-body"></tbody>
+                </table>
+              </div>
+              <div class="hint">Increase depth to nest inside a subproof; bars visualize indentation.</div>
+            </div>
+            <div id="raw-editor" class="hidden">
+              <textarea id="structure-raw" class="raw-json" spellcheck="false" placeholder="[ ... JSON ... ]">{{ structure_text }}</textarea>
+              <div class="hint">Raw JSON fallback for edge cases. Parsing must still produce a top-level list.</div>
+            </div>
             <div class="button-row">
               <button type="submit">Save edits</button>
               <span class="status" id="save-status"></span>
@@ -245,7 +416,14 @@
     const selectedScan = "{{ selected_scan or '' }}";
     const logPanel = document.getElementById("log-output");
     const saveStatus = document.getElementById("save-status");
-    const structureEditor = document.getElementById("structure-editor");
+    const structureField = document.getElementById("structure-field");
+    const proofTableBody = document.getElementById("proof-table-body");
+    const tableEditor = document.getElementById("table-editor");
+    const rawEditorBlock = document.getElementById("raw-editor");
+    const rawEditor = document.getElementById("structure-raw");
+    const rawToggle = document.getElementById("raw-toggle");
+    const addRowBtn = document.getElementById("add-row-btn");
+    let proofRows = [];
 
     function setLog(message) {
       if (logPanel) {
@@ -299,12 +477,276 @@
       return payload;
     }
 
+    function normalizeDepth(value) {
+      const num = Number(value);
+      if (!Number.isFinite(num)) {
+        return 0;
+      }
+      return Math.max(0, Math.trunc(num));
+    }
+
+    function computeRowWarnings(rows) {
+      const warnings = rows.map(() => []);
+      let prevDepth = 0;
+      rows.forEach((row, idx) => {
+        const rawDepth = Number(row.depth);
+        const depth = normalizeDepth(row.depth);
+        if (!Number.isFinite(rawDepth)) {
+          warnings[idx].push("Depth must be a number.");
+        }
+        if (Number.isFinite(rawDepth) && rawDepth < 0) {
+          warnings[idx].push("Depth cannot be negative.");
+        }
+        if (idx === 0 && depth !== 0) {
+          warnings[idx].push("First line should start at depth 0.");
+        }
+        if (idx > 0 && depth - prevDepth > 1) {
+          warnings[idx].push("Indent by +1 only after a subproof start.");
+        }
+        prevDepth = depth;
+      });
+      return warnings;
+    }
+
+    function refreshWarnings(existing) {
+      const warnings = existing || computeRowWarnings(proofRows);
+      const nodes = document.querySelectorAll("[data-warning-index]");
+      nodes.forEach((node) => {
+        const idx = Number(node.getAttribute("data-warning-index"));
+        node.textContent = warnings[idx] ? warnings[idx].join(" ") : "";
+      });
+      return warnings;
+    }
+
+    function structureToRows(structure, depth = 0, rows = []) {
+      if (!Array.isArray(structure)) {
+        return rows;
+      }
+      structure.forEach((item) => {
+        if (Array.isArray(item)) {
+          structureToRows(item, depth + 1, rows);
+        } else if (item && typeof item === "object") {
+          rows.push({
+            depth,
+            wffstr: item.wffstr || "",
+            jstr: item.jstr || "",
+          });
+        }
+      });
+      return rows;
+    }
+
+    function rowsToStructure(rows) {
+      const rowWarnings = computeRowWarnings(rows);
+      const normalizedRows = rows.map((row) => ({
+        depth: normalizeDepth(row.depth),
+        wffstr: row.wffstr || "",
+        jstr: row.jstr || "",
+      }));
+
+      const root = [];
+      const stack = [root];
+      let lineCounter = 1;
+
+      normalizedRows.forEach((row) => {
+        while (row.depth < stack.length - 1) {
+          stack.pop();
+        }
+        while (row.depth > stack.length - 1) {
+          const child = [];
+          stack[stack.length - 1].push(child);
+          stack.push(child);
+        }
+        stack[stack.length - 1].push({
+          line: lineCounter++,
+          wffstr: row.wffstr,
+          jstr: row.jstr,
+        });
+      });
+
+      return { structure: root, rowWarnings };
+    }
+
+    function renderTable(precomputedWarnings = null) {
+      if (!proofTableBody) return;
+      proofTableBody.innerHTML = "";
+      const warnings = precomputedWarnings || computeRowWarnings(proofRows);
+
+      proofRows.forEach((row, idx) => {
+        const tr = document.createElement("tr");
+
+        const lineTd = document.createElement("td");
+        const lineSpan = document.createElement("span");
+        lineSpan.className = "line-number";
+        lineSpan.textContent = idx + 1;
+        lineTd.appendChild(lineSpan);
+        tr.appendChild(lineTd);
+
+        const depthTd = document.createElement("td");
+        depthTd.className = "depth-cell";
+        const depthWrap = document.createElement("div");
+        depthWrap.className = "depth-visual";
+        const bars = document.createElement("div");
+        bars.className = "depth-bars";
+        bars.style.setProperty("--depth", normalizeDepth(row.depth));
+        const depthInput = document.createElement("input");
+        depthInput.type = "number";
+        depthInput.min = "0";
+        depthInput.value = normalizeDepth(row.depth);
+        depthInput.addEventListener("input", (event) => {
+          proofRows[idx].depth = event.target.value;
+          bars.style.setProperty("--depth", normalizeDepth(event.target.value));
+          refreshWarnings();
+        });
+        depthWrap.appendChild(bars);
+        depthWrap.appendChild(depthInput);
+        depthTd.appendChild(depthWrap);
+        tr.appendChild(depthTd);
+
+        const wffTd = document.createElement("td");
+        const wffInput = document.createElement("input");
+        wffInput.value = row.wffstr || "";
+        wffInput.placeholder = "Formula";
+        wffInput.addEventListener("input", (event) => {
+          proofRows[idx].wffstr = event.target.value;
+        });
+        wffTd.appendChild(wffInput);
+        tr.appendChild(wffTd);
+
+        const justTd = document.createElement("td");
+        const justInput = document.createElement("input");
+        justInput.value = row.jstr || "";
+        justInput.placeholder = "Justification";
+        justInput.addEventListener("input", (event) => {
+          proofRows[idx].jstr = event.target.value;
+        });
+        justTd.appendChild(justInput);
+        tr.appendChild(justTd);
+
+        const warnTd = document.createElement("td");
+        const warnText = document.createElement("div");
+        warnText.className = "inline-warning";
+        warnText.setAttribute("data-warning-index", String(idx));
+        warnText.textContent = warnings[idx] ? warnings[idx].join(" ") : "";
+        warnTd.appendChild(warnText);
+
+        const removeBtn = document.createElement("button");
+        removeBtn.type = "button";
+        removeBtn.className = "text-btn";
+        removeBtn.textContent = "Remove";
+        removeBtn.addEventListener("click", () => {
+          proofRows.splice(idx, 1);
+          renderTable();
+        });
+        warnTd.appendChild(removeBtn);
+
+        tr.appendChild(warnTd);
+        proofTableBody.appendChild(tr);
+      });
+    }
+
+    function safeParseJSON(text) {
+      try {
+        return { data: JSON.parse(text), error: null };
+      } catch (err) {
+        return { data: null, error: err instanceof Error ? err.message : "Unknown parse error" };
+      }
+    }
+
+    function loadStructureText(text) {
+      if (rawEditor) {
+        rawEditor.value = text || "";
+      }
+      const { data, error } = safeParseJSON(text || "[]");
+      if (error || !Array.isArray(data)) {
+        setStatus(error ? `Could not parse saved JSON: ${error}` : "final_structure.json must be a list.", true);
+        proofRows = [];
+        renderTable();
+        return;
+      }
+      proofRows = structureToRows(data);
+      renderTable();
+    }
+
+    function syncRawFromRows() {
+      const { structure } = rowsToStructure(proofRows);
+      if (rawEditor) {
+        rawEditor.value = JSON.stringify(structure, null, 2);
+      }
+    }
+
+    function syncRowsFromRaw() {
+      if (!rawEditor) return true;
+      const { data, error } = safeParseJSON(rawEditor.value || "[]");
+      if (error) {
+        setStatus(`Cannot parse raw JSON: ${error}`, true);
+        return false;
+      }
+      if (!Array.isArray(data)) {
+        setStatus("Raw JSON must be a top-level list.", true);
+        return false;
+      }
+      proofRows = structureToRows(data);
+      renderTable();
+      setStatus("");
+      return true;
+    }
+
+    if (addRowBtn) {
+      addRowBtn.addEventListener("click", () => {
+        const lastDepth = proofRows.length ? normalizeDepth(proofRows[proofRows.length - 1].depth) : 0;
+        proofRows.push({ depth: lastDepth, wffstr: "", jstr: "" });
+        renderTable();
+      });
+    }
+
+    if (rawToggle && tableEditor && rawEditorBlock) {
+      rawToggle.addEventListener("change", () => {
+        if (rawToggle.checked) {
+          syncRawFromRows();
+          tableEditor.classList.add("hidden");
+          rawEditorBlock.classList.remove("hidden");
+        } else {
+          const ok = syncRowsFromRaw();
+          if (!ok) {
+            rawToggle.checked = true;
+            return;
+          }
+          tableEditor.classList.remove("hidden");
+          rawEditorBlock.classList.add("hidden");
+          refreshWarnings();
+        }
+      });
+    }
+
+    function getStructurePayload() {
+      if (rawToggle && rawToggle.checked && rawEditor) {
+        return rawEditor.value || "[]";
+      }
+      const { structure, rowWarnings } = rowsToStructure(proofRows);
+      const flattenedWarnings = (rowWarnings || []).flat().filter(Boolean);
+      refreshWarnings(rowWarnings);
+      if (flattenedWarnings.length) {
+        setStatus("Fix indentation warnings before saving.", true);
+        return null;
+      }
+      return JSON.stringify(structure, null, 2);
+    }
+
     const form = document.getElementById("structure-form");
     if (form) {
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
         setStatus("");
         setLog("Saving structure...");
+        const payload = getStructurePayload();
+        if (payload === null) {
+          setLog("Save blocked due to validation warnings.");
+          return;
+        }
+        if (structureField) {
+          structureField.value = payload;
+        }
         const formData = new FormData(form);
         try {
           const result = await postForm("/debug/fitch/save", formData);
@@ -327,8 +769,15 @@
         formData.append("scan", selectedScan);
         try {
           const result = await postForm("/debug/fitch/rerun", formData);
-          if (structureEditor && result.structure !== undefined) {
-            structureEditor.value = result.structure || "";
+          if (result.structure !== undefined) {
+            const payload =
+              typeof result.structure === "string"
+                ? result.structure
+                : JSON.stringify(result.structure, null, 2);
+            if (structureField) {
+              structureField.value = payload;
+            }
+            loadStructureText(payload);
           }
           setLog(result.log || "Pipeline finished.");
         } catch (err) {
@@ -354,6 +803,11 @@
           setLog(err.message);
         }
       });
+    }
+
+    const initialStructureText = structureField ? structureField.value : "";
+    if (initialStructureText !== null) {
+      loadStructureText(initialStructureText);
     }
   </script>
 </body>
