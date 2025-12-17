@@ -121,6 +121,127 @@ def infer_premises(flattened: List[ProofLine]) -> int:
     # For deeper nesting, fall back to zero until a better heuristic is defined.
     return 0
 
+def normalize_proof_structure(structure):
+    """
+    Walks the proof structure to:
+    1. Convert ASCII logic symbols to Unicode (e.g., '~' -> '¬').
+    2. Uppercase atomic formulas (TFL requires 'P', not 'p').
+    3. Map loose justification names to verifier codes (e.g., 'Premise' -> 'Pr').
+    4. Auto-label the first line of any subproof as 'Hyp' if blank.
+    """
+    
+    # Map ASCII/Loose symbols to Verifier Unicode
+    # Note: We do this replacement BEFORE uppercasing to protect 'v' (or) from becoming 'V'.
+    symbol_map = {
+        "~": "¬",
+        "-": "¬",      # Sometimes OCR sees dash as negation
+        "&": "∧",
+        ".": "∧",      # VLM often uses dot for AND
+        "v": "∨",      # Lowercase v is OR
+        "V": "∨",
+        "->": "→",
+        "=>": "→",
+        "<->": "↔",
+        "=": "↔",      # Common OCR error for biconditional
+        "_|_": "⊥",
+        "F": "⊥",      # Falsum often written as F
+    }
+
+    # Map Justifications to Verifier Codes (from verifier.py TFL_RULES)
+    justification_map = {
+        "premise": "Pr",
+        "prem": "Pr",
+        "pr": "Pr",
+        "assumption": "Hyp",
+        "assume": "Hyp",
+        "hyp": "Hyp",
+        "h": "Hyp",
+        # Rules often OCR'd poorly
+        "ve": "∨E",
+        "vi": "∨I",
+        "&e": "∧E",
+        "&i": "∧I",
+        ".e": "∧E",
+        ".i": "∧I",
+        "~e": "¬E",
+        "~i": "¬I",
+        "-e": "¬E",
+        "-i": "¬I",
+        "xe": "⊥E",   # Explosion
+        "xi": "⊥I",
+        "bot": "⊥",
+        "bote": "⊥E",
+        "boti": "⊥I",
+    }
+
+    def clean_wff(wff):
+        if not wff: return ""
+        # 1. Replace multi-char operators first to avoid breaking them
+        wff = wff.replace("->", "→").replace("<->", "↔")
+        
+        # 2. Character-by-character replacement for single symbols
+        clean_chars = []
+        for char in wff:
+            if char in symbol_map:
+                clean_chars.append(symbol_map[char])
+            elif char.isalpha():
+                # TFL atoms must be Uppercase. 
+                # (Skip 'v' if it was mapped to OR, but here 'v' is already handled by symbol_map)
+                clean_chars.append(char.upper())
+            else:
+                clean_chars.append(char)
+        
+        return "".join(clean_chars)
+
+    def clean_justification(jstr):
+        if not jstr: return ""
+        
+        # Split into Rule and Lines (e.g., "vE 2" -> "vE", "2")
+        # We assume the Rule is the first "word"
+        parts = jstr.strip().split(' ', 1)
+        rule = parts[0].lower()
+        remainder = parts[1] if len(parts) > 1 else ""
+
+        # Map the rule if known
+        if rule in justification_map:
+            rule = justification_map[rule]
+        else:
+            # Try to fix casing for standard rules (e.g., "mp" -> "MP")
+            # The verifier is Case Sensitive for rules like 'R', 'X', 'MT'
+            rule = rule.upper() 
+            # Fix specific case-sensitive ones from verifier.py
+            if rule == "AE": rule = "∧E" # Common confusion
+            if rule == "AI": rule = "∧I"
+        
+        return f"{rule} {remainder}".strip()
+
+    def recursive_normalize(sub_structure, is_subproof_start=False):
+        for index, item in enumerate(sub_structure):
+            
+            # CASE A: It's a Subproof (List)
+            if isinstance(item, list):
+                # Recurse. The first item in this new list IS a subproof start.
+                recursive_normalize(item, is_subproof_start=True)
+                
+            # CASE B: It's a Line (Dict)
+            elif isinstance(item, dict):
+                # 1. Clean Formulas
+                item["wffstr"] = clean_wff(item.get("wffstr", ""))
+                
+                # 2. Clean Justification Text
+                raw_j = str(item.get("jstr", "")).strip()
+                
+                # 3. Handle Implicit Assumptions
+                # If this is the very first line of a subproof (List), it MUST be an assumption.
+                if is_subproof_start and index == 0 and not raw_j:
+                    item["jstr"] = "Hyp"
+                else:
+                    item["jstr"] = clean_justification(raw_j)
+
+    # Start the recursion
+    recursive_normalize(structure)
+    return structure
+    
 # ==============================================================================
 # 1. Computer Vision Core (Adapted from bold_fitch_lines.py)
 # ==============================================================================
@@ -546,7 +667,10 @@ def main():
            and isinstance(stitched_structure[0], list)):
         print("   [Structure] Unwrapping nested list layer...")
         stitched_structure = stitched_structure[0]
-
+    
+    # NEW: Normalize VLM Output ---
+    print("   [Logic] Normalizing symbols and justifications...")
+    normalize_proof_structure(stitched_structure)
 
     # Identify Premises ---
     # We do this BEFORE renumbering or flattening, while structure is clear.
