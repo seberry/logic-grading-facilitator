@@ -52,3 +52,26 @@ Use these recipes to test individual "cogs" of the machine without running the f
   - Stitches the placeholders back together, normalizes symbols/justification labels for `app/verifier.py`, infers top-level premises, renumbers lines globally, and writes `data/debug_fitch/<scan_stem>/final_structure.json`.
   - If the verifier imports cleanly, runs a proof check and prints any rule/structure issues alongside the inferred conclusion.
 * **Debug artifacts:** The script drops intermediate crops, masks, and VLM responses into `data/debug_fitch/<scan_stem>/` so you can spot where a layer went wrong.
+
+## 5. Fitch proof display & human correction page
+**Goal:** Preview the highlighted proof image, hand-edit `final_structure.json`, and run the verifier from the new in-browser review page.
+
+1) **Generate artifacts once** (creates the dropdown options and preview assets):
+   ```bash
+   # Place a cropped proof scan under data/raw_scans/, e.g. quiz1_studentA_p1.jpg
+   python scripts/debug_fitch_ocr.py quiz1_studentA_p1.jpg
+   # Artifacts land in data/debug_fitch/quiz1_studentA_p1/
+   ```
+
+2) **Start the server** (same as normal UI):
+   ```bash
+   uvicorn app.server:app --reload --port 5000
+   ```
+
+3) **Open the review page:** visit `http://127.0.0.1:5000/debug/fitch` and pick your scan slug from the dropdown (the slug matches the filename stem from `data/debug_fitch/<slug>/`).
+
+4) **Re-run the OCR/parse loop:** click **Re-run OCR/parse** to call `scripts/debug_fitch_ocr.py` on the underlying scan. The textarea refreshes with the regenerated `final_structure.json`, and stdout/stderr appear in the log panel.
+
+5) **Hand-correct structure:** edit the JSON in the **final_structure.json** panel and click **Save edits**. The file is written back to `data/debug_fitch/<slug>/final_structure.json`; keep the top-level value as a list.
+
+6) **Verify the proof:** click **Run grader** to send the saved structure through `app/verifier.py`. The log shows inferred premise count, guessed conclusion, and any rule issues without leaving the browser.

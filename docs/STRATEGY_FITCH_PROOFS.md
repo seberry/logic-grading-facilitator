@@ -55,3 +55,6 @@ python scripts/debug_fitch_ocr.py quiz1_studentA_p1.jpg
 ```
 
 Tip: Start with a tightly cropped proof grid—excluding question text and margin lines—to minimize hallucinated structure.
+
+## Human-in-the-loop verification UI
+Artifacts written to `data/debug_fitch/<scan_stem>/` can be reviewed in-browser at `GET /debug/fitch`. The page previews the highlighted scan, lets you re-run the pipeline, edit and save `final_structure.json`, and push the saved structure through `app/verifier.py` to see rule issues without leaving the UI.

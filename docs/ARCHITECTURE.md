@@ -63,6 +63,14 @@ The frontend serves specific interfaces for different phases of the grading life
 * **Purpose:** Detailed view of a single student's full exam.
 * **Use Case:** Spot-checking a specific student or handling complex multi-page overrides.
 
+### D. Fitch Debug & Human-Correction View (`GET /debug/fitch`)
+* **Purpose:** Inspect highlighted proof scans, hand-edit stitched `final_structure.json`, and run the verifier inline.
+* **Inputs:** Reads artifacts from `data/debug_fitch/<scan_stem>/` (produced by `scripts/debug_fitch_ocr.py` against a cropped proof scan).
+* **Actions:**
+  * Re-run the OCR/parse pipeline on demand to refresh the JSON and log output.
+  * Edit and save `final_structure.json` directly in the browser; persists to the same folder.
+  * Run the Fitch verifier on the saved structure to surface rule issues and the inferred conclusion without leaving the page.
+
 ---
 
 # 4. Automation Integration Points
