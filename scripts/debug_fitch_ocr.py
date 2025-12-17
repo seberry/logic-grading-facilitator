@@ -100,10 +100,10 @@ def infer_premises(flattened: List[ProofLine]) -> int:
     conclusion = flattened[-1]
     conclusion_depth = len(conclusion.location) - 1
 
-    if conclusion_depth == 0:
+    if conclusion_depth == 1:
         return 0
 
-    if conclusion_depth == 1:
+    if conclusion_depth == 2:
         target_block = conclusion.location[0]
         subproof_lines = [
             line for line in flattened if len(line.location) == 2 and line.location[0] == target_block
@@ -443,6 +443,38 @@ def recursive_stitch(current_list, library):
             
     return resolved
 
+def label_and_count_premises(proof_structure: List[Union[Dict, List]]) -> int:
+    """
+    Walks the top-level of the stitched proof structure.
+    If a line has an empty justification ('jstr') and appears before any 
+    subproofs or justified lines, it is labeled as 'Premise'.
+    
+    Returns: The number of premises identified.
+    """
+    premise_count = 0
+    
+    for item in proof_structure:
+        # 1. If we hit a subproof (list), the premise block is definitely over.
+        #    (Premises cannot appear after or inside a subproof at the top level)
+        if isinstance(item, list):
+            break
+            
+        # 2. If it's a line (dict)...
+        if isinstance(item, dict):
+            jstr = item.get("jstr", "").strip()
+            
+            # If justification is empty, treat it as a Premise
+            if not jstr:
+                item["jstr"] = "Premise" # Inject the label
+                premise_count += 1
+            
+            # If it already has a justification (e.g., "Taut Con"), 
+            # the premise block is over.
+            elif jstr.lower() != "premise": 
+                break
+                
+    return premise_count
+
 # ==============================================================================
 # Main
 # ==============================================================================
@@ -505,6 +537,22 @@ def main():
 
     # A. Stitch: Replace token strings with actual lists
     stitched_structure = recursive_stitch(top_level_structure, library)
+
+    # Unwrap unnecessary nesting 
+    # The stitching or VLM results often create layers like [[[ {line1}, ... ]]].
+    # We need to peel these layers off until we find the actual list of logic lines.
+    while (isinstance(stitched_structure, list) 
+           and len(stitched_structure) == 1 
+           and isinstance(stitched_structure[0], list)):
+        print("   [Structure] Unwrapping nested list layer...")
+        stitched_structure = stitched_structure[0]
+
+
+    # Identify Premises ---
+    # We do this BEFORE renumbering or flattening, while structure is clear.
+    print(f"   [Logic] Inferring premises from top-level structure...")
+    numprems = label_and_count_premises(stitched_structure)
+    print(f"   [Logic] Identified {numprems} premises.")
     
     # B. Renumber: Fix the line numbers 1..N
     total_lines = renumber_lines(stitched_structure)
@@ -523,7 +571,7 @@ def main():
     # 5. Verification
     print("\n--- Proof Checker ---")
     if not proof_checker_available:
-        print("   [Verifier] Proof checker unavailable (imports failed). Skipping verification.")
+        print("   [Verifier] Proof checker unavailable (imports failed).")
         return
 
     proofline_structure = structure_to_proof_lines(stitched_structure)
@@ -532,14 +580,14 @@ def main():
         return
 
     flattened = flatten_proof(proofline_structure, [])
+    
+    # We grab the conclusion from the very last line of the flattened proof
     conc_guess = flattened[-1].wffstr if flattened else ""
-    numprems = infer_premises(flattened)
-    conc_depth = (len(flattened[-1].location) - 1) if flattened else -1
-
+    
     print(f"   [Verifier] Inferred premises: {numprems}")
-    print(f"   [Verifier] Conclusion depth: {conc_depth}")
-    print(f"   [Verifier] Target conclusion (last line): {conc_guess or '(empty)'}")
+    print(f"   [Verifier] Target conclusion: {conc_guess or '(empty)'}")
 
+    # Pass the explicitly counted 'numprems' to the verifier
     result = check_proof(proofline_structure, numprems=numprems, conc=conc_guess)
     print(f"   [Verifier] Conclusion reached? {'Yes' if result.conc_reached else 'No'}")
 
