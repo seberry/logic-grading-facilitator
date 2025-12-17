@@ -339,11 +339,14 @@ user_flows:
       description: |
         Detects vertical subproof bars, masks child scopes with placeholder tokens, sends each
         scope to the local VLM, stitches placeholders back into a nested list-of-lines structure,
-        renumbers lines globally, and emits final_structure.json suitable for feeding into the verifier.
+        normalizes symbols/justification labels for the verifier, infers top-level premises, renumbers
+        lines globally, and emits final_structure.json suitable for feeding into the verifier. If the
+        verifier imports cleanly, it will also run a rule check and print issues/conclusion info.
 
     current_limitations:
       - "Assumes input scan is tightly cropped to the proof grid; extra margins or question text can confuse bar detection."
       - "Relies on a running local VLM client (LM Studio Qwen) for transcription."
+      - "Proof checking is best-effort; it only runs when verifier dependencies import successfully."
 
 # -------------------------------------------------------------------
 # 3. Data files / schemas ("The Schema")
