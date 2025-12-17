@@ -316,6 +316,35 @@ user_flows:
     current_limitations:
       - "No UI to browse or restore archives; restore is manual via copying from data_archive."
 
+  - id: flow_fitch_ocr_debug
+    human_name: "Recursive Fitch OCR debug"
+    user_action: "Developer runs the chop/mask/transcribe/stitch loop on a single cropped proof scan."
+    status: "experimental"
+
+    entrypoints:
+      - method: "CLI"
+        path: "python scripts/debug_fitch_ocr.py <scan_filename>"
+        file: "scripts/debug_fitch_ocr.py"
+        template: "N/A (writes artifacts to disk)"
+
+    data_flow:
+      reads:
+        - path: "data/raw_scans/<scan_filename>"
+          purpose: "Cropped proof image for bar detection and recursive masking."
+      writes:
+        - path: "data/debug_fitch/<scan_stem>/"
+          what: "Intermediate crops, masks, VLM responses, and final_structure.json (stitched proof)."
+
+    current_behavior:
+      description: |
+        Detects vertical subproof bars, masks child scopes with placeholder tokens, sends each
+        scope to the local VLM, stitches placeholders back into a nested list-of-lines structure,
+        renumbers lines globally, and emits final_structure.json suitable for feeding into the verifier.
+
+    current_limitations:
+      - "Assumes input scan is tightly cropped to the proof grid; extra margins or question text can confuse bar detection."
+      - "Relies on a running local VLM client (LM Studio Qwen) for transcription."
+
 # -------------------------------------------------------------------
 # 3. Data files / schemas ("The Schema")
 # -------------------------------------------------------------------
