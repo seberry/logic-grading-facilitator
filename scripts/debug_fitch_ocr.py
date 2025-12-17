@@ -571,7 +571,7 @@ def label_and_count_premises(proof_structure: List[Union[Dict, List]]) -> int:
     """
     Walks the top-level of the stitched proof structure.
     If a line has an empty justification ('jstr') and appears before any 
-    subproofs or justified lines, it is labeled as 'Premise'.
+    subproofs or justified lines, it is labeled as 'Pr' (for premise).
     
     Returns: The number of premises identified.
     """
@@ -589,12 +589,12 @@ def label_and_count_premises(proof_structure: List[Union[Dict, List]]) -> int:
             
             # If justification is empty, treat it as a Premise
             if not jstr:
-                item["jstr"] = "Premise" # Inject the label
+                item["jstr"] = "Pr" # Inject the label
                 premise_count += 1
             
             # If it already has a justification (e.g., "Taut Con"), 
             # the premise block is over.
-            elif jstr.lower() != "premise": 
+            elif jstr.lower() != "pr": 
                 break
                 
     return premise_count
