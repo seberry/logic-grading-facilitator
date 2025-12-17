@@ -72,6 +72,23 @@ More automation: See `docs/FUTURE_AUTOMATION.md` for details, but the major phas
 - LLM-based “second-opinion” disagreement flags.
 - Optional attachment of per question comments to scans which will be manually uploaded to canvas. 
 
+## Fitch proof debug + human-correction page
+Use the in-browser review page to inspect OCR artifacts, hand-edit the stitched proof JSON, and run the verifier without leaving the UI:
+
+1. Generate artifacts once for a cropped proof scan:
+   ```bash
+   python scripts/debug_fitch_ocr.py quiz1_studentA_p1.jpg
+   # writes to data/debug_fitch/quiz1_studentA_p1/
+   ```
+2. Start the app as usual:
+   ```bash
+   uvicorn app.server:app --reload --port 5000
+   ```
+3. Visit `http://127.0.0.1:5000/debug/fitch`, pick your scan slug, and use:
+   - **Re-run OCR/parse** to refresh `final_structure.json` + logs.
+   - **Save edits** after tweaking the JSON in the textarea (persists back to `data/debug_fitch/<slug>/final_structure.json`).
+   - **Run grader** to push the saved structure through `app/verifier.py` and see rule issues + inferred conclusion inline.
+
 
 ---
 
@@ -226,5 +243,4 @@ This CSV has columns:
 
 - `student_id`
 - `<quiz_id>_score`  (e.g. `quiz1_score`)
-
 
