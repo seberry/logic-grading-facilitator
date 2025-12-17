@@ -49,6 +49,7 @@ from .auto_group_core import (
     SubmissionGroup,
 )
 from .verifier import ProofLine, check_proof, flatten_proof
+from .syntax import parse_formula
 import shutil
 import yaml
 import fitz  # type: ignore
@@ -468,6 +469,23 @@ async def rerun_fitch_pipeline(scan: str = Form(...)) -> Response:
             "status": status,
             "log": output,
             "structure": structure_text,
+        }
+    )
+
+
+@app.post("/debug/fitch/validate_wff")
+async def validate_fitch_formula(formula: str = Form(...)) -> Response:
+    try:
+        result = parse_formula(formula)
+    except Exception as exc:  # pragma: no cover - defensive guard for unexpected parser failures
+        raise HTTPException(status_code=500, detail=f"Failed to validate formula: {exc}")
+
+    return JSONResponse(
+        {
+            "status": "ok",
+            "formula": formula,
+            "is_well_formed": bool(result.is_well_formed),
+            "error": "" if result.is_well_formed else result.err_msg,
         }
     )
 

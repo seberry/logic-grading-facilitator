@@ -167,6 +167,115 @@
       color: #6b7280;
       margin-top: 0.4rem;
     }
+    .preview-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      margin-top: 0.85rem;
+    }
+    .preview-title {
+      font-weight: 700;
+      font-size: 0.95rem;
+      color: #0f172a;
+    }
+    .formula-preview {
+      margin-top: 0.35rem;
+      border: 1px solid #e5e7eb;
+      border-radius: 0.65rem;
+      background: #f8fafc;
+      padding: 0.65rem;
+      max-height: 320px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .formula-row {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 0.5rem;
+      align-items: center;
+      padding: 0.35rem 0.45rem;
+      border-radius: 0.5rem;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+    }
+    .formula-row .indent {
+      width: 8px;
+      border-left: 2px solid #cbd5e1;
+      height: 100%;
+    }
+    .formula-content {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+    .formula-line {
+      font-weight: 600;
+      font-size: 0.85rem;
+      color: #111827;
+      min-width: 2.25rem;
+    }
+    .formula-text {
+      font-family: "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+      color: #0f172a;
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 0.1rem;
+    }
+    .token-operator {
+      color: #2563eb;
+      font-weight: 700;
+    }
+    .token-quantifier {
+      color: #0891b2;
+      font-weight: 700;
+    }
+    .token-paren {
+      color: #6b7280;
+    }
+    .token-constant {
+      color: #16a34a;
+    }
+    .token-connector {
+      color: #9333ea;
+      font-weight: 700;
+    }
+    .formula-meta {
+      font-size: 0.8rem;
+      color: #6b7280;
+      display: flex;
+      gap: 0.4rem;
+      align-items: center;
+    }
+    .pill {
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      border: 1px solid transparent;
+    }
+    .pill.good {
+      background: #ecfdf3;
+      color: #166534;
+      border-color: #bbf7d0;
+    }
+    .pill.warn {
+      background: #fef3c7;
+      color: #92400e;
+      border-color: #fcd34d;
+    }
+    .pill.bad {
+      background: #fef2f2;
+      color: #b91c1c;
+      border-color: #fecdd3;
+    }
+    .formula-status {
+      font-size: 0.8rem;
+      color: #dc2626;
+    }
     @media (max-width: 900px) {
       .grid {
         grid-template-columns: 1fr;
@@ -228,6 +337,16 @@
               <span class="status" id="save-status"></span>
             </div>
             <div class="hint">Edits are written to <code>data/debug_fitch/{{ selected_scan }}/final_structure.json</code>.</div>
+            <div class="preview-header">
+              <div>
+                <div class="preview-title">Formula preview</div>
+                <div class="hint">Previews use the raw <code>wffstr</code>; the saved JSON is not altered.</div>
+              </div>
+              <span class="status" id="preview-status"></span>
+            </div>
+            <div id="formula-preview" class="formula-preview">
+              <div class="muted">Add JSON with <code>wffstr</code> entries to see the rendered Fitch formulas.</div>
+            </div>
           </form>
         {% else %}
           <div class="muted">Select a scan to edit its structure.</div>
@@ -246,6 +365,18 @@
     const logPanel = document.getElementById("log-output");
     const saveStatus = document.getElementById("save-status");
     const structureEditor = document.getElementById("structure-editor");
+    const previewStatus = document.getElementById("preview-status");
+    const previewContainer = document.getElementById("formula-preview");
+    const validationResults = new Map();
+    const validationInflight = new Map();
+
+    function debounce(fn, delay = 250) {
+      let handle;
+      return (...args) => {
+        window.clearTimeout(handle);
+        handle = window.setTimeout(() => fn(...args), delay);
+      };
+    }
 
     function setLog(message) {
       if (logPanel) {
@@ -257,6 +388,13 @@
       if (saveStatus) {
         saveStatus.textContent = message || "";
         saveStatus.style.color = isError ? "#dc2626" : "#16a34a";
+      }
+    }
+
+    function setPreviewStatus(message, isError = false) {
+      if (previewStatus) {
+        previewStatus.textContent = message || "";
+        previewStatus.style.color = isError ? "#dc2626" : "#16a34a";
       }
     }
 
@@ -299,7 +437,218 @@
       return payload;
     }
 
+    function tokenClass(token) {
+      if (["¬", "⊥"].includes(token)) return "token-operator";
+      if (["→", "∨", "∧", "↔"].includes(token)) return "token-connector";
+      if (["∀", "∃"].includes(token)) return "token-quantifier";
+      if (["(", ")", "[", "]"].includes(token)) return "token-paren";
+      if (/^[A-Z]$/.test(token)) return "token-constant";
+      return "";
+    }
+
+    function renderFormulaTokens(raw) {
+      const fragment = document.createDocumentFragment();
+      if (raw === undefined || raw === null) {
+        return fragment;
+      }
+      const tokens = String(raw).match(/(↔|→|¬|∨|∧|∀|∃|⊥|\(|\)|\[|\]|=|[A-Za-z]+|\s+|.)/g) || [];
+      tokens.forEach((tok) => {
+        const span = document.createElement("span");
+        span.textContent = tok;
+        const cls = tokenClass(tok);
+        if (cls) span.classList.add(cls);
+        fragment.appendChild(span);
+      });
+      return fragment;
+    }
+
+    function flattenStructure(structure, depth = 0, prefix = "") {
+      const lines = [];
+      if (!Array.isArray(structure)) return lines;
+      structure.forEach((item, idx) => {
+        const path = prefix ? `${prefix}.${idx}` : `${idx}`;
+        if (Array.isArray(item)) {
+          lines.push(...flattenStructure(item, depth + 1, path));
+        } else if (item && typeof item === "object") {
+          const wffstr = typeof item.wffstr === "string" ? item.wffstr : String(item.wffstr ?? "");
+          lines.push({
+            key: path,
+            depth,
+            line: item.line ?? "",
+            jstr: item.jstr ?? "",
+            wffstr,
+          });
+        }
+      });
+      return lines;
+    }
+
+    function updateRowValidation(rowEl, result) {
+      const pill = rowEl.querySelector(".pill");
+      const status = rowEl.querySelector(".formula-status");
+      if (!pill || !status) return;
+
+      if (!result) {
+        pill.textContent = "Checking";
+        pill.className = "pill warn";
+        status.textContent = "";
+        return;
+      }
+
+      if (result.is_well_formed) {
+        pill.textContent = "Well-formed";
+        pill.className = "pill good";
+        status.textContent = "";
+      } else {
+        pill.textContent = "Needs attention";
+        pill.className = "pill bad";
+        status.textContent = result.error || "Invalid formula";
+      }
+    }
+
+    async function validateFormula(wff) {
+      if (!wff || !String(wff).trim()) {
+        const result = { is_well_formed: false, error: "Empty formula" };
+        return result;
+      }
+
+      if (validationResults.has(wff)) {
+        return validationResults.get(wff);
+      }
+
+      if (validationInflight.has(wff)) {
+        return validationInflight.get(wff);
+      }
+
+      const formData = new FormData();
+      formData.append("formula", wff);
+
+      const pending = fetch("/debug/fitch/validate_wff", {
+        method: "POST",
+        body: formData,
+      })
+        .then(async (resp) => {
+          let payload;
+          try {
+            payload = await resp.json();
+          } catch (err) {
+            throw new Error("Could not parse validation response.");
+          }
+          if (!resp.ok) {
+            const detail = payload && (payload.detail || payload.error);
+            throw new Error(detail || `Request failed (${resp.status})`);
+          }
+          const is_well_formed = payload.is_well_formed !== false;
+          const result = {
+            is_well_formed,
+            error: is_well_formed ? "" : payload.error || payload.err_msg || "Invalid formula",
+          };
+          validationResults.set(wff, result);
+          return result;
+        })
+        .catch((err) => {
+          const fallback = { is_well_formed: false, error: err.message };
+          validationResults.set(wff, fallback);
+          return fallback;
+        })
+        .finally(() => {
+          validationInflight.delete(wff);
+        });
+
+      validationInflight.set(wff, pending);
+      return pending;
+    }
+
+    function renderPreviewFromText(structureText) {
+      if (!previewContainer) return;
+      previewContainer.innerHTML = "";
+
+      if (!structureText) {
+        setPreviewStatus("No JSON loaded", false);
+        previewContainer.innerHTML = '<div class="muted">Add JSON to preview formulas.</div>';
+        return;
+      }
+
+      let parsed;
+      try {
+        parsed = JSON.parse(structureText);
+      } catch (err) {
+        setPreviewStatus("Invalid JSON", true);
+        previewContainer.innerHTML = `<div class="formula-status">${err}</div>`;
+        return;
+      }
+
+      if (!Array.isArray(parsed)) {
+        setPreviewStatus("Top-level must be a list", true);
+        previewContainer.innerHTML = '<div class="formula-status">Expected a list at the top level.</div>';
+        return;
+      }
+
+      const lines = flattenStructure(parsed);
+      if (!lines.length) {
+        setPreviewStatus("No formulas to preview", false);
+        previewContainer.innerHTML = '<div class="muted">No <code>wffstr</code> entries found.</div>';
+        return;
+      }
+
+      setPreviewStatus(`Previewing ${lines.length} formula${lines.length === 1 ? '' : 's'}.`, false);
+
+      lines.forEach((line) => {
+        const row = document.createElement("div");
+        row.className = "formula-row";
+
+        const indent = document.createElement("div");
+        indent.className = "indent";
+        indent.style.marginLeft = `${Math.max(0, line.depth) * 12}px`;
+        row.appendChild(indent);
+
+        const content = document.createElement("div");
+        content.className = "formula-content";
+
+        const formula = document.createElement("div");
+        formula.className = "formula-text";
+        formula.appendChild(renderFormulaTokens(line.wffstr));
+        content.appendChild(formula);
+
+        const meta = document.createElement("div");
+        meta.className = "formula-meta";
+        const lineLabel = document.createElement("span");
+        lineLabel.className = "formula-line";
+        lineLabel.textContent = line.line !== undefined && line.line !== null && line.line !== "" ? `${line.line}` : "?";
+        meta.appendChild(lineLabel);
+
+        const justification = document.createElement("span");
+        justification.textContent = line.jstr || "(no justification)";
+        meta.appendChild(justification);
+
+        const status = document.createElement("span");
+        status.className = "formula-status";
+        meta.appendChild(status);
+
+        content.appendChild(meta);
+        row.appendChild(content);
+
+        const pill = document.createElement("span");
+        pill.className = "pill warn";
+        pill.textContent = "Checking";
+        row.appendChild(pill);
+
+        previewContainer.appendChild(row);
+
+        updateRowValidation(row, null);
+        validateFormula(line.wffstr).then((result) => updateRowValidation(row, result));
+      });
+    }
+
     const form = document.getElementById("structure-form");
+    const schedulePreview = structureEditor ? debounce(() => renderPreviewFromText(structureEditor.value), 350) : null;
+
+    if (structureEditor && schedulePreview) {
+      schedulePreview();
+      structureEditor.addEventListener("input", schedulePreview);
+      structureEditor.addEventListener("blur", () => renderPreviewFromText(structureEditor.value));
+    }
+
     if (form) {
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
@@ -329,6 +678,7 @@
           const result = await postForm("/debug/fitch/rerun", formData);
           if (structureEditor && result.structure !== undefined) {
             structureEditor.value = result.structure || "";
+            if (schedulePreview) schedulePreview();
           }
           setLog(result.log || "Pipeline finished.");
         } catch (err) {
