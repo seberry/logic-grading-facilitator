@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
+import asyncio
 import threading
 import io
 import csv
 import json
 from pathlib import Path
 import zipfile
+import sys
 from urllib.parse import quote
 from app.models import GradingKey
 
@@ -20,7 +22,7 @@ from fastapi import (
     File,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -46,6 +48,7 @@ from .auto_group_core import (
     build_roster_index,
     SubmissionGroup,
 )
+from .verifier import ProofLine, check_proof, flatten_proof
 import shutil
 import yaml
 import fitz  # type: ignore
@@ -78,6 +81,14 @@ app.mount(
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
+DEBUG_FITCH_DIR = DATA_DIR / "debug_fitch"
+DEBUG_FITCH_DIR.mkdir(parents=True, exist_ok=True)
+
+app.mount(
+    "/debug_fitch_assets",
+    StaticFiles(directory=str(DEBUG_FITCH_DIR)),
+    name="debug_fitch_assets",
+)
 
 AUTO_GROUPED_DIR = DATA_DIR / "auto_grouped"
 
@@ -123,6 +134,122 @@ def canonical_filename(
     if not orig_suffix.startswith("."):
         orig_suffix = "." + orig_suffix
     return base + orig_suffix
+
+IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"]
+
+
+def list_fitch_debug_scans() -> List[str]:
+    if not DEBUG_FITCH_DIR.exists():
+        return []
+    return sorted([p.name for p in DEBUG_FITCH_DIR.iterdir() if p.is_dir()], key=str.lower)
+
+
+def final_structure_path(scan_slug: str) -> Path:
+    return DEBUG_FITCH_DIR / scan_slug / "final_structure.json"
+
+
+def load_structure_text(scan_slug: str) -> str:
+    path = final_structure_path(scan_slug)
+    if path.exists():
+        return path.read_text(encoding="utf-8")
+    return ""
+
+
+def find_scan_image_path(scan_slug: str) -> Optional[Path]:
+    for ext in IMAGE_EXTENSIONS:
+        candidate = RAW_SCANS_DIR / f"{scan_slug}{ext}"
+        if candidate.exists():
+            return candidate
+
+    debug_dir = DEBUG_FITCH_DIR / scan_slug
+    if not debug_dir.exists():
+        return None
+
+    for ext in IMAGE_EXTENSIONS:
+        candidate = debug_dir / f"{scan_slug}{ext}"
+        if candidate.exists():
+            return candidate
+
+    for child in sorted(debug_dir.iterdir()):
+        if child.is_file() and child.suffix in IMAGE_EXTENSIONS:
+            return child
+    return None
+
+
+def scan_image_url(scan_slug: str) -> Optional[str]:
+    path = find_scan_image_path(scan_slug)
+    if path is None:
+        return None
+
+    if RAW_SCANS_DIR in path.parents:
+        return f"/scans/{path.name}"
+
+    if DEBUG_FITCH_DIR in path.parents:
+        rel = path.relative_to(DEBUG_FITCH_DIR)
+        return f"/debug_fitch_assets/{rel.as_posix()}"
+
+    return None
+
+
+def ensure_raw_scan_available(scan_slug: str) -> Path:
+    existing = find_scan_image_path(scan_slug)
+    if existing and RAW_SCANS_DIR in existing.parents:
+        return existing
+
+    if existing and DEBUG_FITCH_DIR in existing.parents:
+        RAW_SCANS_DIR.mkdir(parents=True, exist_ok=True)
+        destination = RAW_SCANS_DIR / existing.name
+        if not destination.exists():
+            shutil.copy(existing, destination)
+        return destination
+
+    raise HTTPException(
+        status_code=404,
+        detail=f"Could not locate a scan image for '{scan_slug}' in {RAW_SCANS_DIR} or {DEBUG_FITCH_DIR}.",
+    )
+
+
+async def run_subprocess_with_logs(command: List[str]) -> tuple[int, str]:
+    proc = await asyncio.create_subprocess_exec(
+        *command,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        cwd=Path(__file__).resolve().parents[1],
+    )
+    stdout, _ = await proc.communicate()
+    output = stdout.decode("utf-8", errors="replace")
+    return proc.returncode, output
+
+
+def structure_to_proof_lines(structure: List[Any]) -> List[Any]:
+    lines: List[Any] = []
+    for item in structure:
+        if isinstance(item, list):
+            lines.append(structure_to_proof_lines(item))
+        elif isinstance(item, dict):
+            lines.append(
+                ProofLine(
+                    wffstr=str(item.get("wffstr", "")).strip(),
+                    jstr=str(item.get("jstr", "")).strip(),
+                    location=[],
+                )
+            )
+    return lines
+
+
+def label_and_count_premises(structure: List[Any]) -> int:
+    count = 0
+    for item in structure:
+        if isinstance(item, list):
+            break
+        if isinstance(item, dict):
+            jstr = str(item.get("jstr", "")).strip()
+            if not jstr:
+                item["jstr"] = "Pr"
+                count += 1
+            elif jstr.lower() != "pr":
+                break
+    return count
 
 
 _session_lock = threading.Lock()
@@ -276,6 +403,118 @@ def root():
     """Tiny message at / so you don't just see 'Not Found'."""
     return {"message": "Logic Grading Facilitator is running. See /docs for API, or /grade/1/page (etc.) to grade."}
 
+
+@app.get("/debug/fitch", response_class=HTMLResponse)
+async def fitch_debug_page(request: Request, scan: Optional[str] = None) -> Response:
+    scans = list_fitch_debug_scans()
+    selected = scan if scan in scans else (scans[0] if scans else None)
+
+    structure_text = load_structure_text(selected) if selected else ""
+    final_path = final_structure_path(selected) if selected else None
+
+    return templates.TemplateResponse(
+        "debug_fitch.html",
+        {
+            "request": request,
+            "available_scans": scans,
+            "selected_scan": selected,
+            "structure_text": structure_text,
+            "image_url": scan_image_url(selected) if selected else None,
+            "final_structure_exists": bool(final_path and final_path.exists()),
+        },
+    )
+
+
+@app.post("/debug/fitch/save")
+async def save_fitch_structure(scan: str = Form(...), structure: str = Form(...)) -> Response:
+    target_dir = DEBUG_FITCH_DIR / scan
+    if not target_dir.exists():
+        raise HTTPException(status_code=404, detail=f"Debug folder not found for '{scan}'.")
+
+    try:
+        parsed = json.loads(structure)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
+
+    if not isinstance(parsed, list):
+        raise HTTPException(status_code=400, detail="final_structure.json must be a list (allowing nested subproofs).")
+
+    path = final_structure_path(scan)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(parsed, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    return JSONResponse({"status": "ok", "message": f"Saved {path.name}."})
+
+
+@app.post("/debug/fitch/rerun")
+async def rerun_fitch_pipeline(scan: str = Form(...)) -> Response:
+    if not (DEBUG_FITCH_DIR / scan).exists():
+        raise HTTPException(status_code=404, detail=f"Debug folder not found for '{scan}'.")
+
+    ensure_raw_scan_available(scan)
+    command = [sys.executable, "scripts/debug_fitch_ocr.py", f"{scan}.jpg"]
+
+    # If the raw scan existed with a different extension, prefer that filename.
+    image_path = find_scan_image_path(scan)
+    if image_path:
+        command[-1] = image_path.name
+
+    code, output = await run_subprocess_with_logs(command)
+    structure_text = load_structure_text(scan)
+
+    status = "ok" if code == 0 else "error"
+    return JSONResponse(
+        {
+            "status": status,
+            "log": output,
+            "structure": structure_text,
+        }
+    )
+
+
+@app.post("/debug/fitch/run_grader")
+async def run_fitch_grader(scan: str = Form(...)) -> Response:
+    path = final_structure_path(scan)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"Missing final_structure.json for '{scan}'.")
+
+    try:
+        structure_data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Could not parse final_structure.json: {e}")
+
+    if not isinstance(structure_data, list):
+        raise HTTPException(status_code=400, detail="final_structure.json must contain a top-level list.")
+
+    # Work on a copy so we don't mutate the saved artifact while labeling premises.
+    structure_copy = json.loads(json.dumps(structure_data))
+    num_premises = label_and_count_premises(structure_copy)
+    proof_lines = structure_to_proof_lines(structure_copy)
+    flattened = flatten_proof(proof_lines, [])
+    conclusion_guess = flattened[-1].wffstr if flattened else ""
+
+    result = check_proof(proof_lines, numprems=num_premises, conc=conclusion_guess)
+
+    log_lines = [
+        f"Scan: {scan}",
+        f"Lines: {len(flattened)}",
+        f"Premises inferred: {num_premises}",
+        f"Target conclusion: {conclusion_guess or '(empty)'}",
+        f"Conclusion reached: {'yes' if result.conc_reached else 'no'}",
+    ]
+
+    if result.issues:
+        log_lines.append("Issues:")
+        log_lines.extend(result.issues)
+    else:
+        log_lines.append("No rule issues detected.")
+
+    return JSONResponse(
+        {
+            "status": "ok",
+            "log": "\n".join(log_lines),
+        }
+    )
 
 @app.get("/setup", response_class=HTMLResponse)
 async def setup_wizard(request: Request) -> Response:
