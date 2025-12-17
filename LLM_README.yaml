@@ -348,6 +348,48 @@ user_flows:
       - "Relies on a running local VLM client (LM Studio Qwen) for transcription."
       - "Proof checking is best-effort; it only runs when verifier dependencies import successfully."
 
+  - id: flow_fitch_human_correction_page
+    human_name: "Fitch OCR display & human correction"
+    user_action: "Instructor/developer previews highlighted proof, edits stitched JSON, and runs verifier in-browser."
+    status: "experimental"
+
+    entrypoints:
+      - method: "GET"
+        path: "/debug/fitch"
+        file: "app/server.py"
+        template: "app/templates/debug_fitch.html"
+      - method: "POST"
+        path: "/debug/fitch/rerun"
+        file: "app/server.py"
+      - method: "POST"
+        path: "/debug/fitch/save"
+        file: "app/server.py"
+      - method: "POST"
+        path: "/debug/fitch/run_grader"
+        file: "app/server.py"
+
+    data_flow:
+      reads:
+        - path: "data/debug_fitch/<scan_stem>/final_structure.json"
+          purpose: "User-editable stitched proof structure."
+        - path: "data/debug_fitch/<scan_stem>/debug_* assets + raw scan"
+          purpose: "Preview image selection and rerun inputs."
+      writes:
+        - path: "data/debug_fitch/<scan_stem>/final_structure.json"
+          what: "Saved edits from the textarea."
+      side_effects:
+        - description: "Rerun triggers scripts/debug_fitch_ocr.py to refresh artifacts and JSON."
+
+    current_behavior:
+      description: >
+        Lists available debug runs, previews the highlighted scan, allows rerunning the OCR/parse
+        loop, saving manual edits to final_structure.json, and running the Fitch verifier to surface
+        rule issues plus inferred conclusion within the page log.
+
+    current_limitations:
+      - "Expects artifacts already present under data/debug_fitch/<scan_stem>/ (produced by scripts/debug_fitch_ocr.py)."
+      - "No inline JSON schema validation beyond basic list check; incorrect shapes still reach verifier errors."
+
 # -------------------------------------------------------------------
 # 3. Data files / schemas ("The Schema")
 # -------------------------------------------------------------------
@@ -441,6 +483,10 @@ code_structure:
       - "POST /grade/{unit_id}/page"
       - "GET  /problem/{problem_id}/strips"
       - "POST /problem/{problem_id}/strips"
+      - "GET  /debug/fitch"
+      - "POST /debug/fitch/rerun"
+      - "POST /debug/fitch/save"
+      - "POST /debug/fitch/run_grader"
       - "GET  /export"
       - "POST /finalize_and_archive (or equivalent handler wired from grading UI)"
     notes: >
@@ -495,6 +541,8 @@ code_structure:
     purpose: "Name review / VLM grouping correction UI."
   - file: "app/templates/problem_strips.html"
     purpose: "Per-problem strip grading UI."
+  - file: "app/templates/debug_fitch.html"
+    purpose: "Human-in-the-loop Fitch OCR debugger: rerun pipeline, edit final_structure.json, run verifier."
 
   - file: "scripts/init_session.py"
     purpose: "Initialize a fresh data/ environment for a new assignment."
@@ -502,6 +550,8 @@ code_structure:
     purpose: "Batch VLM run to produce page_predictions + groups CSVs."
   - file: "scripts/debug_segment_view.py"
     purpose: "Debug segmentation for one problem; writes overlay and crop PNGs."
+  - file: "scripts/debug_fitch_ocr.py"
+    purpose: "Recursive chop/mask/transcribe/stitch pipeline for a single cropped Fitch proof scan; seeds data/debug_fitch/<scan_stem>/."
 
 # -------------------------------------------------------------------
 # 5. Design decisions & invariants
