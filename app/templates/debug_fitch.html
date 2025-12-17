@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Fitch OCR Debugger</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    body {
+      margin: 0;
+      padding: 0;
+      background: #f5f7fa;
+      color: #0f172a;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.9rem 1.5rem;
+      background: #111827;
+      color: #f8fafc;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+    }
+    header .title {
+      font-weight: 700;
+      font-size: 1.05rem;
+      letter-spacing: 0.02em;
+    }
+    main {
+      padding: 1.25rem;
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    .toolbar {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      flex-wrap: wrap;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 0.65rem;
+      padding: 0.75rem 1rem;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    .toolbar label {
+      font-weight: 600;
+      margin-right: 0.25rem;
+    }
+    select {
+      padding: 0.45rem 0.6rem;
+      border-radius: 0.45rem;
+      border: 1px solid #d1d5db;
+      font-size: 0.95rem;
+      min-width: 220px;
+      background: #fff;
+    }
+    button {
+      border: none;
+      border-radius: 0.5rem;
+      padding: 0.5rem 0.9rem;
+      font-size: 0.9rem;
+      cursor: pointer;
+      background: #2563eb;
+      color: #fff;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+      transition: transform 0.05s ease, box-shadow 0.1s ease;
+    }
+    button.secondary {
+      background: #e5e7eb;
+      color: #111827;
+    }
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.65;
+      box-shadow: none;
+    }
+    button:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 10px rgba(37,99,235,0.2);
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+    .panel {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 0.75rem;
+      padding: 1rem;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+      min-height: 200px;
+    }
+    .panel h2 {
+      margin: 0 0 0.75rem 0;
+      font-size: 1rem;
+      letter-spacing: 0.01em;
+    }
+    .image-frame {
+      background: #0b1224;
+      border-radius: 0.5rem;
+      padding: 0.5rem;
+      min-height: 200px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .image-frame img {
+      max-width: 100%;
+      max-height: 540px;
+      border-radius: 0.35rem;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+    }
+    .muted {
+      color: #6b7280;
+      font-size: 0.95rem;
+    }
+    textarea {
+      width: 100%;
+      min-height: 380px;
+      border-radius: 0.55rem;
+      border: 1px solid #d1d5db;
+      padding: 0.75rem;
+      font-family: "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+      font-size: 0.9rem;
+      box-sizing: border-box;
+      background: #f8fafc;
+      color: #0f172a;
+      resize: vertical;
+    }
+    .button-row {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 0.65rem;
+      flex-wrap: wrap;
+    }
+    .log-panel {
+      background: #0f172a;
+      color: #e2e8f0;
+      border-radius: 0.75rem;
+      border: 1px solid #1f2937;
+      padding: 0.75rem 1rem;
+      font-family: "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+      min-height: 140px;
+      white-space: pre-wrap;
+      overflow-x: auto;
+    }
+    .log-header {
+      font-weight: 700;
+      font-size: 0.95rem;
+      margin-bottom: 0.25rem;
+      color: #c7d2fe;
+    }
+    .status {
+      font-size: 0.9rem;
+      color: #16a34a;
+      margin-left: 0.35rem;
+    }
+    .hint {
+      font-size: 0.85rem;
+      color: #6b7280;
+      margin-top: 0.4rem;
+    }
+    @media (max-width: 900px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="title">Fitch OCR Debugger</div>
+    <div class="muted">Quickly inspect outputs in <code>data/debug_fitch/</code></div>
+  </header>
+  <main>
+    <div class="toolbar">
+      <div>
+        <label for="scan-select">Available scans:</label>
+        <select id="scan-select" {% if not selected_scan %}disabled{% endif %}>
+          {% if not available_scans %}
+            <option value="">No debug runs found</option>
+          {% else %}
+            {% for slug in available_scans %}
+              <option value="{{ slug }}" {% if slug == selected_scan %}selected{% endif %}>{{ slug }}</option>
+            {% endfor %}
+          {% endif %}
+        </select>
+      </div>
+      <div class="button-row">
+        <button id="rerun-btn" {% if not selected_scan %}disabled{% endif %}>Re-run OCR/parse</button>
+        <button class="secondary" id="grader-btn" {% if not final_structure_exists %}disabled{% endif %}>Run grader</button>
+      </div>
+      {% if not available_scans %}
+        <div class="muted">Place artifacts under <code>data/debug_fitch/&lt;scan_stem&gt;/</code> to begin.</div>
+      {% endif %}
+    </div>
+
+    <div class="grid">
+      <div class="panel">
+        <h2>Scan preview</h2>
+        <div class="image-frame">
+          {% if image_url %}
+            <img src="{{ image_url }}" alt="Scan preview for {{ selected_scan }}">
+          {% else %}
+            <div class="muted">No scan image found in <code>data/raw_scans</code> or <code>data/debug_fitch/{{ selected_scan or '' }}/</code>.</div>
+          {% endif %}
+        </div>
+        <div class="hint">
+          Re-run uses <code>scripts/debug_fitch_ocr.py</code> against the raw scan; outputs land in <code>data/debug_fitch/{{ selected_scan or '&lt;slug&gt;' }}/</code>.
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>final_structure.json</h2>
+        {% if selected_scan %}
+          <form id="structure-form">
+            <input type="hidden" name="scan" value="{{ selected_scan }}">
+            <textarea id="structure-editor" name="structure" spellcheck="false" placeholder="[ ... JSON ... ]">{{ structure_text }}</textarea>
+            <div class="button-row">
+              <button type="submit">Save edits</button>
+              <span class="status" id="save-status"></span>
+            </div>
+            <div class="hint">Edits are written to <code>data/debug_fitch/{{ selected_scan }}/final_structure.json</code>.</div>
+          </form>
+        {% else %}
+          <div class="muted">Select a scan to edit its structure.</div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="log-header">Operation log</div>
+      <div class="log-panel" id="log-output">Choose an action to see stdout/stderr.</div>
+    </div>
+  </main>
+
+  <script>
+    const selectedScan = "{{ selected_scan or '' }}";
+    const logPanel = document.getElementById("log-output");
+    const saveStatus = document.getElementById("save-status");
+    const structureEditor = document.getElementById("structure-editor");
+
+    function setLog(message) {
+      if (logPanel) {
+        logPanel.textContent = message || "";
+      }
+    }
+
+    function setStatus(message, isError = false) {
+      if (saveStatus) {
+        saveStatus.textContent = message || "";
+        saveStatus.style.color = isError ? "#dc2626" : "#16a34a";
+      }
+    }
+
+    function redirectToScan(slug) {
+      if (!slug) return;
+      const url = new URL(window.location.href);
+      url.searchParams.set("scan", slug);
+      window.location.href = url.toString();
+    }
+
+    const scanSelect = document.getElementById("scan-select");
+    if (scanSelect) {
+      scanSelect.addEventListener("change", (event) => {
+        redirectToScan(event.target.value);
+      });
+    }
+
+    async function postForm(url, formData) {
+      const response = await fetch(url, {
+        method: "POST",
+        body: formData,
+      });
+
+      let payload;
+      try {
+        payload = await response.json();
+      } catch (err) {
+        payload = { error: await response.text() };
+      }
+
+      if (!response.ok) {
+        const detail = payload && (payload.detail || payload.error);
+        throw new Error(detail || `Request failed (${response.status})`);
+      }
+
+      if (payload && payload.status === "error") {
+        throw new Error(payload.log || payload.message || "Operation failed.");
+      }
+
+      return payload;
+    }
+
+    const form = document.getElementById("structure-form");
+    if (form) {
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        setStatus("");
+        setLog("Saving structure...");
+        const formData = new FormData(form);
+        try {
+          const result = await postForm("/debug/fitch/save", formData);
+          setStatus(result.message || "Saved.");
+          setLog(result.message || "Saved final_structure.json.");
+        } catch (err) {
+          setStatus(err.message, true);
+          setLog(err.message);
+        }
+      });
+    }
+
+    const rerunBtn = document.getElementById("rerun-btn");
+    if (rerunBtn) {
+      rerunBtn.addEventListener("click", async () => {
+        if (!selectedScan) return;
+        setStatus("");
+        setLog("Re-running OCR and parse pipeline...");
+        const formData = new FormData();
+        formData.append("scan", selectedScan);
+        try {
+          const result = await postForm("/debug/fitch/rerun", formData);
+          if (structureEditor && result.structure !== undefined) {
+            structureEditor.value = result.structure || "";
+          }
+          setLog(result.log || "Pipeline finished.");
+        } catch (err) {
+          setStatus(err.message, true);
+          setLog(err.message);
+        }
+      });
+    }
+
+    const graderBtn = document.getElementById("grader-btn");
+    if (graderBtn) {
+      graderBtn.addEventListener("click", async () => {
+        if (!selectedScan) return;
+        setStatus("");
+        setLog("Running verifier...");
+        const formData = new FormData();
+        formData.append("scan", selectedScan);
+        try {
+          const result = await postForm("/debug/fitch/run_grader", formData);
+          setLog(result.log || "Grader finished.");
+        } catch (err) {
+          setStatus(err.message, true);
+          setLog(err.message);
+        }
+      });
+    }
+  </script>
+</body>
+</html>
