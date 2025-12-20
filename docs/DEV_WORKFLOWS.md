@@ -65,7 +65,7 @@ Use these recipes to test individual "cogs" of the machine without running the f
 
 2) **Start the server** (same as normal UI):
    ```bash
-   uvicorn app.server:app --reload --port 5000
+   python -m uvicorn app.server:app --reload --port 5000
    ```
 
 3) **Open the review page:** visit `http://127.0.0.1:5000/debug/fitch` and pick your scan slug from the dropdown (the slug matches the filename stem from `data/debug_fitch/<slug>/`).
