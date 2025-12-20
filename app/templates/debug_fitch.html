@@ -365,6 +365,7 @@
           <form id="structure-form">
             <input type="hidden" name="scan" value="{{ selected_scan }}">
             <input type="hidden" name="structure" id="structure-field" value="{{ structure_text }}">
+            <input type="hidden" id="structure-json" value='{{ structure_json | tojson | safe }}'>
             <div class="editor-toolbar">
               <button type="button" class="secondary" id="add-row-btn">Add line</button>
               <span class="editor-note">Line numbers are automatic; adjust depth and text directly in the grid.</span>
@@ -389,6 +390,18 @@
                 </table>
               </div>
               <div class="hint">Increase depth to nest inside a subproof; bars visualize indentation.</div>
+            </div>
+            <div class="meta-grid">
+              <div>
+                <label for="premise-count">Premise count override</label>
+                <input type="number" id="premise-count" min="0" placeholder="Auto" aria-describedby="premise-help">
+                <div class="hint" id="premise-help">Leave blank to auto-count leading Pr/empty justifications; 0 is allowed.</div>
+              </div>
+              <div>
+                <label for="conclusion-text">Conclusion override</label>
+                <input type="text" id="conclusion-text" placeholder="Use last top-level line by default" aria-describedby="conclusion-help">
+                <div class="hint" id="conclusion-help">Optional. If blank, the grader uses the last top-level line.</div>
+              </div>
             </div>
             <div id="raw-editor" class="hidden">
               <textarea id="structure-raw" class="raw-json" spellcheck="false" placeholder="[ ... JSON ... ]">{{ structure_text }}</textarea>
@@ -417,13 +430,17 @@
     const logPanel = document.getElementById("log-output");
     const saveStatus = document.getElementById("save-status");
     const structureField = document.getElementById("structure-field");
+    const structureJSON = document.getElementById("structure-json");
     const proofTableBody = document.getElementById("proof-table-body");
     const tableEditor = document.getElementById("table-editor");
     const rawEditorBlock = document.getElementById("raw-editor");
     const rawEditor = document.getElementById("structure-raw");
     const rawToggle = document.getElementById("raw-toggle");
     const addRowBtn = document.getElementById("add-row-btn");
+    const premiseInput = document.getElementById("premise-count");
+    const conclusionInput = document.getElementById("conclusion-text");
     let proofRows = [];
+    let meta = { num_premises: null, conclusion: "" };
 
     function setLog(message) {
       if (logPanel) {
@@ -658,20 +675,43 @@
         rawEditor.value = text || "";
       }
       const { data, error } = safeParseJSON(text || "[]");
-      if (error || !Array.isArray(data)) {
-        setStatus(error ? `Could not parse saved JSON: ${error}` : "final_structure.json must be a list.", true);
+      if (error) {
+        setStatus(`Could not parse saved JSON: ${error}`, true);
         proofRows = [];
         renderTable();
         return;
       }
-      proofRows = structureToRows(data);
+
+      if (Array.isArray(data)) {
+        proofRows = structureToRows(data);
+        meta = { num_premises: null, conclusion: "" };
+        renderTable();
+        syncMetaInputs();
+        return;
+      }
+
+      if (data && typeof data === "object") {
+        const lines = Array.isArray(data.lines) ? data.lines : Array.isArray(data.structure) ? data.structure : [];
+        meta = normalizeMeta(data.meta);
+        proofRows = structureToRows(lines);
+        renderTable();
+        syncMetaInputs();
+        return;
+      }
+
+      setStatus("final_structure.json must be a list or an object containing lines/meta.", true);
+      proofRows = [];
       renderTable();
     }
 
     function syncRawFromRows() {
       const { structure } = rowsToStructure(proofRows);
+      const payload = {
+        lines: structure,
+        meta,
+      };
       if (rawEditor) {
-        rawEditor.value = JSON.stringify(structure, null, 2);
+        rawEditor.value = JSON.stringify(payload, null, 2);
       }
     }
 
@@ -682,13 +722,31 @@
         setStatus(`Cannot parse raw JSON: ${error}`, true);
         return false;
       }
-      if (!Array.isArray(data)) {
-        setStatus("Raw JSON must be a top-level list.", true);
-        return false;
+      if (Array.isArray(data)) {
+        meta = { num_premises: null, conclusion: "" };
+        proofRows = structureToRows(data);
+        renderTable();
+        setStatus("");
+        syncMetaInputs();
+        return true;
       }
-      proofRows = structureToRows(data);
+
+      if (data && typeof data === "object") {
+        const lines = Array.isArray(data.lines) ? data.lines : Array.isArray(data.structure) ? data.structure : [];
+        if (!Array.isArray(lines)) {
+          setStatus("'lines' must be a list when using object form.", true);
+          return false;
+        }
+        meta = normalizeMeta(data.meta);
+        proofRows = structureToRows(lines);
+        renderTable();
+        setStatus("");
+        syncMetaInputs();
+        return true;
+      }
+
+      setStatus("Raw JSON must be a list or an object with lines/meta.", true);
       renderTable();
-      setStatus("");
       return true;
     }
 
@@ -730,7 +788,11 @@
         setStatus("Fix indentation warnings before saving.", true);
         return null;
       }
-      return JSON.stringify(structure, null, 2);
+      const payload = {
+        lines: structure,
+        meta,
+      };
+      return JSON.stringify(payload, null, 2);
     }
 
     const form = document.getElementById("structure-form");
@@ -805,8 +867,67 @@
       });
     }
 
+    function normalizeMeta(data) {
+      const clean = { num_premises: null, conclusion: "" };
+      if (!data || typeof data !== "object") {
+        return clean;
+      }
+      const rawNum = data.num_premises;
+      if (rawNum === 0 || rawNum === "0") {
+        clean.num_premises = 0;
+      } else if (rawNum !== undefined && rawNum !== null && rawNum !== "") {
+        const parsed = Number(rawNum);
+        if (Number.isFinite(parsed) && parsed >= 0) {
+          clean.num_premises = Math.trunc(parsed);
+        }
+      }
+      if (typeof data.conclusion === "string" || typeof data.conclusion === "number") {
+        clean.conclusion = String(data.conclusion);
+      }
+      return clean;
+    }
+
+    function syncMetaInputs() {
+      if (premiseInput) {
+        premiseInput.value = meta.num_premises === null || meta.num_premises === undefined ? "" : String(meta.num_premises);
+      }
+      if (conclusionInput) {
+        conclusionInput.value = meta.conclusion || "";
+      }
+    }
+
+    if (premiseInput) {
+      premiseInput.addEventListener("input", (event) => {
+        const value = event.target.value;
+        if (value === "") {
+          meta.num_premises = null;
+          return;
+        }
+        const num = Number(value);
+        if (Number.isFinite(num) && num >= 0) {
+          meta.num_premises = Math.trunc(num);
+        }
+      });
+    }
+
+    if (conclusionInput) {
+      conclusionInput.addEventListener("input", (event) => {
+        meta.conclusion = event.target.value || "";
+      });
+    }
+
     const initialStructureText = structureField ? structureField.value : "";
-    if (initialStructureText !== null) {
+    const initialStructureObj = structureJSON ? safeParseJSON(structureJSON.value).data : null;
+    if (initialStructureObj && typeof initialStructureObj === "object") {
+      // Prefer structured JSON passed from the server to preserve meta.
+      if (Array.isArray(initialStructureObj.lines) || Array.isArray(initialStructureObj.structure)) {
+        loadStructureText(JSON.stringify(initialStructureObj));
+      } else if (Array.isArray(initialStructureObj)) {
+        loadStructureText(JSON.stringify(initialStructureObj));
+      } else {
+        loadStructureText(initialStructureText);
+      }
+    } else if (initialStructureText !== null) {
       loadStructureText(initialStructureText);
     }
   </script>
