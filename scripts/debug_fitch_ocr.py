@@ -66,6 +66,31 @@ def renumber_lines(proof_structure: list, start_counter: int = 1) -> int:
     return current_counter
 
 
+def apply_default_justifications(proof_structure: list, numprems: int) -> None:
+    """
+    Fill in any remaining blank justifications after renumbering.
+
+    - Lines whose numbers fall within the inferred premise block (<= numprems)
+      are labeled as Premises (Pr).
+    - All other blank justifications are treated as assumptions (Hyp) so the
+      verifier can parse them instead of emitting "Justification left blank."
+    """
+
+    for item in proof_structure:
+        if isinstance(item, list):
+            apply_default_justifications(item, numprems)
+        elif isinstance(item, dict):
+            raw_j = str(item.get("jstr", "")).strip()
+            if raw_j:
+                continue
+
+            line_no = item.get("line")
+            if line_no is not None and line_no <= numprems:
+                item["jstr"] = "Pr"
+            else:
+                item["jstr"] = "Hyp"
+
+
 def structure_to_proof_lines(structure: List[Union[Dict, List]]) -> List[Union[ProofLine, List]]:
     """
     Convert a nested list/dict structure into ProofLine objects that the verifier can consume.
@@ -685,6 +710,10 @@ def main():
     total_lines = renumber_lines(stitched_structure)
     print(f"   [Renumber] Proof contains {total_lines - 1} lines.")
 
+    # C. Backfill remaining blank justifications using the inferred premise count.
+    print("   [Logic] Filling blank justifications with Pr/Hyp defaults...")
+    apply_default_justifications(stitched_structure, numprems)
+    
     print("\n--- Final JSON Structure ---")
     print(json.dumps(stitched_structure, indent=2, ensure_ascii=False))
 
