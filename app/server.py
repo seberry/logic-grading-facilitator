@@ -191,6 +191,69 @@ def scan_image_url(scan_slug: str) -> Optional[str]:
     return None
 
 
+def _clean_meta(meta: Any) -> Dict[str, Any]:
+    if not isinstance(meta, dict):
+        return {"num_premises": None, "conclusion": ""}
+
+    raw_num = meta.get("num_premises")
+    num_premises: Optional[int] = None
+    if raw_num is not None and raw_num != "":
+        try:
+            num_premises = max(0, int(raw_num))
+        except (TypeError, ValueError):
+            num_premises = None
+
+    conclusion = meta.get("conclusion")
+    conclusion_str = str(conclusion) if conclusion is not None else ""
+
+    return {
+        "num_premises": num_premises,
+        "conclusion": conclusion_str,
+    }
+
+
+def normalize_structure_payload(payload: Any) -> Dict[str, Any]:
+    """Accept legacy list payloads or new dicts, and return a normalized object.
+
+    Normalized shape:
+      {"lines": <list>, "meta": {"num_premises": Optional[int], "conclusion": str}}
+    """
+
+    lines: Any = []
+    meta: Dict[str, Any] = {}
+
+    if isinstance(payload, list):
+        lines = payload
+        meta = {}
+    elif isinstance(payload, dict):
+        candidate_lines = payload.get("lines")
+        lines = candidate_lines if isinstance(candidate_lines, list) else payload.get("structure", [])
+        meta = payload.get("meta", {})
+    else:
+        raise HTTPException(status_code=400, detail="final_structure.json must be a list or object containing lines/meta.")
+
+    if not isinstance(lines, list):
+        raise HTTPException(status_code=400, detail="'lines' must be a list (allowing nested subproofs).")
+
+    return {
+        "lines": lines,
+        "meta": _clean_meta(meta),
+    }
+
+
+def load_structure_json(scan_slug: str) -> Dict[str, Any]:
+    text = load_structure_text(scan_slug)
+    if not text:
+        return {"lines": [], "meta": {"num_premises": None, "conclusion": ""}}
+
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON in final_structure.json: {e}")
+
+    return normalize_structure_payload(parsed)
+
+
 def ensure_raw_scan_available(scan_slug: str) -> Path:
     existing = find_scan_image_path(scan_slug)
     if existing and RAW_SCANS_DIR in existing.parents:
@@ -419,6 +482,7 @@ async def fitch_debug_page(request: Request, scan: Optional[str] = None) -> Resp
             "available_scans": scans,
             "selected_scan": selected,
             "structure_text": structure_text,
+            "structure_json": load_structure_json(selected) if selected else {"lines": [], "meta": {"num_premises": None, "conclusion": ""}},
             "image_url": scan_image_url(selected) if selected else None,
             "final_structure_exists": bool(final_path and final_path.exists()),
         },
@@ -432,16 +496,15 @@ async def save_fitch_structure(scan: str = Form(...), structure: str = Form(...)
         raise HTTPException(status_code=404, detail=f"Debug folder not found for '{scan}'.")
 
     try:
-        parsed = json.loads(structure)
+        parsed_raw = json.loads(structure)
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
 
-    if not isinstance(parsed, list):
-        raise HTTPException(status_code=400, detail="final_structure.json must be a list (allowing nested subproofs).")
+    normalized = normalize_structure_payload(parsed_raw)
 
     path = final_structure_path(scan)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(parsed, indent=2, ensure_ascii=False), encoding="utf-8")
+    path.write_text(json.dumps(normalized, indent=2, ensure_ascii=False), encoding="utf-8")
 
     return JSONResponse({"status": "ok", "message": f"Saved {path.name}."})
 
@@ -461,6 +524,7 @@ async def rerun_fitch_pipeline(scan: str = Form(...)) -> Response:
 
     code, output = await run_subprocess_with_logs(command)
     structure_text = load_structure_text(scan)
+    normalized = load_structure_json(scan)
 
     status = "ok" if code == 0 else "error"
     return JSONResponse(
@@ -468,37 +532,32 @@ async def rerun_fitch_pipeline(scan: str = Form(...)) -> Response:
             "status": status,
             "log": output,
             "structure": structure_text,
+            "normalized": normalized,
         }
     )
 
 
 @app.post("/debug/fitch/run_grader")
 async def run_fitch_grader(scan: str = Form(...)) -> Response:
-    path = final_structure_path(scan)
-    if not path.exists():
-        raise HTTPException(status_code=404, detail=f"Missing final_structure.json for '{scan}'.")
+    normalized = load_structure_json(scan)
 
-    try:
-        structure_data = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as e:
-        raise HTTPException(status_code=400, detail=f"Could not parse final_structure.json: {e}")
+    structure_copy = json.loads(json.dumps(normalized["lines"]))
+    meta = normalized.get("meta", {})
 
-    if not isinstance(structure_data, list):
-        raise HTTPException(status_code=400, detail="final_structure.json must contain a top-level list.")
+    num_premises = meta.get("num_premises")
+    if num_premises is None:
+        num_premises = label_and_count_premises(structure_copy)
 
-    # Work on a copy so we don't mutate the saved artifact while labeling premises.
-    structure_copy = json.loads(json.dumps(structure_data))
-    num_premises = label_and_count_premises(structure_copy)
     proof_lines = structure_to_proof_lines(structure_copy)
     flattened = flatten_proof(proof_lines, [])
-    conclusion_guess = flattened[-1].wffstr if flattened else ""
+    conclusion_guess = meta.get("conclusion") or (flattened[-1].wffstr if flattened else "")
 
     result = check_proof(proof_lines, numprems=num_premises, conc=conclusion_guess)
 
     log_lines = [
         f"Scan: {scan}",
         f"Lines: {len(flattened)}",
-        f"Premises inferred: {num_premises}",
+        f"Premises (used): {num_premises}",
         f"Target conclusion: {conclusion_guess or '(empty)'}",
         f"Conclusion reached: {'yes' if result.conc_reached else 'no'}",
     ]
