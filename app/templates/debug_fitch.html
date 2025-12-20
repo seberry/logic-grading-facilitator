@@ -584,6 +584,68 @@
       return { structure: root, rowWarnings };
     }
 
+    const WFF_ASCII_REPLACEMENTS = [
+      { ascii: "<->", symbol: "↔" },
+      { ascii: "->", symbol: "→" },
+      { ascii: "\\/", symbol: "∨" },
+      { ascii: "/\\", symbol: "∧" },
+      { ascii: "~", symbol: "¬" },
+    ];
+
+    const JUSTIFICATION_NORMALIZATIONS = [
+      { ascii: "prem", symbol: "Pr" },
+      { ascii: "hyp", symbol: "Hyp" },
+    ];
+
+    function replaceRecentSequence(input, replacements) {
+      const start = input.selectionStart ?? input.value.length;
+      const end = input.selectionEnd ?? start;
+      let cursorStart = start;
+      let cursorEnd = end;
+      let currentValue = input.value;
+
+      for (const { ascii, symbol } of replacements) {
+        const lookStart = cursorStart - ascii.length;
+        if (lookStart < 0) continue;
+        if (currentValue.slice(lookStart, cursorStart) !== ascii) continue;
+        const followingChar = currentValue[cursorStart] || "";
+        if (followingChar && !/\s/.test(followingChar)) {
+          continue;
+        }
+        currentValue = `${currentValue.slice(0, lookStart)}${symbol}${currentValue.slice(cursorStart)}`;
+        const delta = symbol.length - ascii.length;
+        cursorStart += delta;
+        cursorEnd += delta;
+        input.value = currentValue;
+        input.setSelectionRange(cursorStart, cursorEnd);
+        return true;
+      }
+
+      return false;
+    }
+
+    function normalizeJustificationToken(input) {
+      const start = input.selectionStart ?? input.value.length;
+      const end = input.selectionEnd ?? start;
+      const beforeCursor = input.value.slice(0, start);
+      const afterCursor = input.value.slice(end);
+
+      for (const { ascii, symbol } of JUSTIFICATION_NORMALIZATIONS) {
+        const boundaryRegex = new RegExp(`(^|[\\s,;])(${ascii})$`, "i");
+        const boundaryMatch = beforeCursor.match(boundaryRegex);
+        if (!boundaryMatch) continue;
+        if (afterCursor !== "" && !/^[\\s,;]/.test(afterCursor)) continue;
+        const replaceStart = start - boundaryMatch[2].length;
+        const updated = `${input.value.slice(0, replaceStart)}${symbol}${input.value.slice(end)}`;
+        const delta = symbol.length - boundaryMatch[2].length;
+        const newPos = start + delta;
+        input.value = updated;
+        input.setSelectionRange(newPos, newPos + (end - start));
+        return true;
+      }
+      return false;
+    }
+
     function renderTable(precomputedWarnings = null) {
       if (!proofTableBody) return;
       proofTableBody.innerHTML = "";
@@ -624,8 +686,13 @@
         const wffInput = document.createElement("input");
         wffInput.value = row.wffstr || "";
         wffInput.placeholder = "Formula";
-        wffInput.addEventListener("input", (event) => {
-          proofRows[idx].wffstr = event.target.value;
+        const updateWff = () => {
+          replaceRecentSequence(wffInput, WFF_ASCII_REPLACEMENTS);
+          proofRows[idx].wffstr = wffInput.value;
+        };
+        wffInput.addEventListener("input", updateWff);
+        wffInput.addEventListener("keydown", () => {
+          setTimeout(updateWff, 0);
         });
         wffTd.appendChild(wffInput);
         tr.appendChild(wffTd);
@@ -634,8 +701,13 @@
         const justInput = document.createElement("input");
         justInput.value = row.jstr || "";
         justInput.placeholder = "Justification";
-        justInput.addEventListener("input", (event) => {
-          proofRows[idx].jstr = event.target.value;
+        const updateJustification = () => {
+          normalizeJustificationToken(justInput);
+          proofRows[idx].jstr = justInput.value;
+        };
+        justInput.addEventListener("input", updateJustification);
+        justInput.addEventListener("keydown", () => {
+          setTimeout(updateJustification, 0);
         });
         justTd.appendChild(justInput);
         tr.appendChild(justTd);
