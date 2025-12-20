@@ -113,6 +113,18 @@
       font-size: 1rem;
       letter-spacing: 0.01em;
     }
+    .panel h3 {
+      margin: 0.25rem 0 0.3rem 0;
+      font-size: 0.95rem;
+    }
+    .panel ul {
+      margin: 0.35rem 0 0.4rem 1.15rem;
+      padding: 0;
+      color: #1f2937;
+    }
+    .panel li + li {
+      margin-top: 0.2rem;
+    }
     .image-frame {
       background: #0b1224;
       border-radius: 0.5rem;
@@ -416,6 +428,25 @@
         {% else %}
           <div class="muted">Select a scan to edit its structure.</div>
         {% endif %}
+      </div>
+
+      <div class="panel">
+        <h2>Quick reference</h2>
+        <h3>Symbols</h3>
+        <ul>
+          <li>¬ (negation) — shortcuts: <code>~</code> or <code>-</code></li>
+          <li>∧ (conjunction) — shortcuts: <code>&amp;</code> or <code>.</code></li>
+          <li>∨ (disjunction) — shortcuts: <code>v</code> or <code>V</code></li>
+          <li>→ (conditional) — shortcuts: <code>-&gt;</code> or <code>=&gt;</code></li>
+          <li>↔ (biconditional) — shortcut: <code>&lt;-&gt;</code> or <code>=</code></li>
+          <li>⊥ (contradiction) — shortcuts: <code>_|_</code> or <code>F</code></li>
+        </ul>
+        <h3>Justifications</h3>
+        <ul>
+          <li><strong>Pr</strong> — premise (<a href="#premise-help">auto-counted</a> when blank/Pr at the top; type <code>Pr</code> for an explicit extra premise).</li>
+          <li><strong>Hyp</strong> — subproof assumption (auto-added to the first line of any subproof if left blank).</li>
+          <li>Rule + cites, e.g., <code>∨E 2,4</code> or <code>→I 2-5</code>, for standard rules.</li>
+        </ul>
       </div>
     </div>
 
