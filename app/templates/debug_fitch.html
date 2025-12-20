@@ -224,6 +224,37 @@
       flex-wrap: wrap;
       margin: 0.5rem 0;
     }
+    .editor-palette {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      flex-wrap: wrap;
+      padding: 0.35rem 0.5rem;
+      background: #f8fafc;
+      border: 1px solid #e5e7eb;
+      border-radius: 0.5rem;
+    }
+    .palette-label {
+      font-weight: 600;
+      color: #334155;
+      font-size: 0.9rem;
+    }
+    .palette-btn {
+      background: #e2e8f0;
+      color: #0f172a;
+      padding: 0.35rem 0.55rem;
+      border-radius: 0.4rem;
+      border: 1px solid #cbd5e1;
+      box-shadow: none;
+      min-width: 2rem;
+      text-align: center;
+    }
+    .palette-btn:hover:not(:disabled) {
+      background: #dbeafe;
+      color: #1d4ed8;
+      transform: none;
+      box-shadow: none;
+    }
     .toggle {
       display: inline-flex;
       align-items: center;
@@ -306,6 +337,19 @@
       font-weight: 600;
       font-size: 0.85rem;
     }
+    .rules-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      background: #eef2ff;
+      color: #4338ca;
+      padding: 0.2rem 0.5rem;
+      border-radius: 999px;
+      font-weight: 700;
+      font-size: 0.8rem;
+      border: 1px solid #c7d2fe;
+      cursor: help;
+    }
     @media (max-width: 900px) {
       .grid {
         grid-template-columns: 1fr;
@@ -368,6 +412,17 @@
             <input type="hidden" id="structure-json" value='{{ structure_json | tojson | safe }}'>
             <div class="editor-toolbar">
               <button type="button" class="secondary" id="add-row-btn">Add line</button>
+              <div class="editor-palette" id="wff-palette" aria-label="Logic symbol palette">
+                <span class="palette-label">Insert:</span>
+                <button type="button" class="palette-btn" data-symbol="¬">¬</button>
+                <button type="button" class="palette-btn" data-symbol="∨">∨</button>
+                <button type="button" class="palette-btn" data-symbol="∧">∧</button>
+                <button type="button" class="palette-btn" data-symbol="→">→</button>
+                <button type="button" class="palette-btn" data-symbol="↔">↔</button>
+                <button type="button" class="palette-btn" data-symbol="∀">∀</button>
+                <button type="button" class="palette-btn" data-symbol="∃">∃</button>
+                <button type="button" class="palette-btn" data-symbol="⊥">⊥</button>
+              </div>
               <span class="editor-note">Line numbers are automatic; adjust depth and text directly in the grid.</span>
               <label class="toggle">
                 <input type="checkbox" id="raw-toggle">
@@ -382,7 +437,7 @@
                       <th>#</th>
                       <th>Depth</th>
                       <th>Formula</th>
-                      <th>Justification</th>
+                      <th>Justification <span class="rules-badge" id="rules-badge" aria-label="Rules accepted">Rules accepted</span></th>
                       <th>Warnings</th>
                     </tr>
                   </thead>
@@ -439,6 +494,41 @@
     const addRowBtn = document.getElementById("add-row-btn");
     const premiseInput = document.getElementById("premise-count");
     const conclusionInput = document.getElementById("conclusion-text");
+    const palette = document.getElementById("wff-palette");
+    const rulesBadge = document.getElementById("rules-badge");
+    const RULE_MNEMONICS = [
+      "Pr (premise)",
+      "Hyp (assumption)",
+      "∧I",
+      "∧E",
+      "⊥I",
+      "⊥E",
+      "¬I",
+      "¬E",
+      "→I",
+      "→E",
+      "TND",
+      "∨I",
+      "∨E",
+      "↔I",
+      "↔E",
+      "DS",
+      "R",
+      "MT",
+      "DNE",
+      "DeM",
+      "X",
+      "IP",
+      "LEM",
+      "∀E",
+      "∀I",
+      "∃I",
+      "∃E",
+      "=I",
+      "=E",
+      "CQ",
+    ];
+    let lastFocusedWffInput = null;
     let proofRows = [];
     let meta = { num_premises: null, conclusion: "" };
 
@@ -588,6 +678,7 @@
       if (!proofTableBody) return;
       proofTableBody.innerHTML = "";
       const warnings = precomputedWarnings || computeRowWarnings(proofRows);
+      lastFocusedWffInput = null;
 
       proofRows.forEach((row, idx) => {
         const tr = document.createElement("tr");
@@ -622,10 +713,14 @@
 
         const wffTd = document.createElement("td");
         const wffInput = document.createElement("input");
+        wffInput.classList.add("wff");
         wffInput.value = row.wffstr || "";
         wffInput.placeholder = "Formula";
         wffInput.addEventListener("input", (event) => {
           proofRows[idx].wffstr = event.target.value;
+        });
+        wffInput.addEventListener("focus", (event) => {
+          lastFocusedWffInput = { input: event.target, idx };
         });
         wffTd.appendChild(wffInput);
         tr.appendChild(wffTd);
@@ -914,6 +1009,33 @@
       conclusionInput.addEventListener("input", (event) => {
         meta.conclusion = event.target.value || "";
       });
+    }
+
+    if (palette) {
+      palette.addEventListener("click", (event) => {
+        const target = event.target instanceof HTMLElement ? event.target.closest("button[data-symbol]") : null;
+        if (!(target instanceof HTMLButtonElement)) return;
+        const symbol = target.getAttribute("data-symbol") || "";
+        if (!lastFocusedWffInput || !document.body.contains(lastFocusedWffInput.input)) {
+          return;
+        }
+        const { input, idx } = lastFocusedWffInput;
+        if (idx === undefined || idx === null || idx < 0 || idx >= proofRows.length) {
+          return;
+        }
+        const start = input.selectionStart ?? input.value.length;
+        const end = input.selectionEnd ?? input.value.length;
+        const updated = `${input.value.slice(0, start)}${symbol}${input.value.slice(end)}`;
+        input.value = updated;
+        proofRows[idx].wffstr = updated;
+        const caret = start + symbol.length;
+        input.focus();
+        input.setSelectionRange(caret, caret);
+      });
+    }
+
+    if (rulesBadge) {
+      rulesBadge.title = RULE_MNEMONICS.join(", ");
     }
 
     const initialStructureText = structureField ? structureField.value : "";
