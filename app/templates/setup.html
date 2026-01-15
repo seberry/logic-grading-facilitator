@@ -160,6 +160,28 @@
 
         <div class="card" style="grid-column: 1 / -1;">
           <h2>Step 3: Rubric Definition</h2>
+          <div class="muted">
+            Quick rubric: auto-generate YAML, then click "Save rubric" below.
+          </div>
+          <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+            <div>
+              <label for="quick_quiz_id">Quiz ID</label>
+              <input type="text" id="quick_quiz_id" value="{{ quiz_id }}">
+            </div>
+            <div>
+              <label for="quick_question_count">Number of questions</label>
+              <input type="text" id="quick_question_count" placeholder="e.g., 6">
+            </div>
+            <div>
+              <label for="quick_points_each">Points per question</label>
+              <input type="text" id="quick_points_each" placeholder="e.g., 5">
+            </div>
+            <div>
+              <label for="quick_label_prefix">Label prefix</label>
+              <input type="text" id="quick_label_prefix" value="Question">
+            </div>
+          </div>
+          <button type="button" id="quick_rubric_btn" class="secondary">Generate rubric YAML</button>
           <form method="post" action="/setup/save_rubric">
             <label for="rubric_text">Edit rubric YAML</label>
             <textarea id="rubric_text" name="yaml_text">{{ rubric_text }}</textarea>
@@ -180,5 +202,46 @@
       </div>
     {% endif %}
   </main>
+  <script>
+    const quickBtn = document.getElementById("quick_rubric_btn");
+    const quickQuizId = document.getElementById("quick_quiz_id");
+    const quickCount = document.getElementById("quick_question_count");
+    const quickPoints = document.getElementById("quick_points_each");
+    const quickLabel = document.getElementById("quick_label_prefix");
+    const rubricText = document.getElementById("rubric_text");
+    const autoGroupQuizId = document.getElementById("quiz_id");
+
+    function buildQuickRubric() {
+      const quizId = (quickQuizId.value || "quiz1").trim();
+      const count = parseInt((quickCount.value || "").trim(), 10);
+      const pointsEach = parseFloat((quickPoints.value || "").trim());
+      const labelPrefix = (quickLabel.value || "Question").trim();
+
+      if (!count || count <= 0 || !Number.isFinite(pointsEach)) {
+        alert("Enter a valid number of questions and points per question.");
+        return;
+      }
+
+      const maxPoints = (pointsEach * count).toFixed(2).replace(/\.00$/, "");
+      const lines = [
+        `quiz_id: "${quizId}"`,
+        `max_points: ${maxPoints}`,
+        "problems:",
+      ];
+
+      for (let i = 1; i <= count; i += 1) {
+        lines.push(`  - id: "Q${i}"`);
+        lines.push(`    label: "${labelPrefix} ${i}"`);
+        lines.push(`    points: ${pointsEach}`);
+      }
+
+      rubricText.value = lines.join("\n") + "\n";
+      if (autoGroupQuizId) {
+        autoGroupQuizId.value = quizId;
+      }
+    }
+
+    quickBtn.addEventListener("click", buildQuickRubric);
+  </script>
 </body>
 </html>
