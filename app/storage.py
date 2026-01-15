@@ -51,6 +51,8 @@ def _resolve_archive_dir(data_dir: Path) -> Path:
 
 
 DATA_DIR = _resolve_data_dir()
+ENV_MODE = os.getenv("ENV_MODE", "").strip().upper()
+IS_PRODUCTION = ENV_MODE == "PRODUCTION"
 RAW_SCANS_DIR = DATA_DIR / "raw_scans"
 GRADES_DIR = DATA_DIR / "grades"
 RUBRIC_DIR = DATA_DIR / "rubric"

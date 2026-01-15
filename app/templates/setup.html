@@ -92,6 +92,12 @@
     }
     .alert.success { background: #ecfdf3; border: 1px solid #bbf7d0; color: #166534; }
     .alert.error { background: #fef2f2; border: 1px solid #fecdd3; color: #991b1b; }
+    .alert.warning { background: #fff7ed; border: 1px solid #fed7aa; color: #9a3412; }
+    .guarded input[disabled],
+    .guarded button[disabled] {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
   </style>
 </head>
 <body>
@@ -105,6 +111,20 @@
 
     {% if message %}
       <div class="alert {{ 'success' if status == 'success' else 'error' }}">{{ message }}</div>
+    {% endif %}
+    {% if not is_production %}
+      <div class="alert warning">
+        <strong>Test mode:</strong> Uploads are disabled because <code>ENV_MODE</code> is not
+        <code>PRODUCTION</code>. Current <code>DATA_DIR</code> is <code>{{ data_dir }}</code>.
+        Set <code>ENV_MODE=PRODUCTION</code> and point <code>DATA_DIR</code> to an external folder
+        before uploading real student data. You can override below if you accept the risk.
+        <div style="margin-top:0.5rem;">
+          <label style="font-weight:500;">
+            <input type="checkbox" id="enable_upload_override">
+            Enable uploads in test mode (writes to {{ data_dir }})
+          </label>
+        </div>
+      </div>
     {% endif %}
 
     {% if must_archive %}
@@ -138,12 +158,12 @@
             {% endif %}
 
             <label for="new_roster">Or upload a new roster CSV</label>
-            <input type="file" id="new_roster" name="new_roster" accept=".csv">
+            <input type="file" id="new_roster" name="new_roster" accept=".csv" class="guarded-input">
             <p class="muted">Must include <code>student_id</code> and <code>name</code> columns.</p>
             <button type="submit">Save roster</button>
           </form>
           <hr style="border: none; border-top: 1px solid #e5e7eb;">
-          <form method="post" action="/setup/roster_gradebook" enctype="multipart/form-data">
+          <form method="post" action="/setup/roster_gradebook" enctype="multipart/form-data" class="guarded">
             <label for="gradebook_csv">Or upload a Canvas gradebook CSV</label>
             <input type="file" id="gradebook_csv" name="gradebook_csv" accept=".csv">
             <p class="muted">Uses <code>Student</code> and <code>SIS Login ID</code> columns to build <code>data/roster.csv</code>.</p>
@@ -153,7 +173,7 @@
 
         <div class="card">
           <h2>Step 2: Scan Upload</h2>
-          <form method="post" action="/setup/upload_scans" enctype="multipart/form-data">
+          <form method="post" action="/setup/upload_scans" enctype="multipart/form-data" class="guarded">
             <label for="images">Upload images or PDFs</label>
             <input type="file" id="images" name="images" accept="image/jpeg,image/png,application/pdf" multiple>
             <p class="muted">You can upload multiple JPG/PNG files or PDFs (PDFs are split into pages).</p>
@@ -253,6 +273,31 @@
     }
 
     quickBtn.addEventListener("click", buildQuickRubric);
+
+    const isProduction = {{ 'true' if is_production else 'false' }};
+    const overrideCheckbox = document.getElementById("enable_upload_override");
+    const guardedForms = document.querySelectorAll(".guarded");
+    const guardedInputs = document.querySelectorAll(".guarded-input");
+
+    function setGuardedDisabled(disabled) {
+      guardedForms.forEach((form) => {
+        form.querySelectorAll("input[type='file'], button[type='submit']").forEach((el) => {
+          el.disabled = disabled;
+        });
+      });
+      guardedInputs.forEach((el) => {
+        el.disabled = disabled;
+      });
+    }
+
+    if (!isProduction) {
+      setGuardedDisabled(true);
+      if (overrideCheckbox) {
+        overrideCheckbox.addEventListener("change", () => {
+          setGuardedDisabled(!overrideCheckbox.checked);
+        });
+      }
+    }
   </script>
 </body>
 </html>

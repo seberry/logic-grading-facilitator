@@ -28,6 +28,9 @@ Optional (safe dev): generate fake data under `DATA_DIR`:
 python scripts/generate_fake_data.py
 ```
 
+Note: In test mode (`ENV_MODE` not set to `PRODUCTION`), the setup wizard disables
+file uploads by default. Use the override checkbox only if you understand the risk.
+
 2. **Visit http://127.0.0.1:5000/setup and follow the prompts:**
 
 

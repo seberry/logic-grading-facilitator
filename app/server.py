@@ -33,6 +33,7 @@ from .storage import (
     NAME_REVIEW_CACHE_DIR,
     DEBUG_FITCH_DIR,
     AUTO_GROUPED_DIR,
+    IS_PRODUCTION,
 )
 from .segmentation_core import segment_page_for_problem, QuestionSegment
 
@@ -48,6 +49,7 @@ from .storage import (
     RUBRIC_DIR,
     DEFAULT_ROSTER_PATH,
     DEFAULT_GRADING_KEY_PATH,
+    IS_PRODUCTION,
 )
 from .auto_group_core import (
     run_name_recognition,
@@ -606,6 +608,8 @@ async def setup_wizard(request: Request) -> Response:
             "status": status,
             "rubric_text": rubric_text,
             "quiz_id": quiz_id,
+            "is_production": IS_PRODUCTION,
+            "data_dir": str(DATA_DIR),
         },
     )
 
