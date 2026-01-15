@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Set
 
-from app.storage import load_roster  # type: ignore
+from app.storage import DEFAULT_ROSTER_PATH, load_roster  # type: ignore
 from app.vlm_client import LMStudioQwenClient  # type: ignore
 from app.vlm_classifier import classify_page  # type: ignore
 
@@ -352,7 +352,7 @@ def main() -> None:
     parser.add_argument(
         "--roster",
         type=Path,
-        default=Path("data/roster.csv"),
+        default=DEFAULT_ROSTER_PATH,
         help="Path to roster CSV.",
     )
     parser.add_argument(

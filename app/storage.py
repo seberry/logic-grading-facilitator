@@ -2,32 +2,70 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 
 import yaml  # type: ignore
 
 from .models import RosterEntry, GradingKey, ProblemSpec, Session
 
-from pathlib import Path
 import shutil
-import json
 from datetime import datetime
 import re
 
+from dotenv import load_dotenv
+
 ROOT_DIR = Path(__file__).resolve().parents[1]
-DATA_DIR = ROOT_DIR / "data"
+
+
+def _resolve_path_from_env(var_name: str, default: Path) -> Path:
+    raw = os.getenv(var_name, "")
+    if not raw:
+        return default
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = (ROOT_DIR / path).resolve()
+    return path
+
+
+def _resolve_data_dir() -> Path:
+    load_dotenv()
+    default = (ROOT_DIR / "data" / "samples").resolve()
+    data_dir = _resolve_path_from_env("DATA_DIR", default)
+
+    env_mode = os.getenv("ENV_MODE", "").strip().upper()
+    if env_mode == "PRODUCTION":
+        repo_root = ROOT_DIR.resolve()
+        if data_dir == repo_root or repo_root in data_dir.parents:
+            raise RuntimeError(
+                "ENV_MODE=PRODUCTION requires DATA_DIR outside the repo. "
+                f"Repo root: {repo_root}, DATA_DIR: {data_dir}"
+            )
+    return data_dir
+
+
+def _resolve_archive_dir(data_dir: Path) -> Path:
+    default = data_dir / "data_archive"
+    return _resolve_path_from_env("DATA_ARCHIVE_DIR", default)
+
+
+DATA_DIR = _resolve_data_dir()
 RAW_SCANS_DIR = DATA_DIR / "raw_scans"
 GRADES_DIR = DATA_DIR / "grades"
 RUBRIC_DIR = DATA_DIR / "rubric"
 NAME_REVIEW_CACHE_DIR = DATA_DIR / "name_review_cache"
+DEBUG_FITCH_DIR = DATA_DIR / "debug_fitch"
+AUTO_GROUPED_DIR = DATA_DIR / "auto_grouped"
 
 DEFAULT_SESSION_PATH = GRADES_DIR / "session.json"
 DEFAULT_ROSTER_PATH = DATA_DIR / "roster.csv"
 DEFAULT_GRADING_KEY_PATH = RUBRIC_DIR / "quiz1.yaml"
-DATA_ARCHIVE_DIR = ROOT_DIR / "data_archive"
-DATA_ARCHIVE_DIR.mkdir(exist_ok=True)
+DATA_ARCHIVE_DIR = _resolve_archive_dir(DATA_DIR)
+DATA_ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
 NAME_REVIEW_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+DEBUG_FITCH_DIR.mkdir(parents=True, exist_ok=True)
+RAW_SCANS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def load_roster(path: Path = DEFAULT_ROSTER_PATH) -> List[RosterEntry]:
@@ -118,7 +156,7 @@ def init_session(
     Initialize a brand-new session.json.
 
     - Reads roster CSV and grading key YAML.
-    - Lists all scan files in data/raw_scans.
+    - Lists all scan files in DATA_DIR/raw_scans.
     - Creates an empty work_units list.
     - Puts all scans into unclaimed_pages (sorted by filename).
     - Overwrites any existing session.json at session_path.
@@ -158,9 +196,19 @@ def _slugify_label(label: str) -> str:
     return s or "assignment"
 
 
+def _copy_tree(src: Path, dst: Path) -> None:
+    if not src.exists():
+        return
+    if src.is_dir():
+        shutil.copytree(src, dst)
+    else:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+
+
 def archive_current_data(label: str) -> str:
     """
-    Archive the entire current `data/` directory into `data_archive/`,
+    Archive the entire current DATA_DIR dataset into DATA_ARCHIVE_DIR,
     then clear raw_scans/ and session.json to prepare for a new assignment.
 
     Returns the snapshot_id (e.g. "2025-11-16T14-05-23_quiz1").
@@ -172,11 +220,22 @@ def archive_current_data(label: str) -> str:
     snapshot_id = f"{timestamp_str}_{slug}"
 
     snapshot_root = DATA_ARCHIVE_DIR / snapshot_id
-    snapshot_root.parent.mkdir(exist_ok=True)
+    snapshot_root.mkdir(parents=True, exist_ok=True)
 
-    # 1. Copy entire data/ tree into the snapshot.
-    # This gives us a full image of roster.csv, rubric, raw_scans, grades, etc.
-    shutil.copytree(DATA_DIR, snapshot_root)
+    # 1. Copy the live data paths into the snapshot.
+    # Avoid copying data_archive into itself if it lives under DATA_DIR.
+    copy_items: List[Tuple[Path, Path]] = [
+        (RAW_SCANS_DIR, snapshot_root / "raw_scans"),
+        (GRADES_DIR, snapshot_root / "grades"),
+        (RUBRIC_DIR, snapshot_root / "rubric"),
+        (DATA_DIR / "rosters", snapshot_root / "rosters"),
+        (NAME_REVIEW_CACHE_DIR, snapshot_root / "name_review_cache"),
+        (DATA_DIR / "debug_fitch", snapshot_root / "debug_fitch"),
+        (DATA_DIR / "auto_grouped", snapshot_root / "auto_grouped"),
+        (DEFAULT_ROSTER_PATH, snapshot_root / "roster.csv"),
+    ]
+    for src, dst in copy_items:
+        _copy_tree(src, dst)
 
     # 2. Write a small metadata.json into the snapshot.
     metadata = {
@@ -191,7 +250,7 @@ def archive_current_data(label: str) -> str:
     # 3. Reset live state:
     #    - clear raw_scans/
     #    - delete grades/session.json (if present)
-    raw_scans_dir = DATA_DIR / "raw_scans"
+    raw_scans_dir = RAW_SCANS_DIR
     if raw_scans_dir.exists():
         for child in raw_scans_dir.iterdir():
             if child.is_file():
@@ -204,7 +263,7 @@ def archive_current_data(label: str) -> str:
     # Ensure raw_scans directory exists (empty)
     raw_scans_dir.mkdir(parents=True, exist_ok=True)
 
-    session_path = DATA_DIR / "grades" / "session.json"
+    session_path = DEFAULT_SESSION_PATH
     if session_path.exists():
         session_path.unlink()
 

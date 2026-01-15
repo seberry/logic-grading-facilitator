@@ -51,6 +51,27 @@ session.json: The single source of truth for the active grading session.
 
 data_archive/: Snapshots of finished assignments.
 
+## Data location (FERPA-safe)
+
+All `data/...` paths in this README are relative to `DATA_DIR` (defaults to `data/samples`).
+Set `DATA_DIR` to a folder outside the repo for real student data. In production mode,
+the app refuses to start if `DATA_DIR` points inside the repo.
+
+Example `.env`:
+```
+DATA_DIR=C:\grading-data\live
+DATA_ARCHIVE_DIR=C:\grading-data\archive
+ENV_MODE=PRODUCTION
+```
+
+Dev workflow (safe):
+- Leave `DATA_DIR` unset or point it at `data/samples`.
+- Use fake roster/scans/rubric.
+
+Grading workflow (real data):
+- Set `ENV_MODE=PRODUCTION`.
+- Point `DATA_DIR` and `DATA_ARCHIVE_DIR` to external folders.
+
 ## Setup Wizard (new)
 
 Run the server (`python -m uvicorn app.server:app --reload --port 5000`), then open `http://127.0.0.1:5000/setup` to configure a fresh assignment without touching the CLI. The wizard lets you:
@@ -184,6 +205,12 @@ Start by reading:
 
 Then implement the v0 UI flow as described there.
 
+### Fake data generator (safe dev)
+Create a minimal fake roster/rubric/scans set under `DATA_DIR`:
+```
+python scripts/generate_fake_data.py
+```
+
 ## Implementation Status (v0)
 
 Current working pieces:
@@ -235,10 +262,10 @@ Once you’ve finished grading:
 
 1. Make sure the app is running (`uvicorn app.server:app --reload`).
 2. In your browser, open: `http://127.0.0.1:5000/docs`.
-3. Find the `GET /export` endpoint in the list.
-4. Click **Try it out → Execute**.
-5. Your browser will download a file named like `quiz1_scores.csv`  
-   (or you can navigate directly to `http://127.0.0.1:5000/export`).
+3. Visit `http://127.0.0.1:5000/finish` to download:
+   - grades CSV (`/export`)
+   - renamed scans ZIP (`/export_renamed_scans`)
+4. Or use the `GET /export` endpoint in `/docs`.
 
 This CSV has columns:
 

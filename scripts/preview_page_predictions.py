@@ -1,7 +1,7 @@
 # scripts/preview_page_predictions.py
 
 from pathlib import Path
-from app.storage import load_roster
+from app.storage import DEFAULT_ROSTER_PATH, RAW_SCANS_DIR, load_roster
 from app.vlm_client import LMStudioQwenClient
 from app.vlm_classifier import classify_page
 from app.utils import natural_key
@@ -9,8 +9,8 @@ from app.utils import natural_key
 def main():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--raw-scans-dir", type=Path, default=Path("data/raw_scans"))
-    parser.add_argument("--roster", type=Path, default=Path("data/roster.csv"))
+    parser.add_argument("--raw-scans-dir", type=Path, default=RAW_SCANS_DIR)
+    parser.add_argument("--roster", type=Path, default=DEFAULT_ROSTER_PATH)
     parser.add_argument("--limit", type=int, default=12)
     parser.add_argument("--lmstudio-base-url", default="http://127.0.0.1:1234/v1")
     parser.add_argument("--lmstudio-model", default="qwen-vl")

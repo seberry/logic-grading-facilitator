@@ -1,5 +1,6 @@
 import argparse
 import os
+from app.storage import RAW_SCANS_DIR
 import fitz  # This is PyMuPDF
 
 def split_pdf_to_images(source_path, output_folder, image_format="jpg"):
@@ -44,7 +45,7 @@ if __name__ == "__main__":
     parser.add_argument("--input", required=True, help="Path to the big PDF")
     
     # Default output is /data/raw_scans relative to where you run this
-    parser.add_argument("--output", default="data/raw_scans", help="Output folder")
+    parser.add_argument("--output", default=str(RAW_SCANS_DIR), help="Output folder")
     
     # Option to switch between jpg and png
     parser.add_argument("--format", default="jpg", choices=["jpg", "png"], help="Image format")

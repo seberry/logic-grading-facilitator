@@ -26,7 +26,14 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from .storage import RAW_SCANS_DIR, GRADES_DIR, archive_current_data, NAME_REVIEW_CACHE_DIR
+from .storage import (
+    RAW_SCANS_DIR,
+    GRADES_DIR,
+    archive_current_data,
+    NAME_REVIEW_CACHE_DIR,
+    DEBUG_FITCH_DIR,
+    AUTO_GROUPED_DIR,
+)
 from .segmentation_core import segment_page_for_problem, QuestionSegment
 
 from .models import Session, WorkUnit, RosterEntry
@@ -81,16 +88,12 @@ app.mount(
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
-DEBUG_FITCH_DIR = DATA_DIR / "debug_fitch"
-DEBUG_FITCH_DIR.mkdir(parents=True, exist_ok=True)
-
 app.mount(
     "/debug_fitch_assets",
     StaticFiles(directory=str(DEBUG_FITCH_DIR)),
     name="debug_fitch_assets",
 )
 
-AUTO_GROUPED_DIR = DATA_DIR / "auto_grouped"
 
 LMSTUDIO_BASE_URL = "http://127.0.0.1:1234/v1"
 LMSTUDIO_MODEL_ID = "qwen/qwen3-vl-4b"  # or whatever you’re actually using
@@ -1252,6 +1255,17 @@ def roster_lookup(session: Session) -> Dict[str, str]:
     """Map student_id -> slugified name."""
     return {r.student_id: slugify_name(r.name) for r in session.roster}
 
+
+@app.get("/finish", response_class=HTMLResponse)
+def finish_page(request: Request) -> Response:
+    return templates.TemplateResponse(
+        "finish.html",
+        {
+            "request": request,
+        },
+    )
+
+
 @app.get("/export_renamed_scans")
 def export_renamed_scans():
     """
@@ -2303,11 +2317,18 @@ async def post_problem_strips(
         if action == "save_next":
             if idx < len(problem_ids) - 1:
                 target_problem_id = problem_ids[idx + 1]
+            else:
+                target_problem_id = None
         elif action == "save_back":
             if idx > 0:
                 target_problem_id = problem_ids[idx - 1]
+        elif action == "finish":
+            target_problem_id = None
 
         persist_session()
+
+    if target_problem_id is None:
+        return RedirectResponse(url="/finish", status_code=303)
 
     return RedirectResponse(
         url=f"/problem/{target_problem_id}/strips",

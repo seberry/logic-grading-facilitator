@@ -11,6 +11,9 @@
       padding: 2rem 2rem 100px 2rem;
       color: #333;
     }
+    body.pinned-active {
+      padding-top: var(--pinned-offset, 2rem);
+    }
 
     h1 { margin-bottom: 0.5rem; }
     p { margin-bottom: 2rem; color: #666; }
@@ -35,6 +38,38 @@
       border-color: #3b82f6;
       box-shadow: 0 20px 50px rgba(0,0,0,0.25);
       transform: scale(1.01);
+    }
+    .pinned-panel {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 300;
+      background: #ffffff;
+      border-bottom: 1px solid #e0e0e0;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+      padding: 1rem 2rem;
+    }
+    .pinned-panel.hidden {
+      display: none;
+    }
+    .pinned-panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.75rem;
+      font-weight: 600;
+    }
+    .pinned-panel-body {
+      display: flex;
+      gap: 1.5rem;
+      align-items: flex-start;
+    }
+    .pinned-panel .thumb-wrapper {
+      max-width: 520px;
+    }
+    .pinned-panel .student-name {
+      font-size: 1rem;
     }
 
     .thumb-wrapper {
@@ -127,6 +162,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 0.75rem;
     }
     .score-input {
       font-size: 1.25rem;
@@ -135,6 +171,16 @@
       border: 1px solid #ddd;
       border-radius: 4px;
       text-align: right;
+    }
+    .score-max {
+      font-size: 1rem;
+      color: #666;
+      white-space: nowrap;
+    }
+    .score-entry {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
     }
 
     .action-bar {
@@ -229,6 +275,14 @@
     Review and grade student answers. <a href="?refresh=1" style="color:#2563eb;">↻ Segmentation</a>
   </p>
 
+  <div id="pinned-panel" class="pinned-panel hidden" aria-live="polite">
+    <div class="pinned-panel-header">
+      <span>Pinned reference answer</span>
+      <button id="pinned-clear" class="btn btn-secondary" type="button">Clear</button>
+    </div>
+    <div class="pinned-panel-body" id="pinned-body"></div>
+  </div>
+
   <form method="post" action="">
     <input type="hidden" name="problem_id" value="{{ problem_id }}">
 
@@ -317,17 +371,21 @@
     <button class="btn btn-pin"
             type="button"
             onclick="togglePin(this)"
-            tabindex="-1"> 📌 Pin
+                        tabindex="-1"> Pin
     </button>
 </div>
 
         <label class="score-group">
           <strong>Score</strong>
-          <input class="score-input"
-                 type="number"
-                 step="0.5"
-                 name="score_{{ wu.unit_id }}"
-                 value="{{ wu.per_problem.get(problem_id) or '' }}">
+          <span class="score-entry">
+            <input class="score-input"
+                   type="number"
+                   step="0.5"
+                   data-max="{{ max_points }}"
+                   name="score_{{ wu.unit_id }}"
+                   value="{{ wu.per_problem.get(problem_id) or '' }}">
+            <span class="score-max">/ {{ max_points }}</span>
+          </span>
         </label>
 
         {% if seg and seg.comment %}
@@ -355,13 +413,23 @@
                 value="save_back">
           Save &amp; Back
         </button>
-        <button id="btn-save-next"
-                class="btn-primary"
-                type="submit"
-                name="action"
-                value="save_next">
-          Save &amp; Next
-        </button>
+        {% if next_problem_id %}
+          <button id="btn-save-next"
+                  class="btn-primary"
+                  type="submit"
+                  name="action"
+                  value="save_next">
+            Save &amp; Next
+          </button>
+        {% else %}
+          <button id="btn-finish"
+                  class="btn-primary"
+                  type="submit"
+                  name="action"
+                  value="finish">
+            Finish
+          </button>
+        {% endif %}
       </div>
     </div>
   </form>
@@ -471,24 +539,56 @@
       }
     }
 
-    // --- PINNING LOGIC ---
+        // --- PINNING LOGIC ---
     function togglePin(btn) {
       const strip = btn.closest('.strip');
       const isPinned = strip.classList.contains('is-pinned');
+      const panel = document.getElementById('pinned-panel');
+      const panelBody = document.getElementById('pinned-body');
 
       document.querySelectorAll('.strip.is-pinned').forEach(el => {
         el.classList.remove('is-pinned');
-        el.querySelector('.btn-pin').textContent = "📌 Pin";
-        el.querySelector('.btn-pin').classList.remove('active');
+        const pinBtn = el.querySelector('.btn-pin');
+        if (pinBtn) {
+          pinBtn.textContent = "Pin";
+          pinBtn.classList.remove('active');
+        }
       });
 
       if (!isPinned) {
         strip.classList.add('is-pinned');
         btn.textContent = "Unpin";
         btn.classList.add('active');
+
+        if (panel && panelBody) {
+          panelBody.innerHTML = "";
+          const wrapper = strip.querySelector('.thumb-wrapper');
+          const student = strip.querySelector('.student-name');
+          if (wrapper) {
+            const clone = wrapper.cloneNode(true);
+            clone.removeAttribute('id');
+            clone.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+            panelBody.appendChild(clone);
+          }
+          if (student) {
+            const name = document.createElement('div');
+            name.className = 'student-name';
+            name.textContent = student.textContent || '';
+            panelBody.appendChild(name);
+          }
+          panel.classList.remove('hidden');
+          const panelHeight = panel.offsetHeight;
+          document.body.classList.add('pinned-active');
+          document.body.style.setProperty('--pinned-offset', `${panelHeight + 24}px`);
+        }
+      } else {
+        if (panel) {
+          panel.classList.add('hidden');
+          document.body.classList.remove('pinned-active');
+          document.body.style.removeProperty('--pinned-offset');
+        }
       }
     }
-
     // --- INITIALIZE ---
     window.addEventListener('load', () => {
       document.querySelectorAll('.thumb-wrapper').forEach((wrapper, index) => {
@@ -499,6 +599,26 @@
         }
       });
     });
+
+    const clearPinnedBtn = document.getElementById('pinned-clear');
+    if (clearPinnedBtn) {
+      clearPinnedBtn.addEventListener('click', () => {
+        const panel = document.getElementById('pinned-panel');
+        const panelBody = document.getElementById('pinned-body');
+        if (panelBody) panelBody.innerHTML = '';
+        if (panel) panel.classList.add('hidden');
+        document.querySelectorAll('.strip.is-pinned').forEach(el => {
+          el.classList.remove('is-pinned');
+          const pinBtn = el.querySelector('.btn-pin');
+          if (pinBtn) {
+            pinBtn.textContent = "Pin";
+            pinBtn.classList.remove('active');
+          }
+        });
+        document.body.classList.remove('pinned-active');
+        document.body.style.removeProperty('--pinned-offset');
+      });
+    }
 
 
     // Store cropper instances so we can access them later
@@ -624,3 +744,5 @@ function toggleEditMode(btn) {
 
 </body>
 </html>
+
+

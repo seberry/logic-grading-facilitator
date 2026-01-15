@@ -28,6 +28,7 @@ sys.path.append(project_root)
 # Attempt to import project modules
 try:
     # 1. Import the class
+    from app.storage import DEBUG_FITCH_DIR, RAW_SCANS_DIR
     from app.vlm_client import LMStudioQwenClient
     from app.verifier import ProofLine, check_proof, flatten_proof
 
@@ -44,6 +45,8 @@ except ImportError as e:
     print(f"Warning: Could not import app modules ({e}). Using mocks for VLM/Verifier.")
     vlm_client = None
     proof_checker_available = False
+    RAW_SCANS_DIR = Path(project_root) / "data" / "raw_scans"
+    DEBUG_FITCH_DIR = Path(project_root) / "data" / "debug_fitch"
 
 def renumber_lines(proof_structure: list, start_counter: int = 1) -> int:
     """
@@ -630,16 +633,19 @@ def label_and_count_premises(proof_structure: List[Union[Dict, List]]) -> int:
 
 def main():
     parser = argparse.ArgumentParser(description="Debug the Recursive Fitch OCR Pipeline")
-    parser.add_argument("filename", help="Name of file in data/raw_scans (e.g., quiz1_studentA_p1.jpg)")
+    parser.add_argument(
+        "filename",
+        help="Name of file in raw_scans (e.g., quiz1_studentA_p1.jpg)",
+    )
     args = parser.parse_args()
 
     # Setup Paths
-    raw_scan_path = Path(project_root) / "data" / "raw_scans" / args.filename
+    raw_scan_path = RAW_SCANS_DIR / args.filename
     if not raw_scan_path.exists():
         print(f"Error: File not found at {raw_scan_path}")
         return
 
-    output_base = Path(project_root) / "data" / "debug_fitch" / raw_scan_path.stem
+    output_base = DEBUG_FITCH_DIR / raw_scan_path.stem
     if output_base.exists():
         import shutil
         shutil.rmtree(output_base)

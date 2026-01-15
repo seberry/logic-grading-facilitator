@@ -5,6 +5,8 @@
 
 This document describes the high-level architecture of the Logic Grading Facilitator (v2), covering the core data models, the "Cyborg" workflow, and the backend data pipelines.
 
+Note: All `data/...` paths in this document are relative to `DATA_DIR` (defaults to `data/samples`).
+
 ---
 
 # 1. Core Concept: WorkUnits

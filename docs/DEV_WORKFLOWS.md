@@ -1,6 +1,7 @@
 # Development Workflows & Cheat Sheet
 
 Use these recipes to test individual "cogs" of the machine without running the full web server.
+All `data/...` paths below are relative to `DATA_DIR` (defaults to `data/samples`).
 
 ## 1. The "Coloring Book" Script (CV)
 **Goal:** Manually verify that the Computer Vision script can find and color the vertical logic bars.

@@ -5,12 +5,28 @@
 * `data/raw_scans/` contains your image files.
 * `data/roster.csv` is present.
 
+## Data location (FERPA-safe)
+All `data/...` paths below are relative to `DATA_DIR` (defaults to `data/samples`).
+For real grading, set `ENV_MODE=PRODUCTION` and point `DATA_DIR` outside the repo.
+
+Example `.env`:
+```
+DATA_DIR=C:\grading-data\live
+DATA_ARCHIVE_DIR=C:\grading-data\archive
+ENV_MODE=PRODUCTION
+```
+
 ## Recommended: Setup Wizard (UI)
 
 1. **Start the server:**
    ```powershell
    python -m uvicorn app.server:app --reload --port 5000
    ```
+
+Optional (safe dev): generate fake data under `DATA_DIR`:
+```powershell
+python scripts/generate_fake_data.py
+```
 
 2. **Visit http://127.0.0.1:5000/setup and follow the prompts:**
 
@@ -88,9 +104,10 @@ Navigate: Use "Save & Next" to move to Q2, Q3, etc..
 Tip: If a crop looks wrong, click "Show Full Page" or "Fix Crop".
 
 6. Export Grades
-When finished: http://127.0.0.1:5000/export.
+When finished, click **Finish** on the last question to open:
+http://127.0.0.1:5000/finish.
 
-Download the CSV and upload it to Canvas.
+Download the grades CSV and the renamed scans ZIP from there.
 
 7. Archive & Reset
 When the assignment is complete, archive your data to prepare for the next quiz.

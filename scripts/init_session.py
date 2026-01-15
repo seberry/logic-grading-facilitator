@@ -6,9 +6,9 @@ Usage (from repo root):
     python -m scripts.init_session
 
 Assumes:
-- data/roster.csv exists with headers: student_id,name
-- data/rubric/quiz1.yaml exists
-- data/raw_scans/ contains JPG/PNG files
+- DATA_DIR/roster.csv exists with headers: student_id,name
+- DATA_DIR/rubric/quiz1.yaml exists
+- DATA_DIR/raw_scans/ contains JPG/PNG files
 """
 
 from pathlib import Path
