@@ -142,18 +142,29 @@
             <p class="muted">Must include <code>student_id</code> and <code>name</code> columns.</p>
             <button type="submit">Save roster</button>
           </form>
+          <hr style="border: none; border-top: 1px solid #e5e7eb;">
+          <form method="post" action="/setup/roster_gradebook" enctype="multipart/form-data">
+            <label for="gradebook_csv">Or upload a Canvas gradebook CSV</label>
+            <input type="file" id="gradebook_csv" name="gradebook_csv" accept=".csv">
+            <p class="muted">Uses <code>Student</code> and <code>SIS Login ID</code> columns to build <code>data/roster.csv</code>.</p>
+            <button type="submit">Build roster from gradebook</button>
+          </form>
         </div>
 
         <div class="card">
           <h2>Step 2: Scan Upload</h2>
           <form method="post" action="/setup/upload_scans" enctype="multipart/form-data">
-            <label for="images">Upload images</label>
-            <input type="file" id="images" name="images" accept="image/jpeg,image/png" multiple>
-            <p class="muted">You can upload multiple JPG/PNG files.</p>
+            <label for="images">Upload images or PDFs</label>
+            <input type="file" id="images" name="images" accept="image/jpeg,image/png,application/pdf" multiple>
+            <p class="muted">You can upload multiple JPG/PNG files or PDFs (PDFs are split into pages).</p>
 
             <label for="pdf_file">Or upload a single PDF</label>
             <input type="file" id="pdf_file" name="pdf_file" accept="application/pdf">
             <p class="muted">PDF pages will be converted to images and placed in <code>data/raw_scans/</code>.</p>
+
+            <label for="zip_file">Or upload a ZIP (images and/or PDFs)</label>
+            <input type="file" id="zip_file" name="zip_file" accept=".zip,application/zip">
+            <p class="muted">ZIP contents are flattened; PDFs are split into JPGs with <code>_p##</code> suffixes.</p>
             <button type="submit">Upload scans</button>
           </form>
         </div>

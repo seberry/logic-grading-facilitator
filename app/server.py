@@ -625,6 +625,50 @@ def _validate_roster_csv(content: str) -> None:
         )
 
 
+def _normalize_headers(headers: List[str]) -> Dict[str, str]:
+    normalized: Dict[str, str] = {}
+    for h in headers:
+        key = h.strip().lower()
+        normalized[key] = h
+    return normalized
+
+
+def _extract_canvas_roster(content: str) -> str:
+    reader = csv.DictReader(io.StringIO(content))
+    if not reader.fieldnames:
+        raise HTTPException(status_code=400, detail="Gradebook CSV has no headers.")
+
+    header_map = _normalize_headers(reader.fieldnames)
+    name_col = header_map.get("student")
+    id_col = header_map.get("sis login id")
+    if not name_col or not id_col:
+        raise HTTPException(
+            status_code=400,
+            detail="Gradebook CSV must include 'Student' and 'SIS Login ID' columns.",
+        )
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=["student_id", "name"])
+    writer.writeheader()
+
+    rows = 0
+    for row in reader:
+        name = (row.get(name_col) or "").strip()
+        sid = (row.get(id_col) or "").strip()
+        if not name or not sid:
+            continue
+        writer.writerow({"student_id": sid, "name": name})
+        rows += 1
+
+    if rows == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="No roster rows found in gradebook CSV.",
+        )
+
+    return output.getvalue()
+
+
 @app.post("/setup/roster")
 async def setup_roster(
     existing_roster: Optional[str] = Form(None),
@@ -666,33 +710,116 @@ async def setup_roster(
     )
 
 
+@app.post("/setup/roster_gradebook")
+async def setup_roster_gradebook(
+    gradebook_csv: UploadFile = File(...),
+) -> Response:
+    if not gradebook_csv.filename:
+        raise HTTPException(status_code=400, detail="Please upload a gradebook CSV.")
+
+    content_bytes = await gradebook_csv.read()
+    try:
+        decoded = content_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="Gradebook CSV must be UTF-8 encoded.")
+
+    cleaned_csv = _extract_canvas_roster(decoded)
+
+    DEFAULT_ROSTER_PATH.parent.mkdir(parents=True, exist_ok=True)
+    DEFAULT_ROSTER_PATH.write_text(cleaned_csv, encoding="utf-8")
+
+    return RedirectResponse(
+        url="/setup?status=success&message="
+        + quote("Roster created from Canvas gradebook."),
+        status_code=303,
+    )
+
+
+def _unique_path(dest: Path) -> Path:
+    if not dest.exists():
+        return dest
+    stem = dest.stem
+    suffix = dest.suffix
+    parent = dest.parent
+    counter = 2
+    while True:
+        candidate = parent / f"{stem}_{counter}{suffix}"
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
+def _unique_pdf_stem(base_stem: str, output_dir: Path) -> str:
+    stem = base_stem
+    counter = 2
+    while (output_dir / f"{stem}_p01.jpg").exists():
+        stem = f"{base_stem}_{counter}"
+        counter += 1
+    return stem
+
+
 def _save_image_upload(upload: UploadFile, destination: Path) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
+    destination = _unique_path(destination)
     with destination.open("wb") as f:
         shutil.copyfileobj(upload.file, f)
 
 
 def _save_pdf_pages(pdf_bytes: bytes, stem: str, output_dir: Path) -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
+    stem = _unique_pdf_stem(stem, output_dir)
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     count = 0
     for idx, page in enumerate(doc):
         matrix = fitz.Matrix(2, 2)
         pix = page.get_pixmap(matrix=matrix)
         filename = f"{stem}_p{idx + 1}.jpg"
-        pix.save(str(output_dir / filename))
+        target = output_dir / filename
+        target = _unique_path(target)
+        pix.save(str(target))
         count += 1
     doc.close()
     return count
+
+
+def _ingest_zip_bytes(zip_bytes: bytes, output_dir: Path) -> int:
+    saved = 0
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        entries = sorted(zf.infolist(), key=lambda info: info.filename.lower())
+        for entry in entries:
+            if entry.is_dir():
+                continue
+            entry_name = entry.filename
+            if entry_name.startswith("__MACOSX/"):
+                continue
+            filename = Path(entry_name).name
+            if not filename:
+                continue
+            suffix = Path(filename).suffix.lower()
+            if suffix in {".jpg", ".jpeg", ".png"}:
+                dest = output_dir / filename
+                dest = _unique_path(dest)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(entry) as src, dest.open("wb") as f:
+                    shutil.copyfileobj(src, f)
+                saved += 1
+            elif suffix == ".pdf":
+                pdf_bytes = zf.read(entry)
+                if not pdf_bytes:
+                    continue
+                stem = Path(filename).stem or "scans"
+                saved += _save_pdf_pages(pdf_bytes, stem, output_dir)
+    return saved
 
 
 @app.post("/setup/upload_scans")
 async def setup_upload_scans(
     images: Optional[List[UploadFile]] = File(None),
     pdf_file: Optional[UploadFile] = File(None),
+    zip_file: Optional[UploadFile] = File(None),
 ) -> Response:
-    if (not images or len(images) == 0) and not pdf_file:
-        raise HTTPException(status_code=400, detail="Upload images or a PDF of scans.")
+    if (not images or len(images) == 0) and not pdf_file and not zip_file:
+        raise HTTPException(status_code=400, detail="Upload images, a PDF, or a ZIP of scans.")
 
     RAW_SCANS_DIR.mkdir(parents=True, exist_ok=True)
     saved = 0
@@ -700,12 +827,38 @@ async def setup_upload_scans(
     if images:
         allowed_exts = {".jpg", ".jpeg", ".png"}
         for img in images:
-            suffix = Path(img.filename or "").suffix.lower()
-            if suffix not in allowed_exts:
-                raise HTTPException(status_code=400, detail="Images must be JPG or PNG files.")
-            dest = RAW_SCANS_DIR / Path(img.filename).name
-            _save_image_upload(img, dest)
-            saved += 1
+            filename = Path(img.filename or "").name
+            if not filename:
+                continue
+            suffix = Path(filename).suffix.lower()
+            if suffix in allowed_exts:
+                dest = RAW_SCANS_DIR / filename
+                _save_image_upload(img, dest)
+                saved += 1
+                continue
+            if suffix == ".pdf":
+                pdf_bytes = await img.read()
+                if not pdf_bytes:
+                    continue
+                stem = Path(filename).stem or "scans"
+                saved += _save_pdf_pages(pdf_bytes, stem, RAW_SCANS_DIR)
+                continue
+            if suffix == ".zip":
+                zip_bytes = await img.read()
+                if not zip_bytes:
+                    continue
+                try:
+                    saved += _ingest_zip_bytes(zip_bytes, RAW_SCANS_DIR)
+                except zipfile.BadZipFile:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Uploaded ZIP could not be read.",
+                    )
+                continue
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type: {filename}. Upload JPG/PNG, PDFs for splitting, or ZIP files.",
+            )
 
     if pdf_file and pdf_file.filename:
         pdf_bytes = await pdf_file.read()
@@ -722,6 +875,16 @@ async def setup_upload_scans(
             )
         except Exception as exc:
             raise HTTPException(status_code=400, detail=f"Failed to process PDF: {exc}")
+
+    if zip_file and zip_file.filename:
+        zip_bytes = await zip_file.read()
+        if not zip_bytes:
+            raise HTTPException(status_code=400, detail="Uploaded ZIP was empty.")
+
+        try:
+            saved += _ingest_zip_bytes(zip_bytes, RAW_SCANS_DIR)
+        except zipfile.BadZipFile:
+            raise HTTPException(status_code=400, detail="Uploaded ZIP could not be read.")
 
     return RedirectResponse(
         url="/setup?status=success&message=" + quote(f"Uploaded {saved} scan files."),

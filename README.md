@@ -57,6 +57,7 @@ Run the server (`python -m uvicorn app.server:app --reload --port 5000`), then o
 
 - Archive any existing session before starting (protects against accidental data loss).
 - Pick an existing roster CSV from `data/rosters/` **or** upload a new one; the selected file is copied into `data/roster.csv`.
+- Or upload a full Canvas gradebook CSV; the wizard extracts `Student` + `SIS Login ID` into `data/roster.csv`.
 - Upload scans as individual JPG/PNG files **or** as a PDF (auto-splits into per-page JPEGs under `data/raw_scans/`).
 - Edit and save the grading rubric YAML; it writes to `data/rubric/<quiz_id>.yaml` and pre-fills the quiz_id for downstream routes.
 - Kick off auto-grouping/name recognition; the wizard writes the name review cache and redirects you straight to `/name_review` for confirmation.
