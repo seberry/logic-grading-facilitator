@@ -32,8 +32,8 @@ The backend service (FastAPI) maintains the state of the grading session.
     * Located at: `data/grades/session.json`.
 
 2.  **`raw_scans/` (The Images):**
-    * Originally contains raw uploads (e.g., `IMG_001.jpg`).
-    * After the "Hand-off," it contains canonical renamed files (e.g., `quiz1_berry_sharon_p01.jpg`).
+    * Contains raw uploads (e.g., `IMG_001.jpg`).
+    * After the "Hand-off," canonical copies are added (e.g., `quiz1_berry_sharon_p01.jpg`); originals are left in place.
 
 3.  **`segments_*.json` (The Geometry):**
     * Stores bounding boxes for where specific answers are located on a page.
@@ -59,7 +59,7 @@ The frontend serves specific interfaces for different phases of the grading life
     * Provides full-page toggle and scoring inputs.
 * **Navigation:** "Save & Next" moves linearly through the rubric.
 
-### C. WorkUnit View (Legacy/Detail) (`GET /grade/{unit_id}`)
+### C. WorkUnit View (Legacy/Detail) (`GET /grade/{unit_id}/page`)
 * **Purpose:** Detailed view of a single student's full exam.
 * **Use Case:** Spot-checking a specific student or handling complex multi-page overrides.
 
@@ -117,7 +117,7 @@ This section explains how data transforms from "Raw Images" to "Graded Assignmen
 ### Phase 2: The Review-to-Grading Hand-off
 * **Trigger:** User clicks **"Save & Start Grading"** or **"Save & Download Scans (ZIP)"** on the `/name_review` page (the earlier **"Save & Auto-Fill Unknowns"** button only updates the cache and does not rename files).
 * **Backend Logic (`POST /name_review`):**
-    1.  **Renaming:** Copies raw files to `data/raw_scans/` with canonical names (e.g., `quiz1_student_p01.jpg`).
+    1.  **Renaming:** Copies raw files to `data/raw_scans/` with canonical names (e.g., `quiz1_student_p01.jpg`) and leaves originals intact.
     2.  **Session Creation:** Constructs `WorkUnit` objects in memory based on the approved groups.
     3.  **Persistence:** Writes the **Source of Truth** to `data/grades/session.json`.
     4.  **Redirect:** Sends the user immediately to the Strip View grader.
@@ -164,7 +164,8 @@ Used by the Strip View to show cropped answers.
 
 
 
-OLD
+## Historical (Deprecated)
+The sections below describe earlier v0/v1 ideas (SQLite, thick-client UI, etc.). They are kept for reference but do not match the current implementation.
 
 # System Architecture Overview
 

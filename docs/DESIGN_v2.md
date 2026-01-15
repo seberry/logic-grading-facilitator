@@ -1,4 +1,5 @@
 # Design Document: Local Logic Grading Facilitator (v2)
+Status: This is a design doc. The current implementation uses FastAPI with server-rendered Jinja templates and file-based `data/grades/session.json`. The JS-heavy frontend and SQLite references below are aspirational; see `README.md` and `HOWTOUSE.md` for the current workflow.
 
 ## 1. Executive Summary
 The Local Logic Grading Facilitator is a privacy-first (FERPA compliant), local-only tool designed to expedite the grading of handwritten intermediate logic exams.
@@ -19,12 +20,15 @@ It employs a **"Cyborg" / Hybrid Intelligence** approach:
 * **Role:** "Dumb" Persistence Layer & Orchestrator.
 * **Responsibilities:**
     * Serve static HTML/JS/CSS files.
-    * Manage the SQLite database (Assignments, WorkUnits, Grades).
+    * Manage the file-based session store (`data/grades/session.json`).
     * Handle file operations (reading raw scans, saving export CSVs).
     * Proxy requests to the Local VLM (if CORS/browser security requires it).
-* **Key Endpoints:**
-    * `GET /work_unit/{id}`: Returns student data.
-    * `POST /submit_grade`: Saves scores, comments, and validated logic models.
+* **Key Endpoints (current app):**
+    * `GET /grade/{unit_id}/page`: WorkUnit grading page.
+    * `GET /problem/{problem_id}/strips`: Per-problem strip grader.
+    * `GET /name_review`: Name review UI.
+    * `GET /setup`: Setup wizard.
+    * `GET /export`: Canvas CSV export.
 
 ### Frontend (HTML/JavaScript/D3.js)
 * **Role:** The "Brain" & Interface.

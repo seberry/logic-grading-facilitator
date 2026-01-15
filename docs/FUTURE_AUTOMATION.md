@@ -25,7 +25,7 @@ All of this happens asynchronously after ingestion so that the grading UI is sna
   We have confirmed that LLMs struggle to recognize vertical assumption lines or align them with text. The solution is a hybrid CV+VLM pipeline:
   
   1.  **CV Pre-pass (Structure):**
-      - Use `scripts/highlight_fitch_lines.py` to detect vertical lines using morphological operations.
+      - Use `scripts/bold_fitch_lines.py` to detect vertical lines using morphological operations.
       - Overlay transparent colored rectangles (Cyan, Magenta, Yellow) extending to the right of each line.
       - Nested scopes naturally create mixed colors (e.g., Cyan + Magenta = Purple).
       

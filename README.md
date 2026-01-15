@@ -25,7 +25,7 @@ Core Features
 Auto-Grouping: scripts.auto_group_scans uses a local VLM (Qwen via LM Studio) to read names and group widely scattered pages into single student submissions.
 
 
-Name Review UI: A web interface to audit the AI's name guesses before finalizing the session.
+Name Review UI: A web interface to audit the AI's name guesses before finalizing the session (copies canonical filenames into `data/raw_scans/`).
 
 Strip View Grading: A vertical interface showing one problem across all students (e.g., "Grade Q1 for everyone"). Includes auto-segmentation to zoom in on the specific answer.
 
@@ -97,7 +97,7 @@ Use the in-browser review page to inspect OCR artifacts, hand-edit the stitched 
 ```text
 logic-grading-facilitator/
 │
-├── app/ # backend & UI (to be implemented)
+├── app/ # backend & UI
 │
 ├── data/
 │   ├── raw_scans/         # current assignment’s scans
@@ -132,7 +132,7 @@ Download renamed scans for Canvas or record-keeping:
 
 The grading page includes a link “Download renamed scans (ZIP)”.
 
-Generates clean filenames such as berry_sharon_1.jpg, berry_sharon_2.jpg, etc.
+Generates clean filenames such as quiz1_12345_p01.jpg, quiz1_12345_p02.jpg, etc.
 
 Finalize & Archive (end of grading):
 
@@ -196,7 +196,7 @@ Current working pieces:
   - `POST /work_units/create` — create a new WorkUnit from the next unclaimed page.
   - `POST /work_units/{unit_id}/append_next_scan` — attach another page.
   - `POST /work_units/{unit_id}/remove_last_scan` — undo last page.
-  - `GET  /grade/{unit_id}` — JSON view of one WorkUnit + rubric + roster.
+  - `GET  /work_units` — summary view (unit_id, page_count, scored status).
   - `POST /grade/{unit_id}` — JSON update of scores, student_id, comment.
   - `GET  /export` — CSV (`student_id,quiz_id_score`) for Canvas upload.
   - `GET  /session/summary` — debug summary.

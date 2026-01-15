@@ -9,8 +9,8 @@
 
 1. **Start the server:**
    ```powershell
-   python -m uvicorn app.server:app --reload --port 5000   
-   '''
+   python -m uvicorn app.server:app --reload --port 5000
+   ```
 
 2. **Visit http://127.0.0.1:5000/setup and follow the prompts:**
 
@@ -69,7 +69,7 @@ Open your browser to: http://127.0.0.1:5000/name_review?quiz=quiz1.
 Audit: Fix any incorrect dropdowns.
 
 
-Finalize: Scroll to the bottom and click “Name recognition & grouping looks good — rename & download”.
+Finalize: Scroll to the bottom and click **Save & Start Grading** (or **Save & Download Scans (ZIP)**).
 
 
 (Note: This creates the official session.json. Do not run init_session manually after this.).
@@ -113,7 +113,7 @@ Result: This moves current data to data_archive/ and clears data/raw_scans and s
 
 > |----------------------------------------|--------------------------------------|---------------------------|----------------------------------------------------------------|
 > | Name recognition review                | `GET /name_review`                  | `LMStudioQwenClient`, `classify_page`, `name_review_cache_path` | `data/raw_scans/`, `data/roster.csv`, `data/name_review_cache/<quiz>__<subdir>.json` |
-> | Finalize name assignments + auto-group | `POST /name_review`                 | name_review_submit        | Writes `data/auto_grouped/<quiz>/...` (JSON, CSV, renamed scans zip) |
+> | Finalize name assignments + create session | `POST /name_review`             | name_review_submit        | Writes `data/grades/session.json`, copies scans into `data/raw_scans/`, optional ZIP; cache-only for Save & Auto-Fill |
 > | Work-unit grading (per student)        | `GET/POST /grade/{unit_id}/page`    | `grade_page`, `grade_page_submit` | `data/grades/session.json` (`Session`), `data/raw_scans/`             |
 > | Per-problem strip view                 | `GET/POST /problem/{id}/strips`     | `get_problem_strips`, `post_problem_strips`, `segment_page_for_problem` | `session.json`, `data/grades/segments_{id}.json`, `data/raw_scans/`   |
 > | Export renamed scans (simple ZIP)      | `GET /export_renamed_scans`         | `export_renamed_scans`    | Reads `session.json`, `data/raw_scans/` → returns in-memory ZIP       |

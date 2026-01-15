@@ -77,6 +77,12 @@ Copy code
     "Q3": 3
   },
 
+  "per_problem_comments": {
+    "Q1": "missing witness",
+    "Q2": null,
+    "Q3": null
+  },
+
   "comment": "missing witness in Q2"
 }
 Invariants:
@@ -87,7 +93,11 @@ Exactly one student_id per WorkUnit.
 
 Every key in per_problem must correspond to an id in the GradingKey.
 
+per_problem values are floats or null (null means ungraded).
+
 Missing values are allowed (e.g., ungraded problems) but must be resolved before export.
+
+per_problem_comments keys mirror per_problem; values are strings or null.
 
 
 
@@ -192,7 +202,11 @@ Copy code
   "roster": [...],
   "grading_key": {...},
   "work_units": [...],
-  "unclaimed_pages": ["IMG_4031.JPG", "IMG_4032.JPG"]
+  "unclaimed_pages": ["IMG_4031.JPG", "IMG_4032.JPG"],
+  "pinned_note": null,
+  "problem_notes": {
+    "Q1": "Truth table for ¬(P→Q)"
+  }
 }
 This file is reloadable at any time.
 

@@ -9,7 +9,7 @@ Local VLMs (and even SOTA models) struggle to detect thin vertical lines and ass
 ## The "Coloring Book" Solution
 Instead of asking the model to "understand" structure, we explicitly paint the structure onto the image using Computer Vision.
 
-### 1. The CV Script (`scripts/highlight_fitch_lines.py`)
+### 1. The CV Script (`scripts/bold_fitch_lines.py`)
 * [cite_start]**Step A:** Morphological open with a `(1, 60)` vertical kernel isolates the vertical bars[cite: 922].
 * **Step B:** `cv2.findContours` identifies the bar locations.
 * [cite_start]**Step C:** We draw a semi-transparent (alpha=0.2) rectangle from the bar to the right edge of the image[cite: 928].
