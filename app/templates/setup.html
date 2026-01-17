@@ -154,7 +154,7 @@
                 </div>
               {% endfor %}
             {% else %}
-              <p class="muted">No roster files found in <code>data/rosters/</code>.</p>
+              <p class="muted">No roster files found in <code>{{ rosters_dir }}</code>.</p>
             {% endif %}
 
             <label for="new_roster">Or upload a new roster CSV</label>
@@ -166,6 +166,8 @@
           <form method="post" action="/setup/roster_gradebook" enctype="multipart/form-data" class="guarded">
             <label for="gradebook_csv">Or upload a Canvas gradebook CSV</label>
             <input type="file" id="gradebook_csv" name="gradebook_csv" accept=".csv">
+            <label for="gradebook_roster_name">Roster name (required)</label>
+            <input type="text" id="gradebook_roster_name" name="roster_name" placeholder="e.g., Logic101_Fall2025.csv" required>
             <p class="muted">Uses <code>Student</code> and <code>SIS Login ID</code> columns to build <code>data/roster.csv</code>.</p>
             <button type="submit">Build roster from gradebook</button>
           </form>

@@ -40,6 +40,7 @@ Archive & Reset: If you see a warning about an existing session, use the Archive
 
 Roster: Choose an existing roster from data/rosters/ or upload a new CSV.
 Roster (Canvas shortcut): Upload the full Canvas gradebook CSV; the wizard extracts `Student` and `SIS Login ID` into `data/roster.csv`.
+Roster (Canvas shortcut): Provide a roster name so the extracted roster is saved under `DATA_DIR/rosters/` and can be reused later.
 
 
 

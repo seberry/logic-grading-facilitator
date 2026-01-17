@@ -610,6 +610,7 @@ async def setup_wizard(request: Request) -> Response:
             "quiz_id": quiz_id,
             "is_production": IS_PRODUCTION,
             "data_dir": str(DATA_DIR),
+            "rosters_dir": str(DATA_DIR / "rosters"),
         },
     )
 
@@ -720,7 +721,10 @@ async def setup_roster(
 @app.post("/setup/roster_gradebook")
 async def setup_roster_gradebook(
     gradebook_csv: UploadFile = File(...),
+    roster_name: Optional[str] = Form(None),
 ) -> Response:
+    if not (roster_name or "").strip():
+        raise HTTPException(status_code=400, detail="Please provide a roster name.")
     if not gradebook_csv.filename:
         raise HTTPException(status_code=400, detail="Please upload a gradebook CSV.")
 
@@ -732,8 +736,17 @@ async def setup_roster_gradebook(
 
     cleaned_csv = _extract_canvas_roster(decoded)
 
+    roster_dir = DATA_DIR / "rosters"
+    roster_dir.mkdir(parents=True, exist_ok=True)
+    desired = (roster_name or "").strip()
+    if not desired.lower().endswith(".csv"):
+        desired = f"{desired}.csv"
+    target_path = roster_dir / Path(desired).name
+
+    target_path.write_text(cleaned_csv, encoding="utf-8")
     DEFAULT_ROSTER_PATH.parent.mkdir(parents=True, exist_ok=True)
-    DEFAULT_ROSTER_PATH.write_text(cleaned_csv, encoding="utf-8")
+    if target_path != DEFAULT_ROSTER_PATH:
+        shutil.copy(target_path, DEFAULT_ROSTER_PATH)
 
     return RedirectResponse(
         url="/setup?status=success&message="
