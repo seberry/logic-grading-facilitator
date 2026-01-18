@@ -59,6 +59,7 @@ RUBRIC_DIR = DATA_DIR / "rubric"
 NAME_REVIEW_CACHE_DIR = DATA_DIR / "name_review_cache"
 DEBUG_FITCH_DIR = DATA_DIR / "debug_fitch"
 AUTO_GROUPED_DIR = DATA_DIR / "auto_grouped"
+FLASHCARDS_DIR = DATA_DIR / "flashcards"
 
 DEFAULT_SESSION_PATH = GRADES_DIR / "session.json"
 DEFAULT_ROSTER_PATH = DATA_DIR / "roster.csv"
@@ -68,6 +69,7 @@ DATA_ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
 NAME_REVIEW_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 DEBUG_FITCH_DIR.mkdir(parents=True, exist_ok=True)
 RAW_SCANS_DIR.mkdir(parents=True, exist_ok=True)
+FLASHCARDS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def load_roster(path: Path = DEFAULT_ROSTER_PATH) -> List[RosterEntry]:

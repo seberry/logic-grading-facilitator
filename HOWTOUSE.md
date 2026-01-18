@@ -62,6 +62,25 @@ Confirm Groups: You will be redirected to /name_review. Once confirmed, you are 
 
 Grade: Jump to Step 5 below (Strip View).
 
+---
+
+## Flashcards Dataset Builder (UI)
+
+Use this for creating a name-learning flashcard dataset from student uploads.
+
+1. Start the server:
+   ```powershell
+   python -m uvicorn app.server:app --reload --port 5000
+   ```
+2. Visit: `http://127.0.0.1:5000/flashcards`
+3. (Optional) Pick or upload a roster CSV. This is used only for name guessing.
+4. Upload a ZIP of student files (PDFs, DOCX, or images).
+5. For each item, crop the photo and enter the student name + free-text facts.
+6. Export the dataset:
+   - JSON + images are written to `DATA_DIR/flashcards/<session_id>/`
+
+Tip: If you skip the roster, the name field is free-text.
+
 Manual CLI Flow (Legacy)
 1. Start Clean (Optional)
 If you have a stale session from a previous quiz, archive it first.

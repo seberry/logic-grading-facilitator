@@ -83,6 +83,21 @@ Run the server (`python -m uvicorn app.server:app --reload --port 5000`), then o
 - Edit and save the grading rubric YAML; it writes to `data/rubric/<quiz_id>.yaml` and pre-fills the quiz_id for downstream routes.
 - Kick off auto-grouping/name recognition; the wizard writes the name review cache and redirects you straight to `/name_review` for confirmation.
 
+## Flashcards Dataset Builder (new)
+
+Use the flashcards builder to curate a dataset of student photos + facts for a name-learning game.
+
+Start the server, then visit `http://127.0.0.1:5000/flashcards` to:
+
+- Optionally select or upload a roster CSV (used only to guess names from filenames).
+- Upload a ZIP of student files (PDFs, DOCX, or images).
+- Manually crop each student photo, enter the name, and paste free-text facts.
+- Export `dataset.json` plus cropped images under `DATA_DIR/flashcards/<session_id>/`.
+
+Notes:
+- The roster is optional; if you skip it, you can type names manually.
+- All files are stored under `DATA_DIR`, so keep that folder outside the repo for FERPA.
+
 ## Future Extensions (planned, not required for v0)
 
 Quality of life:

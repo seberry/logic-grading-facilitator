@@ -5,3 +5,5 @@ pyyaml
 jinja2
 python-dotenv
 pillow
+pymupdf
+python-docx

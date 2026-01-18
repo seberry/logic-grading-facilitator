@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Flashcards Review</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" />
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      margin: 0;
+      background: #f3f4f6;
+      color: #111827;
+    }
+    header {
+      background: #111827;
+      color: #f9fafb;
+      padding: 1rem 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+    }
+    header h1 { margin: 0; font-size: 1.1rem; }
+    header .progress { font-size: 0.9rem; color: #d1d5db; }
+    main {
+      max-width: 1200px;
+      margin: 1.5rem auto 2rem;
+      padding: 0 1rem;
+      display: grid;
+      grid-template-columns: 1.5fr 1fr;
+      gap: 1.5rem;
+    }
+    .panel {
+      background: #ffffff;
+      border-radius: 0.75rem;
+      padding: 1rem;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+    }
+    .panel h2 { margin: 0 0 0.5rem; font-size: 1rem; }
+    .image-wrap {
+      background: #111827;
+      border-radius: 0.75rem;
+      padding: 0.5rem;
+    }
+    .image-wrap img {
+      max-width: 100%;
+      height: auto;
+      display: block;
+      border-radius: 0.5rem;
+      background: #f9fafb;
+    }
+    label {
+      font-weight: 600;
+      font-size: 0.85rem;
+      display: block;
+      margin-bottom: 0.35rem;
+    }
+    input[type="text"], textarea {
+      width: 100%;
+      border: 1px solid #d1d5db;
+      border-radius: 0.5rem;
+      padding: 0.5rem;
+      font-size: 0.9rem;
+      background: #f9fafb;
+    }
+    textarea {
+      min-height: 120px;
+      resize: vertical;
+    }
+    .readonly {
+      background: #f3f4f6;
+      color: #4b5563;
+    }
+    .actions {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin-top: 1rem;
+    }
+    .btn {
+      border-radius: 0.5rem;
+      border: 1px solid #d1d5db;
+      background: #ffffff;
+      padding: 0.5rem 1rem;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    .btn.primary {
+      background: #2563eb;
+      color: #ffffff;
+      border-color: #2563eb;
+    }
+    .btn.warn {
+      background: #fee2e2;
+      border-color: #fecaca;
+      color: #991b1b;
+    }
+    .hint {
+      font-size: 0.8rem;
+      color: #6b7280;
+      margin-top: 0.3rem;
+    }
+    @media (max-width: 920px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Flashcards Review</h1>
+    <div class="progress">Item {{ index + 1 }} of {{ total }}</div>
+  </header>
+
+  <main>
+    <div class="panel">
+      <h2>Crop the photo</h2>
+      <div class="image-wrap">
+        <img id="source-image" src="{{ source_url }}" alt="Student upload">
+      </div>
+      <div class="hint">Drag the crop box to fit the student photo.</div>
+    </div>
+
+    <div class="panel">
+      <form id="review-form" method="post" action="/flashcards/review">
+        <input type="hidden" name="session_id" value="{{ session_id }}">
+        <input type="hidden" name="index" value="{{ index }}">
+        <input type="hidden" id="bbox" name="bbox" value="{{ bbox_value }}">
+
+        <div style="margin-bottom: 1rem;">
+          <label for="name">Student name</label>
+          {% if roster_names and roster_names|length > 0 %}
+            <input id="name" type="text" name="name" list="roster-list" value="{{ item.name }}">
+            <datalist id="roster-list">
+              {% for roster_name in roster_names %}
+                <option value="{{ roster_name }}"></option>
+              {% endfor %}
+            </datalist>
+          {% else %}
+            <input id="name" type="text" name="name" value="{{ item.name }}" placeholder="Last, First">
+          {% endif %}
+          <div class="hint">Use roster format: Last, First.</div>
+        </div>
+
+        <div style="margin-bottom: 1rem;">
+          <label for="facts">Facts (free text)</label>
+          <textarea id="facts" name="facts">{{ item.facts }}</textarea>
+        </div>
+
+        {% if item.source_text %}
+          <div style="margin-bottom: 1rem;">
+            <label for="source_text">Extracted text (DOCX)</label>
+            <textarea id="source_text" class="readonly" readonly>{{ item.source_text }}</textarea>
+          </div>
+        {% endif %}
+
+        <div class="actions">
+          {% if has_prev %}
+            <button class="btn" type="submit" name="action" value="prev">Prev</button>
+          {% endif %}
+          <button class="btn primary" type="submit" name="action" value="next">Save & Next</button>
+          <button class="btn warn" type="submit" name="action" value="skip">Skip</button>
+          <button class="btn" type="submit" name="action" value="export">Save & Export</button>
+        </div>
+      </form>
+    </div>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
+  <script>
+    const img = document.getElementById('source-image');
+    const bboxInput = document.getElementById('bbox');
+    const form = document.getElementById('review-form');
+    let cropper = null;
+
+    function initCropper() {
+      if (!img) return;
+      cropper = new Cropper(img, {
+        viewMode: 1,
+        autoCropArea: 0.5,
+        ready() {
+          const imageData = cropper.getImageData();
+          const existing = (bboxInput.value || '').trim();
+          if (existing) {
+            const parts = existing.split(',').map(Number);
+            if (parts.length === 4 && parts.every((v) => !Number.isNaN(v))) {
+              cropper.setData({
+                x: parts[0] * imageData.naturalWidth,
+                y: parts[1] * imageData.naturalHeight,
+                width: (parts[2] - parts[0]) * imageData.naturalWidth,
+                height: (parts[3] - parts[1]) * imageData.naturalHeight
+              });
+              return;
+            }
+          }
+          cropper.setData({
+            x: imageData.naturalWidth * 0.05,
+            y: imageData.naturalHeight * 0.1,
+            width: imageData.naturalWidth * 0.4,
+            height: imageData.naturalHeight * 0.8
+          });
+        }
+      });
+    }
+
+    function updateBBox() {
+      if (!cropper) return;
+      const data = cropper.getData();
+      const imageData = cropper.getImageData();
+      const x1 = data.x / imageData.naturalWidth;
+      const y1 = data.y / imageData.naturalHeight;
+      const x2 = (data.x + data.width) / imageData.naturalWidth;
+      const y2 = (data.y + data.height) / imageData.naturalHeight;
+      bboxInput.value = [x1, y1, x2, y2].map((v) => v.toFixed(6)).join(',');
+    }
+
+    if (form) {
+      form.addEventListener('submit', () => {
+        updateBBox();
+      });
+    }
+
+    window.addEventListener('load', initCropper);
+  </script>
+</body>
+</html>
