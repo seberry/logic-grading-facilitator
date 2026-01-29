@@ -376,10 +376,14 @@
     {% set wu = item.work_unit %}
     {% set seg = item.segment %}
     <div class="controls">
-    <input type="hidden" 
-           id="bbox-input-{{ loop.index0 }}" 
-           name="bbox_update_{{ wu.unit_id }}" 
-           value="">
+      <input type="hidden" 
+             id="bbox-input-{{ loop.index0 }}" 
+             name="bbox_update_{{ wu.unit_id }}" 
+             value="">
+      <input type="hidden"
+             id="page-input-{{ loop.index0 }}"
+             name="page_update_{{ wu.unit_id }}"
+             value="{{ item.display_filename or '' }}">
 
     <label class="score-group">
       </label>
@@ -388,9 +392,9 @@
     
     <div class="strip" id="strip-{{ loop.index0 }}">
       
-      <div class="thumb-wrapper" id="wrapper-{{ loop.index0 }}">
-        {% if wu.page_filenames %}
-            {% set fname = seg.page_filename if seg and seg.present else wu.page_filenames[0] %}
+        <div class="thumb-wrapper" id="wrapper-{{ loop.index0 }}">
+          {% if item.display_url %}
+            {% set fname = item.display_filename %}
             
             {% if seg and seg.present and seg.bbox %}
                {% set b_xmin = seg.bbox[0] %}
@@ -404,7 +408,7 @@
             {% endif %}
 
             <img class="scan-image" 
-                 src="/scans/{{ fname }}" 
+                 src="{{ item.display_url }}" 
                  alt="Scan"
                  data-has-bbox="{{ 'true' if seg and seg.present and seg.bbox else 'false' }}"
                  data-xmin="{{ b_xmin }}"
@@ -414,12 +418,12 @@
 
             <div class="bbox-outline"></div>
                  
-        {% else %}
-           <div style="padding:1rem;">No Scan</div>
-        {% endif %}
-      </div>
+          {% else %}
+            <div style="padding:1rem;">No Scan</div>
+          {% endif %}
+        </div>
 
-      <div class="controls">
+        <div class="controls">
         
         <div class="student-card">
           <span class="student-name">{{ item.student_name }}</span>
@@ -433,30 +437,45 @@
           </div>
         </div>
 
-        <div class="btn-row">
-    {% if seg and seg.present and seg.bbox %}
-    <button class="btn btn-crop"
-            type="button"
-            data-index="{{ loop.index0 }}"
-            onclick="toggleCrop(this)"
-            tabindex="-1"> Show Full Page
-    </button>
+          <div class="btn-row">
+      {% if item.display_url %}
+      <button class="btn btn-crop"
+              type="button"
+              data-index="{{ loop.index0 }}"
+              onclick="toggleCrop(this)"
+              tabindex="-1"> Show Full Page
+      </button>
 
-    <button class="btn btn-edit"
-            type="button"
-            id="btn-edit-{{ loop.index0 }}"
-            data-index="{{ loop.index0 }}"
-            onclick="toggleEditMode(this)"
-            tabindex="-1"> Fix Crop
-    </button>
-    {% endif %}
-    
-    <button class="btn btn-pin"
-            type="button"
-            onclick="togglePin(this)"
-                        tabindex="-1"> Pin
-    </button>
-</div>
+      <button class="btn btn-edit"
+              type="button"
+              id="btn-edit-{{ loop.index0 }}"
+              data-index="{{ loop.index0 }}"
+              onclick="toggleEditMode(this)"
+              tabindex="-1"> Fix Crop
+      </button>
+      {% endif %}
+      
+      <button class="btn btn-pin"
+              type="button"
+              onclick="togglePin(this)"
+                          tabindex="-1"> Pin
+      </button>
+  </div>
+
+          {% if item.page_options and item.page_options|length > 1 %}
+            <label class="score-group" style="justify-content:flex-start; gap:0.5rem;">
+              <strong>Page</strong>
+              <select class="page-select" data-index="{{ loop.index0 }}">
+                {% for opt in item.page_options %}
+                  <option value="{{ opt.filename }}"
+                          data-url="{{ opt.url }}"
+                          {% if opt.filename == item.display_filename %}selected{% endif %}>
+                    {{ opt.filename }}
+                  </option>
+                {% endfor %}
+              </select>
+            </label>
+          {% endif %}
 
         <label class="score-group">
           <strong>Score</strong>
@@ -707,14 +726,23 @@
     // Store cropper instances so we can access them later
 const croppers = {};
 
-function toggleEditMode(btn) {
-  const index = btn.dataset.index;
-  const wrapper = document.getElementById(`wrapper-${index}`);
-  const img = wrapper.querySelector('.scan-image');
-  const cropBtn = document.getElementById(`btn-crop-${index}`);
-  
-  // 1. Check if we are already editing. If so, this acts as "Save/Apply"
-  if (croppers[index]) {
+  function ensureDefaultBbox(img) {
+    if (img.dataset.hasBbox === 'true') return;
+    img.dataset.xmin = '0';
+    img.dataset.ymin = '0';
+    img.dataset.w = '1';
+    img.dataset.h = '1';
+    img.dataset.hasBbox = 'true';
+  }
+
+  function toggleEditMode(btn) {
+    const index = btn.dataset.index;
+    const wrapper = document.getElementById(`wrapper-${index}`);
+    const img = wrapper.querySelector('.scan-image');
+    const cropBtn = document.getElementById(`btn-crop-${index}`);
+    
+    // 1. Check if we are already editing. If so, this acts as "Save/Apply"
+    if (croppers[index]) {
     // --- SAVE PHASE ---
     // 1. Get data in natural image pixels
     const data = croppers[index].getData();
@@ -776,6 +804,9 @@ function toggleEditMode(btn) {
     // Disable the "Show Full Page" toggle while editing to prevent confusion
     if(cropBtn) cropBtn.disabled = true;
 
+    // Ensure we have a default bbox so there's something to drag
+    ensureDefaultBbox(img);
+
     // 2. Initialize Cropper
     // We need to calculate pixel values from your normalized data
     const x = parseFloat(img.dataset.xmin) * img.naturalWidth;
@@ -822,6 +853,39 @@ function toggleEditMode(btn) {
           .catch((err) => console.warn('Prefetch request failed', err));
       }, 2000);
     })();
+
+    // --- PAGE SELECTOR ---
+    document.querySelectorAll('.page-select').forEach((select) => {
+      select.addEventListener('change', () => {
+        const index = select.dataset.index;
+        if (croppers[index]) {
+          alert('Apply or cancel the crop before switching pages.');
+          select.value = select.dataset.last || select.value;
+          return;
+        }
+
+        const option = select.options[select.selectedIndex];
+        const url = option ? option.dataset.url : '';
+        const wrapper = document.getElementById(`wrapper-${index}`);
+        const img = wrapper ? wrapper.querySelector('.scan-image') : null;
+        const pageInput = document.getElementById(`page-input-${index}`);
+
+        if (pageInput) pageInput.value = select.value;
+        if (img && url) {
+          img.dataset.hasBbox = 'false';
+          img.dataset.xmin = '0';
+          img.dataset.ymin = '0';
+          img.dataset.w = '1';
+          img.dataset.h = '1';
+          img.src = url;
+        }
+
+        const outline = wrapper ? wrapper.querySelector('.bbox-outline') : null;
+        if (outline) outline.style.display = 'none';
+
+        select.dataset.last = select.value;
+      });
+    });
 
     // --- PROBLEM TYPE WHEEL UI ---
     function renderTypeBadges(selectedId, selectedLabel) {

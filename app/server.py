@@ -163,6 +163,36 @@ def canonical_filename(
 IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"]
 
 
+def _is_image_filename(filename: str) -> bool:
+    return Path(filename).suffix in IMAGE_EXTENSIONS
+
+
+def _select_display_filename(
+    page_filenames: List[str],
+    seg_filename: Optional[str],
+) -> Optional[str]:
+    if seg_filename and _is_image_filename(seg_filename):
+        return seg_filename
+    for fname in page_filenames:
+        if _is_image_filename(fname):
+            return fname
+    return None
+
+
+def _build_page_options(page_filenames: List[str]) -> List[Dict[str, str]]:
+    options: List[Dict[str, str]] = []
+    for fname in page_filenames:
+        if not _is_image_filename(fname):
+            continue
+        options.append(
+            {
+                "filename": fname,
+                "url": f"/scans/{quote(fname)}",
+            }
+        )
+    return options
+
+
 def list_fitch_debug_scans() -> List[str]:
     if not DEBUG_FITCH_DIR.exists():
         return []
@@ -2759,6 +2789,8 @@ def _compute_segments_data(session: Session, spec, cache_path: Path) -> List[Dic
         best_seg_dict = None
 
         for idx, fname in enumerate(wu.page_filenames):
+            if not _is_image_filename(fname):
+                continue
             image_path = RAW_SCANS_DIR / fname
 
             # --- THE SLOW VLM CALL ---
@@ -2907,10 +2939,20 @@ def get_problem_strips(
                 confidence=seg_data.get("confidence", 0.0)
             )
 
+        page_options = _build_page_options(wu.page_filenames)
+        display_filename = _select_display_filename(
+            wu.page_filenames,
+            seg_obj.page_filename if seg_obj else None,
+        )
+        display_url = f"/scans/{quote(display_filename)}" if display_filename else None
+
         strips.append({
             "work_unit": wu,
             "student_name": lookup_student_name(wu.student_id),
-            "segment": seg_obj
+            "segment": seg_obj,
+            "display_filename": display_filename,
+            "display_url": display_url,
+            "page_options": page_options,
         })
 
     # --- STEP C: Handling the URL (The Fix) ---
@@ -2970,6 +3012,7 @@ async def post_problem_strips(
         # --- NEW: Handle Bounding Box Updates ---
         # We check if any bboxes were modified before processing scores
         updates_map = {} # unit_id -> [x1, y1, x2, y2]
+        page_updates = {} # unit_id -> filename
         
         for wu in session.work_units:
             bbox_raw = form.get(f"bbox_update_{wu.unit_id}")
@@ -2982,32 +3025,44 @@ async def post_problem_strips(
                 except json.JSONDecodeError:
                     pass # Ignore malformed data
 
+            page_raw = form.get(f"page_update_{wu.unit_id}")
+            if page_raw and page_raw.strip():
+                page_updates[wu.unit_id] = page_raw.strip()
+
         # If we have updates, load the segment cache, apply them, and save
-        if updates_map:
+        if updates_map or page_updates:
             cache_path = GRADES_DIR / f"segments_{problem_id}.json"
             if cache_path.exists():
                 try:
                     # Read existing
                     with cache_path.open("r", encoding="utf-8") as f:
                         segments_data = json.load(f)
-                    
+
                     # Update matched records
                     # Note: segments_data is a list of dicts. 
                     # We iterate over it to find matching unit_ids.
                     updated_count = 0
+                    unit_pages = {wu.unit_id: wu.page_filenames for wu in session.work_units}
                     for seg in segments_data:
                         uid = seg.get("unit_id")
+                        if uid in page_updates:
+                            filename = page_updates[uid]
+                            page_list = unit_pages.get(uid) or []
+                            if filename in page_list:
+                                seg["page_filename"] = filename
+                                seg["page_index"] = page_list.index(filename)
+                                updated_count += 1
                         if uid in updates_map:
                             seg["bbox"] = updates_map[uid]
                             seg["present"] = True # If we manually cropped it, it's definitely present
                             # Optional: mark confidence as 1.0 since human verified
                             seg["confidence"] = 1.0 
                             updated_count += 1
-                    
+
                     # Write back
                     with cache_path.open("w", encoding="utf-8") as f:
                         json.dump(segments_data, f, indent=2)
-                        
+
                     print(f"Updated {updated_count} manual crops for problem {problem_id}")
                 except Exception as e:
                     print(f"Error updating segment cache: {e}")
