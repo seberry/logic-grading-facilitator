@@ -189,10 +189,36 @@
             <p class="muted">ZIP contents are flattened; PDFs are split into JPGs with <code>_p##</code> suffixes.</p>
             <button type="submit">Upload scans</button>
           </form>
+          <hr style="border: none; border-top: 1px solid #e5e7eb;">
+          <form method="post" action="/setup/import_canvas_zip" enctype="multipart/form-data" class="guarded">
+            <h3 style="margin: 0 0 6px 0;">Canvas ZIP (pre-labeled)</h3>
+            <p class="muted">Use this when Canvas filenames start with <code>lastnamefirstname_...</code>. This skips VLM name recognition and builds the session immediately.</p>
+            <label for="canvas_zip">Canvas ZIP file</label>
+            <input type="file" id="canvas_zip" name="zip_file" accept=".zip,application/zip">
+            <label for="canvas_quiz_id">Quiz ID</label>
+            <input type="text" id="canvas_quiz_id" name="quiz_id" value="{{ quiz_id }}">
+            <p class="muted">Requires a saved roster + rubric. Import will stop if any file doesn't match the roster.</p>
+            <button type="submit">Import ZIP and start grading</button>
+          </form>
         </div>
 
         <div class="card" style="grid-column: 1 / -1;">
           <h2>Step 3: Rubric Definition</h2>
+          {% if available_rubrics and available_rubrics|length > 0 %}
+          <form method="post" action="/setup/select_rubric" class="guarded">
+            <label for="existing_rubric">Load existing rubric</label>
+            <select id="existing_rubric" name="rubric_file">
+              {% for rubric in available_rubrics %}
+                <option value="{{ rubric.name }}" {% if rubric.name == (quiz_id ~ ".yaml") %}selected{% endif %}>{{ rubric.name }}</option>
+              {% endfor %}
+            </select>
+            <p class="muted">Selecting a rubric replaces the current YAML and quiz id in this form.</p>
+            <button type="submit" class="secondary">Load rubric</button>
+          </form>
+          <hr style="border: none; border-top: 1px solid #e5e7eb;">
+          {% else %}
+          <p class="muted">No rubric files found in <code>{{ rubrics_dir }}</code>.</p>
+          {% endif %}
           <div class="muted">
             Quick rubric: auto-generate YAML, then click "Save rubric" below.
           </div>
@@ -219,6 +245,7 @@
             <label for="rubric_text">Edit rubric YAML</label>
             <textarea id="rubric_text" name="yaml_text">{{ rubric_text }}</textarea>
             <p class="muted">The YAML must parse into the <code>GradingKey</code> model. File will be saved as <code>{{ quiz_id }}.yaml</code> in <code>data/rubric/</code>.</p>
+            <p class="muted">Tip: each problem <code>label</code> is used as a natural-language hint when the model locates that answer region in strip view. Match the wording on the exam if possible.</p>
             <button type="submit">Save rubric</button>
           </form>
         </div>

@@ -598,12 +598,18 @@ async def setup_wizard(request: Request) -> Response:
     must_archive = _has_existing_session_state()
     roster_dir = DATA_DIR / "rosters"
     roster_dir.mkdir(parents=True, exist_ok=True)
+    rubric_dir = RUBRIC_DIR
+    rubric_dir.mkdir(parents=True, exist_ok=True)
 
     available_rosters = sorted(
         [p for p in roster_dir.glob("*.csv") if p.is_file()], key=lambda p: p.name.lower()
     )
 
     current_roster = DEFAULT_ROSTER_PATH if DEFAULT_ROSTER_PATH.exists() else None
+    rubric_files = [*rubric_dir.glob("*.yaml"), *rubric_dir.glob("*.yml")]
+    available_rubrics = sorted(
+        [p for p in rubric_files if p.is_file()], key=lambda p: p.name.lower()
+    )
     rubric_text, quiz_id = _read_default_rubric()
 
     message = request.query_params.get("message")
@@ -616,6 +622,7 @@ async def setup_wizard(request: Request) -> Response:
             "must_archive": must_archive,
             "available_rosters": available_rosters,
             "current_roster": current_roster,
+            "available_rubrics": available_rubrics,
             "message": message,
             "status": status,
             "rubric_text": rubric_text,
@@ -623,6 +630,7 @@ async def setup_wizard(request: Request) -> Response:
             "is_production": IS_PRODUCTION,
             "data_dir": str(DATA_DIR),
             "rosters_dir": str(DATA_DIR / "rosters"),
+            "rubrics_dir": str(rubric_dir),
         },
     )
 
@@ -814,6 +822,23 @@ def _save_pdf_pages(pdf_bytes: bytes, stem: str, output_dir: Path) -> int:
     return count
 
 
+def _save_pdf_pages_with_paths(pdf_bytes: bytes, stem: str, output_dir: Path) -> List[Path]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    stem = _unique_pdf_stem(stem, output_dir)
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    targets: List[Path] = []
+    for idx, page in enumerate(doc):
+        matrix = fitz.Matrix(2, 2)
+        pix = page.get_pixmap(matrix=matrix)
+        filename = f"{stem}_p{idx + 1}.jpg"
+        target = output_dir / filename
+        target = _unique_path(target)
+        pix.save(str(target))
+        targets.append(target)
+    doc.close()
+    return targets
+
+
 def _ingest_zip_bytes(zip_bytes: bytes, output_dir: Path) -> int:
     saved = 0
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
@@ -924,6 +949,218 @@ async def setup_upload_scans(
     )
 
 
+def _normalize_canvas_key(value: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9]", "", (value or "").lower())
+    return cleaned
+
+
+def _filename_prefix_key(filename: str) -> str:
+    base = Path(filename).name
+    stem = Path(base).stem
+    prefix = stem.split("_", 1)[0]
+    return _normalize_canvas_key(prefix)
+
+
+def _build_roster_prefix_index(
+    roster: List[RosterEntry],
+) -> tuple[Dict[str, RosterEntry], Dict[str, List[RosterEntry]]]:
+    index: Dict[str, RosterEntry] = {}
+    collisions: Dict[str, List[RosterEntry]] = {}
+    for entry in roster:
+        key = _normalize_canvas_key(entry.name)
+        if not key:
+            continue
+        if key in index:
+            collisions.setdefault(key, [index[key]]).append(entry)
+        else:
+            index[key] = entry
+    return index, collisions
+
+
+@app.post("/setup/import_canvas_zip")
+async def setup_import_canvas_zip(
+    zip_file: UploadFile = File(...),
+    quiz_id: str = Form("quiz1"),
+) -> Response:
+    if _has_existing_session_state():
+        raise HTTPException(
+            status_code=400,
+            detail="Existing session or name-review state detected. Archive & reset before importing.",
+        )
+    if RAW_SCANS_DIR.exists() and any(RAW_SCANS_DIR.iterdir()):
+        raise HTTPException(
+            status_code=400,
+            detail="data/raw_scans is not empty. Archive & reset before importing.",
+        )
+    if not zip_file.filename:
+        raise HTTPException(status_code=400, detail="Please upload a ZIP file.")
+
+    zip_bytes = await zip_file.read()
+    if not zip_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded ZIP was empty.")
+
+    roster = load_roster()
+    if not roster:
+        raise HTTPException(status_code=400, detail="Roster not found. Upload a roster first.")
+
+    try:
+        grading_key = load_grading_key()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Rubric not found. Save a rubric first.")
+
+    roster_index, collisions = _build_roster_prefix_index(roster)
+    if collisions:
+        detail_lines = ["Duplicate roster name keys detected:"]
+        for key, entries in collisions.items():
+            names = ", ".join(e.name for e in entries)
+            detail_lines.append(f"{key}: {names}")
+        raise HTTPException(status_code=400, detail="; ".join(detail_lines))
+
+    staging_dir = DATA_DIR / "canvas_import" / uuid4().hex
+    staging_dir.mkdir(parents=True, exist_ok=True)
+
+    supported_exts = {".jpg", ".jpeg", ".png", ".pdf"}
+    records: List[Dict[str, Any]] = []
+    unmatched: List[str] = []
+    unsupported: List[str] = []
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            entries = sorted(zf.infolist(), key=lambda info: info.filename.lower())
+            for entry in entries:
+                if entry.is_dir():
+                    continue
+                entry_name = entry.filename
+                if entry_name.startswith("__MACOSX/"):
+                    continue
+                filename = Path(entry_name).name
+                if not filename:
+                    continue
+                suffix = Path(filename).suffix.lower()
+                if suffix not in supported_exts:
+                    unsupported.append(filename)
+                    continue
+                prefix_key = _filename_prefix_key(filename)
+                roster_entry = roster_index.get(prefix_key)
+                if roster_entry is None:
+                    unmatched.append(filename)
+                    continue
+                records.append(
+                    {
+                        "entry": entry,
+                        "filename": filename,
+                        "suffix": suffix,
+                        "roster_entry": roster_entry,
+                    }
+                )
+    except zipfile.BadZipFile:
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        raise HTTPException(status_code=400, detail="Uploaded ZIP could not be read.")
+
+    if unsupported:
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported file types in ZIP: " + ", ".join(unsupported[:10]),
+        )
+    if unmatched:
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        raise HTTPException(
+            status_code=400,
+            detail="No roster match for files: " + ", ".join(unmatched[:10]),
+        )
+    if not records:
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        raise HTTPException(status_code=400, detail="No valid scans found in ZIP.")
+
+    per_student_paths: Dict[str, List[Path]] = {}
+    student_order: List[str] = []
+
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        for record in records:
+            entry = record["entry"]
+            filename = record["filename"]
+            suffix = record["suffix"]
+            roster_entry = record["roster_entry"]
+            sid = roster_entry.student_id
+            if sid not in per_student_paths:
+                per_student_paths[sid] = []
+                student_order.append(sid)
+
+            if suffix == ".pdf":
+                pdf_bytes = zf.read(entry)
+                if not pdf_bytes:
+                    continue
+                stem = Path(filename).stem or "scans"
+                paths = _save_pdf_pages_with_paths(pdf_bytes, stem, staging_dir)
+                per_student_paths[sid].extend(paths)
+            else:
+                dest = staging_dir / filename
+                dest = _unique_path(dest)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(entry) as src, dest.open("wb") as f:
+                    shutil.copyfileobj(src, f)
+                per_student_paths[sid].append(dest)
+
+    RAW_SCANS_DIR.mkdir(parents=True, exist_ok=True)
+    roster_by_id = {r.student_id: r.name for r in roster}
+    work_units: List[WorkUnit] = []
+
+    unit_counter = 1
+    for sid in student_order:
+        canvas_name = roster_by_id.get(sid, "")
+        page_index = 0
+        new_filenames: List[str] = []
+        for src in per_student_paths.get(sid, []):
+            page_index += 1
+            new_name = canonical_filename(
+                quiz_id=quiz_id,
+                student_id=sid,
+                canvas_name=canvas_name,
+                page_index=page_index,
+                unknown_index=None,
+                orig_suffix=src.suffix,
+            )
+            dst = RAW_SCANS_DIR / new_name
+            dst.write_bytes(src.read_bytes())
+            new_filenames.append(new_name)
+
+        per_problem = {p.id: None for p in grading_key.problems}
+        per_problem_comments = {p.id: None for p in grading_key.problems}
+
+        work_units.append(
+            WorkUnit(
+                unit_id=unit_counter,
+                student_id=sid,
+                page_filenames=new_filenames,
+                per_problem=per_problem,
+                comment=None,
+                per_problem_comments=per_problem_comments,
+            )
+        )
+        unit_counter += 1
+
+    session = Session(
+        roster=roster,
+        grading_key=grading_key,
+        work_units=work_units,
+        unclaimed_pages=[],
+        pinned_note=None,
+    )
+
+    global _session
+    _session = session
+    save_session(session, DEFAULT_SESSION_PATH)
+
+    shutil.rmtree(staging_dir, ignore_errors=True)
+
+    first_problem = grading_key.problems[0].id if grading_key.problems else "Q1"
+    return RedirectResponse(
+        url=f"/problem/{first_problem}/strips",
+        status_code=303,
+    )
+
+
 @app.post("/setup/save_rubric")
 async def setup_save_rubric(yaml_text: str = Form(...)) -> Response:
     try:
@@ -939,6 +1176,25 @@ async def setup_save_rubric(yaml_text: str = Form(...)) -> Response:
 
     return RedirectResponse(
         url="/setup?status=success&message=" + quote(f"Rubric saved to {target.name}."),
+        status_code=303,
+    )
+
+
+@app.post("/setup/select_rubric")
+async def setup_select_rubric(rubric_file: str = Form(...)) -> Response:
+    if not (rubric_file or "").strip():
+        raise HTTPException(status_code=400, detail="Please select a rubric.")
+
+    candidate = RUBRIC_DIR / Path(rubric_file).name
+    if not candidate.exists():
+        raise HTTPException(status_code=404, detail="Selected rubric not found.")
+
+    DEFAULT_GRADING_KEY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(candidate, DEFAULT_GRADING_KEY_PATH)
+
+    return RedirectResponse(
+        url="/setup?status=success&message="
+        + quote(f"Rubric set from {candidate.name}."),
         status_code=303,
     )
 
