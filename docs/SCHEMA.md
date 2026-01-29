@@ -54,6 +54,8 @@ id values must be unique.
 
 All per-problem score entries in WorkUnits must refer to these ids exactly.
 
+The problem `label` is also used as a natural-language hint when the model searches for the answer region in strip view, so match the wording on the exam if possible.
+
 Totals are computed as:
 
 bash

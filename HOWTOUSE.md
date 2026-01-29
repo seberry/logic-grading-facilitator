@@ -48,7 +48,7 @@ Scans: Upload scans (JPG/PNG) or a PDF (auto-splits into data/raw_scans/).
 
 
 
-Rubric: Edit/save the rubric YAML (writes to data/rubric/<quiz_id>.yaml).
+Rubric: Edit/save the rubric YAML (writes to data/rubric/<quiz_id>.yaml). The per-problem `label` is also used as the natural-language hint when the model locates each answer region in strip view, so match the wording on the exam if possible.
 
 
 
