@@ -112,6 +112,14 @@ app.mount(
 LMSTUDIO_BASE_URL = "http://127.0.0.1:1234/v1"
 LMSTUDIO_MODEL_ID = "qwen/qwen3-vl-4b"  # or whatever you’re actually using
 
+PROBLEM_TYPE_OPTIONS = [
+    {"id": "none", "label": "None"},
+    {"id": "fitch_proof", "label": "Fitch proof"},
+    {"id": "modal_proof", "label": "Modal proof"},
+    {"id": "kripke_model", "label": "Kripke model"},
+    {"id": "fol_model", "label": "FOL model"},
+]
+
 def natural_sort_key(path: Path) -> List:
   """
   Sort filenames like '..._10.jpg' after '..._2.jpg' numerically.
@@ -2713,7 +2721,8 @@ async def name_review_submit(request: Request) -> Response:
         grading_key=grading_key,
         work_units=work_units,
         unclaimed_pages=[], # We consumed them all?
-        pinned_note=None
+        pinned_note=None,
+        problem_types={}
     )
 
     # 7. Save Session to Disk
@@ -2934,6 +2943,8 @@ def get_problem_strips(
             # NEW:
             "max_points": spec.points,
             "problem_note": session.problem_notes.get(problem_id, ""),
+            "problem_type": session.problem_types.get(problem_id),
+            "problem_type_options": PROBLEM_TYPE_OPTIONS,
             "next_problem_id": next_problem_id,
         },
     )
@@ -2944,7 +2955,9 @@ async def post_problem_strips(
     problem_id: str,
 ):
     form = await request.form()
-    action = form.get("action", "save_next")
+    action = form.get("action")
+    if not action:
+        action = form.get("action_mode", "save_next")
 
     with _session_lock:
         session = get_session()
@@ -3028,6 +3041,14 @@ async def post_problem_strips(
             else:
                 session.problem_notes.pop(problem_id, None)
 
+        type_raw = form.get("problem_type")
+        if type_raw is not None:
+            selected = type_raw.strip()
+            if not selected or selected == "none":
+                session.problem_types.pop(problem_id, None)
+            else:
+                session.problem_types[problem_id] = selected
+
         # --- Existing Navigation Logic ---
         problem_ids = [p.id for p in session.grading_key.problems]
         try:
@@ -3057,3 +3078,30 @@ async def post_problem_strips(
         url=f"/problem/{target_problem_id}/strips",
         status_code=303,
     )
+
+
+@app.post("/problem/{problem_id}/type")
+async def post_problem_type(
+    request: Request,
+    problem_id: str,
+):
+    form = await request.form()
+    type_raw = form.get("problem_type")
+
+    with _session_lock:
+        session = get_session()
+        spec = next((p for p in session.grading_key.problems if p.id == problem_id), None)
+        if spec is None:
+            raise HTTPException(status_code=404, detail=f"Unknown problem id {problem_id!r}")
+
+        selected = type_raw.strip() if type_raw else ""
+        if not selected or selected == "none":
+            session.problem_types.pop(problem_id, None)
+            stored = None
+        else:
+            session.problem_types[problem_id] = selected
+            stored = selected
+
+        persist_session()
+
+    return {"status": "ok", "problem_type": stored}

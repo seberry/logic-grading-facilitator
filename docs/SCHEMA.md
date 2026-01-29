@@ -200,17 +200,20 @@ Incremental grading sessions may be stored as:
 
 json
 Copy code
-{
-  "roster": [...],
-  "grading_key": {...},
-  "work_units": [...],
-  "unclaimed_pages": ["IMG_4031.JPG", "IMG_4032.JPG"],
-  "pinned_note": null,
-  "problem_notes": {
-    "Q1": "Truth table for ¬(P→Q)"
+  {
+    "roster": [...],
+    "grading_key": {...},
+    "work_units": [...],
+    "unclaimed_pages": ["IMG_4031.JPG", "IMG_4032.JPG"],
+    "pinned_note": null,
+    "problem_notes": {
+      "Q1": "Truth table for ¬(P→Q)"
+    },
+    "problem_types": {
+      "Q1": "fitch_proof"
+    }
   }
-}
-This file is reloadable at any time.
+  This file is reloadable at any time.
 
 
 7. Session Extensions (v0.2)
@@ -229,3 +232,17 @@ Shared across all WorkUnits.
 Preserved when creating archival snapshots.
 
 Null is stored instead of an empty string for backwards compatibility.
+
+8. Session Extensions (v0.3)
+
+problem_types:
+
+{
+  "problem_types": {
+    "Q1": "fitch_proof",
+    "Q2": "modal_proof"
+  }
+}
+
+Stores per-problem type tags used for future autograde workflows (e.g., Fitch proofs).
+These can be set from the Problem Strips UI via the “Problem type wheel.”

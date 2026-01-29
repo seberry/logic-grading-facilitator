@@ -260,6 +260,64 @@
       font-family: inherit;
     }
 
+    .problem-type {
+      max-width: 720px;
+      margin-bottom: 1.5rem;
+    }
+    .problem-type label {
+      display: block;
+      font-size: 0.9rem;
+      font-weight: 600;
+      margin-bottom: 0.35rem;
+      color: #444;
+    }
+    .type-wheel {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    .type-option {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      border: 1px solid #cbd5f5;
+      padding: 0.4rem 0.7rem;
+      border-radius: 999px;
+      background: #fff;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      user-select: none;
+    }
+    .type-option input {
+      accent-color: #2563eb;
+    }
+    .type-option.selected {
+      background: #eef6ff;
+      border-color: #2563eb;
+      color: #1d4ed8;
+      font-weight: 600;
+    }
+    .type-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      background: #fef2f2;
+      color: #b91c1c;
+      border: 1px solid #fecaca;
+    }
+    .type-badge.neutral {
+      background: #f3f4f6;
+      color: #6b7280;
+      border-color: #e5e7eb;
+    }
+
     .hidden { display: none; }
 
     
@@ -283,8 +341,9 @@
     <div class="pinned-panel-body" id="pinned-body"></div>
   </div>
 
-  <form method="post" action="">
-    <input type="hidden" name="problem_id" value="{{ problem_id }}">
+    <form method="post" action="">
+      <input type="hidden" name="problem_id" value="{{ problem_id }}">
+      <input type="hidden" id="action_mode" name="action_mode" value="">
 
     <section class="problem-note">
       <label for="problem_note">
@@ -293,6 +352,23 @@
       <textarea id="problem_note"
                 name="problem_note"
                 placeholder="e.g. &quot;Truth table for ¬(P→Q); 3 pts for correct pattern, 1 pt explanation&quot;">{{ problem_note }}</textarea>
+    </section>
+
+    <section class="problem-type">
+      <label>Problem type wheel (for future autograde)</label>
+      <div class="type-wheel">
+        {% for opt in problem_type_options %}
+          {% set is_selected = (problem_type or 'none') == opt.id %}
+          <label class="type-option{% if is_selected %} selected{% endif %}">
+            <input type="radio"
+                   name="problem_type"
+                   value="{{ opt.id }}"
+                   data-label="{{ opt.label }}"
+                   {% if is_selected %}checked{% endif %}>
+            <span>{{ opt.label }}</span>
+          </label>
+        {% endfor %}
+      </div>
     </section>
 
   {% for item in strips %}
@@ -348,6 +424,13 @@
         <div class="student-card">
           <span class="student-name">{{ item.student_name }}</span>
           <div class="unit-id">Unit {{ wu.unit_id }}</div>
+          <div class="type-badge-slot">
+            {% if problem_type == "fitch_proof" %}
+              <div class="type-badge" data-type="fitch_proof">FITCH PROOF</div>
+            {% elif problem_type %}
+              <div class="type-badge neutral" data-type="{{ problem_type }}">{{ problem_type.replace("_", " ") }}</div>
+            {% endif %}
+          </div>
         </div>
 
         <div class="btn-row">
@@ -739,6 +822,54 @@ function toggleEditMode(btn) {
           .catch((err) => console.warn('Prefetch request failed', err));
       }, 2000);
     })();
+
+    // --- PROBLEM TYPE WHEEL UI ---
+    function renderTypeBadges(selectedId, selectedLabel) {
+      const slots = document.querySelectorAll('.type-badge-slot');
+      slots.forEach((slot) => {
+        slot.innerHTML = '';
+        if (!selectedId || selectedId === 'none') return;
+
+        const badge = document.createElement('div');
+        badge.className = 'type-badge' + (selectedId === 'fitch_proof' ? '' : ' neutral');
+        badge.dataset.type = selectedId;
+        badge.textContent = selectedId === 'fitch_proof'
+          ? 'FITCH PROOF'
+          : (selectedLabel || selectedId.replace(/_/g, ' '));
+
+        slot.appendChild(badge);
+      });
+    }
+
+    function persistProblemType(selectedId) {
+      const problemId = "{{ problem_id }}";
+      const url = `/problem/${encodeURIComponent(problemId)}/type`;
+      const payload = new FormData();
+      payload.set('problem_type', selectedId);
+
+      fetch(url, { method: 'POST', body: payload })
+        .then((resp) => {
+          if (!resp.ok) {
+            console.warn(`Problem type save failed: ${resp.status}`);
+          }
+        })
+        .catch((err) => console.warn('Problem type save failed', err));
+    }
+
+    document.querySelectorAll('.type-wheel input[type="radio"]').forEach((input) => {
+      input.addEventListener('change', () => {
+        document.querySelectorAll('.type-option').forEach((label) => {
+          label.classList.remove('selected');
+        });
+        const parent = input.closest('.type-option');
+        if (parent) parent.classList.add('selected');
+
+        const selectedId = input.value;
+        const selectedLabel = input.dataset.label || input.value;
+        renderTypeBadges(selectedId, selectedLabel);
+        persistProblemType(selectedId);
+      });
+    });
   </script>
 
 
