@@ -12,7 +12,7 @@
       color: #333;
     }
     .card {
-      max-width: 720px;
+      max-width: 1200px;
       margin: 0 auto;
       background: #fff;
       border: 1px solid #e0e0e0;
@@ -42,6 +42,80 @@
       color: #333;
       border: 1px solid #ccc;
     }
+    .table-wrap {
+      margin-top: 2rem;
+      overflow-x: auto;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 900px;
+    }
+    th, td {
+      border: 1px solid #e6e6e6;
+      padding: 0.5rem 0.6rem;
+      text-align: center;
+      font-size: 0.95rem;
+    }
+    th {
+      background: #f8fafc;
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    th.name-col, td.name-col {
+      text-align: left;
+      white-space: nowrap;
+    }
+    td.score-cell {
+      font-variant-numeric: tabular-nums;
+      position: relative;
+    }
+    .grade-violet { background: #bbf7d0; } /* 90–100 */
+    .grade-blue { background: #d9f99d; } /* 80–90 */
+    .grade-green { background: #fef08a; } /* 70–80 */
+    .grade-yellow { background: #fde68a; } /* 60–70 */
+    .grade-orange { background: #fdba74; } /* 50–60 */
+    .grade-red { background: #fecaca; } /* <50 */
+    .comment-flag {
+      font-size: 0.9rem;
+      margin-left: 0.3rem;
+      cursor: help;
+    }
+    .legend {
+      margin-top: 1rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 1rem;
+      font-size: 0.9rem;
+      color: #555;
+    }
+    .hint {
+      margin: 0.5rem 0 0;
+      color: #666;
+      font-size: 0.95rem;
+    }
+    .problem-link {
+      color: inherit;
+      text-decoration: none;
+      border-bottom: 1px dashed rgba(0,0,0,0.25);
+    }
+    .problem-link:hover {
+      color: #1d4ed8;
+      border-bottom-color: #1d4ed8;
+    }
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+    .legend i {
+      width: 12px;
+      height: 12px;
+      display: inline-block;
+      border-radius: 3px;
+      border: 1px solid rgba(0,0,0,0.08);
+    }
   </style>
 </head>
 <body>
@@ -52,6 +126,102 @@
       <a class="btn" href="/export">Download grades CSV</a>
       <a class="btn" href="/export_renamed_scans">Download renamed scans (ZIP)</a>
       <a class="btn btn-secondary" href="/setup">Back to setup</a>
+    </div>
+
+    <div class="table-wrap">
+      <h2>Grade overview</h2>
+      {% if rows and problems %}
+        <p class="hint">Tip: click a problem column header to jump back to its strip grader.</p>
+        <table>
+          <thead>
+            <tr>
+              <th class="name-col">Student</th>
+              {% for p in problems %}
+                <th><a class="problem-link" href="/problem/{{ p.id }}/strips">{{ p.id }} ({{ p.points }})</a></th>
+              {% endfor %}
+              <th>Total ({{ total_max }})</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in rows %}
+              <tr>
+                <td class="name-col">
+                  {{ row.student_name }}<br>
+                  <small style="color:#666;">{{ row.student_id }}</small>
+                </td>
+                {% for p in problems %}
+                  {% set score = row.per_problem_scores.get(p.id) %}
+                  {% set comment = row.per_problem_comments.get(p.id) %}
+                  {% if score is not none and p.points %}
+                    {% set pct = (score / p.points) * 100 %}
+                  {% else %}
+                    {% set pct = none %}
+                  {% endif %}
+                  {% if pct is not none %}
+                    {% if pct >= 90 %}
+                      {% set cls = "grade-violet" %}
+                    {% elif pct >= 80 %}
+                      {% set cls = "grade-blue" %}
+                    {% elif pct >= 70 %}
+                      {% set cls = "grade-green" %}
+                    {% elif pct >= 60 %}
+                      {% set cls = "grade-yellow" %}
+                    {% elif pct >= 50 %}
+                      {% set cls = "grade-orange" %}
+                    {% else %}
+                      {% set cls = "grade-red" %}
+                    {% endif %}
+                  {% else %}
+                    {% set cls = "" %}
+                  {% endif %}
+                  <td class="score-cell {{ cls }}">
+                    {{ score if score is not none else "" }}
+                    {% if comment %}
+                      <span class="comment-flag" title="{{ comment | e }}">💬</span>
+                    {% endif %}
+                  </td>
+                {% endfor %}
+                {% if total_max %}
+                  {% set total_pct = (row.total_score / total_max) * 100 %}
+                {% else %}
+                  {% set total_pct = none %}
+                {% endif %}
+                {% if total_pct is not none %}
+                  {% if total_pct >= 90 %}
+                    {% set total_cls = "grade-violet" %}
+                  {% elif total_pct >= 80 %}
+                    {% set total_cls = "grade-blue" %}
+                  {% elif total_pct >= 70 %}
+                    {% set total_cls = "grade-green" %}
+                  {% elif total_pct >= 60 %}
+                    {% set total_cls = "grade-yellow" %}
+                  {% elif total_pct >= 50 %}
+                    {% set total_cls = "grade-orange" %}
+                  {% else %}
+                    {% set total_cls = "grade-red" %}
+                  {% endif %}
+                {% else %}
+                  {% set total_cls = "" %}
+                {% endif %}
+                <td class="score-cell {{ total_cls }}">
+                  {{ row.total_score }}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <div class="legend">
+          <span><i class="grade-violet"></i> 90–100%</span>
+          <span><i class="grade-blue"></i> 80–90%</span>
+          <span><i class="grade-green"></i> 70–80%</span>
+          <span><i class="grade-yellow"></i> 60–70%</span>
+          <span><i class="grade-orange"></i> 50–60%</span>
+          <span><i class="grade-red"></i> &lt;50%</span>
+          <span>💬 comment</span>
+        </div>
+      {% else %}
+        <p style="margin-top: 1rem; color: #666;">No graded rows to show yet.</p>
+      {% endif %}
     </div>
   </div>
 </body>

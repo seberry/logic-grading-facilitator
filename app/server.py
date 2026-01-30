@@ -2019,10 +2019,48 @@ def roster_lookup(session: Session) -> Dict[str, str]:
 
 @app.get("/finish", response_class=HTMLResponse)
 def finish_page(request: Request) -> Response:
+    session = get_session()
+    grading_key = session.grading_key
+    problems = grading_key.problems if grading_key else []
+    total_max = sum(p.points for p in problems) if problems else 0.0
+
+    roster_map = {r.student_id: r.name for r in session.roster}
+    rows_by_student: Dict[str, Dict] = {}
+
+    for wu in session.work_units:
+        if not wu.student_id:
+            continue
+        per_problem_scores = {}
+        per_problem_comments = {}
+        total = 0.0
+        for p in problems:
+            score = wu.per_problem.get(p.id)
+            per_problem_scores[p.id] = score
+            per_problem_comments[p.id] = wu.per_problem_comments.get(p.id)
+            if score is None:
+                continue
+            total += float(score)
+
+        sid = wu.student_id
+        existing = rows_by_student.get(sid)
+        if existing is None or total > existing["total_score"]:
+            rows_by_student[sid] = {
+                "student_id": sid,
+                "student_name": roster_map.get(sid, sid),
+                "per_problem_scores": per_problem_scores,
+                "per_problem_comments": per_problem_comments,
+                "total_score": total,
+            }
+
+    rows = sorted(rows_by_student.values(), key=lambda r: r["student_name"])
+
     return templates.TemplateResponse(
         "finish.html",
         {
             "request": request,
+            "problems": problems,
+            "total_max": total_max,
+            "rows": rows,
         },
     )
 
@@ -3086,6 +3124,14 @@ async def post_problem_strips(
                         status_code=400,
                         detail=f"Invalid score for {problem_id} on unit {wu.unit_id}: {raw!r}",
                     )
+        # --- Per-Problem Comment Saving Logic ---
+        for wu in session.work_units:
+            field_name = f"comment_{wu.unit_id}"
+            raw = form.get(field_name)
+            if raw is None or raw.strip() == "":
+                wu.per_problem_comments[problem_id] = None
+            else:
+                wu.per_problem_comments[problem_id] = raw
 
         # --- Existing Note Logic ---
         note_raw = form.get("problem_note")

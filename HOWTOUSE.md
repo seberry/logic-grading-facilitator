@@ -131,6 +131,7 @@ When finished, click **Finish** on the last question to open:
 http://127.0.0.1:5000/finish.
 
 Download the grades CSV and the renamed scans ZIP from there.
+The finish page also shows a per-student, per-problem overview table with color-coded cells and comment indicators; click a problem header to jump back to that problem's strip grader.
 
 7. Archive & Reset
 When the assignment is complete, archive your data to prepare for the next quiz.

@@ -172,11 +172,19 @@
       border-radius: 4px;
       text-align: right;
     }
-    .score-max {
-      font-size: 1rem;
-      color: #666;
-      white-space: nowrap;
-    }
+      .score-max {
+        font-size: 1rem;
+        color: #666;
+        white-space: nowrap;
+      }
+      .comment-input {
+        width: 100%;
+        min-height: 3.25rem;
+        padding: 0.35rem 0.5rem;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        resize: vertical;
+      }
     .score-entry {
       display: inline-flex;
       align-items: center;
@@ -341,7 +349,7 @@
     <div class="pinned-panel-body" id="pinned-body"></div>
   </div>
 
-    <form method="post" action="">
+    <form id="strip-form" method="post" action="">
       <input type="hidden" name="problem_id" value="{{ problem_id }}">
       <input type="hidden" id="action_mode" name="action_mode" value="">
 
@@ -477,18 +485,24 @@
             </label>
           {% endif %}
 
-        <label class="score-group">
-          <strong>Score</strong>
-          <span class="score-entry">
-            <input class="score-input"
+          <label class="score-group">
+            <strong>Score</strong>
+            <span class="score-entry">
+              <input class="score-input"
                    type="number"
                    step="0.01"
                    data-max="{{ max_points }}"
                    name="score_{{ wu.unit_id }}"
                    value="{{ wu.per_problem.get(problem_id) or '' }}">
-            <span class="score-max">/ {{ max_points }}</span>
-          </span>
-        </label>
+              <span class="score-max">/ {{ max_points }}</span>
+            </span>
+          </label>
+          <label class="score-group" style="align-items: flex-start;">
+            <strong>Comment</strong>
+            <textarea class="comment-input"
+                      name="comment_{{ wu.unit_id }}"
+                      placeholder="Note for {{ problem_id }} (optional)">{{ wu.per_problem_comments.get(problem_id) or '' }}</textarea>
+          </label>
 
         {% if seg and seg.comment %}
           <div style="font-size:0.85rem; color:#666; background:#f0f0f0; padding:0.5rem; border-radius:4px;">
@@ -536,11 +550,11 @@
     </div>
   </form>
 
-  <script>
-    // --- FILL FULL CREDIT FOR UNGRADED ---
-    const fillBtn = document.getElementById('btn-fill-credits');
-    if (fillBtn) {
-      fillBtn.addEventListener('click', () => {
+    <script>
+      // --- FILL FULL CREDIT FOR UNGRADED ---
+      const fillBtn = document.getElementById('btn-fill-credits');
+      if (fillBtn) {
+        fillBtn.addEventListener('click', () => {
         document.querySelectorAll('.score-input').forEach((input) => {
           if (input.value.trim() === '') {
             const max = input.dataset.max;
@@ -549,10 +563,31 @@
             }
           }
         });
-      });
-    }
+        });
+      }
 
-    // --- BOUNDING BOX POSITIONING ---
+      // --- WARN ON NAVIGATE WITH UNGRADED ---
+      let lastAction = null;
+      document.querySelectorAll('button[name="action"]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          lastAction = btn.value;
+        });
+      });
+      const stripForm = document.getElementById('strip-form');
+      if (stripForm) {
+        stripForm.addEventListener('submit', (event) => {
+          if (lastAction !== 'save_next') return;
+          const empty = Array.from(document.querySelectorAll('.score-input'))
+            .filter((input) => (input.value || '').trim() === '');
+          if (empty.length === 0) return;
+          const ok = confirm(`There are ${empty.length} unscored entries for this problem. Continue?`);
+          if (!ok) {
+            event.preventDefault();
+          }
+        });
+      }
+
+      // --- BOUNDING BOX POSITIONING ---
     function updateBoundingBox(wrapperIndex) {
       const wrapper = document.getElementById(`wrapper-${wrapperIndex}`);
       const img = wrapper.querySelector('.scan-image');
