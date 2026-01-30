@@ -274,12 +274,16 @@
   </div>
   <div>
     Pages: {{ work_unit.page_filenames|length }} &nbsp;|&nbsp;
-    <a href="/export_renamed_scans" style="color:#9ca3af; text-decoration:none;">
-      Download renamed scans (ZIP)
-    </a>
-    &nbsp;|&nbsp;
-    <a href="/docs" style="color:#9ca3af; text-decoration:none;">API docs</a>
-  </div>
+      <a href="/export_renamed_scans" style="color:#9ca3af; text-decoration:none;">
+        Download renamed scans (ZIP)
+      </a>
+      &nbsp;|&nbsp;
+      <a href="/finish" style="color:#9ca3af; text-decoration:none;">
+        Finish overview
+      </a>
+      &nbsp;|&nbsp;
+      <a href="/docs" style="color:#9ca3af; text-decoration:none;">API docs</a>
+    </div>
   <div style="margin-top: 0.5rem; font-size: 0.9rem;">
     <form method="post" action="/finalize"
           onsubmit="return confirm('Archive current assignment and clear scans? This cannot be undone (except by manually restoring from data_archive).');"

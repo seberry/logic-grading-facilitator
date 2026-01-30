@@ -12,6 +12,4 @@
 - Add a "feedback ZIP" export that bundles per-student attachments (comments, per-problem crops/OCR) for manual drag-and-drop into Canvas; Canvas ignores comment columns in CSV imports, so richer feedback needs files rather than CSV.
 
 ## UX polish
-- Clicking a problem in the finish overview should jump to that problem's strip grader (currently only the header links; consider row/cell shortcuts too).
-- If you cancel the "ungraded entries" warning, jump to an ungraded entry and highlight all ungraded inputs.
-- Add a navbar button that takes you directly to the finish/overview screen.
+- Consider row/cell shortcuts in the finish overview (jump to strip grader at a specific student/problem).
