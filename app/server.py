@@ -2242,8 +2242,94 @@ def grade_page(request: Request, unit_id: int):
             "image_urls": image_urls,
             "pinned_note": session.pinned_note or "",
         },
-    )
+      )
 
+
+@app.get("/export_feedback_zip")
+def export_feedback_zip():
+    """
+    Export per-student feedback files (rubric, per-problem scores, comments) as a ZIP.
+    Filenames include student name (slug) and student_id for easy Canvas drag/drop.
+    """
+    session = get_session()
+    grading_key = session.grading_key
+    problems = grading_key.problems
+    total_max = sum(p.points for p in problems) if problems else 0.0
+
+    roster_map = {r.student_id: r.name for r in session.roster}
+    id_to_slug = roster_lookup(session)
+
+    # Choose the max-total WorkUnit per student_id (matches export_scores behavior)
+    rows_by_student: Dict[str, Dict] = {}
+    for wu in session.work_units:
+        if not wu.student_id:
+            continue
+        per_problem_scores = {}
+        per_problem_comments = {}
+        total = 0.0
+        for p in problems:
+            score = wu.per_problem.get(p.id)
+            per_problem_scores[p.id] = score
+            per_problem_comments[p.id] = wu.per_problem_comments.get(p.id)
+            if score is None:
+                continue
+            total += float(score)
+
+        sid = wu.student_id
+        existing = rows_by_student.get(sid)
+        if existing is None or total > existing["total_score"]:
+            rows_by_student[sid] = {
+                "student_id": sid,
+                "student_name": roster_map.get(sid, sid),
+                "per_problem_scores": per_problem_scores,
+                "per_problem_comments": per_problem_comments,
+                "total_score": total,
+            }
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        manifest = io.StringIO()
+        writer = csv.writer(manifest)
+        writer.writerow(["student_id", "student_name", "filename", "total_score"])
+
+        for row in sorted(rows_by_student.values(), key=lambda r: r["student_name"]):
+            sid = row["student_id"]
+            name = row["student_name"]
+            slug = id_to_slug.get(sid, f"student_{sid}")
+            filename = f"{grading_key.quiz_id}_{slug}_{sid}_feedback.txt"
+
+            lines = []
+            lines.append(f"Quiz: {grading_key.quiz_id}")
+            lines.append(f"Student: {name} ({sid})")
+            lines.append(f"Total: {row['total_score']} / {total_max}")
+            lines.append("")
+            lines.append("Rubric + Scores")
+            for p in problems:
+                score = row["per_problem_scores"].get(p.id)
+                comment = row["per_problem_comments"].get(p.id)
+                score_display = "" if score is None else str(score)
+                lines.append(f"- {p.id} ({p.label}) [{p.points} pts]: {score_display}")
+                if comment:
+                    lines.append(f"  Comment: {comment}")
+            lines.append("")
+
+            zf.writestr(filename, "\n".join(lines))
+            writer.writerow([sid, name, filename, row["total_score"]])
+
+        zf.writestr(
+            f"{grading_key.quiz_id}_feedback_manifest.csv",
+            manifest.getvalue(),
+        )
+
+    buf.seek(0)
+    filename = f"{grading_key.quiz_id}_feedback.zip"
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{quote(filename)}"',
+        },
+    )
 
 @app.post("/grade/{unit_id}/page", response_class=HTMLResponse)
 async def grade_page_submit(

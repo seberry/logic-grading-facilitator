@@ -9,7 +9,7 @@
 - Reuse the debug pipeline (`docs/STRATEGY_FITCH_PROOFS.md`) to show OCR + verifier outputs in-place.
 
 ## Exports
-- Add a "feedback ZIP" export that bundles per-student attachments (comments, per-problem crops/OCR) for manual drag-and-drop into Canvas; Canvas ignores comment columns in CSV imports, so richer feedback needs files rather than CSV.
+- Consider adding crops/OCR outputs into the feedback ZIP once those artifacts are stable; Canvas ignores comment columns in CSV imports, so richer feedback needs files rather than CSV.
 
 ## UX polish
 - Consider row/cell shortcuts in the finish overview (jump to strip grader at a specific student/problem).
