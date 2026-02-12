@@ -114,6 +114,7 @@ app.mount(
 LMSTUDIO_BASE_URL = "http://127.0.0.1:1234/v1"
 LMSTUDIO_MODEL_ID = "qwen/qwen3-vl-4b"  # or whatever you’re actually using
 CANVAS_REUPLOAD_ORIGINAL_ZIPS_DIR = DATA_DIR / "canvas_reupload" / "original_zips"
+GRADEBOOK_MERGE_TMP_DIR = DATA_DIR / "gradebook_merge" / "tmp"
 
 PROBLEM_TYPE_OPTIONS = [
     {"id": "none", "label": "None"},
@@ -738,6 +739,110 @@ def _extract_canvas_roster(content: str) -> str:
     return output.getvalue()
 
 
+def _build_total_scores_by_student(session: Session) -> Dict[str, float]:
+    totals: Dict[str, float] = {}
+    for wu in session.work_units:
+        if not wu.student_id:
+            continue
+        total = 0.0
+        for p in session.grading_key.problems:
+            score = wu.per_problem.get(p.id)
+            if score is None:
+                continue
+            total += float(score)
+        sid = wu.student_id
+        if sid in totals:
+            totals[sid] = max(totals[sid], total)
+        else:
+            totals[sid] = total
+    return totals
+
+
+def _parse_gradebook_csv(content: str) -> tuple[List[str], List[Dict[str, str]], str]:
+    reader = csv.DictReader(io.StringIO(content))
+    if not reader.fieldnames:
+        raise HTTPException(status_code=400, detail="Gradebook CSV has no headers.")
+
+    fieldnames = list(reader.fieldnames)
+    rows = list(reader)
+    header_map = _normalize_headers(fieldnames)
+
+    id_col = (
+        header_map.get("sis login id")
+        or header_map.get("sis user id")
+        or header_map.get("login id")
+        or header_map.get("id")
+    )
+    if not id_col:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Could not find a student ID column. Expected one of: "
+                "'SIS Login ID', 'SIS User ID', 'Login ID', 'ID'."
+            ),
+        )
+    return fieldnames, rows, id_col
+
+
+def _candidate_assignment_columns(fieldnames: List[str], id_col: str) -> List[str]:
+    excluded = {
+        "student",
+        "id",
+        "sis user id",
+        "sis login id",
+        "login id",
+        "section",
+        "current score",
+        "unposted current score",
+        "final score",
+        "unposted final score",
+        "current grade",
+        "unposted current grade",
+        "final grade",
+        "unposted final grade",
+    }
+    cols: List[str] = []
+    for name in fieldnames:
+        key = name.strip().lower()
+        if key in excluded:
+            continue
+        if name == id_col:
+            continue
+        cols.append(name)
+    return cols
+
+
+def _assignment_column_stats(
+    rows: List[Dict[str, str]],
+    assignment_cols: List[str],
+    id_col: str,
+    score_map: Dict[str, float],
+) -> List[Dict[str, Any]]:
+    stats: List[Dict[str, Any]] = []
+    for col in assignment_cols:
+        non_empty = 0
+        matched = 0
+        matched_non_empty = 0
+        for row in rows:
+            sid = (row.get(id_col) or "").strip()
+            if sid in score_map:
+                matched += 1
+            val = (row.get(col) or "").strip()
+            if val != "":
+                non_empty += 1
+                if sid in score_map:
+                    matched_non_empty += 1
+        stats.append(
+            {
+                "name": col,
+                "non_empty": non_empty,
+                "matched": matched,
+                "matched_non_empty": matched_non_empty,
+            }
+        )
+    return stats
+
+
 @app.post("/setup/roster")
 async def setup_roster(
     existing_roster: Optional[str] = Form(None),
@@ -813,6 +918,154 @@ async def setup_roster_gradebook(
         url="/setup?status=success&message="
         + quote("Roster created from Canvas gradebook."),
         status_code=303,
+    )
+
+
+@app.get("/gradebook_merge", response_class=HTMLResponse)
+def gradebook_merge_page(request: Request) -> Response:
+    session = get_session()
+    return templates.TemplateResponse(
+        "gradebook_merge.html",
+        {
+            "request": request,
+            "quiz_id": session.grading_key.quiz_id,
+            "analysis": None,
+            "token": "",
+            "error_message": "",
+        },
+    )
+
+
+@app.post("/gradebook_merge/analyze", response_class=HTMLResponse)
+async def gradebook_merge_analyze(
+    request: Request,
+    gradebook_csv: UploadFile = File(...),
+) -> Response:
+    if not gradebook_csv.filename:
+        raise HTTPException(status_code=400, detail="Please upload a gradebook CSV.")
+
+    content_bytes = await gradebook_csv.read()
+    try:
+        decoded = content_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="Gradebook CSV must be UTF-8 encoded.")
+
+    fieldnames, rows, id_col = _parse_gradebook_csv(decoded)
+    session = get_session()
+    score_map = _build_total_scores_by_student(session)
+    assignment_cols = _candidate_assignment_columns(fieldnames, id_col)
+    stats = _assignment_column_stats(rows, assignment_cols, id_col, score_map)
+
+    GRADEBOOK_MERGE_TMP_DIR.mkdir(parents=True, exist_ok=True)
+    token = uuid4().hex
+    tmp_path = GRADEBOOK_MERGE_TMP_DIR / f"{token}.csv"
+    tmp_path.write_text(decoded, encoding="utf-8")
+
+    return templates.TemplateResponse(
+        "gradebook_merge.html",
+        {
+            "request": request,
+            "quiz_id": session.grading_key.quiz_id,
+            "analysis": {
+                "id_col": id_col,
+                "row_count": len(rows),
+                "matched_students": len(score_map),
+                "columns": stats,
+            },
+            "token": token,
+            "error_message": "",
+        },
+    )
+
+
+@app.post("/gradebook_merge/merge")
+async def gradebook_merge_merge(
+    request: Request,
+    token: str = Form(...),
+    assignment_column: str = Form(...),
+    overwrite_non_empty: Optional[str] = Form(None),
+) -> Response:
+    tmp_path = GRADEBOOK_MERGE_TMP_DIR / f"{token}.csv"
+    if not tmp_path.exists():
+        raise HTTPException(
+            status_code=400,
+            detail="Merge token expired or missing. Re-upload gradebook CSV.",
+        )
+
+    decoded = tmp_path.read_text(encoding="utf-8")
+    fieldnames, rows, id_col = _parse_gradebook_csv(decoded)
+    if assignment_column not in fieldnames:
+        raise HTTPException(status_code=400, detail="Selected assignment column not found.")
+
+    session = get_session()
+    score_map = _build_total_scores_by_student(session)
+    overwrite = bool(overwrite_non_empty)
+
+    conflicts: List[Dict[str, str]] = []
+    matched_rows = 0
+    changed_rows = 0
+    skipped_rows = 0
+
+    for row in rows:
+        sid = (row.get(id_col) or "").strip()
+        if sid not in score_map:
+            continue
+        matched_rows += 1
+        old_val = (row.get(assignment_column) or "").strip()
+        if old_val != "" and not overwrite:
+            conflicts.append(
+                {
+                    "student_id": sid,
+                    "student": (row.get("Student") or row.get("student") or ""),
+                    "existing": old_val,
+                    "new": f"{score_map[sid]:g}",
+                }
+            )
+            skipped_rows += 1
+            continue
+        row[assignment_column] = f"{score_map[sid]:g}"
+        changed_rows += 1
+
+    assignment_cols = _candidate_assignment_columns(fieldnames, id_col)
+    stats = _assignment_column_stats(rows, assignment_cols, id_col, score_map)
+
+    if conflicts and not overwrite:
+        return templates.TemplateResponse(
+            "gradebook_merge.html",
+            {
+                "request": request,
+                "quiz_id": session.grading_key.quiz_id,
+                "analysis": {
+                    "id_col": id_col,
+                    "row_count": len(rows),
+                    "matched_students": len(score_map),
+                    "columns": stats,
+                    "conflicts": conflicts[:30],
+                },
+                "token": token,
+                "error_message": (
+                    f"Selected column has {len(conflicts)} existing grade(s) among matched students. "
+                    "Choose a blank column or enable overwrite."
+                ),
+            },
+        )
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=fieldnames, lineterminator="\n")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(row)
+
+    print(
+        f"[GRADEBOOK MERGE] col={assignment_column!r}, matched={matched_rows}, "
+        f"changed={changed_rows}, skipped={skipped_rows}, overwrite={overwrite}"
+    )
+
+    filename = f"{session.grading_key.quiz_id}_gradebook_merged.csv"
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{quote(filename)}"'},
     )
 
 

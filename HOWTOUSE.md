@@ -133,6 +133,7 @@ http://127.0.0.1:5000/finish.
 
 Download the grades CSV and the renamed scans ZIP from there. The feedback ZIP includes per-student files with the rubric, per-problem scores, and any comments. You can also open the grade overview anytime via the “Grade overview” link in the grader header.
 The finish page also shows a per-student, per-problem overview table with color-coded cells and comment indicators; click a problem header to jump back to that problem's strip grader.
+If you want a safer Canvas import workflow, open **Gradebook merge tool** from the finish page: upload Canvas gradebook CSV, pick the assignment column, and download a merged CSV. By default it blocks merges into non-empty matched cells unless you explicitly allow overwrite.
 
 7. Archive & Reset
 When the assignment is complete, archive your data to prepare for the next quiz.
@@ -161,5 +162,6 @@ Result: This archives current data to `data_archive/` and clears `data/raw_scans
 > | Per-problem strip view                 | `GET/POST /problem/{id}/strips`     | `get_problem_strips`, `post_problem_strips`, `segment_page_for_problem` | `session.json`, `data/grades/segments_{id}.json`, `data/raw_scans/` (cache is validated before reuse)   |
 > | Export renamed scans (simple ZIP)      | `GET /export_renamed_scans`         | `export_renamed_scans`    | Reads `session.json`, `data/raw_scans/` → returns in-memory ZIP       |
 > | Export Canvas reupload feedback ZIP    | `GET /export_canvas_reupload_feedback_zip` | `export_canvas_reupload_feedback_zip` | Reads latest ZIP in `data/canvas_reupload/original_zips/`; preserves original filenames and writes feedback pages/images |
+> | Gradebook merge tool                   | `GET /gradebook_merge`, `POST /gradebook_merge/analyze`, `POST /gradebook_merge/merge` | gradebook merge routes | Upload Canvas gradebook CSV, select assignment column, merge by student ID with non-empty-cell safety checks |
 > | Export scores for Canvas               | `GET /export`                       | `export_scores`           | `session.json` → `student_id,<quiz>_score` CSV                         |
 > | Archive + reset                        | `POST /finalize`                    | `archive_current_data`, `finalize_assignment` | Copies full `data/` → `data_archive/<timestamp>_<label>/`, then clears live `data/raw_scans/` and `data/grades/` files |
