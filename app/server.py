@@ -6,6 +6,7 @@ import threading
 import io
 import csv
 import json
+import textwrap
 from pathlib import Path
 import zipfile
 import sys
@@ -66,7 +67,7 @@ from .verifier import ProofLine, check_proof, flatten_proof
 import shutil
 import yaml
 import fitz  # type: ignore
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 from docx import Document
 
 
@@ -112,6 +113,7 @@ app.mount(
 
 LMSTUDIO_BASE_URL = "http://127.0.0.1:1234/v1"
 LMSTUDIO_MODEL_ID = "qwen/qwen3-vl-4b"  # or whatever you’re actually using
+CANVAS_REUPLOAD_ORIGINAL_ZIPS_DIR = DATA_DIR / "canvas_reupload" / "original_zips"
 
 PROBLEM_TYPE_OPTIONS = [
     {"id": "none", "label": "None"},
@@ -2329,6 +2331,202 @@ def export_feedback_zip():
     filename = f"{grading_key.quiz_id}_feedback.zip"
     return Response(
         content=buf.getvalue(),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{quote(filename)}"',
+        },
+    )
+
+
+def _latest_canvas_original_zip() -> Path:
+    if not CANVAS_REUPLOAD_ORIGINAL_ZIPS_DIR.exists():
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Canvas original ZIP directory not found. "
+                f"Create: {CANVAS_REUPLOAD_ORIGINAL_ZIPS_DIR}"
+            ),
+        )
+    zips = sorted(
+        [p for p in CANVAS_REUPLOAD_ORIGINAL_ZIPS_DIR.glob("*.zip") if p.is_file()],
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if not zips:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No ZIP files found for Canvas reupload source. "
+                f"Put original Canvas ZIP(s) under {CANVAS_REUPLOAD_ORIGINAL_ZIPS_DIR}"
+            ),
+        )
+    return zips[0]
+
+
+def _build_best_rows_by_student(session: Session) -> Dict[str, Dict[str, Any]]:
+    grading_key = session.grading_key
+    problems = grading_key.problems
+    total_max = sum(p.points for p in problems) if problems else 0.0
+    roster_map = {r.student_id: r.name for r in session.roster}
+
+    rows_by_student: Dict[str, Dict[str, Any]] = {}
+    for wu in session.work_units:
+        if not wu.student_id:
+            continue
+        per_problem_scores: Dict[str, Optional[float]] = {}
+        per_problem_comments: Dict[str, Optional[str]] = {}
+        total = 0.0
+        for p in problems:
+            score = wu.per_problem.get(p.id)
+            per_problem_scores[p.id] = score
+            per_problem_comments[p.id] = wu.per_problem_comments.get(p.id)
+            if score is not None:
+                total += float(score)
+
+        sid = wu.student_id
+        existing = rows_by_student.get(sid)
+        if existing is None or total > existing["total_score"]:
+            rows_by_student[sid] = {
+                "student_id": sid,
+                "student_name": roster_map.get(sid, sid),
+                "per_problem_scores": per_problem_scores,
+                "per_problem_comments": per_problem_comments,
+                "total_score": total,
+                "total_max": total_max,
+                "quiz_id": grading_key.quiz_id,
+            }
+    return rows_by_student
+
+
+def _feedback_text_from_row(
+    row: Optional[Dict[str, Any]],
+    problems: List[Any],
+    quiz_id: str,
+    total_max: float,
+) -> str:
+    if row is None:
+        return (
+            f"Quiz: {quiz_id}\n"
+            "No grading record found for this submission.\n"
+            "Please contact the instructor if you believe this is an error.\n"
+        )
+
+    lines: List[str] = []
+    lines.append(f"Quiz: {quiz_id}")
+    lines.append(f"Student: {row['student_name']} ({row['student_id']})")
+    lines.append(f"Total: {row['total_score']} / {total_max}")
+    lines.append("")
+    lines.append("Rubric + Scores")
+    for p in problems:
+        score = row["per_problem_scores"].get(p.id)
+        comment = row["per_problem_comments"].get(p.id)
+        score_display = "" if score is None else str(score)
+        lines.append(f"- {p.id} ({p.label}) [{p.points} pts]: {score_display}")
+        if comment:
+            lines.append(f"  Comment: {comment}")
+    return "\n".join(lines)
+
+
+def _render_feedback_image_bytes(text: str, ext: str) -> bytes:
+    width, height = 1500, 2100
+    img = Image.new("RGB", (width, height), color="white")
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.load_default()
+
+    wrapped: List[str] = []
+    for para in text.splitlines():
+        chunks = textwrap.wrap(para, width=95) if para else [""]
+        wrapped.extend(chunks)
+    rendered_text = "\n".join(wrapped[:220])
+    draw.multiline_text((40, 40), rendered_text, fill="black", font=font, spacing=4)
+
+    buf = io.BytesIO()
+    if ext in {".jpg", ".jpeg"}:
+        img.save(buf, format="JPEG", quality=92)
+    else:
+        img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _render_feedback_pdf_bytes(text: str) -> bytes:
+    doc = fitz.open()
+    page = doc.new_page(width=612, height=792)
+    rect = fitz.Rect(40, 40, 572, 752)
+    wrapped: List[str] = []
+    for para in text.splitlines():
+        chunks = textwrap.wrap(para, width=95) if para else [""]
+        wrapped.extend(chunks)
+    rendered_text = "\n".join(wrapped[:320])
+    page.insert_textbox(rect, rendered_text, fontsize=11, fontname="helv")
+    pdf_bytes = doc.tobytes(deflate=True)
+    doc.close()
+    return pdf_bytes
+
+
+@app.get("/export_canvas_reupload_feedback_zip")
+def export_canvas_reupload_feedback_zip():
+    """
+    Build a Canvas "re-upload submissions" ZIP using original Canvas filenames.
+    Content is replaced with per-student feedback rendered as PDF/image, preserving
+    each file's original name and extension.
+    """
+    session = get_session()
+    grading_key = session.grading_key
+    problems = grading_key.problems
+    total_max = sum(p.points for p in problems) if problems else 0.0
+    rows_by_student = _build_best_rows_by_student(session)
+
+    roster_index, collisions = _build_roster_prefix_index(session.roster)
+    if collisions:
+        raise HTTPException(
+            status_code=400,
+            detail="Roster collisions prevent Canvas filename matching.",
+        )
+
+    source_zip = _latest_canvas_original_zip()
+    out_buf = io.BytesIO()
+    matched = 0
+    total = 0
+
+    with zipfile.ZipFile(source_zip, "r") as src, zipfile.ZipFile(
+        out_buf, "w", compression=zipfile.ZIP_DEFLATED
+    ) as dst:
+        for info in src.infolist():
+            if info.is_dir():
+                continue
+            total += 1
+            original_name = Path(info.filename).name
+            if not original_name:
+                continue
+
+            ext = Path(original_name).suffix.lower()
+            prefix_key = _filename_prefix_key(original_name)
+            roster_entry = roster_index.get(prefix_key)
+            sid = roster_entry.student_id if roster_entry else None
+            row = rows_by_student.get(sid) if sid else None
+            text = _feedback_text_from_row(row, problems, grading_key.quiz_id, total_max)
+
+            try:
+                if ext == ".pdf":
+                    payload = _render_feedback_pdf_bytes(text)
+                elif ext in {".jpg", ".jpeg", ".png"}:
+                    payload = _render_feedback_image_bytes(text, ext)
+                else:
+                    payload = src.read(info)
+                dst.writestr(original_name, payload)
+                if sid:
+                    matched += 1
+            except Exception as e:
+                print(f"[CANVAS REUPLOAD] Failed to render {original_name}: {e}")
+                dst.writestr(original_name, src.read(info))
+
+    filename = f"{grading_key.quiz_id}_canvas_reupload_feedback.zip"
+    print(
+        f"[CANVAS REUPLOAD] Source={source_zip.name}, files={total}, "
+        f"matched={matched}, output={filename}"
+    )
+    return Response(
+        content=out_buf.getvalue(),
         media_type="application/zip",
         headers={
             "Content-Disposition": f'attachment; filename="{quote(filename)}"',
