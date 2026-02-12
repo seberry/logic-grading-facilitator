@@ -6,11 +6,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-import json  # if not already present
-
-from .storage import GRADES_DIR, RAW_SCANS_DIR
-
-
 from .vlm_client import LMStudioQwenClient
 from .vlm_client import SINGLE_QUESTION_PROMPT  # or copy the prompt text here
 
@@ -43,7 +38,24 @@ def segment_page_for_problem(
         problem_description=problem_description,
     )
 
-    raw = client.chat_with_image_prompt(image_path=image_path, prompt=prompt)
+    try:
+        raw = client.chat_with_image_prompt(image_path=image_path, prompt=prompt)
+    except Exception as e:
+        response = getattr(e, "response", None)
+        if response is not None:
+            detail = f"HTTP {response.status_code}: {(response.text or '').strip()[:200]}"
+        else:
+            detail = str(e)
+        print(f"[SEGMENTATION ERROR] {image_path.name} {problem_id}: {detail}")
+        return QuestionSegment(
+            problem_id=problem_id,
+            page_filename=image_path.name,
+            page_index=0,
+            bbox=None,
+            present=False,
+            comment=f"VLM request failed: {detail}",
+            confidence=0.0,
+        )
 
     # Allow ```json fences, same trick as in vlm_classifier
     raw_str = raw.strip()

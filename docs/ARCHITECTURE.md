@@ -393,6 +393,7 @@ The architecture is intentionally minimal but designed so each future phase (seg
 - **AI Service (Local VLM)**  
   A local HTTP endpoint (e.g. LM Studio running Qwen-VL) that:
   - Takes page images and prompts.
+  - Uses adaptive image downscaling/retry in the client when the backend returns `failed to process image`.
   - Returns JSON (presence flags, bounding boxes, draft transcriptions).
 
 - **Logic Engine**  

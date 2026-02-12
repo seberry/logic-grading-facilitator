@@ -125,6 +125,7 @@ Navigate: Use "Save & Next" to move to Q2, Q3, etc..
 
 
 Tip: If a crop looks wrong, click "Show Full Page" or "Fix Crop".
+If server logs show `failed to process image`, the VLM client now auto-retries with smaller image payloads; if it still fails, restart LM Studio and retry the problem page.
 
 6. Export Grades
 When finished, click **Finish** on the last question to open:

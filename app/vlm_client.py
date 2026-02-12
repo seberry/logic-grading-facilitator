@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import base64
+import io
 import requests
 from pathlib import Path
 from typing import Any, Dict, List
+from PIL import Image
 
 
 SINGLE_QUESTION_PROMPT = """You are an AI assistant helping to grade scanned student exams.
@@ -109,8 +111,10 @@ class LMStudioQwenClient:
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout = timeout
+        self.max_image_dim = 1500
+        self.max_data_uri_len = 2_500_000
 
-    def _encode_image_to_data_uri(self, image_path: Path) -> str:
+    def _encode_image_to_data_uri(self, image_path: Path, max_dim: int | None = None) -> str:
         """
         Read image and return a data URI string suitable for LM Studio's
         'image_url': {'url': ...} field, e.g.
@@ -118,15 +122,42 @@ class LMStudioQwenClient:
         """
         suffix = image_path.suffix.lower()
         if suffix in [".jpg", ".jpeg"]:
-            mime = "image/jpeg"
+            source_mime = "image/jpeg"
         elif suffix in [".png"]:
-            mime = "image/png"
+            source_mime = "image/png"
         else:
-            mime = "application/octet-stream"
+            source_mime = "application/octet-stream"
 
-        with image_path.open("rb") as f:
-            b64 = base64.b64encode(f.read()).decode("utf-8")
-        return f"data:{mime};base64,{b64}"
+        raw_bytes = image_path.read_bytes()
+        raw_b64 = base64.b64encode(raw_bytes).decode("utf-8")
+        raw_uri = f"data:{source_mime};base64,{raw_b64}"
+        if len(raw_uri) <= self.max_data_uri_len:
+            return raw_uri
+
+        # Fallback for large scans: downscale + convert to JPEG for LM Studio stability.
+        target_dim = max_dim or self.max_image_dim
+        with Image.open(image_path) as im:
+            if im.mode not in ("RGB", "L"):
+                im = im.convert("RGB")
+            im.thumbnail((target_dim, target_dim))
+
+            quality_steps = [85, 75, 65, 55]
+            best_uri = None
+            for quality in quality_steps:
+                buf = io.BytesIO()
+                im.save(buf, format="JPEG", quality=quality, optimize=True)
+                b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+                uri = f"data:image/jpeg;base64,{b64}"
+                best_uri = uri
+                if len(uri) <= self.max_data_uri_len:
+                    break
+
+        if best_uri and len(raw_uri) > self.max_data_uri_len:
+            print(
+                f"[VLM] Shrunk image payload for {image_path.name} (max_dim={target_dim}): "
+                f"{len(raw_uri)} -> {len(best_uri)} chars"
+            )
+        return best_uri or raw_uri
 
     def build_messages(self, image_path: Path, roster_text: str) -> List[Dict[str, Any]]:
         """
@@ -204,13 +235,14 @@ class LMStudioQwenClient:
         image_path: Path,
         prompt: str,
         system_prompt: str | None = None,
+        max_image_dim: int | None = None,
     ) -> List[Dict[str, Any]]:
         """
         Build messages for an arbitrary text prompt + a single image.
 
         This is a generic version of build_messages that doesn't assume a roster.
         """
-        data_uri = self._encode_image_to_data_uri(image_path)
+        data_uri = self._encode_image_to_data_uri(image_path, max_dim=max_image_dim)
 
         if system_prompt is None:
             system_prompt = "You are a careful vision model. Follow the user's instructions exactly."
@@ -246,9 +278,30 @@ class LMStudioQwenClient:
         """
         Convenience: given a text prompt and an image, return the raw model reply.
         """
-        messages = self.build_messages_for_prompt(
-            image_path=image_path,
-            prompt=prompt,
-            system_prompt=system_prompt,
-        )
-        return self.chat(messages)
+        dims_to_try = [None, 1400, 1200, 1000]
+        last_err: Exception | None = None
+
+        for dim in dims_to_try:
+            messages = self.build_messages_for_prompt(
+                image_path=image_path,
+                prompt=prompt,
+                system_prompt=system_prompt,
+                max_image_dim=dim,
+            )
+            try:
+                return self.chat(messages)
+            except requests.HTTPError as e:
+                response = getattr(e, "response", None)
+                body = (response.text or "").lower() if response is not None else ""
+                if response is None or response.status_code != 400 or "failed to process image" not in body:
+                    raise
+                print(
+                    f"[VLM] Retrying image at smaller size for {image_path.name} "
+                    f"(attempt max_dim={dim or self.max_image_dim})"
+                )
+                last_err = e
+                continue
+
+        if last_err is not None:
+            raise last_err
+        raise RuntimeError("Unexpected VLM retry flow without error/result")
