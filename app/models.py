@@ -60,3 +60,5 @@ class Session(BaseModel):
 
     # NEW: optional per-problem notes (e.g. “Q1 = truth table for ¬(P→Q)”)
     problem_notes: Dict[str, str] = Field(default_factory=dict)
+    # Optional per-problem type tags for autograde workflows (e.g., "fitch_proof")
+    problem_types: Dict[str, Optional[str]] = Field(default_factory=dict)

@@ -149,7 +149,7 @@ Used by `GET /name_review` to display guesses.
 Used by the Strip View to show cropped answers.
 * **Location:** `data/grades/segments_{problem_id}.json`.
 * **Invalidation:** Automatic on mismatch with the active `session.json` (or manual via refresh/delete).
-* **Validation before reuse:** cache rows must match current WorkUnits (`unit_id` coverage), each cached `page_filename` must belong to that WorkUnit, and bbox values must be valid normalized coordinates `[x1,y1,x2,y2]` in `[0,1]`.
+* **Validation before reuse:** must match current WorkUnits (`unit_id`s), each cached `page_filename` must belong to that WorkUnit, and bbox must be normalized `[x1,y1,x2,y2]` in `[0,1]`.
 * **Behavior:** Lazy-loaded. The first time you grade "Q1", you pay the wait time. Subsequent loads are instant.
 
 ---
@@ -338,7 +338,7 @@ live data/grades/ artifacts (including session.json and segments_*.json)
 
 Leaves roster.csv and rubric/ untouched
 
-This preserves a complete snapshot of the grading state while preparing the system for the next assignment, and prevents stale segmentation caches from carrying into a new import.
+This preserves a complete snapshot and avoids stale segmentation cache reuse on the next import.
 
 After archival, scripts/init_session.py must be run before new grading begins.
 

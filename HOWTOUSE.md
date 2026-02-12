@@ -147,7 +147,7 @@ Action: Enter an archive label (e.g., quiz1_final) and submit.
 
 
 
-Result: This moves current data to data_archive/ and clears `data/raw_scans/` plus live `data/grades/` artifacts (`session.json` and per-problem `segments_*.json` caches).
+Result: This archives current data to `data_archive/` and clears `data/raw_scans/` plus live `data/grades/` files (`session.json`, `segments_*.json`).
 ⭐ QUICK REFERENCE 
 
 
@@ -157,7 +157,7 @@ Result: This moves current data to data_archive/ and clears `data/raw_scans/` pl
 > | Name recognition review                | `GET /name_review`                  | `LMStudioQwenClient`, `classify_page`, `name_review_cache_path` | `data/raw_scans/`, `data/roster.csv`, `data/name_review_cache/<quiz>__<subdir>.json` |
 > | Finalize name assignments + create session | `POST /name_review`             | name_review_submit        | Writes `data/grades/session.json`, copies scans into `data/raw_scans/`, optional ZIP; cache-only for Save & Auto-Fill |
 > | Work-unit grading (per student)        | `GET/POST /grade/{unit_id}/page`    | `grade_page`, `grade_page_submit` | `data/grades/session.json` (`Session`), `data/raw_scans/`             |
-> | Per-problem strip view                 | `GET/POST /problem/{id}/strips`     | `get_problem_strips`, `post_problem_strips`, `segment_page_for_problem` | `session.json`, `data/grades/segments_{id}.json`, `data/raw_scans/` (cache is validated against current session before reuse)   |
+> | Per-problem strip view                 | `GET/POST /problem/{id}/strips`     | `get_problem_strips`, `post_problem_strips`, `segment_page_for_problem` | `session.json`, `data/grades/segments_{id}.json`, `data/raw_scans/` (cache is validated before reuse)   |
 > | Export renamed scans (simple ZIP)      | `GET /export_renamed_scans`         | `export_renamed_scans`    | Reads `session.json`, `data/raw_scans/` → returns in-memory ZIP       |
 > | Export scores for Canvas               | `GET /export`                       | `export_scores`           | `session.json` → `student_id,<quiz>_score` CSV                         |
-> | Archive + reset                        | `POST /finalize`                    | `archive_current_data`, `finalize_assignment` | Copies full `data/` → `data_archive/<timestamp>_<label>/`, clears `data/raw_scans` and live `data/grades/` files (`session.json`, `segments_*.json`, etc.) |
+> | Archive + reset                        | `POST /finalize`                    | `archive_current_data`, `finalize_assignment` | Copies full `data/` → `data_archive/<timestamp>_<label>/`, then clears live `data/raw_scans/` and `data/grades/` files |

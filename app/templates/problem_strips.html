@@ -133,21 +133,6 @@
         display: flex;
         gap: 0.5rem;
       }
-      .top-actions {
-        display: flex;
-        align-items: center;
-        gap: 0.75rem;
-        margin: 0.25rem 0 0.75rem;
-        font-size: 0.95rem;
-      }
-      .top-actions a {
-        color: #2563eb;
-        text-decoration: none;
-        font-weight: 600;
-      }
-      .top-actions a:hover {
-        text-decoration: underline;
-      }
 
     .btn {
       background: #fff;
@@ -250,6 +235,8 @@
       font-size: 1rem;
       border-radius: 6px;
       cursor: pointer;
+      text-decoration: none;
+      display: inline-block;
     }
     .btn-secondary:hover { background: #f3f4f6; }
     
@@ -357,11 +344,6 @@
 <body>
 
   <h1>Problem {{ problem_id }} — {{ problem_label }}</h1>
-  <div class="top-actions">
-    <a href="/finish">Finish overview</a>
-    <span style="color:#94a3b8;">|</span>
-    <a href="/setup">Setup</a>
-  </div>
   <p>
     Review and grade student answers. <a href="?refresh=1" style="color:#2563eb;">↻ Segmentation</a>
   </p>
@@ -547,10 +529,11 @@
       </div>
       
       <div class="action-group-right">
-        <button id="btn-save-back"
-                class="btn-secondary"
-                type="submit"
-                name="action"
+          <a class="btn-secondary" href="/finish">Grade overview</a>
+          <button id="btn-save-back"
+                  class="btn-secondary"
+                  type="submit"
+                  name="action"
                 value="save_back">
           Save &amp; Back
         </button>
