@@ -253,7 +253,7 @@ def archive_current_data(label: str) -> str:
 
     # 3. Reset live state:
     #    - clear raw_scans/
-    #    - delete grades/session.json (if present)
+    #    - clear grades/ artifacts (session + cached segment files)
     raw_scans_dir = RAW_SCANS_DIR
     if raw_scans_dir.exists():
         for child in raw_scans_dir.iterdir():
@@ -267,9 +267,15 @@ def archive_current_data(label: str) -> str:
     # Ensure raw_scans directory exists (empty)
     raw_scans_dir.mkdir(parents=True, exist_ok=True)
 
-    session_path = DEFAULT_SESSION_PATH
-    if session_path.exists():
-        session_path.unlink()
+    grades_dir = GRADES_DIR
+    if grades_dir.exists():
+        for child in grades_dir.iterdir():
+            if child.is_file():
+                child.unlink()
+            elif child.is_dir():
+                shutil.rmtree(child)
+    else:
+        grades_dir.mkdir(parents=True, exist_ok=True)
 
     # Clear cached name review results so the setup wizard can start fresh
     if NAME_REVIEW_CACHE_DIR.exists():

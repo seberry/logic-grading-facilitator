@@ -12,6 +12,7 @@ import sys
 from datetime import datetime
 from uuid import uuid4
 import re
+import math
 from urllib.parse import quote
 from app.models import GradingKey
 
@@ -1036,6 +1037,9 @@ async def setup_import_canvas_zip(
     zip_bytes = await zip_file.read()
     if not zip_bytes:
         raise HTTPException(status_code=400, detail="Uploaded ZIP was empty.")
+
+    # A fresh import must not inherit stale per-problem segment caches.
+    _clear_segment_caches()
 
     roster = load_roster()
     if not roster:
@@ -2956,6 +2960,63 @@ def _compute_segments_data(session: Session, spec, cache_path: Path) -> List[Dic
     return segments_data
 
 
+def _is_normalized_bbox(value: Any) -> bool:
+    if not isinstance(value, list) or len(value) != 4:
+        return False
+    try:
+        x1, y1, x2, y2 = (float(v) for v in value)
+    except (TypeError, ValueError):
+        return False
+    if any(not math.isfinite(v) for v in (x1, y1, x2, y2)):
+        return False
+    return 0.0 <= x1 < x2 <= 1.0 and 0.0 <= y1 < y2 <= 1.0
+
+
+def _segments_cache_matches_session(session: Session, segments_data: Any) -> bool:
+    if not isinstance(segments_data, list):
+        return False
+
+    unit_to_pages: Dict[int, set[str]] = {
+        wu.unit_id: set(wu.page_filenames) for wu in session.work_units
+    }
+    expected_unit_ids = set(unit_to_pages.keys())
+    seen_unit_ids: set[int] = set()
+
+    for row in segments_data:
+        if not isinstance(row, dict):
+            return False
+        uid = row.get("unit_id")
+        if uid not in expected_unit_ids or uid in seen_unit_ids:
+            return False
+        seen_unit_ids.add(uid)
+
+        present = bool(row.get("present", False))
+        bbox = row.get("bbox")
+        page_filename = row.get("page_filename")
+
+        if not present:
+            continue
+
+        if not _is_normalized_bbox(bbox):
+            return False
+        if not isinstance(page_filename, str):
+            return False
+        if page_filename not in unit_to_pages[uid]:
+            return False
+
+    return seen_unit_ids == expected_unit_ids
+
+
+def _clear_segment_caches() -> None:
+    if not GRADES_DIR.exists():
+        return
+    for cache_path in GRADES_DIR.glob("segments_*.json"):
+        try:
+            cache_path.unlink()
+        except OSError:
+            pass
+
+
 def ensure_segments_cached(
     session: Session,
     spec,
@@ -2971,6 +3032,9 @@ def ensure_segments_cached(
         try:
             with cache_path.open("r", encoding="utf-8") as f:
                 segments_data = json.load(f)
+            if not _segments_cache_matches_session(session, segments_data):
+                print(f"[CACHE INVALID] {cache_path} does not match current session; recomputing.")
+                segments_data = None
         except Exception as e:
             print(f"[CACHE ERROR] Could not read cache: {e}. Recomputing.")
             segments_data = None
@@ -2984,6 +3048,9 @@ def ensure_segments_cached(
                 try:
                     with cache_path.open("r", encoding="utf-8") as f:
                         segments_data = json.load(f)
+                    if not _segments_cache_matches_session(session, segments_data):
+                        print(f"[CACHE INVALID] {cache_path} does not match current session; recomputing.")
+                        segments_data = None
                 except Exception as e:
                     print(f"[CACHE ERROR] Could not read cache: {e}. Recomputing.")
                     segments_data = None

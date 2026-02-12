@@ -184,11 +184,11 @@ data_archive/<timestamp>_<label>/
 
 Write a small metadata.json file into the snapshot
 
-Clear only:
+Clear live grading state:
 
 data/raw_scans/
 
-data/grades/session.json
+data/grades/ (including session.json and segments_*.json caches)
 
 Leave data/roster.csv and data/rubric/ intact
 
