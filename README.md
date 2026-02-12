@@ -279,6 +279,8 @@ Once you’ve finished grading:
 2. In your browser, open: `http://127.0.0.1:5000/docs`.
 3. Visit `http://127.0.0.1:5000/finish` to download:
    - grades CSV (`/export`)
+   - feedback ZIP (`/export_feedback_zip`)
+   - Canvas reupload feedback ZIP (`/export_canvas_reupload_feedback_zip`)
    - renamed scans ZIP (`/export_renamed_scans`)
 4. Or use the `GET /export` endpoint in `/docs`.
 
@@ -286,4 +288,16 @@ This CSV has columns:
 
 - `student_id`
 - `<quiz_id>_score`  (e.g. `quiz1_score`)
+
+### Canvas reupload feedback ZIP
+
+If you use Canvas "Re-Upload Submissions", place the original Canvas download ZIP under:
+
+- `data/canvas_reupload/original_zips/`
+
+Then use:
+
+- `GET /export_canvas_reupload_feedback_zip`
+
+This export preserves the exact original submission filenames and extensions while replacing content with per-student feedback artifacts (PDF/image). Upload that ZIP back in Canvas re-upload mode, and upload grades separately using the CSV export.
 
