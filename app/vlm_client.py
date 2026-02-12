@@ -131,7 +131,9 @@ class LMStudioQwenClient:
         raw_bytes = image_path.read_bytes()
         raw_b64 = base64.b64encode(raw_bytes).decode("utf-8")
         raw_uri = f"data:{source_mime};base64,{raw_b64}"
-        if len(raw_uri) <= self.max_data_uri_len:
+        # Keep original bytes on the first attempt when payload is already small enough.
+        # On retries (max_dim provided), always re-encode to normalize image encoding.
+        if max_dim is None and len(raw_uri) <= self.max_data_uri_len:
             return raw_uri
 
         # Fallback for large scans: downscale + convert to JPEG for LM Studio stability.
@@ -139,7 +141,8 @@ class LMStudioQwenClient:
         with Image.open(image_path) as im:
             if im.mode not in ("RGB", "L"):
                 im = im.convert("RGB")
-            im.thumbnail((target_dim, target_dim))
+            if max(im.size) > target_dim:
+                im.thumbnail((target_dim, target_dim))
 
             quality_steps = [85, 75, 65, 55]
             best_uri = None
@@ -152,7 +155,7 @@ class LMStudioQwenClient:
                 if len(uri) <= self.max_data_uri_len:
                     break
 
-        if best_uri and len(raw_uri) > self.max_data_uri_len:
+        if best_uri:
             print(
                 f"[VLM] Shrunk image payload for {image_path.name} (max_dim={target_dim}): "
                 f"{len(raw_uri)} -> {len(best_uri)} chars"
