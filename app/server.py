@@ -1262,6 +1262,8 @@ def classwork_setup_page(request: Request) -> Response:
     session = get_session()
     existing = session.classwork_mode
     batch = session.classwork_batch
+    status = str(request.query_params.get("status") or "").strip()
+    message = str(request.query_params.get("message") or "").strip()
     batch_columns: List[str] = []
     if batch is not None:
         tmp_path = _classwork_gradebook_tmp_path(batch.gradebook_token)
@@ -1276,6 +1278,8 @@ def classwork_setup_page(request: Request) -> Response:
             "existing": existing,
             "batch": batch,
             "batch_columns": batch_columns,
+            "status": status,
+            "message": message,
             "error_message": "",
         },
     )
@@ -1286,9 +1290,9 @@ async def classwork_setup(
     request: Request,
     submissions_zip: UploadFile = File(...),
     gradebook_csv: UploadFile = File(...),
-    assignment_id: str = Form(...),
+    assignment_id: Optional[str] = Form(None),
+    assignment_column: str = Form(...),
     max_points: float = Form(...),
-    match_roster_source: str = Form("gradebook"),
 ) -> Response:
     if max_points < 0:
         raise HTTPException(status_code=400, detail="max_points must be >= 0.")
@@ -1304,7 +1308,7 @@ async def classwork_setup(
         raise HTTPException(status_code=400, detail="Gradebook CSV must be UTF-8 encoded.")
 
     fieldnames, rows, id_col = _parse_gradebook_csv(gradebook_text)
-    active_roster = _classwork_resolve_roster(match_roster_source, rows, id_col)
+    active_roster = _classwork_resolve_roster("gradebook", rows, id_col)
 
     zip_bytes = await submissions_zip.read()
     if not zip_bytes:
@@ -1313,19 +1317,36 @@ async def classwork_setup(
     GRADEBOOK_MERGE_TMP_DIR.mkdir(parents=True, exist_ok=True)
     token = uuid4().hex
     _classwork_gradebook_tmp_path(token).write_text(gradebook_text, encoding="utf-8")
+    selected_col = (assignment_column or "").strip()
+    if not selected_col:
+        raise HTTPException(status_code=400, detail="Please choose a target gradebook column.")
+    if selected_col not in fieldnames:
+        raise HTTPException(status_code=400, detail="Selected gradebook column not found.")
+
+    raw_assignment_id = (assignment_id or "").strip()
+    if raw_assignment_id:
+        resolved_assignment_id = _sanitize_assignment_id(raw_assignment_id).lower()
+    else:
+        resolved_assignment_id = _classwork_make_assignment_id_from_column(selected_col)
+
     mode = _classwork_build_mode_from_zip(
         zip_bytes=zip_bytes,
-        assignment_id=assignment_id,
+        assignment_id=resolved_assignment_id,
         max_points=max_points,
         active_roster=active_roster,
         gradebook_token=token,
         id_col=id_col,
+        gradebook_column=selected_col,
     )
 
     with _session_lock:
         session = get_session()
         session.classwork_mode = mode
-        session.classwork_batch = None
+        session.classwork_batch = ClassworkBatchState(
+            gradebook_token=token,
+            id_column=id_col,
+            assignments=[mode],
+        )
         persist_session()
 
     return RedirectResponse(url="/classwork/review", status_code=303)
@@ -1334,7 +1355,6 @@ async def classwork_setup(
 @app.post("/classwork/batch/start", response_class=HTMLResponse)
 async def classwork_batch_start(
     gradebook_csv: UploadFile = File(...),
-    match_roster_source: str = Form("gradebook"),
 ) -> Response:
     if not gradebook_csv.filename:
         raise HTTPException(status_code=400, detail="Please upload a gradebook CSV.")
@@ -1344,7 +1364,7 @@ async def classwork_batch_start(
     except UnicodeDecodeError:
         raise HTTPException(status_code=400, detail="Gradebook CSV must be UTF-8 encoded.")
     fieldnames, rows, id_col = _parse_gradebook_csv(gradebook_text)
-    _classwork_resolve_roster(match_roster_source, rows, id_col)
+    _classwork_resolve_roster("gradebook", rows, id_col)
     if not fieldnames:
         raise HTTPException(status_code=400, detail="Gradebook CSV has no headers.")
 
@@ -1362,7 +1382,7 @@ async def classwork_batch_start(
         session.classwork_mode = None
         persist_session()
 
-    return RedirectResponse(url="/classwork", status_code=303)
+    return RedirectResponse(url="/classwork?status=success&message=" + quote("Queue created from gradebook."), status_code=303)
 
 
 @app.post("/classwork/batch/add", response_class=HTMLResponse)
@@ -1371,7 +1391,6 @@ async def classwork_batch_add(
     assignment_id: Optional[str] = Form(None),
     max_points: float = Form(...),
     assignment_column: str = Form(...),
-    match_roster_source: str = Form("gradebook"),
 ) -> Response:
     if max_points < 0:
         raise HTTPException(status_code=400, detail="max_points must be >= 0.")
@@ -1404,7 +1423,7 @@ async def classwork_batch_add(
             base_from_col = _classwork_make_assignment_id_from_column(selected_col)
             resolved_assignment_id = _classwork_unique_assignment_id(base_from_col, existing_ids)
 
-        active_roster = _classwork_resolve_roster(match_roster_source, rows, id_col)
+        active_roster = _classwork_resolve_roster("gradebook", rows, id_col)
         mode = _classwork_build_mode_from_zip(
             zip_bytes=zip_bytes,
             assignment_id=resolved_assignment_id,
@@ -1524,7 +1543,7 @@ async def classwork_batch_clear() -> Response:
         session.classwork_batch = None
         session.classwork_mode = None
         persist_session()
-    return RedirectResponse(url="/classwork", status_code=303)
+    return RedirectResponse(url="/classwork?status=success&message=" + quote("Queue cleared."), status_code=303)
 
 
 @app.get("/classwork/batch/finalize", response_class=HTMLResponse)

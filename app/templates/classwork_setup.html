@@ -43,12 +43,6 @@
       <label for="batch_gradebook_csv">Canvas gradebook CSV</label>
       <input id="batch_gradebook_csv" type="file" name="gradebook_csv" accept=".csv" required>
 
-      <label for="batch_match_roster_source">Roster source for matching</label>
-      <select id="batch_match_roster_source" name="match_roster_source">
-        <option value="gradebook" selected>Use uploaded gradebook roster (Recommended)</option>
-        <option value="session">Use current app roster/session</option>
-      </select>
-
       <button type="submit">{% if batch %}Replace Queue From Gradebook{% else %}Create Queue From Gradebook{% endif %}</button>
       <a class="btn secondary" href="/finish">Back to finish</a>
     </form>
@@ -100,12 +94,6 @@
           {% for col in batch_columns %}
             <option value="{{ col }}">{{ col }}</option>
           {% endfor %}
-        </select>
-
-        <label for="batch_add_match_roster_source">Roster source for matching</label>
-        <select id="batch_add_match_roster_source" name="match_roster_source">
-          <option value="gradebook" selected>Use uploaded gradebook roster (Recommended)</option>
-          <option value="session">Use current app roster/session</option>
         </select>
 
         <button type="submit">Add Assignment to Batch</button>
