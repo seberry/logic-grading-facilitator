@@ -41,6 +41,33 @@ class WorkUnit(BaseModel):
     # PLANNED: free-text comments keyed by problem id
 
 
+class ClassworkFileRef(BaseModel):
+    """Single uploaded classwork file tied to one student."""
+    stored_filename: str
+    original_filename: str
+    ext: str
+
+
+class ClassworkEntry(BaseModel):
+    """Roster-complete classwork row (submitted/missing + score/comment)."""
+    student_id: str
+    student_name: str
+    has_submission: bool
+    files: List[ClassworkFileRef] = Field(default_factory=list)
+    score: float
+    comment: Optional[str] = None
+
+
+class ClassworkModeState(BaseModel):
+    """State for effort-based classwork review mode."""
+    assignment_id: str
+    max_points: float
+    gradebook_token: str
+    id_column: str
+    entries: List[ClassworkEntry] = Field(default_factory=list)
+    unmatched_files: List[str] = Field(default_factory=list)
+
+
 class Session(BaseModel):
     """
     Canonical session file, matching docs/SCHEMA.md:
@@ -62,3 +89,5 @@ class Session(BaseModel):
     problem_notes: Dict[str, str] = Field(default_factory=dict)
     # Optional per-problem type tags for autograde workflows (e.g., "fitch_proof")
     problem_types: Dict[str, Optional[str]] = Field(default_factory=dict)
+    # Optional effort-grading mode state for classwork/attendance assignments.
+    classwork_mode: Optional[ClassworkModeState] = None

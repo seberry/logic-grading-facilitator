@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Classwork Review</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 1.2rem; background: #f8fafc; color: #111827; padding-bottom: 120px; }
+    .top { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 0.9rem 1rem; margin-bottom: 1rem; }
+    .muted { color: #6b7280; }
+    .error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 0.7rem; border-radius: 8px; margin-bottom: 0.8rem; }
+    .entry { display: grid; grid-template-columns: 1.2fr 1fr; gap: 1rem; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 0.8rem; margin-bottom: 0.9rem; }
+    .entry.missing { border-color: #fca5a5; background: #fffbfb; }
+    .meta { margin-bottom: 0.7rem; }
+    .pill { display: inline-block; border-radius: 999px; padding: 0.15rem 0.55rem; font-size: 0.8rem; font-weight: 600; }
+    .pill.submitted { background: #dcfce7; color: #166534; }
+    .pill.missing { background: #fee2e2; color: #991b1b; }
+    .preview { border: 1px solid #d1d5db; border-radius: 8px; min-height: 260px; background: #fff; display: flex; align-items: flex-start; justify-content: flex-start; overflow: hidden; }
+    .preview iframe { width: 100%; height: 680px; border: 0; background: #fff; }
+    .preview pre { width: 100%; max-height: 680px; margin: 0; padding: 0.8rem; overflow: auto; white-space: pre-wrap; word-break: break-word; font-size: 0.9rem; line-height: 1.35; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+    .img-preview { width: 100%; }
+    .img-toolbar { display: flex; gap: 0.35rem; align-items: center; padding: 0.35rem; border-bottom: 1px solid #e5e7eb; background: #f9fafb; }
+    .img-toolbar button, .img-toolbar a { border: 1px solid #d1d5db; background: #fff; color: #111827; border-radius: 6px; padding: 0.2rem 0.45rem; font-size: 0.8rem; text-decoration: none; cursor: pointer; }
+    .img-wrap { width: 100%; max-height: 680px; overflow: auto; background: #fff; }
+    .img-wrap img { display: block; height: auto; max-width: none; }
+    .img-stack-item { border-top: 1px solid #eef2f7; padding-top: 0.5rem; margin-top: 0.5rem; }
+    .img-stack-label { color: #6b7280; font-size: 0.8rem; margin: 0 0 0.35rem 0.5rem; }
+    .controls label { display: block; font-weight: 600; margin-bottom: 0.25rem; }
+    .controls input[type="number"], .controls textarea, .controls select { width: 100%; padding: 0.4rem; margin-bottom: 0.7rem; }
+    .controls textarea { min-height: 4rem; }
+    .action-bar { position: fixed; left: 0; right: 0; bottom: 0; background: #fff; border-top: 1px solid #d1d5db; padding: 0.8rem 1rem; display: flex; justify-content: space-between; align-items: center; gap: 0.8rem; }
+    .row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+    button, .btn { border: 1px solid #2563eb; background: #2563eb; color: #fff; border-radius: 6px; padding: 0.45rem 0.8rem; cursor: pointer; text-decoration: none; }
+    .btn.secondary, button.secondary { border-color: #d1d5db; background: #fff; color: #111827; }
+    table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+    th, td { border: 1px solid #e5e7eb; padding: 0.35rem 0.45rem; text-align: left; }
+    th { background: #f3f4f6; }
+  </style>
+</head>
+<body>
+  <form method="post" action="/classwork/review">
+    <div class="top">
+      <h1 style="margin:0;">Classwork Review</h1>
+      <div class="muted">
+        Assignment <code>{{ mode.assignment_id }}</code> |
+        Max points {{ mode.max_points }} |
+        Rows {{ mode.entries|length }} |
+        Submitted {{ submitted_count }} |
+        Missing {{ missing_count }} |
+        Commented {{ commented_count }}
+      </div>
+      {% if mode.unmatched_files %}
+        <p class="muted">Unmatched files (ignored): {{ mode.unmatched_files|length }}</p>
+      {% endif %}
+      {% if error_message %}
+        <div class="error">{{ error_message }}</div>
+      {% endif %}
+      {% if analysis.conflicts %}
+        <div class="error">
+          <strong>Conflicts preview</strong>
+          <table>
+            <thead>
+              <tr><th>Student ID</th><th>Student</th><th>Existing</th><th>New</th></tr>
+            </thead>
+            <tbody>
+              {% for c in analysis.conflicts %}
+                <tr>
+                  <td>{{ c.student_id }}</td>
+                  <td>{{ c.student }}</td>
+                  <td>{{ c.existing }}</td>
+                  <td>{{ c.new }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      {% endif %}
+    </div>
+
+    {% for e in mode.entries %}
+      {% set first = e.files[0] if e.files else None %}
+      <section class="entry {% if not e.has_submission %}missing{% endif %}">
+        <div>
+          <div class="meta">
+            <strong>{{ e.student_name }}</strong> ({{ e.student_id }})
+            {% if e.has_submission %}
+              <span class="pill submitted">submitted</span>
+            {% else %}
+              <span class="pill missing">missing</span>
+            {% endif %}
+          </div>
+
+          {% if e.files and e.files|length > 1 %}
+            <label>Submission file</label>
+            <select class="file-select" data-target="preview-{{ e.student_id }}">
+              {% for f in e.files %}
+                <option
+                  value="/classwork_files/{{ f.stored_filename }}"
+                  data-stored="{{ f.stored_filename }}"
+                  data-ext="{{ f.ext }}"
+                  {% if loop.first %}selected{% endif %}>
+                  {{ f.original_filename }}
+                </option>
+              {% endfor %}
+            </select>
+          {% elif first %}
+            <div class="muted">{{ first.original_filename }}</div>
+          {% endif %}
+
+          <div id="preview-{{ e.student_id }}" class="preview"
+               data-ext="{{ first.ext if first else '' }}"
+               data-stored="{{ first.stored_filename if first else '' }}"
+               data-url="/classwork_files/{{ first.stored_filename if first else '' }}">
+          </div>
+        </div>
+
+        <div class="controls">
+          <label for="score_{{ e.student_id }}">Score</label>
+          <input id="score_{{ e.student_id }}"
+                 type="number"
+                 step="0.01"
+                 name="score_{{ e.student_id }}"
+                 value="{{ e.score }}">
+
+          <label for="comment_{{ e.student_id }}">Comment (optional)</label>
+          <textarea id="comment_{{ e.student_id }}"
+                    name="comment_{{ e.student_id }}"
+                    placeholder="Leave blank for no comment">{{ e.comment or '' }}</textarea>
+        </div>
+      </section>
+    {% endfor %}
+
+    <div class="action-bar">
+      <div class="row">
+        <button type="submit" name="action" value="credit_submitted" class="secondary">Credit All Submitted</button>
+        <button type="submit" name="action" value="zero_missing" class="secondary">Set Missing to 0</button>
+        <button type="submit" name="action" value="reset_defaults" class="secondary">Reset Defaults</button>
+        <button type="submit" name="action" value="save">Save</button>
+      </div>
+
+      <div class="row">
+        <label for="assignment_column"><strong>Gradebook column</strong></label>
+        <select id="assignment_column" name="assignment_column">
+          <option value="">Select assignment column</option>
+          {% for col in analysis.columns %}
+            <option value="{{ col.name }}">{{ col.name }} (matched {{ col.matched }}, non-empty {{ col.matched_non_empty }})</option>
+          {% endfor %}
+        </select>
+        <label>
+          <input type="checkbox" name="overwrite_non_empty" value="1">
+          overwrite non-empty
+        </label>
+        <button type="submit" formaction="/classwork/finalize">Finalize</button>
+        <a class="btn secondary" href="/classwork">Back</a>
+      </div>
+    </div>
+  </form>
+
+  <script>
+    const TEXT_EXTS = new Set([
+      '.txt', '.md', '.csv', '.json', '.log', '.text', '.rtf',
+      '.html', '.htm', '.xml', '.yaml', '.yml', '.docx',
+    ]);
+    const HTML_EXTS = new Set(['.html', '.htm']);
+    const IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp']);
+
+    function escapeHtml(value) {
+      return (value || '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;');
+    }
+
+    function extractReadableHtmlText(source) {
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(source || '', 'text/html');
+
+      // Prefer paragraph text for at-a-glance reading.
+      const paragraphs = Array.from(doc.querySelectorAll('p'))
+        .map((p) => (p.textContent || '').trim())
+        .filter(Boolean);
+      if (paragraphs.length > 0) {
+        return paragraphs.join('\n\n');
+      }
+
+      const bodyText = (doc.body?.textContent || '').trim();
+      if (bodyText) {
+        return bodyText;
+      }
+      return (doc.documentElement?.textContent || '').trim();
+    }
+
+    function filenameFromUrl(url) {
+      try {
+        const clean = (url || '').split('?')[0];
+        const raw = clean.split('/').pop() || '';
+        return decodeURIComponent(raw);
+      } catch (_err) {
+        return 'image';
+      }
+    }
+
+    function getImageFilesForTarget(target) {
+      const out = [];
+      const targetId = target.id;
+      const selector = `.file-select[data-target="${CSS.escape(targetId)}"]`;
+      const select = document.querySelector(selector);
+      if (select) {
+        for (const opt of select.options) {
+          const ext = (opt.dataset.ext || '').toLowerCase();
+          if (!IMAGE_EXTS.has(ext)) continue;
+          out.push({
+            url: opt.value || '',
+            label: (opt.textContent || '').trim() || filenameFromUrl(opt.value || ''),
+          });
+        }
+      } else {
+        const ext = (target.dataset.ext || '').toLowerCase();
+        if (IMAGE_EXTS.has(ext)) {
+          const url = target.dataset.url || '';
+          out.push({ url, label: filenameFromUrl(url) });
+        }
+      }
+      return out.filter((f) => f.url);
+    }
+
+    function renderImagePreview(target, url) {
+      const imageFiles = getImageFilesForTarget(target);
+      const canStack = imageFiles.length > 1;
+      if (!target.dataset.zoom) {
+        target.dataset.zoom = '1';
+      }
+      if (canStack && !target.dataset.stackImages) {
+        target.dataset.stackImages = '1';
+      }
+      const zoom = Number(target.dataset.zoom || '1');
+      const stackMode = canStack && target.dataset.stackImages !== '0';
+      const stackButton = canStack
+        ? `<button type="button" data-stack-toggle="1">${stackMode ? 'Single image' : 'Stack images'}</button>`
+        : '';
+      target.innerHTML = `
+        <div class="img-preview">
+          <div class="img-toolbar">
+            <button type="button" data-zoom="1">Fit</button>
+            <button type="button" data-zoom="1.25">125%</button>
+            <button type="button" data-zoom="1.75">175%</button>
+            <button type="button" data-zoom="2.5">250%</button>
+            ${stackButton}
+            <a href="${url}" target="_blank" rel="noopener">Full size</a>
+          </div>
+          <div class="img-wrap">
+            ${
+              stackMode
+                ? imageFiles.map((f) => `
+                    <div class="img-stack-item">
+                      <div class="img-stack-label">${escapeHtml(f.label)}</div>
+                      <img src="${f.url}" alt="submission image">
+                    </div>
+                  `).join('')
+                : `<img src="${url}" alt="submission">`
+            }
+          </div>
+        </div>
+      `;
+      target.querySelectorAll('img').forEach((img) => {
+        img.style.width = `${Math.max(0.1, zoom) * 100}%`;
+      });
+      target.querySelectorAll('button[data-zoom]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const next = Number(btn.dataset.zoom || '1');
+          target.dataset.zoom = String(next);
+          target.querySelectorAll('img').forEach((img) => {
+            img.style.width = `${Math.max(0.1, next) * 100}%`;
+          });
+        });
+      });
+      target.querySelectorAll('button[data-stack-toggle]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          target.dataset.stackImages = target.dataset.stackImages === '1' ? '0' : '1';
+          renderImagePreview(target, url);
+        });
+      });
+    }
+
+    async function renderPreview(target) {
+      const ext = (target.dataset.ext || '').toLowerCase();
+      const url = target.dataset.url || '';
+      const stored = target.dataset.stored || '';
+      if (!url) {
+        target.innerHTML = '<span class="muted">No submission file</span>';
+        return;
+      }
+      if (ext === '.pdf') {
+        target.innerHTML = `<iframe src="${url}"></iframe>`;
+        return;
+      }
+      if (IMAGE_EXTS.has(ext)) {
+        renderImagePreview(target, url);
+        return;
+      }
+      if (TEXT_EXTS.has(ext)) {
+        target.innerHTML = '<span class="muted">Loading text…</span>';
+        try {
+          if (!stored) {
+            throw new Error('Missing preview identifier');
+          }
+          const response = await fetch(`/classwork/preview_text/${encodeURIComponent(stored)}`);
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          const raw = await response.text();
+          const displayText = HTML_EXTS.has(ext) ? extractReadableHtmlText(raw) : raw;
+          target.innerHTML = `<pre>${escapeHtml(displayText)}</pre>`;
+          return;
+        } catch (err) {
+          target.innerHTML = `<span class="muted">Could not preview text inline (${escapeHtml(String(err))}).</span>`;
+          return;
+        }
+      }
+      target.innerHTML = `<a href="${url}" target="_blank" rel="noopener">Open file</a>`;
+    }
+
+    document.querySelectorAll('.preview').forEach((el) => { void renderPreview(el); });
+    document.querySelectorAll('.file-select').forEach((sel) => {
+      sel.addEventListener('change', () => {
+        const opt = sel.options[sel.selectedIndex];
+        const targetId = sel.dataset.target;
+        const target = document.getElementById(targetId);
+        if (!target || !opt) return;
+        target.dataset.url = opt.value || '';
+        target.dataset.ext = opt.dataset.ext || '';
+        target.dataset.stored = opt.dataset.stored || '';
+        if ((target.dataset.ext || '').toLowerCase() !== '.jpg' &&
+            (target.dataset.ext || '').toLowerCase() !== '.jpeg' &&
+            (target.dataset.ext || '').toLowerCase() !== '.png' &&
+            (target.dataset.ext || '').toLowerCase() !== '.gif' &&
+            (target.dataset.ext || '').toLowerCase() !== '.webp') {
+          target.dataset.stackImages = '0';
+        }
+        void renderPreview(target);
+      });
+    });
+  </script>
+</body>
+</html>
