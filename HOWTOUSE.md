@@ -64,6 +64,16 @@ Grade: Jump to Step 5 below (Strip View).
 
 ---
 
+## Classwork + Attendance (Batch)
+
+Use `http://127.0.0.1:5000/classwork` for effort-based grading and one-pass gradebook merge.
+
+- Local semester defaults:
+  - Attendance Q (`AQ`) = **1 point**
+  - Classwork (`CW`) = **10 points**
+- In batch mode, set the target gradebook column once when queueing each assignment.
+- Finalize batch reuses those saved mappings and does not ask for columns again.
+
 ## Flashcards Dataset Builder (UI)
 
 Use this for creating a name-learning flashcard dataset from student uploads.

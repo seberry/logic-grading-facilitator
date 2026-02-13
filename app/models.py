@@ -64,6 +64,7 @@ class ClassworkModeState(BaseModel):
     max_points: float
     gradebook_token: str
     id_column: str
+    gradebook_column: Optional[str] = None
     entries: List[ClassworkEntry] = Field(default_factory=list)
     unmatched_files: List[str] = Field(default_factory=list)
 

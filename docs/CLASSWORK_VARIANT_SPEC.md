@@ -25,6 +25,11 @@ For classwork / attendance-Q assignments, grading is effort-based:
   - comments reupload ZIP only when comments exist
 - Deterministic, local-only behavior (FERPA-safe), no cloud/model dependency.
 
+### Local Semester Defaults (Current Teaching Workflow)
+- Attendance Q (`AQ`) defaults to **1 point**.
+- Classwork (`CW`) defaults to **10 points**.
+- These are defaults for faster setup; point values remain editable when needed.
+
 ## 3. Non-Goals
 - No question-level rubric grading.
 - No VLM/OCR segmentation.

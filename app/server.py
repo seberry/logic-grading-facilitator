@@ -870,6 +870,22 @@ def _sanitize_assignment_id(raw: str) -> str:
     return cleaned or "classwork_assignment"
 
 
+def _classwork_make_assignment_id_from_column(column_name: str) -> str:
+    return _sanitize_assignment_id((column_name or "").strip()).lower()
+
+
+def _classwork_unique_assignment_id(base_id: str, existing_ids: set[str]) -> str:
+    base = _sanitize_assignment_id(base_id).lower()
+    if base not in existing_ids:
+        return base
+    counter = 2
+    while True:
+        candidate = f"{base}_{counter}"
+        if candidate not in existing_ids:
+            return candidate
+        counter += 1
+
+
 def _normalize_match_key(value: str) -> str:
     return re.sub(r"[^a-z0-9]", "", (value or "").lower())
 
@@ -1048,6 +1064,7 @@ def _classwork_build_mode_from_zip(
     active_roster: List[RosterEntry],
     gradebook_token: str,
     id_col: str,
+    gradebook_column: Optional[str] = None,
 ) -> ClassworkModeState:
     setup_id = uuid4().hex
     student_files: Dict[str, List[ClassworkFileRef]] = {}
@@ -1126,6 +1143,7 @@ def _classwork_build_mode_from_zip(
         max_points=float(max_points),
         gradebook_token=gradebook_token,
         id_column=id_col,
+        gradebook_column=(gradebook_column or "").strip() or None,
         entries=entries,
         unmatched_files=sorted(set(unmatched_files)),
     )
@@ -1165,6 +1183,43 @@ def _classwork_open_next_batch_assignment(session: Session, *, include_current: 
             return False
     session.classwork_mode = batch.assignments[0]
     return True
+
+
+def _classwork_batch_assignment_stats(
+    batch: ClassworkBatchState,
+    rows: List[Dict[str, str]],
+    id_col: str,
+) -> List[Dict[str, Any]]:
+    assignment_stats: List[Dict[str, Any]] = []
+    for mode in batch.assignments:
+        score_map = _build_classwork_score_map(mode)
+        col = (mode.gradebook_column or "").strip()
+        non_empty = 0
+        matched = 0
+        matched_non_empty = 0
+        if col:
+            for row in rows:
+                sid = (row.get(id_col) or "").strip()
+                if sid in score_map:
+                    matched += 1
+                val = (row.get(col) or "").strip()
+                if val != "":
+                    non_empty += 1
+                    if sid in score_map:
+                        matched_non_empty += 1
+        assignment_stats.append(
+            {
+                "assignment_id": mode.assignment_id,
+                "max_points": mode.max_points,
+                "submitted_count": sum(1 for e in mode.entries if e.has_submission),
+                "commented_count": sum(1 for e in mode.entries if (e.comment or "").strip()),
+                "gradebook_column": col or "",
+                "column_non_empty": non_empty,
+                "column_matched": matched,
+                "column_matched_non_empty": matched_non_empty,
+            }
+        )
+    return assignment_stats
 
 
 def _classwork_resolve_stored_file(stored_filename: str) -> Path:
@@ -1207,12 +1262,20 @@ def classwork_setup_page(request: Request) -> Response:
     session = get_session()
     existing = session.classwork_mode
     batch = session.classwork_batch
+    batch_columns: List[str] = []
+    if batch is not None:
+        tmp_path = _classwork_gradebook_tmp_path(batch.gradebook_token)
+        if tmp_path.exists():
+            decoded = tmp_path.read_text(encoding="utf-8")
+            fieldnames, _rows, id_col = _parse_gradebook_csv(decoded)
+            batch_columns = _candidate_assignment_columns(fieldnames, id_col)
     return templates.TemplateResponse(
         "classwork_setup.html",
         {
             "request": request,
             "existing": existing,
             "batch": batch,
+            "batch_columns": batch_columns,
             "error_message": "",
         },
     )
@@ -1305,8 +1368,9 @@ async def classwork_batch_start(
 @app.post("/classwork/batch/add", response_class=HTMLResponse)
 async def classwork_batch_add(
     submissions_zip: UploadFile = File(...),
-    assignment_id: str = Form(...),
+    assignment_id: Optional[str] = Form(None),
     max_points: float = Form(...),
+    assignment_column: str = Form(...),
     match_roster_source: str = Form("gradebook"),
 ) -> Response:
     if max_points < 0:
@@ -1326,16 +1390,36 @@ async def classwork_batch_add(
         if not tmp_path.exists():
             raise HTTPException(status_code=400, detail="Batch gradebook token missing. Restart batch.")
         gradebook_text = tmp_path.read_text(encoding="utf-8")
-        _, rows, id_col = _parse_gradebook_csv(gradebook_text)
+        fieldnames, rows, id_col = _parse_gradebook_csv(gradebook_text)
+        selected_col = (assignment_column or "").strip()
+        if not selected_col:
+            raise HTTPException(status_code=400, detail="Please choose a target gradebook column.")
+        if selected_col not in fieldnames:
+            raise HTTPException(status_code=400, detail="Selected gradebook column not found.")
+        existing_ids = {(a.assignment_id or "").lower() for a in batch.assignments}
+        raw_assignment_id = (assignment_id or "").strip()
+        if raw_assignment_id:
+            resolved_assignment_id = _sanitize_assignment_id(raw_assignment_id).lower()
+        else:
+            base_from_col = _classwork_make_assignment_id_from_column(selected_col)
+            resolved_assignment_id = _classwork_unique_assignment_id(base_from_col, existing_ids)
+
         active_roster = _classwork_resolve_roster(match_roster_source, rows, id_col)
         mode = _classwork_build_mode_from_zip(
             zip_bytes=zip_bytes,
-            assignment_id=assignment_id,
+            assignment_id=resolved_assignment_id,
             max_points=max_points,
             active_roster=active_roster,
             gradebook_token=batch.gradebook_token,
             id_col=id_col,
+            gradebook_column=selected_col,
         )
+        for item in batch.assignments:
+            if item.assignment_id != mode.assignment_id and (item.gradebook_column or "").strip() == selected_col:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Column {selected_col!r} is already assigned to {item.assignment_id}.",
+                )
         replaced = False
         for idx, item in enumerate(batch.assignments):
             if item.assignment_id == mode.assignment_id:
@@ -1394,6 +1478,45 @@ async def classwork_batch_remove(assignment_id: str = Form(...)) -> Response:
     return RedirectResponse(url="/classwork", status_code=303)
 
 
+@app.post("/classwork/batch/set_column", response_class=HTMLResponse)
+async def classwork_batch_set_column(
+    assignment_id: str = Form(...),
+    assignment_column: str = Form(...),
+) -> Response:
+    assignment_clean = _sanitize_assignment_id(assignment_id)
+    selected_col = (assignment_column or "").strip()
+    if not selected_col:
+        raise HTTPException(status_code=400, detail="Please choose a target gradebook column.")
+    with _session_lock:
+        session = get_session()
+        batch = session.classwork_batch
+        if batch is None:
+            raise HTTPException(status_code=400, detail="Batch mode is not initialized.")
+        tmp_path = _classwork_gradebook_tmp_path(batch.gradebook_token)
+        if not tmp_path.exists():
+            raise HTTPException(status_code=400, detail="Batch gradebook token missing. Restart batch.")
+        decoded = tmp_path.read_text(encoding="utf-8")
+        fieldnames, _rows, _id_col = _parse_gradebook_csv(decoded)
+        if selected_col not in fieldnames:
+            raise HTTPException(status_code=400, detail="Selected gradebook column not found.")
+        target: Optional[ClassworkModeState] = None
+        for item in batch.assignments:
+            if item.assignment_id == assignment_clean:
+                target = item
+            elif (item.gradebook_column or "").strip() == selected_col:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Column {selected_col!r} is already assigned to {item.assignment_id}.",
+                )
+        if target is None:
+            raise HTTPException(status_code=404, detail="Batch assignment not found.")
+        target.gradebook_column = selected_col
+        if session.classwork_mode and session.classwork_mode.assignment_id == assignment_clean:
+            session.classwork_mode.gradebook_column = selected_col
+        persist_session()
+    return RedirectResponse(url="/classwork", status_code=303)
+
+
 @app.post("/classwork/batch/clear", response_class=HTMLResponse)
 async def classwork_batch_clear() -> Response:
     with _session_lock:
@@ -1416,28 +1539,19 @@ def classwork_batch_finalize_page(request: Request) -> Response:
     if not tmp_path.exists():
         raise HTTPException(status_code=400, detail="Batch gradebook token missing. Restart batch.")
     decoded = tmp_path.read_text(encoding="utf-8")
-    fieldnames, rows, id_col = _parse_gradebook_csv(decoded)
-    assignment_cols = _candidate_assignment_columns(fieldnames, id_col)
-    assignment_stats: List[Dict[str, Any]] = []
-    for mode in batch.assignments:
-        score_map = _build_classwork_score_map(mode)
-        stats = _assignment_column_stats(rows, assignment_cols, id_col, score_map)
-        assignment_stats.append(
-            {
-                "assignment_id": mode.assignment_id,
-                "max_points": mode.max_points,
-                "submitted_count": sum(1 for e in mode.entries if e.has_submission),
-                "commented_count": sum(1 for e in mode.entries if (e.comment or "").strip()),
-                "columns": stats,
-            }
-        )
+    _fieldnames, rows, id_col = _parse_gradebook_csv(decoded)
+    assignment_stats = _classwork_batch_assignment_stats(batch, rows, id_col)
+    missing_columns = [a["assignment_id"] for a in assignment_stats if not a["gradebook_column"]]
     return templates.TemplateResponse(
         "classwork_batch_finalize.html",
         {
             "request": request,
             "batch": batch,
             "assignment_stats": assignment_stats,
-            "error_message": "",
+            "error_message": (
+                "Missing target gradebook column for: " + ", ".join(missing_columns)
+                if missing_columns else ""
+            ),
             "conflicts": [],
         },
     )
@@ -1462,16 +1576,12 @@ async def classwork_batch_finalize_submit(request: Request) -> Response:
             raise HTTPException(status_code=400, detail="Batch gradebook token missing. Restart batch.")
         decoded = tmp_path.read_text(encoding="utf-8")
         fieldnames, rows, id_col = _parse_gradebook_csv(decoded)
-
         selected_cols: Dict[str, str] = {}
         used_cols: set[str] = set()
         for mode in batch.assignments:
-            field = f"column_{mode.assignment_id}"
-            col = str(form.get(field) or "").strip()
+            col = (mode.gradebook_column or "").strip()
             if not col:
-                raise HTTPException(status_code=400, detail=f"Select a gradebook column for {mode.assignment_id}.")
-            if col not in fieldnames:
-                raise HTTPException(status_code=400, detail=f"Column not found for {mode.assignment_id}: {col}")
+                raise HTTPException(status_code=400, detail=f"Missing gradebook column for {mode.assignment_id}.")
             if col in used_cols:
                 raise HTTPException(status_code=400, detail="Each batch assignment must use a different column.")
             used_cols.add(col)
@@ -1503,20 +1613,7 @@ async def classwork_batch_finalize_submit(request: Request) -> Response:
                 )
 
         if conflicts and not overwrite:
-            assignment_cols = _candidate_assignment_columns(fieldnames, id_col)
-            assignment_stats: List[Dict[str, Any]] = []
-            for mode in batch.assignments:
-                score_map = _build_classwork_score_map(mode)
-                stats = _assignment_column_stats(rows, assignment_cols, id_col, score_map)
-                assignment_stats.append(
-                    {
-                        "assignment_id": mode.assignment_id,
-                        "max_points": mode.max_points,
-                        "submitted_count": sum(1 for e in mode.entries if e.has_submission),
-                        "commented_count": sum(1 for e in mode.entries if (e.comment or "").strip()),
-                        "columns": stats,
-                    }
-                )
+            assignment_stats = _classwork_batch_assignment_stats(batch, rows, id_col)
             return templates.TemplateResponse(
                 "classwork_batch_finalize.html",
                 {
@@ -1525,7 +1622,7 @@ async def classwork_batch_finalize_submit(request: Request) -> Response:
                     "assignment_stats": assignment_stats,
                     "error_message": (
                         f"Found {len(conflicts)} non-empty conflict(s). "
-                        "Choose different columns or enable overwrite."
+                        "Edit queue column mappings or enable overwrite."
                     ),
                     "conflicts": conflicts[:40],
                 },
@@ -1586,6 +1683,7 @@ async def classwork_batch_finalize_submit(request: Request) -> Response:
     manifest = {
         "gradebook_file": gradebook_filename,
         "comments_files": comments_files,
+        "assignment_ids": [m.assignment_id for m in batch.assignments],
         "created_at": datetime.now().isoformat(),
     }
     (export_dir / "batch_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
@@ -1597,6 +1695,37 @@ async def classwork_batch_finalize_submit(request: Request) -> Response:
             "export_id": export_id,
             "comments_files": comments_files,
             "assignment_ids": [m.assignment_id for m in batch.assignments],
+            "closed": False,
+        },
+    )
+
+
+@app.post("/classwork/batch/close_session", response_class=HTMLResponse)
+async def classwork_batch_close_session(request: Request) -> Response:
+    form = await request.form()
+    export_id = str(form.get("export_id") or "").strip()
+    if not export_id:
+        raise HTTPException(status_code=400, detail="Missing export id.")
+    export_dir = CLASSWORK_EXPORTS_DIR / export_id
+    manifest_path = export_dir / "batch_manifest.json"
+    if not manifest_path.exists():
+        raise HTTPException(status_code=404, detail="Batch export not found.")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    comments_files = manifest.get("comments_files") or {}
+    assignment_ids = manifest.get("assignment_ids") or sorted(comments_files.keys())
+    with _session_lock:
+        session = get_session()
+        session.classwork_batch = None
+        session.classwork_mode = None
+        persist_session()
+    return templates.TemplateResponse(
+        "classwork_batch_done.html",
+        {
+            "request": request,
+            "export_id": export_id,
+            "comments_files": comments_files,
+            "assignment_ids": assignment_ids,
+            "closed": True,
         },
     )
 
@@ -1609,6 +1738,7 @@ def classwork_review_page(request: Request) -> Response:
         return RedirectResponse(url="/classwork", status_code=303)
 
     analysis = _classwork_analysis(mode)
+    batch_mode = bool(session.classwork_batch)
     submitted_count = sum(1 for e in mode.entries if e.has_submission)
     commented_count = sum(1 for e in mode.entries if (e.comment or "").strip())
     return templates.TemplateResponse(
@@ -1616,6 +1746,7 @@ def classwork_review_page(request: Request) -> Response:
         {
             "request": request,
             "mode": mode,
+            "batch_mode": batch_mode,
             "analysis": analysis,
             "submitted_count": submitted_count,
             "missing_count": len(mode.entries) - submitted_count,
@@ -1657,6 +1788,11 @@ async def classwork_finalize(request: Request) -> Response:
         mode = session.classwork_mode
         if mode is None:
             raise HTTPException(status_code=400, detail="Classwork mode is not initialized.")
+        if session.classwork_batch is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="Batch mode is active. Use /classwork/batch/finalize for export.",
+            )
 
         _classwork_apply_form_updates(form, mode, "save")
         _classwork_sync_mode_into_batch(session)

@@ -11,8 +11,6 @@
     table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
     th, td { border: 1px solid #e5e7eb; padding: 0.35rem 0.45rem; text-align: left; }
     th { background: #f3f4f6; }
-    label { display: block; margin-top: 0.8rem; font-weight: 600; }
-    select { width: 100%; max-width: 700px; padding: 0.4rem; margin-top: 0.25rem; }
     button, .btn { display: inline-block; margin-top: 0.8rem; border: 1px solid #2563eb; background: #2563eb; color: #fff; border-radius: 6px; padding: 0.5rem 0.85rem; text-decoration: none; cursor: pointer; }
     .btn.secondary { border-color: #d1d5db; background: #fff; color: #111827; }
   </style>
@@ -20,7 +18,7 @@
 <body>
   <div class="card">
     <h1 style="margin-top:0;">Finalize Classwork Batch</h1>
-    <p class="muted">Choose one unique gradebook column per assignment, then export one merged gradebook CSV.</p>
+    <p class="muted">Gradebook columns were set when queueing assignments. Confirm below, then export one merged gradebook CSV.</p>
     {% if error_message %}
       <div class="error">{{ error_message }}</div>
     {% endif %}
@@ -48,19 +46,25 @@
     {% endif %}
 
     <form method="post" action="/classwork/batch/finalize">
-      {% for a in assignment_stats %}
-        <label for="column_{{ a.assignment_id }}">
-          {{ a.assignment_id }} (submitted {{ a.submitted_count }}, commented {{ a.commented_count }}, max {{ a.max_points }})
-        </label>
-        <select id="column_{{ a.assignment_id }}" name="column_{{ a.assignment_id }}" required>
-          <option value="">Select gradebook column</option>
-          {% for col in a.columns %}
-            <option value="{{ col.name }}">
-              {{ col.name }} (matched {{ col.matched }}, non-empty {{ col.matched_non_empty }})
-            </option>
+      <table>
+        <thead>
+          <tr>
+            <th>Assignment</th><th>Column</th><th>Submitted</th><th>Commented</th><th>Matched</th><th>Non-empty (matched)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in assignment_stats %}
+            <tr>
+              <td>{{ a.assignment_id }}</td>
+              <td><code>{{ a.gradebook_column or "(not set)" }}</code></td>
+              <td>{{ a.submitted_count }}</td>
+              <td>{{ a.commented_count }}</td>
+              <td>{{ a.column_matched }}</td>
+              <td>{{ a.column_matched_non_empty }}</td>
+            </tr>
           {% endfor %}
-        </select>
-      {% endfor %}
+        </tbody>
+      </table>
       <label style="margin-top:1rem;">
         <input type="checkbox" name="overwrite_non_empty" value="1">
         overwrite non-empty cells (except equal-value cells are always allowed)

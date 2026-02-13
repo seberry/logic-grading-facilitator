@@ -15,6 +15,9 @@
 <body>
   <div class="card">
     <h1>Batch Export Ready</h1>
+    {% if closed %}
+      <p class="muted"><strong>Batch session closed.</strong> You can still download exports from this page.</p>
+    {% endif %}
     <p>One merged gradebook CSV was generated for {{ assignment_ids|length }} assignment(s).</p>
     <p>
       <a class="btn" href="/classwork/batch/export/{{ export_id }}/gradebook">Download merged gradebook CSV</a>
@@ -33,10 +36,12 @@
       <p class="muted">No comments entered across assignments, so no comments ZIPs were generated.</p>
     {% endif %}
 
-    <p>
-      <a class="btn secondary" href="/classwork">Back to classwork setup</a>
-      <a class="btn secondary" href="/finish">Go to finish page</a>
-    </p>
+    {% if not closed %}
+      <form method="post" action="/classwork/batch/close_session">
+        <input type="hidden" name="export_id" value="{{ export_id }}">
+        <button type="submit" class="btn secondary">Close Batch Session</button>
+      </form>
+    {% endif %}
   </div>
 </body>
 </html>

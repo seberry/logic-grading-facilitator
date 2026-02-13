@@ -139,18 +139,22 @@
       </div>
 
       <div class="row">
-        <label for="assignment_column"><strong>Gradebook column</strong></label>
-        <select id="assignment_column" name="assignment_column">
-          <option value="">Select assignment column</option>
-          {% for col in analysis.columns %}
-            <option value="{{ col.name }}">{{ col.name }} (matched {{ col.matched }}, non-empty {{ col.matched_non_empty }})</option>
-          {% endfor %}
-        </select>
-        <label>
-          <input type="checkbox" name="overwrite_non_empty" value="1">
-          overwrite non-empty
-        </label>
-        <button type="submit" formaction="/classwork/finalize">Finalize</button>
+        {% if batch_mode %}
+          <span class="muted">Batch mode active. Finalize from <a href="/classwork/batch/finalize">Batch Finalize</a>.</span>
+        {% else %}
+          <label for="assignment_column"><strong>Gradebook column</strong></label>
+          <select id="assignment_column" name="assignment_column">
+            <option value="">Select assignment column</option>
+            {% for col in analysis.columns %}
+              <option value="{{ col.name }}">{{ col.name }} (matched {{ col.matched }}, non-empty {{ col.matched_non_empty }})</option>
+            {% endfor %}
+          </select>
+          <label>
+            <input type="checkbox" name="overwrite_non_empty" value="1">
+            overwrite non-empty
+          </label>
+          <button type="submit" formaction="/classwork/finalize">Finalize</button>
+        {% endif %}
         <a class="btn secondary" href="/classwork">Back</a>
       </div>
     </div>
