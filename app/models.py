@@ -68,6 +68,13 @@ class ClassworkModeState(BaseModel):
     unmatched_files: List[str] = Field(default_factory=list)
 
 
+class ClassworkBatchState(BaseModel):
+    """Batch mode: one gradebook + multiple classwork assignments."""
+    gradebook_token: str
+    id_column: str
+    assignments: List[ClassworkModeState] = Field(default_factory=list)
+
+
 class Session(BaseModel):
     """
     Canonical session file, matching docs/SCHEMA.md:
@@ -91,3 +98,5 @@ class Session(BaseModel):
     problem_types: Dict[str, Optional[str]] = Field(default_factory=dict)
     # Optional effort-grading mode state for classwork/attendance assignments.
     classwork_mode: Optional[ClassworkModeState] = None
+    # Optional batch state for merging multiple classwork assignments at once.
+    classwork_batch: Optional[ClassworkBatchState] = None

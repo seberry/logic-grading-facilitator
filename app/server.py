@@ -48,6 +48,7 @@ from .models import (
     WorkUnit,
     RosterEntry,
     ClassworkModeState,
+    ClassworkBatchState,
     ClassworkEntry,
     ClassworkFileRef,
 )
@@ -1039,6 +1040,115 @@ def _classwork_analysis(mode: ClassworkModeState) -> Dict[str, Any]:
     }
 
 
+def _classwork_build_mode_from_zip(
+    *,
+    zip_bytes: bytes,
+    assignment_id: str,
+    max_points: float,
+    active_roster: List[RosterEntry],
+    gradebook_token: str,
+    id_col: str,
+) -> ClassworkModeState:
+    setup_id = uuid4().hex
+    student_files: Dict[str, List[ClassworkFileRef]] = {}
+    unmatched_files: List[str] = []
+
+    try:
+        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+            roster_index, collisions = _build_roster_prefix_index(active_roster)
+            if collisions:
+                detail_lines = ["Duplicate gradebook name keys detected:"]
+                for key, entries in collisions.items():
+                    names = ", ".join(e.name for e in entries)
+                    detail_lines.append(f"{key}: {names}")
+                raise HTTPException(status_code=400, detail="; ".join(detail_lines))
+            sid_index = {
+                _normalize_match_key(r.student_id): r
+                for r in active_roster
+                if _normalize_match_key(r.student_id)
+            }
+
+            for info in sorted(zf.infolist(), key=lambda item: item.filename.lower()):
+                if info.is_dir():
+                    continue
+                if info.filename.startswith("__MACOSX/"):
+                    continue
+                original_name = Path(info.filename).name
+                if not original_name:
+                    continue
+
+                roster_entry = _classwork_match_file_to_roster(
+                    info.filename,
+                    roster_index=roster_index,
+                    sid_index=sid_index,
+                )
+                if roster_entry is None:
+                    unmatched_files.append(info.filename)
+                    continue
+
+                ext = Path(original_name).suffix.lower()
+                payload = zf.read(info)
+                stored_name = f"{setup_id}_{original_name}"
+                stored_path = _unique_path(CLASSWORK_FILES_DIR / stored_name)
+                stored_path.parent.mkdir(parents=True, exist_ok=True)
+                stored_path.write_bytes(payload)
+
+                refs = student_files.setdefault(roster_entry.student_id, [])
+                refs.append(
+                    ClassworkFileRef(
+                        stored_filename=stored_path.name,
+                        original_filename=original_name,
+                        ext=ext,
+                    )
+                )
+    except zipfile.BadZipFile:
+        raise HTTPException(status_code=400, detail="Uploaded ZIP could not be read.")
+
+    assignment_clean = _sanitize_assignment_id(assignment_id)
+    entries: List[ClassworkEntry] = []
+    for r in active_roster:
+        files = student_files.get(r.student_id, [])
+        has_submission = bool(files)
+        score = float(max_points) if has_submission else 0.0
+        entries.append(
+            ClassworkEntry(
+                student_id=r.student_id,
+                student_name=r.name,
+                has_submission=has_submission,
+                files=files,
+                score=score,
+                comment=None,
+            )
+        )
+
+    return ClassworkModeState(
+        assignment_id=assignment_clean,
+        max_points=float(max_points),
+        gradebook_token=gradebook_token,
+        id_column=id_col,
+        entries=entries,
+        unmatched_files=sorted(set(unmatched_files)),
+    )
+
+
+def _classwork_sync_mode_into_batch(session: Session) -> None:
+    mode = session.classwork_mode
+    batch = session.classwork_batch
+    if mode is None or batch is None:
+        return
+    for idx, item in enumerate(batch.assignments):
+        if item.assignment_id == mode.assignment_id:
+            batch.assignments[idx] = mode
+            return
+
+
+def _same_numeric_score(old_val: str, new_score: float) -> bool:
+    try:
+        return math.isclose(float(old_val), float(new_score), rel_tol=0.0, abs_tol=1e-9)
+    except ValueError:
+        return False
+
+
 def _classwork_resolve_stored_file(stored_filename: str) -> Path:
     safe_name = Path(stored_filename or "").name
     if not safe_name or safe_name != stored_filename:
@@ -1078,11 +1188,13 @@ def _classwork_extract_text_preview(path: Path) -> str:
 def classwork_setup_page(request: Request) -> Response:
     session = get_session()
     existing = session.classwork_mode
+    batch = session.classwork_batch
     return templates.TemplateResponse(
         "classwork_setup.html",
         {
             "request": request,
             "existing": existing,
+            "batch": batch,
             "error_message": "",
         },
     )
@@ -1113,78 +1225,47 @@ async def classwork_setup(
     fieldnames, rows, id_col = _parse_gradebook_csv(gradebook_text)
     active_roster = _classwork_resolve_roster(match_roster_source, rows, id_col)
 
-    roster_index, collisions = _build_roster_prefix_index(active_roster)
-    if collisions:
-        detail_lines = ["Duplicate gradebook name keys detected:"]
-        for key, entries in collisions.items():
-            names = ", ".join(e.name for e in entries)
-            detail_lines.append(f"{key}: {names}")
-        raise HTTPException(status_code=400, detail="; ".join(detail_lines))
-    sid_index = {_normalize_match_key(r.student_id): r for r in active_roster if _normalize_match_key(r.student_id)}
-
     zip_bytes = await submissions_zip.read()
     if not zip_bytes:
         raise HTTPException(status_code=400, detail="Uploaded submissions ZIP was empty.")
 
-    setup_id = uuid4().hex
-    student_files: Dict[str, List[ClassworkFileRef]] = {}
-    unmatched_files: List[str] = []
+    GRADEBOOK_MERGE_TMP_DIR.mkdir(parents=True, exist_ok=True)
+    token = uuid4().hex
+    _classwork_gradebook_tmp_path(token).write_text(gradebook_text, encoding="utf-8")
+    mode = _classwork_build_mode_from_zip(
+        zip_bytes=zip_bytes,
+        assignment_id=assignment_id,
+        max_points=max_points,
+        active_roster=active_roster,
+        gradebook_token=token,
+        id_col=id_col,
+    )
 
+    with _session_lock:
+        session = get_session()
+        session.classwork_mode = mode
+        session.classwork_batch = None
+        persist_session()
+
+    return RedirectResponse(url="/classwork/review", status_code=303)
+
+
+@app.post("/classwork/batch/start", response_class=HTMLResponse)
+async def classwork_batch_start(
+    gradebook_csv: UploadFile = File(...),
+    match_roster_source: str = Form("gradebook"),
+) -> Response:
+    if not gradebook_csv.filename:
+        raise HTTPException(status_code=400, detail="Please upload a gradebook CSV.")
+    gradebook_bytes = await gradebook_csv.read()
     try:
-        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-            for info in sorted(zf.infolist(), key=lambda item: item.filename.lower()):
-                if info.is_dir():
-                    continue
-                if info.filename.startswith("__MACOSX/"):
-                    continue
-                original_name = Path(info.filename).name
-                if not original_name:
-                    continue
-
-                roster_entry = _classwork_match_file_to_roster(
-                    info.filename,
-                    roster_index=roster_index,
-                    sid_index=sid_index,
-                )
-                if roster_entry is None:
-                    unmatched_files.append(info.filename)
-                    continue
-
-                ext = Path(original_name).suffix.lower()
-                payload = zf.read(info)
-                stored_name = f"{setup_id}_{original_name}"
-                stored_path = _unique_path(CLASSWORK_FILES_DIR / stored_name)
-                stored_path.parent.mkdir(parents=True, exist_ok=True)
-                stored_path.write_bytes(payload)
-
-                refs = student_files.setdefault(roster_entry.student_id, [])
-                refs.append(
-                    ClassworkFileRef(
-                        stored_filename=stored_path.name,
-                        original_filename=original_name,
-                        ext=ext,
-                    )
-                )
-    except zipfile.BadZipFile:
-        raise HTTPException(status_code=400, detail="Uploaded ZIP could not be read.")
-
-    assignment_clean = _sanitize_assignment_id(assignment_id)
-
-    entries: List[ClassworkEntry] = []
-    for r in active_roster:
-        files = student_files.get(r.student_id, [])
-        has_submission = bool(files)
-        score = float(max_points) if has_submission else 0.0
-        entries.append(
-            ClassworkEntry(
-                student_id=r.student_id,
-                student_name=r.name,
-                has_submission=has_submission,
-                files=files,
-                score=score,
-                comment=None,
-            )
-        )
+        gradebook_text = gradebook_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="Gradebook CSV must be UTF-8 encoded.")
+    fieldnames, rows, id_col = _parse_gradebook_csv(gradebook_text)
+    _classwork_resolve_roster(match_roster_source, rows, id_col)
+    if not fieldnames:
+        raise HTTPException(status_code=400, detail="Gradebook CSV has no headers.")
 
     GRADEBOOK_MERGE_TMP_DIR.mkdir(parents=True, exist_ok=True)
     token = uuid4().hex
@@ -1192,17 +1273,286 @@ async def classwork_setup(
 
     with _session_lock:
         session = get_session()
-        session.classwork_mode = ClassworkModeState(
-            assignment_id=assignment_clean,
-            max_points=float(max_points),
+        session.classwork_batch = ClassworkBatchState(
             gradebook_token=token,
             id_column=id_col,
-            entries=entries,
-            unmatched_files=sorted(set(unmatched_files)),
+            assignments=[],
         )
+        session.classwork_mode = None
+        persist_session()
+
+    return RedirectResponse(url="/classwork", status_code=303)
+
+
+@app.post("/classwork/batch/add", response_class=HTMLResponse)
+async def classwork_batch_add(
+    submissions_zip: UploadFile = File(...),
+    assignment_id: str = Form(...),
+    max_points: float = Form(...),
+    match_roster_source: str = Form("gradebook"),
+) -> Response:
+    if max_points < 0:
+        raise HTTPException(status_code=400, detail="max_points must be >= 0.")
+    if not submissions_zip.filename:
+        raise HTTPException(status_code=400, detail="Please upload a submissions ZIP.")
+    zip_bytes = await submissions_zip.read()
+    if not zip_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded submissions ZIP was empty.")
+
+    with _session_lock:
+        session = get_session()
+        batch = session.classwork_batch
+        if batch is None:
+            raise HTTPException(status_code=400, detail="Batch mode is not initialized. Start a batch first.")
+        tmp_path = _classwork_gradebook_tmp_path(batch.gradebook_token)
+        if not tmp_path.exists():
+            raise HTTPException(status_code=400, detail="Batch gradebook token missing. Restart batch.")
+        gradebook_text = tmp_path.read_text(encoding="utf-8")
+        _, rows, id_col = _parse_gradebook_csv(gradebook_text)
+        active_roster = _classwork_resolve_roster(match_roster_source, rows, id_col)
+        mode = _classwork_build_mode_from_zip(
+            zip_bytes=zip_bytes,
+            assignment_id=assignment_id,
+            max_points=max_points,
+            active_roster=active_roster,
+            gradebook_token=batch.gradebook_token,
+            id_col=id_col,
+        )
+        replaced = False
+        for idx, item in enumerate(batch.assignments):
+            if item.assignment_id == mode.assignment_id:
+                batch.assignments[idx] = mode
+                replaced = True
+                break
+        if not replaced:
+            batch.assignments.append(mode)
+        session.classwork_mode = mode
         persist_session()
 
     return RedirectResponse(url="/classwork/review", status_code=303)
+
+
+@app.post("/classwork/batch/open", response_class=HTMLResponse)
+async def classwork_batch_open(assignment_id: str = Form(...)) -> Response:
+    assignment_clean = _sanitize_assignment_id(assignment_id)
+    with _session_lock:
+        session = get_session()
+        batch = session.classwork_batch
+        if batch is None:
+            raise HTTPException(status_code=400, detail="Batch mode is not initialized.")
+        for item in batch.assignments:
+            if item.assignment_id == assignment_clean:
+                session.classwork_mode = item
+                persist_session()
+                return RedirectResponse(url="/classwork/review", status_code=303)
+    raise HTTPException(status_code=404, detail="Batch assignment not found.")
+
+
+@app.post("/classwork/batch/clear", response_class=HTMLResponse)
+async def classwork_batch_clear() -> Response:
+    with _session_lock:
+        session = get_session()
+        session.classwork_batch = None
+        session.classwork_mode = None
+        persist_session()
+    return RedirectResponse(url="/classwork", status_code=303)
+
+
+@app.get("/classwork/batch/finalize", response_class=HTMLResponse)
+def classwork_batch_finalize_page(request: Request) -> Response:
+    session = get_session()
+    batch = session.classwork_batch
+    if batch is None:
+        return RedirectResponse(url="/classwork", status_code=303)
+    if not batch.assignments:
+        raise HTTPException(status_code=400, detail="Batch has no assignments yet.")
+    tmp_path = _classwork_gradebook_tmp_path(batch.gradebook_token)
+    if not tmp_path.exists():
+        raise HTTPException(status_code=400, detail="Batch gradebook token missing. Restart batch.")
+    decoded = tmp_path.read_text(encoding="utf-8")
+    fieldnames, rows, id_col = _parse_gradebook_csv(decoded)
+    assignment_cols = _candidate_assignment_columns(fieldnames, id_col)
+    assignment_stats: List[Dict[str, Any]] = []
+    for mode in batch.assignments:
+        score_map = _build_classwork_score_map(mode)
+        stats = _assignment_column_stats(rows, assignment_cols, id_col, score_map)
+        assignment_stats.append(
+            {
+                "assignment_id": mode.assignment_id,
+                "max_points": mode.max_points,
+                "submitted_count": sum(1 for e in mode.entries if e.has_submission),
+                "commented_count": sum(1 for e in mode.entries if (e.comment or "").strip()),
+                "columns": stats,
+            }
+        )
+    return templates.TemplateResponse(
+        "classwork_batch_finalize.html",
+        {
+            "request": request,
+            "batch": batch,
+            "assignment_stats": assignment_stats,
+            "error_message": "",
+            "conflicts": [],
+        },
+    )
+
+
+@app.post("/classwork/batch/finalize", response_class=HTMLResponse)
+async def classwork_batch_finalize_submit(request: Request) -> Response:
+    form = await request.form()
+    overwrite = bool(form.get("overwrite_non_empty"))
+
+    with _session_lock:
+        session = get_session()
+        batch = session.classwork_batch
+        if batch is None:
+            raise HTTPException(status_code=400, detail="Batch mode is not initialized.")
+        _classwork_sync_mode_into_batch(session)
+        if not batch.assignments:
+            raise HTTPException(status_code=400, detail="Batch has no assignments yet.")
+
+        tmp_path = _classwork_gradebook_tmp_path(batch.gradebook_token)
+        if not tmp_path.exists():
+            raise HTTPException(status_code=400, detail="Batch gradebook token missing. Restart batch.")
+        decoded = tmp_path.read_text(encoding="utf-8")
+        fieldnames, rows, id_col = _parse_gradebook_csv(decoded)
+
+        selected_cols: Dict[str, str] = {}
+        used_cols: set[str] = set()
+        for mode in batch.assignments:
+            field = f"column_{mode.assignment_id}"
+            col = str(form.get(field) or "").strip()
+            if not col:
+                raise HTTPException(status_code=400, detail=f"Select a gradebook column for {mode.assignment_id}.")
+            if col not in fieldnames:
+                raise HTTPException(status_code=400, detail=f"Column not found for {mode.assignment_id}: {col}")
+            if col in used_cols:
+                raise HTTPException(status_code=400, detail="Each batch assignment must use a different column.")
+            used_cols.add(col)
+            selected_cols[mode.assignment_id] = col
+
+        conflicts: List[Dict[str, str]] = []
+        for mode in batch.assignments:
+            score_map = _build_classwork_score_map(mode)
+            col = selected_cols[mode.assignment_id]
+            for row in rows:
+                sid = (row.get(id_col) or "").strip()
+                if sid not in score_map:
+                    continue
+                old_val = (row.get(col) or "").strip()
+                if old_val == "" or overwrite:
+                    continue
+                new_score = float(score_map[sid])
+                if _same_numeric_score(old_val, new_score) or old_val == f"{new_score:g}":
+                    continue
+                conflicts.append(
+                    {
+                        "assignment_id": mode.assignment_id,
+                        "column": col,
+                        "student_id": sid,
+                        "student": (row.get("Student") or row.get("student") or ""),
+                        "existing": old_val,
+                        "new": f"{new_score:g}",
+                    }
+                )
+
+        if conflicts and not overwrite:
+            assignment_cols = _candidate_assignment_columns(fieldnames, id_col)
+            assignment_stats: List[Dict[str, Any]] = []
+            for mode in batch.assignments:
+                score_map = _build_classwork_score_map(mode)
+                stats = _assignment_column_stats(rows, assignment_cols, id_col, score_map)
+                assignment_stats.append(
+                    {
+                        "assignment_id": mode.assignment_id,
+                        "max_points": mode.max_points,
+                        "submitted_count": sum(1 for e in mode.entries if e.has_submission),
+                        "commented_count": sum(1 for e in mode.entries if (e.comment or "").strip()),
+                        "columns": stats,
+                    }
+                )
+            return templates.TemplateResponse(
+                "classwork_batch_finalize.html",
+                {
+                    "request": request,
+                    "batch": batch,
+                    "assignment_stats": assignment_stats,
+                    "error_message": (
+                        f"Found {len(conflicts)} non-empty conflict(s). "
+                        "Choose different columns or enable overwrite."
+                    ),
+                    "conflicts": conflicts[:40],
+                },
+            )
+
+    for mode in batch.assignments:
+        score_map = _build_classwork_score_map(mode)
+        col = selected_cols[mode.assignment_id]
+        for row in rows:
+            sid = (row.get(id_col) or "").strip()
+            if sid in score_map:
+                row[col] = f"{score_map[sid]:g}"
+
+    output = io.StringIO()
+    writer = csv.DictWriter(output, fieldnames=fieldnames, lineterminator="\n")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(row)
+
+    export_id = uuid4().hex
+    export_dir = CLASSWORK_EXPORTS_DIR / export_id
+    export_dir.mkdir(parents=True, exist_ok=True)
+    gradebook_filename = "classwork_batch_gradebook_merged.csv"
+    gradebook_path = export_dir / gradebook_filename
+    gradebook_path.write_text(output.getvalue(), encoding="utf-8")
+
+    comments_files: Dict[str, str] = {}
+    for mode in batch.assignments:
+        commented_entries = [e for e in mode.entries if (e.comment or "").strip()]
+        if not commented_entries:
+            continue
+        comments_filename = f"{mode.assignment_id}_comments_reupload.zip"
+        comments_path = export_dir / comments_filename
+        used_names: set[str] = set()
+        with zipfile.ZipFile(comments_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for entry in commented_entries:
+                if not entry.files:
+                    continue
+                feedback_text = _classwork_comment_text(mode, entry)
+                for ref in entry.files:
+                    ext = (ref.ext or "").lower()
+                    stored_path = CLASSWORK_FILES_DIR / ref.stored_filename
+                    original_name = ref.original_filename or ref.stored_filename
+                    zip_name = _classwork_zip_unique_name(used_names, original_name)
+                    if ext == ".pdf":
+                        payload = _render_feedback_pdf_bytes(feedback_text)
+                        zf.writestr(zip_name, payload)
+                    elif ext in {".jpg", ".jpeg", ".png"}:
+                        payload = _render_feedback_image_bytes(feedback_text, ext)
+                        zf.writestr(zip_name, payload)
+                    else:
+                        if stored_path.exists():
+                            zf.writestr(zip_name, stored_path.read_bytes())
+                        sidecar_name = _classwork_zip_unique_name(used_names, f"{zip_name}.comment.txt")
+                        zf.writestr(sidecar_name, feedback_text.encode("utf-8"))
+        comments_files[mode.assignment_id] = comments_filename
+
+    manifest = {
+        "gradebook_file": gradebook_filename,
+        "comments_files": comments_files,
+        "created_at": datetime.now().isoformat(),
+    }
+    (export_dir / "batch_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    return templates.TemplateResponse(
+        "classwork_batch_done.html",
+        {
+            "request": request,
+            "export_id": export_id,
+            "comments_files": comments_files,
+            "assignment_ids": [m.assignment_id for m in batch.assignments],
+        },
+    )
 
 
 @app.get("/classwork/review", response_class=HTMLResponse)
@@ -1240,6 +1590,7 @@ async def classwork_review_submit(request: Request) -> Response:
         if mode is None:
             raise HTTPException(status_code=400, detail="Classwork mode is not initialized.")
         _classwork_apply_form_updates(form, mode, action)
+        _classwork_sync_mode_into_batch(session)
         persist_session()
 
     return RedirectResponse(url="/classwork/review", status_code=303)
@@ -1258,6 +1609,7 @@ async def classwork_finalize(request: Request) -> Response:
             raise HTTPException(status_code=400, detail="Classwork mode is not initialized.")
 
         _classwork_apply_form_updates(form, mode, "save")
+        _classwork_sync_mode_into_batch(session)
         persist_session()
 
         analysis = _classwork_analysis(mode)
@@ -1437,6 +1789,47 @@ def classwork_download_export(export_id: str, kind: str):
     return Response(
         content=path.read_bytes(),
         media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{quote(filename)}"'},
+    )
+
+
+@app.get("/classwork/batch/export/{export_id}/gradebook")
+def classwork_batch_download_gradebook(export_id: str):
+    export_dir = CLASSWORK_EXPORTS_DIR / export_id
+    manifest_path = export_dir / "batch_manifest.json"
+    if not manifest_path.exists():
+        raise HTTPException(status_code=404, detail="Batch export not found.")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    filename = manifest.get("gradebook_file")
+    if not filename:
+        raise HTTPException(status_code=404, detail="Batch gradebook export missing.")
+    path = export_dir / filename
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Batch gradebook file missing.")
+    return Response(
+        content=path.read_bytes(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{quote(filename)}"'},
+    )
+
+
+@app.get("/classwork/batch/export/{export_id}/comments/{assignment_id}")
+def classwork_batch_download_comments(export_id: str, assignment_id: str):
+    export_dir = CLASSWORK_EXPORTS_DIR / export_id
+    manifest_path = export_dir / "batch_manifest.json"
+    if not manifest_path.exists():
+        raise HTTPException(status_code=404, detail="Batch export not found.")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    comments_files = manifest.get("comments_files") or {}
+    filename = comments_files.get(assignment_id)
+    if not filename:
+        raise HTTPException(status_code=404, detail="No comments ZIP for that assignment.")
+    path = export_dir / filename
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Batch comments file missing.")
+    return Response(
+        content=path.read_bytes(),
+        media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{quote(filename)}"'},
     )
 

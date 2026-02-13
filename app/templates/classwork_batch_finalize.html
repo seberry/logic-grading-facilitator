@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Classwork Batch Finalize</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 1.4rem; background: #f8fafc; color: #111827; }
+    .card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1rem 1.2rem; margin-bottom: 1rem; }
+    .error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 0.7rem; border-radius: 8px; margin-bottom: 0.8rem; }
+    .muted { color: #6b7280; }
+    table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+    th, td { border: 1px solid #e5e7eb; padding: 0.35rem 0.45rem; text-align: left; }
+    th { background: #f3f4f6; }
+    label { display: block; margin-top: 0.8rem; font-weight: 600; }
+    select { width: 100%; max-width: 700px; padding: 0.4rem; margin-top: 0.25rem; }
+    button, .btn { display: inline-block; margin-top: 0.8rem; border: 1px solid #2563eb; background: #2563eb; color: #fff; border-radius: 6px; padding: 0.5rem 0.85rem; text-decoration: none; cursor: pointer; }
+    .btn.secondary { border-color: #d1d5db; background: #fff; color: #111827; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1 style="margin-top:0;">Finalize Classwork Batch</h1>
+    <p class="muted">Choose one unique gradebook column per assignment, then export one merged gradebook CSV.</p>
+    {% if error_message %}
+      <div class="error">{{ error_message }}</div>
+    {% endif %}
+    {% if conflicts %}
+      <div class="error">
+        <strong>Conflicts preview</strong>
+        <table>
+          <thead>
+            <tr><th>Assignment</th><th>Column</th><th>Student ID</th><th>Student</th><th>Existing</th><th>New</th></tr>
+          </thead>
+          <tbody>
+            {% for c in conflicts %}
+              <tr>
+                <td>{{ c.assignment_id }}</td>
+                <td>{{ c.column }}</td>
+                <td>{{ c.student_id }}</td>
+                <td>{{ c.student }}</td>
+                <td>{{ c.existing }}</td>
+                <td>{{ c.new }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+
+    <form method="post" action="/classwork/batch/finalize">
+      {% for a in assignment_stats %}
+        <label for="column_{{ a.assignment_id }}">
+          {{ a.assignment_id }} (submitted {{ a.submitted_count }}, commented {{ a.commented_count }}, max {{ a.max_points }})
+        </label>
+        <select id="column_{{ a.assignment_id }}" name="column_{{ a.assignment_id }}" required>
+          <option value="">Select gradebook column</option>
+          {% for col in a.columns %}
+            <option value="{{ col.name }}">
+              {{ col.name }} (matched {{ col.matched }}, non-empty {{ col.matched_non_empty }})
+            </option>
+          {% endfor %}
+        </select>
+      {% endfor %}
+      <label style="margin-top:1rem;">
+        <input type="checkbox" name="overwrite_non_empty" value="1">
+        overwrite non-empty cells (except equal-value cells are always allowed)
+      </label>
+      <button type="submit">Finalize Batch Export</button>
+      <a class="btn secondary" href="/classwork">Back</a>
+    </form>
+  </div>
+</body>
+</html>
