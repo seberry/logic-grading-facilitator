@@ -93,6 +93,9 @@
       </form>
 
       {% if batch.assignments %}
+        <form method="post" action="/classwork/batch/open_next">
+          <button type="submit">Review Next in Queue</button>
+        </form>
         <h3>Queued Assignments</h3>
         {% for a in batch.assignments %}
           <p class="muted">
@@ -105,6 +108,10 @@
           <form method="post" action="/classwork/batch/open" style="display:inline;">
             <input type="hidden" name="assignment_id" value="{{ a.assignment_id }}">
             <button type="submit" class="btn secondary">Open in Review</button>
+          </form>
+          <form method="post" action="/classwork/batch/remove" style="display:inline;">
+            <input type="hidden" name="assignment_id" value="{{ a.assignment_id }}">
+            <button type="submit" class="btn secondary">Remove</button>
           </form>
         {% endfor %}
       {% endif %}

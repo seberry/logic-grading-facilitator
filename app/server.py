@@ -1149,6 +1149,24 @@ def _same_numeric_score(old_val: str, new_score: float) -> bool:
         return False
 
 
+def _classwork_open_next_batch_assignment(session: Session, *, include_current: bool = False) -> bool:
+    batch = session.classwork_batch
+    if batch is None or not batch.assignments:
+        return False
+    current_id = session.classwork_mode.assignment_id if session.classwork_mode else None
+    if include_current or not current_id:
+        session.classwork_mode = batch.assignments[0]
+        return True
+    for idx, item in enumerate(batch.assignments):
+        if item.assignment_id == current_id:
+            if idx + 1 < len(batch.assignments):
+                session.classwork_mode = batch.assignments[idx + 1]
+                return True
+            return False
+    session.classwork_mode = batch.assignments[0]
+    return True
+
+
 def _classwork_resolve_stored_file(stored_filename: str) -> Path:
     safe_name = Path(stored_filename or "").name
     if not safe_name or safe_name != stored_filename:
@@ -1329,7 +1347,7 @@ async def classwork_batch_add(
         session.classwork_mode = mode
         persist_session()
 
-    return RedirectResponse(url="/classwork/review", status_code=303)
+    return RedirectResponse(url="/classwork", status_code=303)
 
 
 @app.post("/classwork/batch/open", response_class=HTMLResponse)
@@ -1346,6 +1364,34 @@ async def classwork_batch_open(assignment_id: str = Form(...)) -> Response:
                 persist_session()
                 return RedirectResponse(url="/classwork/review", status_code=303)
     raise HTTPException(status_code=404, detail="Batch assignment not found.")
+
+
+@app.post("/classwork/batch/open_next", response_class=HTMLResponse)
+async def classwork_batch_open_next() -> Response:
+    with _session_lock:
+        session = get_session()
+        if not _classwork_open_next_batch_assignment(session, include_current=True):
+            raise HTTPException(status_code=400, detail="No queued assignments to review.")
+        persist_session()
+    return RedirectResponse(url="/classwork/review", status_code=303)
+
+
+@app.post("/classwork/batch/remove", response_class=HTMLResponse)
+async def classwork_batch_remove(assignment_id: str = Form(...)) -> Response:
+    assignment_clean = _sanitize_assignment_id(assignment_id)
+    with _session_lock:
+        session = get_session()
+        batch = session.classwork_batch
+        if batch is None:
+            raise HTTPException(status_code=400, detail="Batch mode is not initialized.")
+        before = len(batch.assignments)
+        batch.assignments = [a for a in batch.assignments if a.assignment_id != assignment_clean]
+        if len(batch.assignments) == before:
+            raise HTTPException(status_code=404, detail="Batch assignment not found.")
+        if session.classwork_mode and session.classwork_mode.assignment_id == assignment_clean:
+            session.classwork_mode = None
+        persist_session()
+    return RedirectResponse(url="/classwork", status_code=303)
 
 
 @app.post("/classwork/batch/clear", response_class=HTMLResponse)
@@ -1583,6 +1629,7 @@ def classwork_review_page(request: Request) -> Response:
 async def classwork_review_submit(request: Request) -> Response:
     form = await request.form()
     action = str(form.get("action") or "save")
+    redirect_url = "/classwork/review"
 
     with _session_lock:
         session = get_session()
@@ -1591,9 +1638,12 @@ async def classwork_review_submit(request: Request) -> Response:
             raise HTTPException(status_code=400, detail="Classwork mode is not initialized.")
         _classwork_apply_form_updates(form, mode, action)
         _classwork_sync_mode_into_batch(session)
+        if action == "save_next_assignment":
+            moved = _classwork_open_next_batch_assignment(session, include_current=False)
+            redirect_url = "/classwork/review" if moved else "/classwork"
         persist_session()
 
-    return RedirectResponse(url="/classwork/review", status_code=303)
+    return RedirectResponse(url=redirect_url, status_code=303)
 
 
 @app.post("/classwork/finalize", response_class=HTMLResponse)
