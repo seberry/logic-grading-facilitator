@@ -122,6 +122,7 @@ app.mount(
 LMSTUDIO_BASE_URL = "http://127.0.0.1:1234/v1"
 LMSTUDIO_MODEL_ID = "qwen/qwen3-vl-4b"  # or whatever you’re actually using
 CANVAS_REUPLOAD_ORIGINAL_ZIPS_DIR = DATA_DIR / "canvas_reupload" / "original_zips"
+CANVAS_REUPLOAD_MANIFEST_DIR = DATA_DIR / "canvas_reupload" / "manifests"
 GRADEBOOK_MERGE_TMP_DIR = DATA_DIR / "gradebook_merge" / "tmp"
 CLASSWORK_FILES_DIR = DATA_DIR / "classwork" / "files"
 CLASSWORK_EXPORTS_DIR = DATA_DIR / "classwork" / "exports"
@@ -393,26 +394,31 @@ def label_and_count_premises(structure: List[Any]) -> int:
 
 _session_lock = threading.Lock()
 _session: Optional[Session] = None
+_session_mtime_ns: Optional[int] = None
 _segmentation_lock = threading.Lock()
 
 
 def get_session() -> Session:
-    """Load the session from disk on first use, then cache in memory."""
-    global _session
-    if _session is None:
-        try:
-            _session = load_session(DEFAULT_SESSION_PATH)
-        except FileNotFoundError as e:
-            raise HTTPException(status_code=500, detail=f"Session file not found: {e}")
+    """Load the session from disk and refresh the cache when the file changes."""
+    global _session, _session_mtime_ns
+    try:
+        current_mtime_ns = DEFAULT_SESSION_PATH.stat().st_mtime_ns
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=500, detail=f"Session file not found: {e}")
+
+    if _session is None or _session_mtime_ns != current_mtime_ns:
+        _session = load_session(DEFAULT_SESSION_PATH)
+        _session_mtime_ns = current_mtime_ns
     return _session
 
 
 def persist_session() -> None:
     """Persist current in-memory session to disk."""
-    global _session
+    global _session, _session_mtime_ns
     if _session is None:
         return
     save_session(_session, DEFAULT_SESSION_PATH)
+    _session_mtime_ns = DEFAULT_SESSION_PATH.stat().st_mtime_ns
 
 def _build_page_rows_for_template(
     preds: List[Any],
@@ -761,18 +767,40 @@ def _build_total_scores_by_student(session: Session) -> Dict[str, float]:
     for wu in session.work_units:
         if not wu.student_id:
             continue
-        total = 0.0
-        for p in session.grading_key.problems:
-            score = wu.per_problem.get(p.id)
-            if score is None:
-                continue
-            total += float(score)
+        total = _score_summary_for_work_unit(session, wu)["total_score"]
         sid = wu.student_id
         if sid in totals:
             totals[sid] = max(totals[sid], total)
         else:
             totals[sid] = total
     return totals
+
+
+def _required_total_max(grading_key: GradingKey) -> float:
+    return float(grading_key.max_points)
+
+
+def _score_summary_for_work_unit(session: Session, wu: WorkUnit) -> Dict[str, float]:
+    regular_total = 0.0
+    extra_credit_total = 0.0
+
+    for problem in session.grading_key.problems:
+        score = wu.per_problem.get(problem.id)
+        if score is None:
+            continue
+        if problem.extra_credit:
+            extra_credit_total += float(score)
+        else:
+            regular_total += float(score)
+
+    total_max = _required_total_max(session.grading_key)
+    total_score = min(total_max, regular_total + extra_credit_total)
+    return {
+        "regular_score": regular_total,
+        "extra_credit_score": extra_credit_total,
+        "total_score": total_score,
+        "total_max": total_max,
+    }
 
 
 def _parse_gradebook_csv(content: str) -> tuple[List[str], List[Dict[str, str]], str]:
@@ -2484,6 +2512,7 @@ async def setup_import_canvas_zip(
         )
     if not zip_file.filename:
         raise HTTPException(status_code=400, detail="Please upload a ZIP file.")
+    original_zip_name = Path(zip_file.filename).name or "submissions.zip"
 
     zip_bytes = await zip_file.read()
     if not zip_bytes:
@@ -2567,6 +2596,7 @@ async def setup_import_canvas_zip(
         raise HTTPException(status_code=400, detail="No valid scans found in ZIP.")
 
     per_student_paths: Dict[str, List[Path]] = {}
+    per_student_originals: Dict[str, List[str]] = {}
     student_order: List[str] = []
 
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
@@ -2578,7 +2608,9 @@ async def setup_import_canvas_zip(
             sid = roster_entry.student_id
             if sid not in per_student_paths:
                 per_student_paths[sid] = []
+                per_student_originals[sid] = []
                 student_order.append(sid)
+            per_student_originals[sid].append(filename)
 
             if suffix == ".pdf":
                 pdf_bytes = zf.read(entry)
@@ -2639,6 +2671,17 @@ async def setup_import_canvas_zip(
         work_units=work_units,
         unclaimed_pages=[],
         pinned_note=None,
+    )
+
+    CANVAS_REUPLOAD_ORIGINAL_ZIPS_DIR.mkdir(parents=True, exist_ok=True)
+    source_zip_path = CANVAS_REUPLOAD_ORIGINAL_ZIPS_DIR / f"{quiz_id}__{original_zip_name}"
+    source_zip_path.write_bytes(zip_bytes)
+    _save_canvas_import_manifest(
+        quiz_id=quiz_id,
+        source_zip_filename=source_zip_path.name,
+        original_zip_name=original_zip_name,
+        work_units=work_units,
+        per_student_originals=per_student_originals,
     )
 
     global _session
@@ -3477,7 +3520,7 @@ def finish_page(request: Request) -> Response:
     session = get_session()
     grading_key = session.grading_key
     problems = grading_key.problems if grading_key else []
-    total_max = sum(p.points for p in problems) if problems else 0.0
+    total_max = _required_total_max(grading_key) if problems else 0.0
 
     roster_map = {r.student_id: r.name for r in session.roster}
     rows_by_student: Dict[str, Dict] = {}
@@ -3487,14 +3530,12 @@ def finish_page(request: Request) -> Response:
             continue
         per_problem_scores = {}
         per_problem_comments = {}
-        total = 0.0
         for p in problems:
             score = wu.per_problem.get(p.id)
             per_problem_scores[p.id] = score
             per_problem_comments[p.id] = wu.per_problem_comments.get(p.id)
-            if score is None:
-                continue
-            total += float(score)
+        score_summary = _score_summary_for_work_unit(session, wu)
+        total = score_summary["total_score"]
 
         sid = wu.student_id
         existing = rows_by_student.get(sid)
@@ -3504,6 +3545,8 @@ def finish_page(request: Request) -> Response:
                 "student_name": roster_map.get(sid, sid),
                 "per_problem_scores": per_problem_scores,
                 "per_problem_comments": per_problem_comments,
+                "regular_score": score_summary["regular_score"],
+                "extra_credit_score": score_summary["extra_credit_score"],
                 "total_score": total,
             }
 
@@ -3586,28 +3629,7 @@ def export_scores():
       when something was scanned/created twice).
     """
     session = get_session()
-
-    # Aggregate scores per student_id, taking the max over all their WorkUnits
-    totals: Dict[str, float] = {}
-    for wu in session.work_units:
-        if not wu.student_id:
-            continue
-
-        # Compute this WorkUnit's total
-        total = 0.0
-        for p in session.grading_key.problems:
-            score = wu.per_problem.get(p.id)
-            if score is None:
-                # For now: treat missing as 0 (you can tighten this later)
-                continue
-            total += float(score)
-
-        # Take the max across all WorkUnits for this student
-        sid = wu.student_id
-        if sid in totals:
-            totals[sid] = max(totals[sid], total)
-        else:
-            totals[sid] = total
+    totals = _build_total_scores_by_student(session)
 
     # Build CSV in-memory
     buf = io.StringIO()
@@ -3709,7 +3731,7 @@ def export_feedback_zip():
     session = get_session()
     grading_key = session.grading_key
     problems = grading_key.problems
-    total_max = sum(p.points for p in problems) if problems else 0.0
+    total_max = _required_total_max(grading_key) if problems else 0.0
 
     roster_map = {r.student_id: r.name for r in session.roster}
     id_to_slug = roster_lookup(session)
@@ -3721,14 +3743,12 @@ def export_feedback_zip():
             continue
         per_problem_scores = {}
         per_problem_comments = {}
-        total = 0.0
         for p in problems:
             score = wu.per_problem.get(p.id)
             per_problem_scores[p.id] = score
             per_problem_comments[p.id] = wu.per_problem_comments.get(p.id)
-            if score is None:
-                continue
-            total += float(score)
+        score_summary = _score_summary_for_work_unit(session, wu)
+        total = score_summary["total_score"]
 
         sid = wu.student_id
         existing = rows_by_student.get(sid)
@@ -3738,6 +3758,8 @@ def export_feedback_zip():
                 "student_name": roster_map.get(sid, sid),
                 "per_problem_scores": per_problem_scores,
                 "per_problem_comments": per_problem_comments,
+                "regular_score": score_summary["regular_score"],
+                "extra_credit_score": score_summary["extra_credit_score"],
                 "total_score": total,
             }
 
@@ -3757,13 +3779,20 @@ def export_feedback_zip():
             lines.append(f"Quiz: {grading_key.quiz_id}")
             lines.append(f"Student: {name} ({sid})")
             lines.append(f"Total: {row['total_score']} / {total_max}")
+            if row["extra_credit_score"] > 0:
+                lines.append(
+                    f"Extra credit applied: {row['extra_credit_score']:g} (capped at {total_max:g})"
+                )
             lines.append("")
             lines.append("Rubric + Scores")
             for p in problems:
                 score = row["per_problem_scores"].get(p.id)
                 comment = row["per_problem_comments"].get(p.id)
                 score_display = "" if score is None else str(score)
-                lines.append(f"- {p.id} ({p.label}) [{p.points} pts]: {score_display}")
+                points_label = f"{p.points} pts"
+                if p.extra_credit:
+                    points_label = f"EC {p.points} pts"
+                lines.append(f"- {p.id} ({p.label}) [{points_label}]: {score_display}")
                 if comment:
                     lines.append(f"  Comment: {comment}")
             lines.append("")
@@ -3787,7 +3816,7 @@ def export_feedback_zip():
     )
 
 
-def _latest_canvas_original_zip() -> Path:
+def _list_canvas_original_zips() -> List[Path]:
     if not CANVAS_REUPLOAD_ORIGINAL_ZIPS_DIR.exists():
         raise HTTPException(
             status_code=400,
@@ -3808,14 +3837,132 @@ def _latest_canvas_original_zip() -> Path:
                 "No ZIP files found for Canvas reupload source. "
                 f"Put original Canvas ZIP(s) under {CANVAS_REUPLOAD_ORIGINAL_ZIPS_DIR}"
             ),
+    )
+    return zips
+
+
+def _canvas_import_manifest_path(quiz_id: str) -> Path:
+    safe_quiz_id = re.sub(r"[^A-Za-z0-9_.-]", "_", (quiz_id or "quiz").strip()) or "quiz"
+    return CANVAS_REUPLOAD_MANIFEST_DIR / f"{safe_quiz_id}.json"
+
+
+def _load_canvas_import_manifest(quiz_id: str) -> Optional[Dict[str, Any]]:
+    path = _canvas_import_manifest_path(quiz_id)
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _save_canvas_import_manifest(
+    quiz_id: str,
+    source_zip_filename: str,
+    original_zip_name: str,
+    work_units: List[WorkUnit],
+    per_student_originals: Dict[str, List[str]],
+) -> None:
+    CANVAS_REUPLOAD_MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
+
+    manifest_work_units: List[Dict[str, Any]] = []
+    for wu in work_units:
+        manifest_work_units.append(
+            {
+                "unit_id": wu.unit_id,
+                "student_id": wu.student_id,
+                "original_filenames": per_student_originals.get(wu.student_id or "", []),
+                "canonical_page_filenames": list(wu.page_filenames),
+            }
         )
-    return zips[0]
+
+    manifest = {
+        "quiz_id": quiz_id,
+        "source_zip_filename": source_zip_filename,
+        "original_zip_name": original_zip_name,
+        "saved_at": datetime.now().isoformat(timespec="seconds"),
+        "work_units": manifest_work_units,
+    }
+    _canvas_import_manifest_path(quiz_id).write_text(
+        json.dumps(manifest, indent=2),
+        encoding="utf-8",
+    )
+
+
+def _find_canvas_original_zip_for_quiz(
+    quiz_id: str,
+    requested_name: Optional[str] = None,
+) -> Path:
+    zips = _list_canvas_original_zips()
+
+    if requested_name:
+        requested = Path(requested_name).name
+        for zip_path in zips:
+            if zip_path.name == requested:
+                return zip_path
+        available = ", ".join(p.name for p in zips[:10])
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Requested Canvas source ZIP not found: {requested}. "
+                f"Available ZIPs: {available}"
+            ),
+        )
+
+    manifest = _load_canvas_import_manifest(quiz_id)
+    if manifest:
+        manifest_zip_name = Path(str(manifest.get("source_zip_filename") or "")).name
+        if manifest_zip_name:
+            for zip_path in zips:
+                if zip_path.name == manifest_zip_name:
+                    return zip_path
+
+    quiz_key = _normalize_canvas_key(quiz_id)
+    exact_prefix_matches = [
+        p for p in zips if _normalize_canvas_key(p.stem.split("__", 1)[0]) == quiz_key
+    ]
+    if len(exact_prefix_matches) == 1:
+        return exact_prefix_matches[0]
+    if len(exact_prefix_matches) > 1:
+        available = ", ".join(p.name for p in exact_prefix_matches[:10])
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Multiple Canvas source ZIPs match quiz_id '{quiz_id}'. "
+                f"Choose one explicitly with ?source_zip=... Available matches: {available}"
+            ),
+        )
+
+    loose_matches = [p for p in zips if quiz_key and quiz_key in _normalize_canvas_key(p.stem)]
+    if len(loose_matches) == 1:
+        return loose_matches[0]
+    if len(loose_matches) > 1:
+        available = ", ".join(p.name for p in loose_matches[:10])
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Multiple loosely matching Canvas source ZIPs found for quiz_id '{quiz_id}'. "
+                f"Choose one explicitly with ?source_zip=... Available matches: {available}"
+            ),
+        )
+
+    available = ", ".join(p.name for p in zips[:10])
+    raise HTTPException(
+        status_code=400,
+        detail=(
+            f"No Canvas source ZIP found for active quiz_id '{quiz_id}'. "
+            "The exporter will not guess from an unrelated ZIP anymore. "
+            f"Put the original Canvas submissions ZIP in {CANVAS_REUPLOAD_ORIGINAL_ZIPS_DIR} "
+            f"with a name like '{quiz_id}__submissions.zip', or pass ?source_zip=... "
+            f"Current ZIPs: {available}"
+        ),
+    )
 
 
 def _build_best_rows_by_student(session: Session) -> Dict[str, Dict[str, Any]]:
     grading_key = session.grading_key
     problems = grading_key.problems
-    total_max = sum(p.points for p in problems) if problems else 0.0
+    total_max = _required_total_max(grading_key) if problems else 0.0
     roster_map = {r.student_id: r.name for r in session.roster}
 
     rows_by_student: Dict[str, Dict[str, Any]] = {}
@@ -3824,13 +3971,12 @@ def _build_best_rows_by_student(session: Session) -> Dict[str, Dict[str, Any]]:
             continue
         per_problem_scores: Dict[str, Optional[float]] = {}
         per_problem_comments: Dict[str, Optional[str]] = {}
-        total = 0.0
         for p in problems:
             score = wu.per_problem.get(p.id)
             per_problem_scores[p.id] = score
             per_problem_comments[p.id] = wu.per_problem_comments.get(p.id)
-            if score is not None:
-                total += float(score)
+        score_summary = _score_summary_for_work_unit(session, wu)
+        total = score_summary["total_score"]
 
         sid = wu.student_id
         existing = rows_by_student.get(sid)
@@ -3840,6 +3986,8 @@ def _build_best_rows_by_student(session: Session) -> Dict[str, Dict[str, Any]]:
                 "student_name": roster_map.get(sid, sid),
                 "per_problem_scores": per_problem_scores,
                 "per_problem_comments": per_problem_comments,
+                "regular_score": score_summary["regular_score"],
+                "extra_credit_score": score_summary["extra_credit_score"],
                 "total_score": total,
                 "total_max": total_max,
                 "quiz_id": grading_key.quiz_id,
@@ -3864,13 +4012,20 @@ def _feedback_text_from_row(
     lines.append(f"Quiz: {quiz_id}")
     lines.append(f"Student: {row['student_name']} ({row['student_id']})")
     lines.append(f"Total: {row['total_score']} / {total_max}")
+    if row.get("extra_credit_score", 0) > 0:
+        lines.append(
+            f"Extra credit applied: {row['extra_credit_score']:g} (capped at {total_max:g})"
+        )
     lines.append("")
     lines.append("Rubric + Scores")
     for p in problems:
         score = row["per_problem_scores"].get(p.id)
         comment = row["per_problem_comments"].get(p.id)
         score_display = "" if score is None else str(score)
-        lines.append(f"- {p.id} ({p.label}) [{p.points} pts]: {score_display}")
+        points_label = f"{p.points} pts"
+        if p.extra_credit:
+            points_label = f"EC {p.points} pts"
+        lines.append(f"- {p.id} ({p.label}) [{points_label}]: {score_display}")
         if comment:
             lines.append(f"  Comment: {comment}")
     return "\n".join(lines)
@@ -3913,7 +4068,7 @@ def _render_feedback_pdf_bytes(text: str) -> bytes:
 
 
 @app.get("/export_canvas_reupload_feedback_zip")
-def export_canvas_reupload_feedback_zip():
+def export_canvas_reupload_feedback_zip(source_zip: Optional[str] = None):
     """
     Build a Canvas "re-upload submissions" ZIP using original Canvas filenames.
     Content is replaced with per-student feedback rendered as PDF/image, preserving
@@ -3922,7 +4077,7 @@ def export_canvas_reupload_feedback_zip():
     session = get_session()
     grading_key = session.grading_key
     problems = grading_key.problems
-    total_max = sum(p.points for p in problems) if problems else 0.0
+    total_max = _required_total_max(grading_key) if problems else 0.0
     rows_by_student = _build_best_rows_by_student(session)
 
     roster_index, collisions = _build_roster_prefix_index(session.roster)
@@ -3932,12 +4087,12 @@ def export_canvas_reupload_feedback_zip():
             detail="Roster collisions prevent Canvas filename matching.",
         )
 
-    source_zip = _latest_canvas_original_zip()
+    source_zip_path = _find_canvas_original_zip_for_quiz(grading_key.quiz_id, source_zip)
     out_buf = io.BytesIO()
     matched = 0
     total = 0
 
-    with zipfile.ZipFile(source_zip, "r") as src, zipfile.ZipFile(
+    with zipfile.ZipFile(source_zip_path, "r") as src, zipfile.ZipFile(
         out_buf, "w", compression=zipfile.ZIP_DEFLATED
     ) as dst:
         for info in src.infolist():
@@ -3971,7 +4126,7 @@ def export_canvas_reupload_feedback_zip():
 
     filename = f"{grading_key.quiz_id}_canvas_reupload_feedback.zip"
     print(
-        f"[CANVAS REUPLOAD] Source={source_zip.name}, files={total}, "
+        f"[CANVAS REUPLOAD] Source={source_zip_path.name}, files={total}, "
         f"matched={matched}, output={filename}"
     )
     return Response(

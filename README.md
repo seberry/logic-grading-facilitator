@@ -72,6 +72,11 @@ Grading workflow (real data):
 - Set `ENV_MODE=PRODUCTION`.
 - Point `DATA_DIR` and `DATA_ARCHIVE_DIR` to external folders.
 
+Documentation reminder for future work:
+- Before changing or inspecting live-data workflows again, review the `FERPA guardrails` section in [docs/TODO.md](/C:/Users/seber/logic-grading-facilitator-MAIN/docs/TODO.md).
+- Planned investigation: enforce hard guardrails so AI-facing tools can do metadata-only operations on live FERPA paths without reading raw file contents into model context.
+- Preferred direction: preserve untouched Canvas ZIPs plus an import manifest automatically, and route any live-data file operations through a narrow local helper instead of direct file reads.
+
 ## Setup Wizard (new)
 
 Run the server (`python -m uvicorn app.server:app --reload --port 5000`), then open `http://127.0.0.1:5000/setup` to configure a fresh assignment without touching the CLI. The wizard lets you:

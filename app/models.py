@@ -13,6 +13,7 @@ class ProblemSpec(BaseModel):
     id: str          # e.g. "Q1"
     label: str       # human-readable label, e.g. "Problem 1 (symbolization)"
     points: float    # max points for this problem
+    extra_credit: bool = False
 
 
 class GradingKey(BaseModel):
