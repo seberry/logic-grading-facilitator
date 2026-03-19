@@ -1,0 +1,110 @@
+\DocumentMetadata{lang=en-US,pdfstandard=A-2b,uncompress}
+\documentclass[12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage[tagged, highstructure]{accessibility}
+\usepackage{graphicx}
+\usepackage{fitch}
+
+\title{Quiz 2: DNF and Soundness}
+\hypersetup{pdftitle={Quiz 2: DNF and Soundness}}
+\author{}
+\date{}
+
+\newcommand{\forces}{\models}
+\newcommand{\meta}[1]{\mathcal{#1}}
+
+\begin{document}
+\maketitle
+
+\textbf{Instructions:} Show your reasoning. Write clearly enough that another student could follow your argument.
+
+\begin{enumerate}
+    \item \textbf{DNF via the truth-table method}
+    \begin{enumerate}[label=(\alph*)]
+        \item Use the general truth-table method to put the sentence
+        \[
+        (P \rightarrow R)\leftrightarrow R
+        \]
+        into \textbf{disjunctive normal form} (DNF).
+
+        \item Explain why your solution works.
+        \begin{itemize}
+            \item How does each disjunct relate to rows of the original sentence's truth table?
+            \item How does the number of disjuncts relate to the truth table?
+        \end{itemize}
+    \end{enumerate}
+    \textit{Reminder (DNF method):} use the rows where the original sentence is \textbf{true}; for each such row build a conjunction true only on that row; then disjoin those conjunctions.
+
+    \item \textbf{Reading a proof using \(\delta_i\), \(\phi_i\), and shininess}
+
+    Consider the following TFL Fitch proof.
+
+    \begin{center}
+    \[
+    \begin{nd}
+    \open
+      \hypo{1}{P \rightarrow Q}
+      \open
+        \hypo{2}{\neg Q}
+        \open
+          \hypo{3}{P}
+          \have{4}{Q}\by{$\rightarrow$E}{1,3}
+          \have{5}{\bot}\ne{2,4}
+        \close
+        \have{6}{\neg P}\ni{3-5}
+      \close
+        \have{7}{\neg Q \rightarrow \neg P}\by{$\rightarrow$I}{2-6}
+    \close
+    \have{8}{(P \rightarrow Q)\rightarrow(\neg Q\rightarrow\neg P)}\by{$\rightarrow$I}{1-7}
+    \end{nd}
+    \]
+    \end{center}
+
+    \begin{enumerate}[label=(\alph*)]
+        \item What are \(\delta_6\), \(\phi_6\), \(\delta_8\), and \(\phi_8\) for this proof?
+        \item What does it mean for line \(n\) to be \textbf{shiny}?
+        \item What does it mean for a rule to be \textbf{rule-sound}, in terms of shininess?
+    \end{enumerate}
+
+    \item \textbf{Fill in missing justifications: show IP is rule-sound}
+
+    Assume all lines \(<n\) are shiny, and line \(n\) is justified by IP from subproof \(i\text{-}j\), where:
+    \[
+    \phi_i=\neg A,\quad \phi_j=\bot,\quad \phi_n=A.
+    \]
+
+    Schematic proof shape for IP:
+    \begin{center}
+      \alt{Indirect proof schema: assume not A, derive contradiction, conclude A by IP.}
+      \includegraphics[width=0.42\linewidth]{proof-images/Complete_Proof_Rules/proof_15_indirect.png}
+    \end{center}
+
+    Fill in the missing justifications.
+    \begin{enumerate}[label=\arabic*.]
+        \item There is some \(\delta'\) such that \(\delta' \subseteq \delta_n\) and \(\delta_j=\delta' \cup \{\neg A\}\). \hfill [Justification: \rule{2.8in}{0.4pt}]
+        \item Since \(j<n\), line \(j\) is shiny, so \(\delta_j \forces \bot\). \hfill [Justification: \rule{2.8in}{0.4pt}]
+        \item Let \(v\) be any valuation satisfying \(\delta_n\). We must show \(v \forces A\).
+        \item Assume for contradiction that \(v \not\forces A\). Then \(v \forces \neg A\). \hfill [Justification: \rule{2.8in}{0.4pt}]
+        \item \hspace*{1.5em}So \(v \forces \delta_j\). \hfill [Justification: \rule{2.8in}{0.4pt}]
+        \item \hspace*{1.5em}Hence \(v \forces \bot\), contradiction. \hfill [Justification: \rule{2.8in}{0.4pt}]
+        \item Therefore \(v \forces A\). Since \(v\) was arbitrary, \(\delta_n \forces A\), so line \(n\) is shiny.
+    \end{enumerate}
+
+    \item \textbf{Prove that \( \vee I \) is rule-sound.}
+
+    Write a full proof in the same style used in class:
+    \begin{itemize}
+        \item Start with the inductive hypothesis setup.
+        \item State the relevant \(\delta_i \subseteq \delta_n\)-type fact(s).
+        \item Use an arbitrary valuation satisfying \(\delta_n\).
+        \item Conclude line \(n\) is shiny.
+    \end{itemize}
+
+    \item \textbf{Extra credit:} Prove that \( \vee E \) is rule-sound.
+\end{enumerate}
+
+\end{document}

@@ -75,3 +75,4 @@ debug_output_segment_all/
 lmstudio/
 models/
 venv/
+.aider*

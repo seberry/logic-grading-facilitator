@@ -1,0 +1,88 @@
+\DocumentMetadata{lang=en-US,pdfstandard=A-2b,uncompress}
+\documentclass[12pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{enumitem}
+\usepackage{parskip}
+\usepackage{hyperref}
+\usepackage[tagged, highstructure]{accessibility}
+
+\title{Quiz 2 Answer Key: DNF and Soundness}
+\hypersetup{pdftitle={Quiz 2 Answer Key: DNF and Soundness}}
+\author{}
+\date{}
+
+\newcommand{\forces}{\models}
+\newcommand{\meta}[1]{\mathcal{#1}}
+
+\begin{document}
+\maketitle
+
+\begin{enumerate}
+    \item
+    \begin{enumerate}[label=(\alph*)]
+        \item For
+        \[
+        (P \rightarrow R)\leftrightarrow R
+        \]
+        the truth table is:
+        \[
+        \begin{array}{c c | c | c}
+        P & R & (P\rightarrow R) & (P\rightarrow R)\leftrightarrow R\\
+        \hline
+        T & T & T & T\\
+        T & F & F & T\\
+        F & T & T & T\\
+        F & F & T & F
+        \end{array}
+        \]
+        True rows are \((T,T)\), \((T,F)\), \((F,T)\). So one DNF is:
+        \[
+        (P\land R)\vee(P\land\neg R)\vee(\neg P\land R).
+        \]
+
+        \item Why this works:
+        each disjunct corresponds to one row where the original sentence is true, and is true on exactly that row. Disjoining them gives a sentence true on exactly the same rows as the original sentence. Number of disjuncts = number of true rows.
+    \end{enumerate}
+
+    \item
+    \begin{enumerate}[label=(\alph*)]
+        \item
+        \[
+        \phi_6=\neg P,\quad \delta_6=\{P\rightarrow Q,\ \neg Q\}.
+        \]
+        \[
+        \phi_8=(P\rightarrow Q)\rightarrow(\neg Q\rightarrow\neg P),\quad \delta_8=\varnothing.
+        \]
+        (No premises are left in force on line 8.)
+
+        \item Line \(n\) is shiny iff \(\delta_n\forces \phi_n\), i.e. every valuation satisfying all assumptions in force at line \(n\) satisfies the line-\(n\) sentence.
+
+        \item Rule \(R\) is rule-sound iff whenever all lines \(<n\) are shiny and line \(n\) is justified by \(R\), then line \(n\) is shiny.
+    \end{enumerate}
+
+    \item Fill-in targets:
+    \begin{enumerate}[label=\arabic*.]
+        \item By rule structure + closed-subproof constraint: the assumptions in force at \(j\) are \(\neg A\) plus assumptions still available at \(n\), so \(\exists\delta'\subseteq\delta_n\) with \(\delta_j=\delta'\cup\{\neg A\}\).
+        \item By IH (since \(j<n\)).
+        \item By truth conditions for negation: if \(v\not\forces A\), then \(v\forces\neg A\).
+        \item From \(v\forces\delta_n\), \(\delta'\subseteq\delta_n\), and \(v\forces\neg A\), we get \(v\forces\delta'\cup\{\neg A\}=\delta_j\).
+        \item From \(\delta_j\forces\bot\) and \(v\forces\delta_j\), it follows that \(v\forces\bot\), contradiction.
+    \end{enumerate}
+
+    \item \( \vee I \) is rule-sound (sample proof).
+
+    Assume all lines \(<n\) are shiny and line \(n\) is justified by \(\vee I\) from line \(i\). WLOG:
+    \[
+    \phi_i=A,\qquad \phi_n=A\vee B.
+    \]
+    Since a cited line cannot be inside a closed subproof, \(\delta_i\subseteq\delta_n\).
+
+    By IH, line \(i\) is shiny, so \(\delta_i\forces A\). Hence \(\delta_n\forces A\).
+    Let \(v\) be arbitrary with \(v\forces\delta_n\). Then \(v\forces A\), so by the truth table for \(\vee\), \(v\forces A\vee B\).
+    Therefore every \(v\) satisfying \(\delta_n\) satisfies \(\phi_n=A\vee B\), so \(\delta_n\forces\phi_n\). Thus line \(n\) is shiny, and \(\vee I\) is rule-sound.
+
+\end{enumerate}
+
+\end{document}

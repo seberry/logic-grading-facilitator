@@ -403,8 +403,15 @@ def get_session() -> Session:
     global _session, _session_mtime_ns
     try:
         current_mtime_ns = DEFAULT_SESSION_PATH.stat().st_mtime_ns
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=500, detail=f"Session file not found: {e}")
+    except FileNotFoundError:
+        _session = Session(
+            roster=[],
+            grading_key=GradingKey(quiz_id="classwork", max_points=0, problems=[]),
+            work_units=[],
+            unclaimed_pages=[]
+        )
+        persist_session()
+        return _session
 
     if _session is None or _session_mtime_ns != current_mtime_ns:
         _session = load_session(DEFAULT_SESSION_PATH)

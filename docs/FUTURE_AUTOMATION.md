@@ -1,5 +1,44 @@
 # Future Automation Roadmap
 
+## Application Icons
+
+This project uses three distinct icons for different grading workflows:
+
+### icon_classwork.png / icon_classwork.ico
+**Classwork & Attendance Grader** (Currently Available)
+- **Route:** `http://127.0.0.1:5000/classwork`
+- **Purpose:** Effort-based grading for classwork and attendance questions
+- **Workflow:** No local model required. Grades are auto-filled (submitted = max points, missing = 0)
+- **Features:** Fast review UI with bulk actions, Canvas gradebook merge, optional reupload ZIP for comments
+- **Launch:** Double-click `start_classwork.bat` or its desktop shortcut
+
+### icon_examgrader.png
+**Exam/Quiz Grader** (Currently Available)
+- **Route:** `http://127.0.0.1:5000/setup`
+- **Purpose:** Full-featured grading for multi-question exams and quizzes
+- **Workflow:** Requires LM Studio with Qwen VLM model running
+- **Features:** 
+  - Auto-grouping: VLM reads names to group scattered pages into submissions
+  - Per-problem segmentation: VLM crops answers by question for strip view grading
+  - Fitch proof verification: Hybrid CV+VLM pipeline for proof checking
+  - Canvas export: CSV, feedback ZIP, renamed scans ZIP
+- **Launch:** `python -m uvicorn app.server:app --reload --port 5000`, then navigate to `/setup`
+
+### icon_absence_basket.png
+**Absence Basket** (Planned - Unbuilt as of Spring 2026)
+- **Purpose:** Lightweight desktop tool for handling student absence and extension requests
+- **Concept:** Professor copies student request text (submitted via structured markdown template), pastes into app, and local LLM parses it
+- **Why Local:** Requests may contain medical/personal information; local model ensures FERPA/HIPAA compliance
+- **Key Features:**
+  - Structured template with Canvas assignment links for deterministic parsing
+  - Local LLM (Qwen or Llama 3 8B) generates proposed actions (excused grades, extensions, participation credit)
+  - Editable confirmation form before executing actions
+  - Canvas API integration for:
+    - Per-student assignment overrides (custom due dates)
+    - Excused grade posting
+    - Submission comments to students
+- **Status:** Icons designed and reserved. First step is creating the structured student request template.
+
 
 This roadmap describes how more automation will be layered **on top of** the v2 design (local VLM translator + deterministic verifier + human judge).
 
