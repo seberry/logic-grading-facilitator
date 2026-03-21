@@ -58,25 +58,43 @@ def test_canvas_api():
         print(f"❌ FAILED: {e}")
         return False
     
-    # Test 3: Fetch courses
-    print("Test 3: Fetching accessible courses...")
+    # Test 3: Fetch courses (with pagination)
+    print("Test 3: Fetching accessible courses (with full pagination)...")
+    print("   Note: This may take a few seconds if you have many courses...")
     try:
         courses = client.get_courses()
-        print(f"✅ Found {len(courses)} accessible courses")
+        print(f"✅ Found {len(courses)} teaching/TA courses")
         
         if courses:
             print()
-            print("Sample courses:")
-            for i, course in enumerate(courses[:3], 1):
-                print(f"   {i}. {course['name']} (ID: {course['id']}, Code: {course.get('course_code', 'N/A')})")
-            if len(courses) > 3:
-                print(f"   ... and {len(courses) - 3} more")
+            print("📚 Teaching/TA Courses:")
+            for i, course in enumerate(courses[:10], 1):
+                print(f"   {i}. {course['name']}")
+                print(f"      ID: {course['id']} | Code: {course.get('course_code', 'N/A')}")
+            if len(courses) > 10:
+                print(f"   ... and {len(courses) - 10} more teaching/TA courses")
+            print()
+            
+            # Check if user likely has current semester courses
+            current_year = 2026
+            current_semester = "SP26"  # Spring 2026
+            has_current = any(
+                current_semester in course['name'] or current_semester in course.get('course_code', '')
+                for course in courses
+            )
+            
+            if has_current:
+                print(f"✅ Found courses with current semester marker ({current_semester})")
+            else:
+                print(f"⚠️  No courses found with current semester marker ({current_semester})")
+                print(f"   Your current courses might use different naming conventions")
             print()
         else:
-            print("⚠️  WARNING: No courses found")
+            print("⚠️  WARNING: No teaching/TA courses found")
             print("   This might mean:")
             print("   - API key doesn't have course access")
-            print("   - User has no active enrollments")
+            print("   - You have no active teacher or TA enrollments")
+            print("   - All your courses are student enrollments (not teaching)")
             print("   - Rate limiting is in effect")
             print()
             return False

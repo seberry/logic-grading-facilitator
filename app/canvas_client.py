@@ -76,6 +76,61 @@ class CanvasClient:
         except httpx.RequestError as e:
             raise CanvasClientError(f"Request failed: {e}")
     
+    def _make_paginated_request(self, endpoint: str, params: Dict = None) -> List[Dict[str, Any]]:
+        """
+        Make authenticated request to Canvas API with full pagination support.
+        
+        Canvas API paginates results using the Link header. This method
+        fetches all pages and returns combined results.
+        
+        Args:
+            endpoint: API endpoint (e.g., "/courses")
+            params: Query parameters
+            
+        Returns:
+            Combined list of all items from all pages
+        """
+        if params is None:
+            params = {}
+        
+        # Request more items per page to reduce number of requests
+        params["per_page"] = 100
+        
+        url = f"{self.api_base}{endpoint}"
+        all_items = []
+        
+        try:
+            while url:
+                response = self._client.get(url, params=params if not all_items else None)
+                response.raise_for_status()
+                
+                # Add items from this page
+                items = response.json()
+                if items:
+                    all_items.extend(items)
+                
+                # Check for next page in Link header
+                link_header = response.headers.get("Link", "")
+                url = None
+                
+                # Parse Link header for "next" URL
+                # Format: <url>; rel="next", <url>; rel="last"
+                for link in link_header.split(","):
+                    if 'rel="next"' in link:
+                        # Extract URL from <url>
+                        url_match = link.strip().split("<")[1].split(">")[0]
+                        url = url_match
+                        break
+            
+            return all_items
+            
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                raise CanvasRateLimitError("Canvas API rate limit exceeded")
+            raise CanvasClientError(f"Canvas API error: {e.response.status_code}")
+        except httpx.RequestError as e:
+            raise CanvasClientError(f"Request failed: {e}")
+    
     def _get_cache_path(self, course_id: str, cache_type: str) -> Path:
         """Generate cache file path for a specific course and cache type."""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -109,7 +164,12 @@ class CanvasClient:
         cache_path.write_text(json.dumps(cache_data, indent=2), encoding="utf-8")
     
     def get_courses(self) -> List[Dict[str, Any]]:
-        """Fetch list of accessible courses."""
+        """
+        Fetch list of accessible courses with full pagination.
+        
+        Uses _make_paginated_request to fetch all pages of courses.
+        Returns only courses where user has teacher or TA grading permissions.
+        """
         # Use standardized cache key format with timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         cache_path = CACHE_DIR / f"courses_{timestamp}.json"
@@ -119,7 +179,9 @@ class CanvasClient:
             return cached.get("courses", [])
         
         try:
-            courses = self._make_request("/courses", params={"enrollment_state": "active"})
+            # Use paginated request to get ALL courses, not just first page
+            courses = self._make_paginated_request("/courses", params={"enrollment_state": "active"})
+            
             # Filter to only courses where user can grade
             grading_courses = [
                 {
