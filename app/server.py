@@ -1360,19 +1360,31 @@ def get_canvas_assignments(course_id: int = Query(...)):
 
 
 @app.get("/classwork/canvas_submission_counts")
-def get_canvas_submission_counts(course_id: int = Query(...)):
-    """Fetch submission counts for multiple Canvas assignments."""
+def get_canvas_submission_counts(
+    course_id: int = Query(...),
+    limit: int = Query(6, ge=1, le=20, description="Only count submissions for first N assignments")
+):
+    """Fetch submission counts for a limited number of Canvas assignments.
+    
+    Limits to first N assignments (default 6) to improve page load performance.
+    Counts are only shown for ungraded assignments, so limiting is acceptable.
+    """
     try:
         client = get_canvas_client()
-        # First get all assignments to know which ones to count
+        # Get all assignments (cached, fast)
         assignments = client.get_assignments(course_id)
-        assignment_ids = [a["id"] for a in assignments]
         
-        # Get submission counts
+        # Limit to first N assignments for counting
+        limited_assignments = assignments[:limit]
+        assignment_ids = [a["id"] for a in limited_assignments]
+        
+        # Get submission counts for limited set only
         counts = client.get_assignment_submission_counts(course_id, assignment_ids)
         return {
             "course_id": course_id,
-            "assignment_counts": counts
+            "assignment_counts": counts,
+            "total_assignments": len(assignments),
+            "counted_assignments": len(assignment_ids)
         }
     except CanvasClientError as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -2211,11 +2223,12 @@ async def classwork_canvas_setup(
         token = uuid4().hex
         _classwork_gradebook_tmp_path(token).write_text(gradebook_text, encoding="utf-8")
         
-        # Download submissions for each selected assignment
+        # Download submissions for each selected assignment separately
         import tempfile
+        assignment_zips: Dict[int, bytes] = {}  # Map assignment_id -> ZIP bytes
+        
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
-            all_student_files: Dict[str, List[Path]] = {}
             
             for assignment_data in selected_assignments:
                 canvas_aid = assignment_data["id"]
@@ -2223,42 +2236,47 @@ async def classwork_canvas_setup(
                 
                 print(f"[AUTO DOWNLOAD] Downloading submissions for: {assignment_name} (ID: {canvas_aid})")
                 
-                # Download submissions to temp directory
+                # Download submissions to temp directory for this assignment only
                 student_files = client.download_assignment_submissions(
                     course_id=course_id,
                     assignment_id=canvas_aid,
                     output_dir=temp_path / f"assignment_{canvas_aid}"
                 )
                 
-                # Merge into all_student_files
-                for sid, files in student_files.items():
-                    if sid not in all_student_files:
-                        all_student_files[sid] = []
-                    all_student_files[sid].extend(files)
-            
-            # Create ZIP from downloaded files
-            if not all_student_files:
-                raise HTTPException(
-                    status_code=400,
-                    detail="No submissions found for the selected assignments."
-                )
-            
-            print(f"[AUTO DOWNLOAD] Downloaded submissions for {len(all_student_files)} students")
-            zip_bytes = _create_submissions_zip_from_downloads(all_student_files, active_roster)
+                # Check if we got any submissions
+                if not student_files:
+                    print(f"[AUTO DOWNLOAD] No submissions found for assignment {assignment_name}")
+                    continue
+                
+                print(f"[AUTO DOWNLOAD] Downloaded submissions for {len(student_files)} students in {assignment_name}")
+                
+                # Create separate ZIP for this assignment
+                assignment_zip_bytes = _create_submissions_zip_from_downloads(student_files, active_roster)
+                assignment_zips[canvas_aid] = assignment_zip_bytes
         
-        if not zip_bytes:
-            raise HTTPException(status_code=400, detail="No submissions ZIP data available.")
+        # Verify we have at least one successful download
+        if not assignment_zips:
+            raise HTTPException(
+                status_code=400,
+                detail="No submissions found for the selected assignments."
+            )
         
-        # Create batch state with all selected assignments
+        # Create batch state with all selected assignments, each using its own ZIP
         batch_assignments = []
         for assignment_data in selected_assignments:
             canvas_aid = assignment_data["id"]
             assignment_name = assignment_data["name"]
             max_points = assignment_data["max_points"]
             
-            # Build mode from ZIP for this assignment
+            # Get the ZIP for this specific assignment
+            assignment_zip_bytes = assignment_zips.get(canvas_aid)
+            if not assignment_zip_bytes:
+                print(f"[AUTO DOWNLOAD] Skipping {assignment_name} - no submissions")
+                continue
+            
+            # Build mode from ZIP for this assignment (using its own ZIP)
             mode = _classwork_build_mode_from_zip(
-                zip_bytes=zip_bytes,
+                zip_bytes=assignment_zip_bytes,
                 assignment_id=_sanitize_assignment_id(assignment_name).lower(),
                 max_points=float(max_points),
                 active_roster=active_roster,

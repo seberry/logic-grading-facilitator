@@ -54,6 +54,10 @@
             background-color: #28a745;
             color: white;
         }
+        .badge-not-counted {
+            background-color: #6c757d;
+            color: white;
+        }
         .badge-loading {
             background-color: #6c757d;
             color: white;
@@ -201,20 +205,30 @@
                         ? new Date(assignment.due_date).toLocaleDateString()
                         : 'No due date';
                     
-                    // Get submission counts
-                    const counts = submissionCounts[assignment.id] || {submitted: 0, graded: 0, ungraded: 0};
-                    const submitted = counts.submitted || 0;
-                    const graded = counts.graded || 0;
-                    const ungraded = counts.ungraded || 0;
+                    // Get counts (or default to empty)
+                    let submitted = 0;
+                    let graded = 0;
                     
-                    // Create badge based on ungraded count
+                    // Show appropriate badge based on whether we have counts
                     let badgeHtml = '';
-                    if (submitted > 0) {
-                        if (ungraded > 0) {
-                            badgeHtml = `<span class="submission-badge badge-ungraded">${ungraded} ungraded</span>`;
-                        } else if (graded > 0) {
-                            badgeHtml = `<span class="submission-badge badge-graded">✓ Graded</span>`;
+                    if (submissionCounts[assignment.id]) {
+                        // We have actual counts - show status badge
+                        const counts = submissionCounts[assignment.id];
+                        submitted = counts.submitted || 0;
+                        graded = counts.graded || 0;
+                        const ungraded = counts.ungraded || 0;
+                        
+                        // Create badge based on ungraded count
+                        if (submitted > 0) {
+                            if (ungraded > 0) {
+                                badgeHtml = `<span class="submission-badge badge-ungraded">${ungraded} ungraded</span>`;
+                            } else if (graded > 0) {
+                                badgeHtml = `<span class="submission-badge badge-graded">✓ Graded</span>`;
+                            }
                         }
+                    } else {
+                        // No counts loaded - show "not counted" badge
+                        badgeHtml = `<span class="submission-badge badge-not-counted">not counted</span>`;
                     }
                     
                     const div = document.createElement('div');
