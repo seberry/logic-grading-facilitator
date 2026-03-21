@@ -1,5 +1,19 @@
 # TODO
 
+## Server refactoring (2026-03-21)
+- **COMPLETED**: Created scripts for improving server.py readability
+  - `scripts/organize_server.py` - Full reorganization script (BROKEN - caused syntax errors)
+  - `scripts/add_server_markers.py` - Safe marker-only script (better approach)
+  - `scripts/README_SERVER_REFACTORING.md` - Documentation for both scripts
+- **LESSON LEARNED**: Full reorganization is risky. Better to use incremental approach:
+  1. Add section markers only (preserve code order and dependencies)
+  2. Test to ensure system still works
+  3. Only then consider extracting sections to separate modules
+- **NEXT STEPS**: When ready, run `python scripts/add_server_markers.py` to add markers without breaking anything
+- **RECOVERY**: System was rolled back to commit `014c692` after breaking changes; working version restored via git
+
+## FERPA guardrails
+
 ## FERPA guardrails
 - Investigate hard guardrails for live grading data so the CLI AI can do metadata-only operations on FERPA-sensitive paths without ever reading raw file contents into model context.
 - Preferred direction: keep live grading data outside the normal AI-readable workspace and expose a tiny local helper/tool for safe operations only (`exists`, `list filenames`, `rename`, `copy`, `write manifest`), with no raw content-read command.
