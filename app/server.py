@@ -25,6 +25,7 @@ from fastapi import (
     Form,
     UploadFile,
     File,
+    Query,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, PlainTextResponse
@@ -82,6 +83,49 @@ from docx import Document
 from .vlm_client import LMStudioQwenClient  # type: ignore
 from .vlm_classifier import classify_page  # type: ignore
 from .canvas_client import CanvasClient, CanvasClientError, get_canvas_client
+
+# Submissions cache directory for downloaded Canvas files
+CANVAS_SUBMISSIONS_CACHE_DIR = DATA_DIR / "canvas_cache" / "submissions"
+CANVAS_SUBMISSIONS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _create_submissions_zip_from_downloads(
+    student_files: Dict[str, List[Path]],
+    roster: List[RosterEntry],
+) -> bytes:
+    """
+    Create a ZIP file from downloaded Canvas submissions.
+    
+    Args:
+        student_files: Dict mapping student_id to list of downloaded file paths
+        roster: List of roster entries for name lookup
+        
+    Returns:
+        bytes: ZIP file content
+    """
+    buf = io.BytesIO()
+    
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        roster_by_id = {r.student_id: r.name for r in roster}
+        
+        for student_id, file_paths in student_files.items():
+            if not file_paths:
+                continue
+            
+            student_name = roster_by_id.get(student_id, "")
+            if not student_name:
+                # Skip if we can't find the student name
+                continue
+            
+            # Create Canvas-style filename: {last_name}_{first_name}_assignment_{id}_{original_name}
+            # We'll use the original filenames from downloads for simplicity
+            for file_path in file_paths:
+                if file_path.exists():
+                    # Use original filename to preserve Canvas structure
+                    original_name = file_path.name
+                    zf.write(file_path, arcname=original_name)
+    
+    return buf.getvalue()
 
 app = FastAPI(
     title="Logic Grading Facilitator v0",
@@ -1315,6 +1359,25 @@ def get_canvas_assignments(course_id: int = Query(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/classwork/canvas_submission_counts")
+def get_canvas_submission_counts(course_id: int = Query(...)):
+    """Fetch submission counts for multiple Canvas assignments."""
+    try:
+        client = get_canvas_client()
+        # First get all assignments to know which ones to count
+        assignments = client.get_assignments(course_id)
+        assignment_ids = [a["id"] for a in assignments]
+        
+        # Get submission counts
+        counts = client.get_assignment_submission_counts(course_id, assignment_ids)
+        return {
+            "course_id": course_id,
+            "assignment_counts": counts
+        }
+    except CanvasClientError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/classwork", response_class=HTMLResponse)
 def classwork_setup_page(request: Request) -> Response:
     session = get_session()
@@ -2097,16 +2160,28 @@ def classwork_batch_download_comments(export_id: str, assignment_id: str):
     )
 
 
+@app.get("/classwork/canvas_setup", response_class=HTMLResponse)
+def classwork_canvas_setup_page(request: Request) -> Response:
+    """Render Canvas setup page."""
+    status = str(request.query_params.get("status") or "").strip()
+    message = str(request.query_params.get("message") or "").strip()
+    return templates.TemplateResponse(
+        "classwork_canvas_setup.html",
+        {
+            "request": request,
+            "status": status,
+            "message": message,
+        },
+    )
+
+
 @app.post("/classwork/canvas_setup", response_class=HTMLResponse)
 async def classwork_canvas_setup(
     request: Request,
-    submissions_zip: UploadFile = File(...),
     course_id: int = Form(...),
     assignment_ids: List[int] = Form(None),
 ) -> Response:
     """Set up classwork using Canvas API to fetch gradebook and assignments."""
-    if not submissions_zip.filename:
-        raise HTTPException(status_code=400, detail="Please upload a submissions ZIP.")
     if not assignment_ids or not any(assignment_ids):
         raise HTTPException(status_code=400, detail="Please select at least one assignment.")
 
@@ -2136,10 +2211,43 @@ async def classwork_canvas_setup(
         token = uuid4().hex
         _classwork_gradebook_tmp_path(token).write_text(gradebook_text, encoding="utf-8")
         
-        # Process submissions ZIP
-        zip_bytes = await submissions_zip.read()
+        # Download submissions for each selected assignment
+        import tempfile
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = Path(temp_dir)
+            all_student_files: Dict[str, List[Path]] = {}
+            
+            for assignment_data in selected_assignments:
+                canvas_aid = assignment_data["id"]
+                assignment_name = assignment_data["name"]
+                
+                print(f"[AUTO DOWNLOAD] Downloading submissions for: {assignment_name} (ID: {canvas_aid})")
+                
+                # Download submissions to temp directory
+                student_files = client.download_assignment_submissions(
+                    course_id=course_id,
+                    assignment_id=canvas_aid,
+                    output_dir=temp_path / f"assignment_{canvas_aid}"
+                )
+                
+                # Merge into all_student_files
+                for sid, files in student_files.items():
+                    if sid not in all_student_files:
+                        all_student_files[sid] = []
+                    all_student_files[sid].extend(files)
+            
+            # Create ZIP from downloaded files
+            if not all_student_files:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No submissions found for the selected assignments."
+                )
+            
+            print(f"[AUTO DOWNLOAD] Downloaded submissions for {len(all_student_files)} students")
+            zip_bytes = _create_submissions_zip_from_downloads(all_student_files, active_roster)
+        
         if not zip_bytes:
-            raise HTTPException(status_code=400, detail="Uploaded submissions ZIP was empty.")
+            raise HTTPException(status_code=400, detail="No submissions ZIP data available.")
         
         # Create batch state with all selected assignments
         batch_assignments = []

@@ -10,7 +10,7 @@ import time
 import json
 import csv
 from typing import List, Dict, Any, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import io
 
@@ -29,7 +29,44 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 # Cache TTL in seconds
 COURSES_CACHE_TTL = 3600  # 1 hour
 ASSIGNMENTS_CACHE_TTL = 1800  # 30 minutes
+SUBMISSION_COUNTS_TTL = 300  # 5 minutes
 GRADEBOOK_CACHE_TTL = 300  # 5 minutes
+
+# Maximum number of cache files to keep per course
+MAX_CACHE_FILES_PER_COURSE = 5
+
+
+def _cleanup_old_cache_files(course_id: str, cache_type: str, keep_count: int = MAX_CACHE_FILES_PER_COURSE) -> None:
+    """
+    Clean up old cache files for a specific course and cache type.
+    
+    Keeps only the most recent `keep_count` files based on timestamp in filename.
+    This prevents cache file accumulation that causes performance issues.
+    
+    Args:
+        course_id: Canvas course ID
+        cache_type: Type of cache (e.g., "assignments", "submission_counts")
+        keep_count: Maximum number of files to keep (default: MAX_CACHE_FILES_PER_COURSE)
+    """
+    try:
+        # Find all cache files for this course and type
+        pattern = f"{course_id}_{cache_type}_*.json"
+        cache_files = sorted(
+            CACHE_DIR.glob(pattern),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True  # Most recent first
+        )
+        
+        # Remove excess files
+        if len(cache_files) > keep_count:
+            for old_file in cache_files[keep_count:]:
+                try:
+                    old_file.unlink()
+                    print(f"[CACHE CLEANUP] Removed old cache: {old_file.name}")
+                except OSError as e:
+                    print(f"[CACHE CLEANUP] Failed to remove {old_file.name}: {e}")
+    except Exception as e:
+        print(f"[CACHE CLEANUP] Error during cleanup: {e}")
 
 
 class CanvasClientError(Exception):
@@ -169,10 +206,11 @@ class CanvasClient:
         
         Uses _make_paginated_request to fetch all pages of courses.
         Returns only courses where user has teacher or TA grading permissions.
+        
+        Uses static cache filename with timestamp stored in file for TTL checking.
         """
-        # Use standardized cache key format with timestamp
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        cache_path = CACHE_DIR / f"courses_{timestamp}.json"
+        # Use static cache filename (timestamp stored inside file for TTL)
+        cache_path = CACHE_DIR / "courses_cache.json"
         cached = self._read_cache(cache_path, COURSES_CACHE_TTL)
         
         if cached:
@@ -183,6 +221,7 @@ class CanvasClient:
             courses = self._make_paginated_request("/courses", params={"enrollment_state": "active"})
             
             # Filter to only courses where user can grade
+            # Canvas API returns lowercase "teacher" and "ta" (not "TeacherEnrollment"/"TaEnrollment")
             grading_courses = [
                 {
                     "id": c["id"],
@@ -191,7 +230,7 @@ class CanvasClient:
                 }
                 for c in courses
                 if c.get("enrollments") and any(
-                    e.get("type") in ["TeacherEnrollment", "TaEnrollment"]
+                    e.get("type") in ["teacher", "ta"]
                     for e in c["enrollments"]
                 )
             ]
@@ -200,17 +239,9 @@ class CanvasClient:
             return grading_courses
         except CanvasClientError as e:
             # Return cached data on error if available
-            # Try to find most recent courses cache file
-            courses_caches = sorted(
-                CACHE_DIR.glob("courses_*.json"),
-                key=lambda p: p.stat().st_mtime,
-                reverse=True
-            )
-            if courses_caches:
-                fallback_path = courses_caches[0]
-                fallback = self._read_cache(fallback_path, COURSES_CACHE_TTL * 2)
-                if fallback:
-                    return fallback.get("courses", [])
+            fallback = self._read_cache(cache_path, COURSES_CACHE_TTL * 2)
+            if fallback:
+                return fallback.get("courses", [])
             raise
     
     def get_assignments(self, course_id: int) -> List[Dict[str, Any]]:
@@ -222,7 +253,8 @@ class CanvasClient:
             return cached
         
         try:
-            assignments = self._make_request(f"/courses/{course_id}/assignments")
+            # Use paginated request to get ALL assignments, not just first page
+            assignments = self._make_paginated_request(f"/courses/{course_id}/assignments")
             
             # Filter and transform assignments
             filtered = []
@@ -253,17 +285,106 @@ class CanvasClient:
                     "published": a.get("published", False)
                 })
             
-            # Sort: assignments with due date first (DESC), then no due date
-            filtered.sort(
-                key=lambda x: (x["due_date"] is None, x["due_date"] or ""),
-                reverse=True
-            )
+            # Sort assignments with date-aware strategy:
+            # 1. Past-due assignments first (most recent past-due at top)
+            # 2. Future-due assignments next (soonest upcoming first)
+            # 3. No due date assignments last
+            
+            # Get current date (timezone-aware)
+            now = datetime.now(timezone.utc)
+            
+            # Categorize assignments
+            past_due = []
+            future_due = []
+            no_due = []
+            
+            for assignment in filtered:
+                if assignment["due_date"] is None:
+                    no_due.append(assignment)
+                else:
+                    due_date = datetime.fromisoformat(assignment["due_date"])
+                    if due_date < now:
+                        past_due.append(assignment)
+                    else:
+                        future_due.append(assignment)
+            
+            # Sort each bucket
+            # Past-due: most recent past-due first (DESC)
+            past_due.sort(key=lambda x: x["due_date"], reverse=True)
+            # Future-due: soonest upcoming first (ASC)
+            future_due.sort(key=lambda x: x["due_date"])
+            # No due date: keep original order
+            
+            # Concatenate buckets
+            filtered = past_due + future_due + no_due
             
             self._write_cache(cache_path, filtered)
+            # Clean up old cache files to prevent accumulation
+            _cleanup_old_cache_files(str(course_id), "assignments")
             return filtered
         except CanvasClientError as e:
             # Return cached data on error if available
             fallback = self._read_cache(cache_path, ASSIGNMENTS_CACHE_TTL * 2)
+            if fallback:
+                return fallback
+            raise
+    
+    def get_assignment_submission_counts(self, course_id: int, assignment_ids: List[int]) -> Dict[int, Dict[str, int]]:
+        """
+        Get submission counts for multiple assignments.
+        
+        Returns:
+            Dict mapping assignment_id to {
+                "submitted": int,      # total submissions
+                "graded": int,         # graded submissions
+                "ungraded": int        # submissions needing grading
+            }
+        """
+        cache_path = CACHE_DIR / f"{course_id}_submission_counts.json"
+        cached = self._read_cache(cache_path, SUBMISSION_COUNTS_TTL)
+        
+        if cached:
+            return cached
+        
+        counts = {}
+        
+        try:
+            # Fetch submission summaries for all requested assignments
+            # Canvas API provides efficient batch query via include[] parameter
+            for assignment_id in assignment_ids:
+                endpoint = f"/courses/{course_id}/assignments/{assignment_id}/submissions"
+                submissions = self._make_request(
+                    endpoint,
+                    params={
+                        "include": ["submission_history", "user"],
+                        "per_page": 100
+                    }
+                )
+                
+                # Count submissions
+                submitted = 0
+                graded = 0
+                
+                for submission in submissions:
+                    # Count only submitted (not missing/excused)
+                    if submission.get("workflow_state") != "unsubmitted":
+                        submitted += 1
+                        # Count as graded if it has a score
+                        if submission.get("score") is not None:
+                            graded += 1
+                
+                counts[assignment_id] = {
+                    "submitted": submitted,
+                    "graded": graded,
+                    "ungraded": submitted - graded
+                }
+            
+            self._write_cache(cache_path, counts)
+            return counts
+            
+        except CanvasClientError as e:
+            # Return cached data on error if available
+            fallback = self._read_cache(cache_path, SUBMISSION_COUNTS_TTL * 2)
             if fallback:
                 return fallback
             raise
@@ -447,6 +568,137 @@ class CanvasClient:
     def close(self):
         """Close HTTP client."""
         self._client.close()
+
+    def download_assignment_submissions(
+        self,
+        course_id: int,
+        assignment_id: int,
+        output_dir: Path,
+    ) -> Dict[str, List[Path]]:
+        """
+        Download all submission files for an assignment from Canvas.
+        
+        Args:
+            course_id: Canvas course ID
+            assignment_id: Canvas assignment ID
+            output_dir: Directory to save downloaded files
+            
+        Returns:
+            Dict mapping student_id to list of downloaded file paths
+            
+        Raises:
+            CanvasClientError: If download fails
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        output_dir.mkdir(parents=True, exist_ok=True)
+        student_files: Dict[str, List[Path]] = {}
+        
+        try:
+            # Fetch all submissions for this assignment
+            endpoint = f"/courses/{course_id}/assignments/{assignment_id}/submissions"
+            params = {
+                "include": ["submission_history", "user"],
+                "per_page": 100
+            }
+            
+            submissions = self._make_request(endpoint, params=params)
+            total = len(submissions)
+            logger.info(f"Fetching {total} submissions for assignment {assignment_id}")
+            
+            for idx, submission in enumerate(submissions, 1):
+                # Skip unsubmitted
+                if submission.get("workflow_state") == "unsubmitted":
+                    continue
+                
+                user = submission.get("user", {})
+                student_id = user.get("sis_user_id") or user.get("login_id") or user.get("id")
+                
+                if not student_id:
+                    logger.warning(f"Submission {idx}/{total} has no student ID, skipping")
+                    continue
+                
+                student_name = user.get("name", "")
+                logger.info(f"Processing submission {idx}/{total}: {student_name} ({student_id})")
+                
+                # Handle different submission types
+                attachments = submission.get("attachments", [])
+                
+                # Case 1: File attachments (online_upload, on_paper)
+                if attachments:
+                    for attachment in attachments:
+                        file_url = attachment.get("url")
+                        filename = attachment.get("filename")
+                        
+                        if not file_url or not filename:
+                            continue
+                        
+                        # Download file
+                        try:
+                            response = self._client.get(file_url)
+                            response.raise_for_status()
+                            
+                            # Save to output directory
+                            # Preserve Canvas naming: {last_name}_{first_name}_assignment_{id}_{original_name}
+                            file_path = output_dir / filename
+                            
+                            # Handle duplicate filenames
+                            counter = 1
+                            while file_path.exists():
+                                stem = Path(filename).stem
+                                suffix = Path(filename).suffix
+                                file_path = output_dir / f"{stem}_{counter}{suffix}"
+                                counter += 1
+                            
+                            file_path.write_bytes(response.content)
+                            
+                            # Add to student's file list
+                            if student_id not in student_files:
+                                student_files[student_id] = []
+                            student_files[student_id].append(file_path)
+                            
+                            logger.info(f"  Downloaded: {filename}")
+                            
+                        except httpx.HTTPStatusError as e:
+                            logger.error(f"  Failed to download {filename}: {e}")
+                            continue
+                        except Exception as e:
+                            logger.error(f"  Error downloading {filename}: {e}")
+                            continue
+                
+                # Case 2: Text submission (online_text_entry)
+                elif submission.get("body") or submission.get("text_comment"):
+                    text_content = submission.get("body") or submission.get("text_comment", "")
+                    
+                    # Create text file from submission
+                    # Canvas doesn't provide filename for text submissions, so we create one
+                    filename = f"{student_name.replace(',', '').replace(' ', '_')}_submission.txt"
+                    file_path = output_dir / filename
+                    
+                    # Handle duplicates
+                    counter = 1
+                    while file_path.exists():
+                        file_path = output_dir / f"{student_name.replace(',', '').replace(' ', '_')}_submission_{counter}.txt"
+                        counter += 1
+                    
+                    file_path.write_text(text_content, encoding="utf-8")
+                    
+                    if student_id not in student_files:
+                        student_files[student_id] = []
+                    student_files[student_id].append(file_path)
+                    
+                    logger.info(f"  Created text file from submission")
+            
+            logger.info(f"Download complete: {len(student_files)} students with files")
+            return student_files
+            
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                raise CanvasRateLimitError("Canvas API rate limit exceeded during download")
+            raise CanvasClientError(f"Canvas API error: {e.response.status_code}")
+        except Exception as e:
+            raise CanvasClientError(f"Failed to download submissions: {e}")
 
 
 # Convenience function to get a client instance

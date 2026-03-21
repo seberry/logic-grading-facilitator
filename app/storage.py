@@ -236,6 +236,9 @@ def archive_current_data(label: str) -> str:
         (NAME_REVIEW_CACHE_DIR, snapshot_root / "name_review_cache"),
         (DATA_DIR / "debug_fitch", snapshot_root / "debug_fitch"),
         (DATA_DIR / "auto_grouped", snapshot_root / "auto_grouped"),
+        (DATA_DIR / "classwork", snapshot_root / "classwork"),
+        (DATA_DIR / "canvas_cache", snapshot_root / "canvas_cache"),
+        (DATA_DIR / "gradebook_merge", snapshot_root / "gradebook_merge"),
         (DEFAULT_ROSTER_PATH, snapshot_root / "roster.csv"),
     ]
     for src, dst in copy_items:

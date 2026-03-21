@@ -10,16 +10,16 @@ The classwork viewer now supports Canvas API integration to streamline the gradi
 
 **Access:** `/classwork/canvas_setup`
 
-The Canvas setup page provides a three-step workflow:
+The Canvas setup page provides a streamlined three-step workflow:
 
 1. **Select Course** - Dropdown loads all accessible Canvas courses via API
-2. **Upload Submissions ZIP** - Upload student submissions ZIP file (from Canvas downloads)
-3. **Select Assignments** - Choose assignments to grade from a sorted list
+2. **Select Assignments** - Choose assignments to grade from a sorted list (with ungraded counts)
+3. **Fetch from Canvas & Setup** - Click to automatically download submissions and setup grading
 
 **Assignment Sorting:**
 - Assignments with due dates are sorted by date DESC (most recent first)
 - Assignments without due dates appear at the bottom
-- Shows assignment name, max points, and due date
+- Shows assignment name, max points, due date, and submission counts
 
 ### 2. API Endpoints
 
@@ -40,14 +40,34 @@ The Canvas setup page provides a three-step workflow:
 - Parameters:
   - `course_id`: Canvas course ID
   - `assignment_ids[]`: List of assignment IDs to grade
-  - `submissions_zip`: Student submissions ZIP file
 - Actions:
   1. Fetches gradebook CSV from Canvas
   2. Parses gradebook and builds roster
   3. Fetches assignment metadata (max points)
-  4. Processes submissions ZIP to match students
+  4. **Downloads all submission files from Canvas for each selected assignment** (automatic)
   5. Creates ClassworkBatchState with Canvas metadata
 - Redirects to `/classwork/review`
+
+#### Auto-Download Feature
+
+**Always enabled for Canvas setup:**
+- Downloads all submission files directly from Canvas API for selected assignments
+- Supports multiple file attachments per student (PDF, images, etc.)
+- Handles text submissions (creates `.txt` files)
+- Combines submissions from multiple assignments into one batch
+- Creates Canvas-style ZIP structure for compatibility
+
+**File Types Handled:**
+- File attachments: PDF, JPG, PNG, DOCX, etc.
+- Text submissions: Converted to `.txt` files
+- Multiple files per student: All downloaded and included
+
+**Benefits:**
+- Eliminates manual download step from Canvas UI
+- Ensures you have latest submissions (not stale ZIP)
+- Works with multiple assignments in one batch
+- Automatically handles Canvas naming conventions
+- Simple, streamlined workflow
 
 #### POST `/classwork/canvas_post_comments`
 - Posts text comments to Canvas assignments
@@ -122,18 +142,18 @@ The base URL should point to your Canvas instance's home page.
 9. Export comments ZIP
 10. Upload comments ZIP to Canvas manually
 
-#### Canvas API Workflow (New)
+#### Canvas API Workflow (Streamlined)
 1. Select course from dropdown (auto-fetched)
-2. Select assignments from list (auto-fetched, sorted by due date)
-3. Max points auto-populated from Canvas
-4. Upload submissions ZIP
+2. Select assignments from list (auto-fetched, sorted by due date, with ungraded counts)
+3. Click "Fetch from Canvas & Setup"
+4. **Submissions downloaded automatically from Canvas** (no manual ZIP needed!)
 5. Grade submissions
 6. Export merged gradebook CSV
 7. Upload CSV back to Canvas (still manual - **INTENTIONAL DESIGN**)
-8. **NEW:** Click "Upload Comments to Canvas" button
+8. Click "Upload Comments to Canvas" button
 9. Comments posted automatically via API
 
-**Time Savings:** Eliminates steps 1, 2, 3, 8, 9, and 10 from manual workflow.
+**Time Savings:** Eliminates steps 1, 2, 3, 4, 5, 8, 9, and 10 from manual workflow.
 
 **IMPORTANT:** Manual grade upload (step 7) is intentional design, not a missing feature.
 
@@ -171,10 +191,11 @@ This approach balances automation with safety and review capabilities.
 
 Potential future improvements:
 - **Grade Upload:** Add option to post grades via API (with Canvas conflict handling)
-- **Submission Fetching:** Download submissions directly from Canvas
 - **Real-time Sync:** Refresh roster and assignments periodically
 - **Assignment Groups:** Filter assignments by group (quizzes, homework, etc.)
 - **Recent Assignments First:** Highlight assignments due in the last 7 days
+- **Progress Indicators:** Show download progress for large submissions batches
+- **Caching Downloaded Files:** Cache downloaded submissions to avoid re-downloading
 
 ### 9. Testing Checklist
 
