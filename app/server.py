@@ -56,7 +56,7 @@ from .storage import (
     load_session,
     save_session,
     DEFAULT_SESSION_PATH,
-    RAW_SCANS_DIR,  # we’ll use this to serve images
+    RAW_SCANS_DIR,  # we'll use this to serve images
     DATA_DIR,
     load_roster,
     load_grading_key,
@@ -81,6 +81,7 @@ from docx import Document
 
 from .vlm_client import LMStudioQwenClient  # type: ignore
 from .vlm_classifier import classify_page  # type: ignore
+from .canvas_client import CanvasClient, CanvasClientError, get_canvas_client
 
 app = FastAPI(
     title="Logic Grading Facilitator v0",
@@ -1292,6 +1293,28 @@ def _classwork_extract_text_preview(path: Path) -> str:
     raise HTTPException(status_code=400, detail="Could not decode text preview for this file.")
 
 
+@app.get("/classwork/canvas_courses")
+def get_canvas_courses():
+    """Fetch list of Canvas courses for the user."""
+    try:
+        client = get_canvas_client()
+        courses = client.get_courses()
+        return {"courses": courses}
+    except CanvasClientError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/classwork/canvas_assignments")
+def get_canvas_assignments(course_id: int = Query(...)):
+    """Fetch assignments for a Canvas course, sorted by due date."""
+    try:
+        client = get_canvas_client()
+        assignments = client.get_assignments(course_id)
+        return {"course_id": course_id, "assignments": assignments}
+    except CanvasClientError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/classwork", response_class=HTMLResponse)
 def classwork_setup_page(request: Request) -> Response:
     session = get_session()
@@ -2072,6 +2095,194 @@ def classwork_batch_download_comments(export_id: str, assignment_id: str):
         media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{quote(filename)}"'},
     )
+
+
+@app.post("/classwork/canvas_setup", response_class=HTMLResponse)
+async def classwork_canvas_setup(
+    request: Request,
+    submissions_zip: UploadFile = File(...),
+    course_id: int = Form(...),
+    assignment_ids: List[int] = Form(None),
+) -> Response:
+    """Set up classwork using Canvas API to fetch gradebook and assignments."""
+    if not submissions_zip.filename:
+        raise HTTPException(status_code=400, detail="Please upload a submissions ZIP.")
+    if not assignment_ids or not any(assignment_ids):
+        raise HTTPException(status_code=400, detail="Please select at least one assignment.")
+
+    try:
+        client = get_canvas_client()
+        
+        # Fetch gradebook CSV from Canvas
+        gradebook_text = client.get_gradebook_csv(course_id)
+        
+        # Parse gradebook
+        fieldnames, rows, id_col = _parse_gradebook_csv(gradebook_text)
+        active_roster = _classwork_resolve_roster("gradebook", rows, id_col)
+        
+        # Fetch assignments and get metadata
+        all_assignments = client.get_assignments(course_id)
+        assignments_map = {a["id"]: a for a in all_assignments}
+        
+        # Validate selected assignments
+        selected_assignments = []
+        for aid in assignment_ids:
+            if aid not in assignments_map:
+                raise HTTPException(status_code=400, detail=f"Assignment {aid} not found.")
+            selected_assignments.append(assignments_map[aid])
+        
+        # Store gradebook
+        GRADEBOOK_MERGE_TMP_DIR.mkdir(parents=True, exist_ok=True)
+        token = uuid4().hex
+        _classwork_gradebook_tmp_path(token).write_text(gradebook_text, encoding="utf-8")
+        
+        # Process submissions ZIP
+        zip_bytes = await submissions_zip.read()
+        if not zip_bytes:
+            raise HTTPException(status_code=400, detail="Uploaded submissions ZIP was empty.")
+        
+        # Create batch state with all selected assignments
+        batch_assignments = []
+        for assignment_data in selected_assignments:
+            canvas_aid = assignment_data["id"]
+            assignment_name = assignment_data["name"]
+            max_points = assignment_data["max_points"]
+            
+            # Build mode from ZIP for this assignment
+            mode = _classwork_build_mode_from_zip(
+                zip_bytes=zip_bytes,
+                assignment_id=_sanitize_assignment_id(assignment_name).lower(),
+                max_points=float(max_points),
+                active_roster=active_roster,
+                gradebook_token=token,
+                id_col=id_col,
+                gradebook_column=None,  # Will be set later
+            )
+            
+            # Add Canvas metadata
+            mode.canvas_course_id = course_id
+            mode.canvas_assignment_id = canvas_aid
+            
+            batch_assignments.append(mode)
+        
+        # Create batch state
+        batch = ClassworkBatchState(
+            gradebook_token=token,
+            id_column=id_col,
+            assignments=batch_assignments,
+        )
+        
+        # Save session
+        with _session_lock:
+            session = get_session()
+            session.classwork_batch = batch
+            session.classwork_mode = batch_assignments[0] if batch_assignments else None
+            persist_session()
+        
+        return RedirectResponse(url="/classwork/review", status_code=303)
+        
+    except CanvasClientError as e:
+        return RedirectResponse(
+            url=f"/classwork?status=error&message={quote(f'Canvas API error: {e}')}",
+            status_code=303,
+        )
+    except Exception as e:
+        return RedirectResponse(
+            url=f"/classwork?status=error&message={quote(f'Error: {e}')}",
+            status_code=303,
+        )
+
+
+@app.post("/classwork/canvas_post_comments", response_class=HTMLResponse)
+async def classwork_canvas_post_comments(
+    request: Request,
+    export_id: str = Form(...),
+    overwrite: bool = Form(False),
+) -> Response:
+    """Post text comments from classwork to Canvas via API."""
+    export_dir = CLASSWORK_EXPORTS_DIR / export_id
+    manifest_path = export_dir / "batch_manifest.json"
+    if not manifest_path.exists():
+        raise HTTPException(status_code=404, detail="Export not found.")
+    
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    gradebook_file = manifest.get("gradebook_file")
+    
+    with _session_lock:
+        session = get_session()
+        batch = session.classwork_batch
+        if batch is None:
+            raise HTTPException(status_code=400, detail="No batch session found.")
+        
+        results_summary = []
+        success_count = 0
+        failed_count = 0
+        
+        try:
+            client = get_canvas_client()
+            
+            for mode in batch.assignments:
+                if not mode.canvas_course_id or not mode.canvas_assignment_id:
+                    results_summary.append({
+                        "assignment_id": mode.assignment_id,
+                        "status": "skipped",
+                        "message": "No Canvas assignment mapping"
+                    })
+                    continue
+                
+                # Build comments dict for this assignment
+                comments_dict = {}
+                for entry in mode.entries:
+                    if entry.comment and entry.comment.strip():
+                        comments_dict[entry.student_id] = {
+                            "text": entry.comment.strip()
+                        }
+                
+                if not comments_dict:
+                    results_summary.append({
+                        "assignment_id": mode.assignment_id,
+                        "status": "skipped",
+                        "message": "No comments to post"
+                    })
+                    continue
+                
+                # Post comments to Canvas
+                result = client.bulk_post_comments(
+                    course_id=mode.canvas_course_id,
+                    assignment_id=mode.canvas_assignment_id,
+                    comments=comments_dict
+                )
+                
+                success_count += len(result.get("success", []))
+                failed_count += len(result.get("failed", []))
+                
+                results_summary.append({
+                    "assignment_id": mode.assignment_id,
+                    "status": "posted",
+                    "success": len(result.get("success", [])),
+                    "failed": len(result.get("failed", [])),
+                    "errors": [f["error"] for f in result.get("failed", [])]
+                })
+            
+            # Close client
+            client.close()
+            
+        except CanvasClientError as e:
+            raise HTTPException(status_code=500, detail=f"Canvas API error: {e}")
+        
+        return templates.TemplateResponse(
+            "classwork_batch_done.html",
+            {
+                "request": request,
+                "export_id": export_id,
+                "canvas_results": results_summary,
+                "total_success": success_count,
+                "total_failed": failed_count,
+                "comments_files": manifest.get("comments_files", {}),
+                "assignment_ids": manifest.get("assignment_ids", []),
+                "closed": False,
+            },
+        )
 
 
 @app.post("/setup/roster")

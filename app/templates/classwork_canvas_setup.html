@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Classwork Setup - Canvas Integration</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        h1, h2 { color: #333; }
+        h1 { border-bottom: 2px solid #4a90e2; padding-bottom: 10px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; font-weight: bold; margin-bottom: 5px; }
+        select, input[type="file"] {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .assignments-list {
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        .assignment-item {
+            padding: 8px;
+            border-bottom: 1px solid #eee;
+        }
+        .assignment-item:last-child { border-bottom: none; }
+        .assignment-item input[type="checkbox"] { margin-right: 10px; }
+        .assignment-meta { font-size: 12px; color: #666; margin-left: 25px; }
+        .btn {
+            padding: 12px 24px;
+            font-size: 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        .btn-primary {
+            background-color: #4a90e2;
+            color: white;
+        }
+        .btn-secondary {
+            background-color: #6c757d;
+            color: white;
+        }
+        .btn:hover { opacity: 0.9; }
+        .loading { display: none; color: #666; margin-left: 10px; }
+        .error { color: #d9534f; }
+        .success { color: #28a745; }
+    </style>
+</head>
+<body>
+    <h1>📚 Canvas Classwork Setup</h1>
+    
+    {% if status == "error" %}
+    <div class="error">
+        <p><strong>Error:</strong> {{ message }}</p>
+    </div>
+    {% endif %}
+    
+    <div class="form-group">
+        <label for="course-select">1. Select Canvas Course</label>
+        <select id="course-select" onchange="loadAssignments()">
+            <option value="">Loading courses...</option>
+        </select>
+        <span class="loading" id="course-loading">Loading...</span>
+    </div>
+    
+    <div class="form-group">
+        <label for="submissions-zip">2. Upload Submissions ZIP</label>
+        <input type="file" id="submissions-zip" accept=".zip" required>
+        <p style="font-size: 12px; color: #666;">
+            Upload the ZIP file containing student submissions from Canvas.
+        </p>
+    </div>
+    
+    <div class="form-group">
+        <label for="assignments-list">3. Select Assignments to Grade</label>
+        <div class="assignments-list" id="assignments-list">
+            <p style="color: #666;">Select a course first to load assignments.</p>
+        </div>
+        <p style="font-size: 12px; color: #666;">
+            Assignments are sorted by due date (most recent first). 
+            Assignments with no due date appear at the bottom.
+        </p>
+    </div>
+    
+    <div class="form-group">
+        <button type="button" class="btn btn-primary" onclick="submitSetup()" id="submit-btn">
+            Fetch from Canvas & Setup
+        </button>
+        <a href="/classwork" class="btn btn-secondary">
+            Cancel
+        </a>
+        <span class="loading" id="submit-loading">Processing...</span>
+    </div>
+
+    <script>
+        let courses = [];
+        let assignments = {};
+        
+        // Load courses on page load
+        document.addEventListener('DOMContentLoaded', loadCourses);
+        
+        async function loadCourses() {
+            const loadingEl = document.getElementById('course-loading');
+            const selectEl = document.getElementById('course-select');
+            
+            loadingEl.style.display = 'inline';
+            selectEl.disabled = true;
+            
+            try {
+                const response = await fetch('/classwork/canvas_courses');
+                const data = await response.json();
+                courses = data.courses || [];
+                
+                selectEl.innerHTML = '<option value="">-- Select a course --</option>';
+                courses.forEach(course => {
+                    const option = document.createElement('option');
+                    option.value = course.id;
+                    option.textContent = `${course.name} (${course.course_code || 'No code'})`;
+                    selectEl.appendChild(option);
+                });
+                
+                loadingEl.style.display = courses.length ? 'none' : 'inline';
+                selectEl.disabled = false;
+            } catch (error) {
+                console.error('Failed to load courses:', error);
+                selectEl.innerHTML = '<option value="">Failed to load courses</option>';
+                loadingEl.style.display = 'none';
+                selectEl.disabled = false;
+            }
+        }
+        
+        async function loadAssignments() {
+            const courseId = document.getElementById('course-select').value;
+            const listEl = document.getElementById('assignments-list');
+            
+            if (!courseId) {
+                listEl.innerHTML = '<p style="color: #666;">Select a course first to load assignments.</p>';
+                return;
+            }
+            
+            listEl.innerHTML = '<p style="color: #666;">Loading assignments...</p>';
+            
+            try {
+                const response = await fetch(`/classwork/canvas_assignments?course_id=${courseId}`);
+                const data = await response.json();
+                assignments = data.assignments || [];
+                
+                if (assignments.length === 0) {
+                    listEl.innerHTML = '<p style="color: #666;">No assignments found for this course.</p>';
+                    return;
+                }
+                
+                listEl.innerHTML = '';
+                assignments.forEach(assignment => {
+                    const dueDate = assignment.due_date 
+                        ? new Date(assignment.due_date).toLocaleDateString()
+                        : 'No due date';
+                    
+                    const div = document.createElement('div');
+                    div.className = 'assignment-item';
+                    div.innerHTML = `
+                        <input type="checkbox" value="${assignment.id}" id="assignment-${assignment.id}">
+                        <label for="assignment-${assignment.id}">
+                            <strong>${assignment.name}</strong>
+                            <div class="assignment-meta">
+                                Max points: ${assignment.max_points} | Due: ${dueDate}
+                            </div>
+                        </label>
+                    `;
+                    listEl.appendChild(div);
+                });
+                
+            } catch (error) {
+                console.error('Failed to load assignments:', error);
+                listEl.innerHTML = '<p style="color: #d9534f;">Failed to load assignments. Please try again.</p>';
+            }
+        }
+        
+        async function submitSetup() {
+            const courseId = document.getElementById('course-select').value;
+            const zipFile = document.getElementById('submissions-zip').files[0];
+            const checkboxes = document.querySelectorAll('input[type="checkbox"]:checked');
+            const assignmentIds = Array.from(checkboxes).map(cb => parseInt(cb.value));
+            
+            if (!courseId) {
+                alert('Please select a course.');
+                return;
+            }
+            
+            if (!zipFile) {
+                alert('Please upload a submissions ZIP file.');
+                return;
+            }
+            
+            if (assignmentIds.length === 0) {
+                alert('Please select at least one assignment to grade.');
+                return;
+            }
+            
+            const submitBtn = document.getElementById('submit-btn');
+            const loadingEl = document.getElementById('submit-loading');
+            
+            submitBtn.disabled = true;
+            loadingEl.style.display = 'inline';
+            
+            const formData = new FormData();
+            formData.append('course_id', courseId);
+            assignmentIds.forEach(aid => formData.append('assignment_ids', aid.toString()));
+            formData.append('submissions_zip', zipFile);
+            
+            try {
+                const response = await fetch('/classwork/canvas_setup', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (response.redirected) {
+                    window.location.href = response.url;
+                } else {
+                    alert('Setup complete! Redirecting to review page...');
+                    window.location.href = '/classwork/review';
+                }
+            } catch (error) {
+                console.error('Setup failed:', error);
+                alert('Setup failed. Please check the error message above and try again.');
+                submitBtn.disabled = false;
+                loadingEl.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>

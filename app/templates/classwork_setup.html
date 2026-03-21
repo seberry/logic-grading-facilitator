@@ -27,9 +27,15 @@
     .override-box { border: 1px dashed #d1d5db; border-radius: 8px; padding: 0.55rem; background: #f8fafc; }
   </style>
 </head>
-<body>
+  <body>
   <div class="card">
     <h1>Classwork Queue Setup</h1>
+    <p>
+      <strong>NEW:</strong> 
+      <a href="/classwork/canvas_setup" style="color: #2563eb;">Use Canvas API Integration</a> 
+      (auto-fetch gradebook & assignments)
+    </p>
+    <p>Or use manual CSV upload below:</p>
     <p>Single assignment or multi-assignment uses the same queue flow. A single run is just a queue of size one.</p>
     <p class="muted">Semester convention defaults: Attendance Q (AQ) = <strong>1 point</strong>, Classwork (CW) = <strong>10 points</strong>.</p>
     {% if message and status == 'success' %}
