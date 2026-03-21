@@ -36,11 +36,14 @@ core_concepts:
       After this, session.json is the source of truth; re-running init_session is dangerous.
 
 domain_terms:
-  WorkUnit: "One student’s submission (multi-page allowed, exactly one student_id)."
+  WorkUnit: "One student's submission (multi-page allowed, exactly one student_id)."
   Strip: "Cropped image of one student's answer to one problem, shown in per-problem grading."
-  Segment: "Bounding box locating an answer on a page; stored in segments_{problem_id}.json."
+  Segment: "Bounding box locating an answer on a page; stored in segments_{pid}.json."
   Handoff: "Transition from name review + auto_grouped CSVs to session.json-based grading."
   SourceOfTruth: "For grading phase, session.json; for answer geometry per problem, segments_{pid}.json."
+  ClassworkMode: "Effort-based grading state for one classwork assignment (e.g., attendance quiz, worksheet)."
+  ClassworkBatch: "Container for multiple classwork assignments sharing one gradebook CSV."
+  GradebookToken: "Lookup key for temporary gradebook CSV stored at gradebook_merge/tmp/{token}.csv."
 
 # -------------------------------------------------------------------
 # 2. User flows / entrypoints ("The Map")
@@ -48,8 +51,13 @@ domain_terms:
 
 user_flows:
 
+  # =====================
+  # EXAM WORKFLOW
+  # =====================
+
   - id: flow_setup_wizard
     human_name: "Setup wizard"
+    workflow_type: "exam"
     user_action: "Instructor preps a fresh assignment (archive, roster, scans, rubric, auto-grouping) via UI."
     status: "live"
 
@@ -114,6 +122,7 @@ user_flows:
 
   - id: flow_name_review
     human_name: "Name review & hand-off"
+    workflow_type: "exam"
     user_action: "Instructor reviews VLM name grouping and initializes the grading session."
     status: "live"
 
@@ -166,7 +175,8 @@ user_flows:
 
   - id: flow_workunit_page
     human_name: "Per-WorkUnit grading (legacy UI)"
-    user_action: "Instructor grades one student’s whole quiz at a time."
+    workflow_type: "exam"
+    user_action: "Instructor grades one student's whole quiz at a time."
     status: "live"
 
     entrypoints:
@@ -204,6 +214,7 @@ user_flows:
 
   - id: flow_strip_grading
     human_name: "Per-problem strip grading"
+    workflow_type: "exam"
     user_action: "Instructor grades one question across all students using cropped strips."
     status: "live"
 
@@ -267,6 +278,7 @@ user_flows:
 
   - id: flow_export_csv
     human_name: "Export grades for Canvas"
+    workflow_type: "exam"
     user_action: "Instructor downloads a Canvas-importable CSV of final scores."
     status: "live"
 
@@ -292,6 +304,7 @@ user_flows:
 
   - id: flow_finalize_archive
     human_name: "Finalize & Archive assignment"
+    workflow_type: "exam"
     user_action: "Instructor archives finished assignment and clears data/ for next quiz."
     status: "live"
 
@@ -318,7 +331,8 @@ user_flows:
 
   - id: flow_fitch_ocr_debug
     human_name: "Recursive Fitch OCR debug"
-    user_action: "Developer runs the chop/mask/transcribe/stitch loop on a single cropped proof scan."
+    workflow_type: "exam"
+    user_action: "Developer runs to chop/mask/transcribe/stitch loop on a single cropped proof scan."
     status: "experimental"
 
     entrypoints:
@@ -350,45 +364,237 @@ user_flows:
 
   - id: flow_fitch_human_correction_page
     human_name: "Fitch OCR display & human correction"
+    workflow_type: "exam"
     user_action: "Instructor/developer previews highlighted proof, edits stitched JSON, and runs verifier in-browser."
     status: "experimental"
 
+  # =====================
+  # CLASSWORK WORKFLOW
+  # =====================
+
+  - id: flow_classwork_setup
+    human_name: "Classwork setup (manual)"
+    workflow_type: "classwork"
+    user_action: "Instructor uploads gradebook CSV and submission ZIPs for effort-based classwork grading."
+    status: "live"
+
     entrypoints:
       - method: "GET"
-        path: "/debug/fitch"
+        path: "/classwork"
         file: "app/server.py"
-        template: "app/templates/debug_fitch.html"
+        template: "app/templates/classwork_setup.html"
       - method: "POST"
-        path: "/debug/fitch/rerun"
+        path: "/classwork/batch/start"
         file: "app/server.py"
+        template: "redirect → /classwork"
       - method: "POST"
-        path: "/debug/fitch/save"
+        path: "/classwork/batch/add"
         file: "app/server.py"
-      - method: "POST"
-        path: "/debug/fitch/run_grader"
-        file: "app/server.py"
+        template: "redirect → /classwork"
 
     data_flow:
       reads:
-        - path: "data/debug_fitch/<scan_stem>/final_structure.json"
-          purpose: "User-editable stitched proof structure."
-        - path: "data/debug_fitch/<scan_stem>/debug_* assets + raw scan"
-          purpose: "Preview image selection and rerun inputs."
+        - path: "data/grades/session.json"
+          purpose: "Check for existing classwork_batch or classwork_mode."
       writes:
-        - path: "data/debug_fitch/<scan_stem>/final_structure.json"
-          what: "Saved edits from the textarea."
-      side_effects:
-        - description: "Rerun triggers scripts/debug_fitch_ocr.py to refresh artifacts and JSON."
+        - path: "data/grades/session.json"
+          what: "Creates ClassworkBatchState with assignments list."
+        - path: "data/gradebook_merge/tmp/{token}.csv"
+          what: "Temporary copy of uploaded gradebook CSV for later merge."
+        - path: "data/classwork/files/{uuid}_{original}"
+          what: "Extracted student submission files from uploaded ZIPs."
 
     current_behavior:
       description: >
-        Lists available debug runs, previews the highlighted scan, allows rerunning the OCR/parse
-        loop, saving manual edits to final_structure.json, and running the Fitch verifier to surface
-        rule issues plus inferred conclusion within the page log.
+        Manual path for classwork grading. Instructor uploads a Canvas gradebook CSV to establish
+        the roster, then adds one or more submission ZIPs (each representing a classwork assignment).
+        Each assignment gets a ClassworkModeState with entries for all roster students. Files are
+        matched to students via filename heuristics. Supports batch mode: multiple assignments can
+        be queued and reviewed sequentially before finalizing.
+      batch_mode_notes: >
+        ClassworkBatchState holds a list of ClassworkModeState objects. session.classwork_mode points
+        to the currently active assignment. Batch operations (open, open_next, remove, finalize) operate
+        on this list.
+
+    assumptions:
+      - "Gradebook CSV has a column for student IDs (SIS Login ID or student_id)."
+      - "Submission ZIP contains files that can be matched to students via filename patterns."
 
     current_limitations:
-      - "Expects artifacts already present under data/debug_fitch/<scan_stem>/ (produced by scripts/debug_fitch_ocr.py)."
-      - "No inline JSON schema validation beyond basic list check; incorrect shapes still reach verifier errors."
+      - "Filename matching is heuristic-based; may require manual review for unmatched files."
+      - "No auto-grouping or VLM-based features; classwork path is intentionally simpler than exam path."
+
+  - id: flow_classwork_canvas_integration
+    human_name: "Classwork setup (Canvas API)"
+    workflow_type: "classwork"
+    user_action: "Instructor uses Canvas API to fetch gradebook and download submissions automatically."
+    status: "live (known performance issue)"
+
+    entrypoints:
+      - method: "GET"
+        path: "/classwork/canvas_setup"
+        file: "app/server.py"
+        template: "app/templates/classwork_canvas_setup.html"
+      - method: "POST"
+        path: "/classwork/canvas_setup"
+        file: "app/server.py"
+        template: "redirect → /classwork/review"
+
+    data_flow:
+      reads:
+        - path: "Canvas REST API"
+          purpose: "Fetch courses, assignments, gradebook CSV, and download submission files."
+      writes:
+        - path: "data/grades/session.json"
+          what: "Creates ClassworkBatchState from fetched data."
+        - path: "data/gradebook_merge/tmp/{token}.csv"
+          what: "Temporary copy of Canvas gradebook CSV."
+        - path: "data/classwork/files/{uuid}_{original}"
+          what: "Downloaded submission files."
+        - path: "canvas_cache/"
+          what: "Cached API responses (courses, assignments, gradebook)."
+
+    current_behavior:
+      description: >
+        Canvas API integration path. Instructor selects a course and multiple assignments. System fetches
+        gradebook, resolves roster, downloads all submission files for selected assignments, builds
+        ClassworkModeState objects, and redirects to review. All files are downloaded synchronously in
+        one request before showing any UI.
+      known_issue: >
+        Downloads ALL files for ALL selected assignments in one synchronous handler. For multiple
+        assignments with many students, this can take 30+ seconds and appears to hang. Manual path
+        (upload ZIPs) is recommended for large batches.
+
+    assumptions:
+      - "Valid Canvas API token is configured in environment."
+      - "LM Studio is NOT required; classwork path does not use VLM."
+
+    current_limitations:
+      - "Synchronous file downloads cause poor UX for large batches."
+      - "No progress indication during download phase."
+      - "Canvas API responses are cached with TTL; may need manual cache clear for fresh data."
+
+  - id: flow_classwork_review
+    human_name: "Classwork review & grading"
+    workflow_type: "classwork"
+    user_action: "Instructor reviews submissions, assigns scores/comments, and navigates through assignments."
+    status: "live"
+
+    entrypoints:
+      - method: "GET"
+        path: "/classwork/review"
+        file: "app/server.py"
+        template: "app/templates/classwork_review.html"
+      - method: "POST"
+        path: "/classwork/review"
+        file: "app/server.py"
+        template: "redirect → /classwork/review (self) or /classwork/batch/open_next"
+      - method: "POST"
+        path: "/classwork/batch/open"
+        file: "app/server.py"
+        template: "redirect → /classwork/review"
+      - method: "POST"
+        path: "/classwork/batch/open_next"
+        file: "app/server.py"
+        template: "redirect → /classwork/review"
+      - method: "POST"
+        path: "/classwork/batch/set_column"
+        file: "app/server.py"
+        template: "redirect → /classwork"
+
+    data_flow:
+      reads:
+        - path: "data/grades/session.json"
+          purpose: "Current classwork_mode with entries, batch context."
+        - path: "data/gradebook_merge/tmp/{token}.csv"
+          purpose: "Original gradebook for conflict detection preview."
+        - path: "data/classwork/files/{uuid}_{original}"
+          purpose: "Submission files served via /classwork_files/ mount."
+      writes:
+        - path: "data/grades/session.json"
+          what: "Updated scores and comments in entries; syncs mode into batch.assignments."
+
+    current_behavior:
+      description: >
+        Shows all roster students for current classwork assignment. Each entry displays student info,
+        has_submission status, file preview (PDF, image, or text), score input, and comment textarea.
+        Supports bulk actions: credit all submitted, set missing to 0, reset defaults. Shows conflict
+        preview if gradebook cells already have values. Navigation: save, save + next assignment, or
+        back to setup. In batch mode, can switch between assignments directly.
+
+    assumptions:
+      - "classwork_mode is set (either single assignment or pointer into batch.assignments)."
+      - "Submission files are accessible via /classwork_files/ static mount."
+
+    current_limitations:
+      - "File preview is read-only; no inline editing of submissions."
+      - "Conflict detection is preview-only; requires explicit overwrite_non_empty checkbox to proceed."
+
+  - id: flow_classwork_batch_finalize
+    human_name: "Classwork batch finalize & export"
+    workflow_type: "classwork"
+    user_action: "Instructor merges scores into gradebook CSV and exports files for Canvas upload."
+    status: "live"
+
+    entrypoints:
+      - method: "GET"
+        path: "/classwork/batch/finalize"
+        file: "app/server.py"
+        template: "app/templates/classwork_batch_finalize.html"
+      - method: "POST"
+        path: "/classwork/batch/finalize"
+        file: "app/server.py"
+        template: "redirect → download"
+      - method: "POST"
+        path: "/classwork/finalize"
+        file: "app/server.py"
+        template: "redirect → download (single assignment variant)"
+      - method: "GET"
+        path: "/classwork/batch/export/{export_id}/gradebook"
+        file: "app/server.py"
+        template: "N/A (file download)"
+      - method: "GET"
+        path: "/classwork/batch/export/{export_id}/comments/{assignment_id}"
+        file: "app/server.py"
+        template: "N/A (file download)"
+      - method: "POST"
+        path: "/classwork/canvas_post_comments"
+        file: "app/server.py"
+        template: "redirect → /classwork"
+
+    data_flow:
+      reads:
+        - path: "data/gradebook_merge/tmp/{token}.csv"
+          purpose: "Original gradebook CSV to merge scores into."
+        - path: "data/grades/session.json"
+          purpose: "ClassworkBatchState with assignments containing scores/comments."
+      writes:
+        - path: "data/classwork/exports/{export_id}/gradebook_merged.csv"
+          what: "Merged gradebook with scores inserted into specified columns."
+        - path: "data/classwork/exports/{export_id}/comments_{assignment_id}.zip"
+          what: "Per-assignment ZIP of comment files named for Canvas re-upload."
+        - path: "data/classwork/exports/{export_id}/manifest.json"
+          what: "Export metadata (timestamp, assignments, conflict flags)."
+
+    current_behavior:
+      description: >
+        Finalize page shows statistics for all assignments in batch (submitted count, missing count,
+        commented count, gradebook column mapping). On finalize, reads original gradebook, merges scores
+        into specified columns, and writes merged CSV + per-assignment comment ZIPs. Conflict detection
+        warns if target cells already have non-empty values. Export files are kept under classwork/exports/
+        with unique IDs. After download, can optionally post comments to Canvas via API or close session.
+      canvas_post_comments: >
+        If Canvas API is configured, can post comments directly instead of downloading ZIPs. Uses
+        canvas_client.bulk_post_comments() to batch-upload comments per assignment.
+
+    assumptions:
+      - "Gradebook columns are correctly mapped for all assignments."
+      - "User has resolved conflicts before finalizing (or explicitly chosen to overwrite)."
+
+    current_limitations:
+      - "No undo after export; must re-run finalize if errors detected."
+      - "Comment ZIP format assumes Canvas-specific naming convention."
+      - "Canvas post comments is experimental; may have rate limits."
 
 # -------------------------------------------------------------------
 # 3. Data files / schemas ("The Schema")
@@ -468,6 +674,50 @@ data_files:
     role: "archive"
     authority: "Immutable snapshot of an entire run; never mutated after creation."
 
+  - path: "data/gradebook_merge/tmp/{token}.csv"
+    role: "gradebook_temp"
+    authority: "Original gradebook CSV copy for classwork merge operations."
+    notes: >
+      Token is stored in ClassworkBatchState.gradebook_token and ClassworkModeState.gradebook_token.
+      Used by finalize routes to read original CSV, merge scores, and export. Safe to delete after export.
+
+  - path: "data/classwork/files/{uuid}_{original}"
+    role: "classwork_submissions"
+    authority: "Extracted student submission files for classwork assignments."
+    notes: >
+      UUID prefix prevents filename collisions. Files are matched to roster students via
+      _classwork_match_file_to_roster() during setup. Served via /classwork_files/ static mount.
+
+  - path: "data/classwork/exports/{export_id}/"
+    role: "classwork_exports"
+    authority: "Finalized export artifacts for Canvas upload."
+    contents:
+      - path: "gradebook_merged.csv"
+        purpose: "Original gradebook with scores merged into specified columns."
+      - path: "comments_{assignment_id}.zip"
+        purpose: "Per-assignment ZIP of comment files named for Canvas re-upload (student_id.txt)."
+      - path: "manifest.json"
+        purpose: "Export metadata: timestamp, assignments list, conflict flags, gradebook_token."
+    notes: >
+      Export IDs are UUIDs. Files persist until manually deleted. Used for downloading
+      after finalize or for Canvas API post_comments.
+
+  - path: "canvas_cache/"
+    role: "canvas_api_cache"
+    authority: "Cached Canvas REST API responses with TTL-based invalidation."
+    contents:
+      - path: "courses.json"
+        purpose: "Cached course list from get_courses()."
+      - path: "assignments_{course_id}.json"
+        purpose: "Cached assignment list from get_assignments(course_id)."
+      - path: "gradebook_{course_id}.csv"
+        purpose: "Cached gradebook CSV from get_gradebook_csv(course_id)."
+      - path: "submissions/"
+        purpose: "Temporary storage for downloaded submission files (may be deleted after ingestion)."
+    notes: >
+      Cache improves Canvas API integration performance and reduces API rate limit hits.
+      TTL is defined in canvas_client.py. Can be cleared manually if stale data is suspected.
+
 # -------------------------------------------------------------------
 # 4. Code structure (where to look for what)
 # -------------------------------------------------------------------
@@ -489,9 +739,26 @@ code_structure:
       - "POST /debug/fitch/run_grader"
       - "GET  /export"
       - "POST /finalize_and_archive (or equivalent handler wired from grading UI)"
+      - "GET  /classwork"
+      - "POST /classwork/batch/start"
+      - "POST /classwork/batch/add"
+      - "POST /classwork/batch/open"
+      - "POST /classwork/batch/open_next"
+      - "POST /classwork/batch/set_column"
+      - "POST /classwork/batch/remove"
+      - "POST /classwork/batch/clear"
+      - "GET  /classwork/review"
+      - "POST /classwork/review"
+      - "GET  /classwork/batch/finalize"
+      - "POST /classwork/batch/finalize"
+      - "POST /classwork/finalize"
+      - "POST /classwork/batch/close_session"
+      - "GET  /classwork/canvas_setup"
+      - "POST /classwork/canvas_setup"
+      - "POST /classwork/canvas_post_comments"
     notes: >
       Also defines canonical_filename, session load/save helpers via storage.py,
-      and hand-off logic that writes session.json.
+      hand-off logic that writes session.json, and classwork batch management.
 
   - file: "app/models.py"
     purpose: "Pydantic / dataclass models for Session, WorkUnit, GradingKey, QuestionSegment, etc."
@@ -501,6 +768,10 @@ code_structure:
       - "GradingKey"
       - "RosterEntry"
       - "QuestionSegment"
+      - "ClassworkModeState"
+      - "ClassworkBatchState"
+      - "ClassworkEntry"
+      - "ClassworkFileRef"
 
   - file: "app/segmentation_core.py"
     purpose: "VLM-based per-page question segmentation helper."
@@ -579,6 +850,30 @@ design_decisions:
     implications:
       - "No Canvas API integration for auto-upload of images."
       - "ZIP exports are for human-controlled upload or archival."
+
+  - id: decision_classwork_simpler_path
+    choice: "Classwork path intentionally avoids VLM/OCR complexity."
+    rationale: "Effort-based grading for attendance/worksheets doesn't need name recognition or segmentation."
+    implications:
+      - "No auto_group_core, segmentation_core, or vlm_classifier usage in classwork flows."
+      - "Roster is built from gradebook CSV, not separate roster file."
+      - "Files are matched via filename heuristics, not VLM clustering."
+
+  - id: decision_classwork_batch_mode
+    choice: "Classwork supports batch mode: multiple assignments sharing one gradebook."
+    rationale: "Instructors often grade multiple small assignments (AQ/CW) in one session before exporting."
+    implications:
+      - "ClassworkBatchState holds list of ClassworkModeState objects."
+      - "session.classwork_mode is a pointer to one batch assignment."
+      - "Finalize merges all assignments into one gradebook export."
+
+  - id: decision_classwork_token_pattern
+    choice: "Gradebook CSV is stored with token-based filename in gradebook_merge/tmp/."
+    rationale: "Allows multiple concurrent classwork sessions without filename collisions."
+    implications:
+      - "Token stored in batch.gradebook_token and mode.gradebook_token."
+      - "Safe to delete tmp files after export completes."
+      - "Token persists until session is closed or batch is cleared."
 
 critical_constraints:
   - id: constraint_no_init_after_handoff
