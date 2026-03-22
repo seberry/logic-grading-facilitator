@@ -95,6 +95,7 @@ class CanvasClient:
         
         self._client = httpx.Client(
             timeout=30.0,
+            follow_redirects=True,  # Follow Canvas 302 redirects for file downloads
             headers={"Authorization": f"Bearer {self.api_key}"}
         )
     
@@ -574,7 +575,7 @@ class CanvasClient:
         course_id: int,
         assignment_id: int,
         output_dir: Path,
-    ) -> Dict[str, List[Path]]:
+    ) -> tuple[Dict[str, List[Path]], Dict[str, int]]:
         """
         Download all submission files for an assignment from Canvas.
         
@@ -584,7 +585,9 @@ class CanvasClient:
             output_dir: Directory to save downloaded files
             
         Returns:
-            Dict mapping student_id to list of downloaded file paths
+            Tuple of:
+            - Dict mapping student_id (sis_login_id) to list of downloaded file paths
+            - Dict mapping student_id (sis_login_id) to canvas_user_id (integer)
             
         Raises:
             CanvasClientError: If download fails
@@ -594,6 +597,7 @@ class CanvasClient:
         
         output_dir.mkdir(parents=True, exist_ok=True)
         student_files: Dict[str, List[Path]] = {}
+        canvas_user_ids: Dict[str, int] = {}  # sis_login_id -> canvas_user_id mapping
         
         try:
             # Fetch all submissions for this assignment
@@ -613,11 +617,17 @@ class CanvasClient:
                     continue
                 
                 user = submission.get("user", {})
+                canvas_user_id = user.get("id")
                 student_id = user.get("sis_user_id") or user.get("login_id") or user.get("id")
                 
                 if not student_id:
                     logger.warning(f"Submission {idx}/{total} has no student ID, skipping")
                     continue
+                
+                # Build Canvas user ID mapping for comment posting
+                # We map sis_login_id (student_id) to canvas_user_id (integer)
+                if canvas_user_id and student_id not in canvas_user_ids:
+                    canvas_user_ids[student_id] = canvas_user_id
                 
                 student_name = user.get("name", "")
                 logger.info(f"Processing submission {idx}/{total}: {student_name} ({student_id})")
@@ -671,6 +681,10 @@ class CanvasClient:
                 elif submission.get("body") or submission.get("text_comment"):
                     text_content = submission.get("body") or submission.get("text_comment", "")
                     
+                    # Clean HTML content to remove Canvas-specific tags (link, script, style)
+                    from .utils import clean_html_text
+                    cleaned_text = clean_html_text(text_content)
+                    
                     # Create text file from submission
                     # Canvas doesn't provide filename for text submissions, so we create one
                     filename = f"{student_name.replace(',', '').replace(' ', '_')}_submission.txt"
@@ -682,7 +696,7 @@ class CanvasClient:
                         file_path = output_dir / f"{student_name.replace(',', '').replace(' ', '_')}_submission_{counter}.txt"
                         counter += 1
                     
-                    file_path.write_text(text_content, encoding="utf-8")
+                    file_path.write_text(cleaned_text, encoding="utf-8")
                     
                     if student_id not in student_files:
                         student_files[student_id] = []
@@ -691,7 +705,8 @@ class CanvasClient:
                     logger.info(f"  Created text file from submission")
             
             logger.info(f"Download complete: {len(student_files)} students with files")
-            return student_files
+            logger.info(f"Canvas user ID mapping built: {len(canvas_user_ids)} students")
+            return student_files, canvas_user_ids
             
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:

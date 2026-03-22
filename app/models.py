@@ -78,6 +78,9 @@ class ClassworkBatchState(BaseModel):
     gradebook_token: str
     id_column: str
     assignments: List[ClassworkModeState] = Field(default_factory=list)
+    # Canvas user ID mapping: sis_login_id (student_id) -> canvas_user_id
+    # This is in-memory only, not persisted to session.json (FERPA-safe)
+    canvas_user_ids: Dict[str, int] = Field(default_factory=dict)
 
 
 class Session(BaseModel):

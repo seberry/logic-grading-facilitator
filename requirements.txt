@@ -8,3 +8,4 @@ pillow
 pymupdf
 python-docx
 httpx
+beautifulsoup4

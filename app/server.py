@@ -91,14 +91,12 @@ CANVAS_SUBMISSIONS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 def _create_submissions_zip_from_downloads(
     student_files: Dict[str, List[Path]],
-    roster: List[RosterEntry],
 ) -> bytes:
     """
     Create a ZIP file from downloaded Canvas submissions.
     
     Args:
         student_files: Dict mapping student_id to list of downloaded file paths
-        roster: List of roster entries for name lookup
         
     Returns:
         bytes: ZIP file content
@@ -106,19 +104,9 @@ def _create_submissions_zip_from_downloads(
     buf = io.BytesIO()
     
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        roster_by_id = {r.student_id: r.name for r in roster}
-        
+        # student_files maps student_id directly to file paths
+        # No roster matching needed - we use the IDs from Canvas API
         for student_id, file_paths in student_files.items():
-            if not file_paths:
-                continue
-            
-            student_name = roster_by_id.get(student_id, "")
-            if not student_name:
-                # Skip if we can't find the student name
-                continue
-            
-            # Create Canvas-style filename: {last_name}_{first_name}_assignment_{id}_{original_name}
-            # We'll use the original filenames from downloads for simplicity
             for file_path in file_paths:
                 if file_path.exists():
                     # Use original filename to preserve Canvas structure
@@ -1136,75 +1124,157 @@ def _classwork_analysis(mode: ClassworkModeState) -> Dict[str, Any]:
     }
 
 
-def _classwork_build_mode_from_zip(
+def _normalize_for_matching(name: str) -> str:
+    """
+    Normalize a string for comparison between Canvas assignment names and gradebook columns.
+    
+    Args:
+        name: The string to normalize (assignment name or column name)
+    
+    Returns:
+        Normalized string suitable for comparison
+    """
+    if not name:
+        return ""
+    
+    # Convert to lowercase
+    normalized = name.lower().strip()
+    
+    # Remove parenthetical numbers (Canvas assignment IDs in gradebook)
+    # Pattern: "(12345678)" or similar - removes the ID suffix
+    # Example: "Wed Attendance (18715846)" -> "Wed Attendance"
+    import re
+    normalized = re.sub(r"\s*\(\d+\)\s*$", "", normalized)
+    
+    # Remove special characters (keep only alphanumeric, spaces, hyphens, underscores)
+    # This handles variations like "Worksheet - 1" vs "Worksheet_1"
+    normalized = re.sub(r"[^a-z0-9\s\-_]", "", normalized)
+    
+    # Collapse multiple spaces into single space
+    normalized = re.sub(r"\s+", " ", normalized)
+    
+    # Strip leading/trailing whitespace again after cleanup
+    return normalized.strip()
+
+
+def _find_matching_column(
+    canvas_assignment_name: str,
+    gradebook_fieldnames: List[str],
+    id_col: str,
+) -> Optional[str]:
+    """
+    Find a matching gradebook column for a Canvas assignment name.
+    
+    Args:
+        canvas_assignment_name: Name of assignment from Canvas API
+        gradebook_fieldnames: List of column names from gradebook CSV
+        id_col: The ID column name to exclude from matching
+    
+    Returns:
+        Matching column name if found, None otherwise
+    """
+    # Normalize the Canvas assignment name
+    normalized_canvas = _normalize_for_matching(canvas_assignment_name)
+    
+    # Build list of candidate columns (exclude ID column and common system columns)
+    excluded = {id_col.lower(), "student", "current score", "final score", 
+                 "current grade", "final grade"}
+    
+    candidates = []
+    for col in gradebook_fieldnames:
+        if col.lower() not in excluded:
+            candidates.append(col)
+    
+    if not candidates:
+        return None
+    
+    # Try to find exact match after normalization
+    for col in candidates:
+        if _normalize_for_matching(col) == normalized_canvas:
+            return col
+    
+    # No match found
+    return None
+
+
+def _classwork_build_mode_from_downloads(
     *,
-    zip_bytes: bytes,
+    student_files: Dict[str, List[Path]],
     assignment_id: str,
+    assignment_name: str,  # Added: original Canvas assignment name
     max_points: float,
     active_roster: List[RosterEntry],
     gradebook_token: str,
     id_col: str,
     gradebook_column: Optional[str] = None,
+    gradebook_fieldnames: Optional[List[str]] = None,  # Added: for column matching
 ) -> ClassworkModeState:
+    """
+    Build ClassworkModeState directly from Canvas-downloaded files.
+    
+    This bypasses ZIP filename matching since we already have student_id-to-files mapping
+    from the Canvas API.
+    """
     setup_id = uuid4().hex
-    student_files: Dict[str, List[ClassworkFileRef]] = {}
-    unmatched_files: List[str] = []
-
-    try:
-        with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-            roster_index, collisions = _build_roster_prefix_index(active_roster)
-            if collisions:
-                detail_lines = ["Duplicate gradebook name keys detected:"]
-                for key, entries in collisions.items():
-                    names = ", ".join(e.name for e in entries)
-                    detail_lines.append(f"{key}: {names}")
-                raise HTTPException(status_code=400, detail="; ".join(detail_lines))
-            sid_index = {
-                _normalize_match_key(r.student_id): r
-                for r in active_roster
-                if _normalize_match_key(r.student_id)
-            }
-
-            for info in sorted(zf.infolist(), key=lambda item: item.filename.lower()):
-                if info.is_dir():
-                    continue
-                if info.filename.startswith("__MACOSX/"):
-                    continue
-                original_name = Path(info.filename).name
-                if not original_name:
-                    continue
-
-                roster_entry = _classwork_match_file_to_roster(
-                    info.filename,
-                    roster_index=roster_index,
-                    sid_index=sid_index,
+    student_files_ref: Dict[str, List[ClassworkFileRef]] = {}
+    
+    # Map roster to dict for lookup
+    roster_by_id = {r.student_id: r.name for r in active_roster}
+    
+    # Auto-match gradebook column if not provided and we have fieldnames
+    if gradebook_column is None and gradebook_fieldnames:
+        matched_column = _find_matching_column(
+            canvas_assignment_name=assignment_name,
+            gradebook_fieldnames=gradebook_fieldnames,
+            id_col=id_col,
+        )
+        
+        if matched_column:
+            print(f"[COLUMN MATCH] Auto-matched '{assignment_name}' to gradebook column: '{matched_column}'")
+            gradebook_column = matched_column
+        else:
+            print(f"[COLUMN MATCH WARNING] No match found for assignment '{assignment_name}'. "
+                  f"Manual column selection required.")
+            # Leave gradebook_column=None to force manual selection
+    
+    # Process files for each student
+    for student_id, file_paths in student_files.items():
+        student_name = roster_by_id.get(student_id, "")
+        if not file_paths:
+            continue
+        
+        # Store files in CLASSWORK_FILES_DIR
+        refs = []
+        for file_path in file_paths:
+            if not file_path.exists():
+                continue
+            
+            original_name = file_path.name
+            ext = Path(original_name).suffix.lower()
+            
+            # Create stored filename
+            stored_name = f"{setup_id}_{original_name}"
+            stored_path = CLASSWORK_FILES_DIR / stored_name
+            stored_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Copy file to storage
+            shutil.copy2(file_path, stored_path)
+            
+            refs.append(
+                ClassworkFileRef(
+                    stored_filename=stored_path.name,
+                    original_filename=original_name,
+                    ext=ext,
                 )
-                if roster_entry is None:
-                    unmatched_files.append(info.filename)
-                    continue
-
-                ext = Path(original_name).suffix.lower()
-                payload = zf.read(info)
-                stored_name = f"{setup_id}_{original_name}"
-                stored_path = _unique_path(CLASSWORK_FILES_DIR / stored_name)
-                stored_path.parent.mkdir(parents=True, exist_ok=True)
-                stored_path.write_bytes(payload)
-
-                refs = student_files.setdefault(roster_entry.student_id, [])
-                refs.append(
-                    ClassworkFileRef(
-                        stored_filename=stored_path.name,
-                        original_filename=original_name,
-                        ext=ext,
-                    )
-                )
-    except zipfile.BadZipFile:
-        raise HTTPException(status_code=400, detail="Uploaded ZIP could not be read.")
-
+            )
+        
+        student_files_ref[student_id] = refs
+    
+    # Build entries
     assignment_clean = _sanitize_assignment_id(assignment_id)
     entries: List[ClassworkEntry] = []
     for r in active_roster:
-        files = student_files.get(r.student_id, [])
+        files = student_files_ref.get(r.student_id, [])
         has_submission = bool(files)
         score = float(max_points) if has_submission else 0.0
         entries.append(
@@ -1217,7 +1287,7 @@ def _classwork_build_mode_from_zip(
                 comment=None,
             )
         )
-
+    
     return ClassworkModeState(
         assignment_id=assignment_clean,
         max_points=float(max_points),
@@ -1225,7 +1295,7 @@ def _classwork_build_mode_from_zip(
         id_column=id_col,
         gradebook_column=(gradebook_column or "").strip() or None,
         entries=entries,
-        unmatched_files=sorted(set(unmatched_files)),
+        unmatched_files=[],  # No unmatched files since we use direct student_id mapping
     )
 
 
@@ -1331,7 +1401,10 @@ def _classwork_extract_text_preview(path: Path) -> str:
     raw = path.read_bytes()
     for encoding in ("utf-8", "utf-8-sig", "latin-1"):
         try:
-            return raw.decode(encoding)
+            text = raw.decode(encoding)
+            # Clean HTML content if present (e.g., from Canvas text submissions)
+            from .utils import clean_html_text
+            return clean_html_text(text)
         except UnicodeDecodeError:
             continue
     raise HTTPException(status_code=400, detail="Could not decode text preview for this file.")
@@ -2191,25 +2264,70 @@ def classwork_canvas_setup_page(request: Request) -> Response:
 async def classwork_canvas_setup(
     request: Request,
     course_id: int = Form(...),
-    assignment_ids: List[int] = Form(None),
+    gradebook_csv: UploadFile = File(...),
 ) -> Response:
-    """Set up classwork using Canvas API to fetch gradebook and assignments."""
-    if not assignment_ids or not any(assignment_ids):
+    """Set up classwork using Canvas API to fetch assignments and uploaded CSV for gradebook."""
+    import traceback
+    
+    form = await request.form()
+    
+    # Extract assignment_ids from form data (may be sent as multiple values)
+    assignment_ids_raw = form.getlist("assignment_ids")
+    assignment_ids = [int(aid) for aid in assignment_ids_raw if aid.strip()]
+    
+    print(f"[DEBUG] Form data - assignment_ids_raw: {assignment_ids_raw}")
+    print(f"[DEBUG] Form data - assignment_ids: {assignment_ids}")
+    print(f"[DEBUG] Gradebook CSV file: {gradebook_csv.filename}")
+    
+    if not assignment_ids:
         raise HTTPException(status_code=400, detail="Please select at least one assignment.")
+    
+    if not gradebook_csv.filename:
+        raise HTTPException(status_code=400, detail="Please upload a gradebook CSV file.")
 
     try:
+        # Initialize Canvas client
         client = get_canvas_client()
         
-        # Fetch gradebook CSV from Canvas
-        gradebook_text = client.get_gradebook_csv(course_id)
+        # Read uploaded CSV
+        gradebook_bytes = await gradebook_csv.read()
+        try:
+            gradebook_text = gradebook_bytes.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            raise HTTPException(status_code=400, detail="Gradebook CSV must be UTF-8 encoded.")
+        
+        print(f"[DEBUG] Gradebook text length: {len(gradebook_text)}")
         
         # Parse gradebook
-        fieldnames, rows, id_col = _parse_gradebook_csv(gradebook_text)
-        active_roster = _classwork_resolve_roster("gradebook", rows, id_col)
+        print(f"[DEBUG] Parsing gradebook...")
+        try:
+            fieldnames, rows, id_col = _parse_gradebook_csv(gradebook_text)
+            print(f"[DEBUG] Gradebook parsed - fieldnames: {fieldnames[:5]}..., rows: {len(rows)}, id_col: {id_col}")
+            print(f"[DEBUG] rows type: {type(rows)}, first row type: {type(rows[0]) if rows else 'N/A'}")
+        except Exception as e:
+            print(f"[ERROR] Failed to parse gradebook: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+        
+        try:
+            active_roster = _classwork_resolve_roster("gradebook", rows, id_col)
+            print(f"[DEBUG] Roster resolved - {len(active_roster)} students")
+        except Exception as e:
+            print(f"[ERROR] Failed to resolve roster: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+        print(f"[DEBUG] Roster resolved - {len(active_roster)} students")
         
         # Fetch assignments and get metadata
+        print(f"[DEBUG] Fetching assignments...")
         all_assignments = client.get_assignments(course_id)
+        print(f"[DEBUG] All assignments fetched: {len(all_assignments)} assignments")
+        print(f"[DEBUG] First assignment structure: {all_assignments[0] if all_assignments else 'None'}")
+        
         assignments_map = {a["id"]: a for a in all_assignments}
+        print(f"[DEBUG] Assignments map created: {list(assignments_map.keys())[:5]}...")
         
         # Validate selected assignments
         selected_assignments = []
@@ -2217,6 +2335,7 @@ async def classwork_canvas_setup(
             if aid not in assignments_map:
                 raise HTTPException(status_code=400, detail=f"Assignment {aid} not found.")
             selected_assignments.append(assignments_map[aid])
+        print(f"[DEBUG] Selected assignments: {[a['name'] for a in selected_assignments]}")
         
         # Store gradebook
         GRADEBOOK_MERGE_TMP_DIR.mkdir(parents=True, exist_ok=True)
@@ -2225,10 +2344,13 @@ async def classwork_canvas_setup(
         
         # Download submissions for each selected assignment separately
         import tempfile
-        assignment_zips: Dict[int, bytes] = {}  # Map assignment_id -> ZIP bytes
+        batch_assignments = []
         
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = Path(temp_dir)
+            
+            # Accumulate Canvas user ID mappings across all assignments
+            canvas_user_ids: Dict[str, int] = {}
             
             for assignment_data in selected_assignments:
                 canvas_aid = assignment_data["id"]
@@ -2237,11 +2359,15 @@ async def classwork_canvas_setup(
                 print(f"[AUTO DOWNLOAD] Downloading submissions for: {assignment_name} (ID: {canvas_aid})")
                 
                 # Download submissions to temp directory for this assignment only
-                student_files = client.download_assignment_submissions(
+                # Now returns tuple: (student_files, canvas_user_ids)
+                student_files, canvas_ids_for_assignment = client.download_assignment_submissions(
                     course_id=course_id,
                     assignment_id=canvas_aid,
                     output_dir=temp_path / f"assignment_{canvas_aid}"
                 )
+                
+                # Accumulate Canvas user IDs across all assignments
+                canvas_user_ids.update(canvas_ids_for_assignment)
                 
                 # Check if we got any submissions
                 if not student_files:
@@ -2250,52 +2376,42 @@ async def classwork_canvas_setup(
                 
                 print(f"[AUTO DOWNLOAD] Downloaded submissions for {len(student_files)} students in {assignment_name}")
                 
-                # Create separate ZIP for this assignment
-                assignment_zip_bytes = _create_submissions_zip_from_downloads(student_files, active_roster)
-                assignment_zips[canvas_aid] = assignment_zip_bytes
+                # Build mode from downloads IMMEDIATELY while temp directory still exists
+                # This copies files to CLASSWORK_FILES_DIR (permanent storage)
+                # Pass gradebook fieldnames and original assignment name for column matching
+                mode = _classwork_build_mode_from_downloads(
+                    student_files=student_files,
+                    assignment_id=_sanitize_assignment_id(assignment_name).lower(),
+                    assignment_name=assignment_name,  # Pass original name for matching
+                    max_points=float(assignment_data["max_points"]),
+                    active_roster=active_roster,
+                    gradebook_token=token,
+                    id_col=id_col,
+                    gradebook_column=None,  # Will be auto-matched
+                    gradebook_fieldnames=fieldnames,  # Pass fieldnames for matching
+                )
+                
+                # Add Canvas metadata
+                mode.canvas_course_id = course_id
+                mode.canvas_assignment_id = canvas_aid
+                
+                batch_assignments.append(mode)
+                
+                print(f"[AUTO DOWNLOAD] Created ClassworkModeState for {assignment_name}")
         
         # Verify we have at least one successful download
-        if not assignment_zips:
+        if not batch_assignments:
             raise HTTPException(
                 status_code=400,
                 detail="No submissions found for the selected assignments."
             )
-        
-        # Create batch state with all selected assignments, each using its own ZIP
-        batch_assignments = []
-        for assignment_data in selected_assignments:
-            canvas_aid = assignment_data["id"]
-            assignment_name = assignment_data["name"]
-            max_points = assignment_data["max_points"]
-            
-            # Get the ZIP for this specific assignment
-            assignment_zip_bytes = assignment_zips.get(canvas_aid)
-            if not assignment_zip_bytes:
-                print(f"[AUTO DOWNLOAD] Skipping {assignment_name} - no submissions")
-                continue
-            
-            # Build mode from ZIP for this assignment (using its own ZIP)
-            mode = _classwork_build_mode_from_zip(
-                zip_bytes=assignment_zip_bytes,
-                assignment_id=_sanitize_assignment_id(assignment_name).lower(),
-                max_points=float(max_points),
-                active_roster=active_roster,
-                gradebook_token=token,
-                id_col=id_col,
-                gradebook_column=None,  # Will be set later
-            )
-            
-            # Add Canvas metadata
-            mode.canvas_course_id = course_id
-            mode.canvas_assignment_id = canvas_aid
-            
-            batch_assignments.append(mode)
         
         # Create batch state
         batch = ClassworkBatchState(
             gradebook_token=token,
             id_column=id_col,
             assignments=batch_assignments,
+            canvas_user_ids=canvas_user_ids,  # Store Canvas user ID mapping
         )
         
         # Save session
@@ -2357,12 +2473,19 @@ async def classwork_canvas_post_comments(
                     continue
                 
                 # Build comments dict for this assignment
+                # Map SIS login ID (student_id) to Canvas user ID
                 comments_dict = {}
                 for entry in mode.entries:
                     if entry.comment and entry.comment.strip():
-                        comments_dict[entry.student_id] = {
-                            "text": entry.comment.strip()
-                        }
+                        # Look up Canvas user ID from batch mapping
+                        canvas_user_id = batch.canvas_user_ids.get(entry.student_id)
+                        if canvas_user_id:
+                            comments_dict[canvas_user_id] = {
+                                "text": entry.comment.strip()
+                            }
+                        else:
+                            # Log warning if Canvas user ID not found
+                            print(f"[COMMENT POST] Warning: No Canvas user ID for student {entry.student_id}")
                 
                 if not comments_dict:
                     results_summary.append({

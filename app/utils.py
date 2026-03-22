@@ -1,5 +1,7 @@
 import re
 from pathlib import Path
+from bs4 import BeautifulSoup
+
 
 def natural_key(path: Path):
     """
@@ -18,3 +20,34 @@ def natural_key(path: Path):
         else:
             key.append(part.lower())
     return key
+
+
+def clean_html_text(html: str) -> str:
+    """
+    Clean HTML text by removing unwanted tags and extracting plain text.
+    
+    Removes <link>, <script>, and <style> tags entirely, then extracts
+    clean text content. Useful for cleaning Canvas text submissions that
+    contain HTML with stylesheets and scripts.
+    
+    Args:
+        html: Raw HTML string (e.g., from Canvas text submission)
+    
+    Returns:
+        Cleaned plain text with basic formatting preserved
+        
+    Example:
+        Input: '<link rel="stylesheet"...>Yes I do plan...<script>...</script>'
+        Output: 'Yes I do plan...'
+    """
+    # Parse HTML with BeautifulSoup
+    soup = BeautifulSoup(html, 'html.parser')
+    
+    # Remove script, style, and link tags entirely
+    for tag in soup(['script', 'style', 'link']):
+        tag.decompose()
+    
+    # Extract clean text with space separator
+    # separator=' ' helps preserve basic formatting between paragraphs
+    # strip=True removes leading/trailing whitespace
+    return soup.get_text(separator=' ', strip=True)

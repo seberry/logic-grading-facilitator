@@ -10,6 +10,13 @@
     .muted { color: #6b7280; }
     button, .btn { display: inline-block; border: 1px solid #2563eb; background: #2563eb; color: #fff; border-radius: 6px; padding: 0.55rem 0.9rem; text-decoration: none; margin-right: 0.4rem; margin-top: 0.45rem; }
     .btn.secondary { border-color: #d1d5db; background: #fff; color: #111827; }
+    .btn.primary { background: #059669; border-color: #047857; }
+    .result-box { margin-bottom: 0.5rem; padding: 0.5rem; border-left: 3px solid #10b981; background: #f9fafb; }
+    .result-box[data-status="posted"] { border-left-color: #10b981; }
+    .result-box[data-status="skipped"] { border-left-color: #6b7280; }
+    .result-box[data-status="failed"] { border-left-color: #ef4444; }
+    .success-text { color: #059669; }
+    .error-text { color: #dc2626; }
   </style>
 </head>
 <body>
@@ -36,8 +43,59 @@
       <p class="muted">No comments entered across assignments, so no comments ZIPs were generated.</p>
     {% endif %}
 
+    {% if canvas_results %}
+      <hr style="margin: 1.5rem 0;">
+      <h2>Canvas Posting Results</h2>
+      {% if total_success > 0 %}
+        <p style="color: #059669;"><strong>✓ Success:</strong> {{ total_success }} comment(s) posted to Canvas</p>
+      {% endif %}
+      {% if total_failed > 0 %}
+        <p style="color: #dc2626;"><strong>✗ Failed:</strong> {{ total_failed }} comment(s) failed to post</p>
+      {% endif %}
+      
+      {% for result in canvas_results %}
+        <div class="result-box" data-status="{{ result.status }}">
+          <strong>{{ result.assignment_id }}</strong>:
+          {% if result.status == "posted" %}
+            <span class="success-text">Posted successfully</span>
+            ({{ result.success }} comments)
+          {% elif result.status == "skipped" %}
+            <span class="muted">Skipped - {{ result.message }}</span>
+          {% else %}
+            <span class="error-text">Failed</span>
+            {% if result.errors %}
+              <details style="margin-top: 0.25rem;">
+                <summary style="cursor: pointer; color: #6b7280;">View errors</summary>
+                <ul style="margin: 0.5rem 0 0 1rem 1.5rem; padding: 0;">
+                  {% for error in result.errors %}
+                    <li>{{ error }}</li>
+                  {% endfor %}
+                </ul>
+              </details>
+            {% endif %}
+          {% endif %}
+        </div>
+      {% endfor %}
+    {% endif %}
+
     {% if not closed %}
-      <form method="post" action="/classwork/batch/close_session">
+      {% if not canvas_results %}
+        <form method="post" action="/classwork/canvas_post_comments" style="margin-top: 1.5rem; padding: 1rem; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px;">
+          <input type="hidden" name="export_id" value="{{ export_id }}">
+          <h3 style="margin-top: 0; margin-bottom: 1rem;">Post Comments to Canvas</h3>
+          <p style="margin-bottom: 1rem;">
+            This will post all text comments directly to Canvas for each assignment.
+            You can still download ZIP files as a backup.
+          </p>
+          <label style="display: block; margin-bottom: 1rem;">
+            <input type="checkbox" name="overwrite" id="overwrite" style="margin-right: 0.5rem;">
+            Allow overwriting existing comments (not recommended)
+          </label>
+          <button type="submit" class="btn" style="background: #059669; border-color: #047857;">Post Comments to Canvas</button>
+        </form>
+      {% endif %}
+      
+      <form method="post" action="/classwork/batch/close_session" style="margin-top: 1rem;">
         <input type="hidden" name="export_id" value="{{ export_id }}">
         <button type="submit" class="btn secondary">Close Batch Session</button>
       </form>
