@@ -1852,6 +1852,9 @@ async def classwork_batch_finalize_submit(request: Request) -> Response:
                     "conflicts": conflicts[:40],
                 },
             )
+        
+        # CRITICAL FIX: Save session to disk before creating exports
+        persist_session()
 
     for mode in batch.assignments:
         score_map = _build_classwork_score_map(mode)
@@ -2450,11 +2453,15 @@ async def classwork_canvas_post_comments(
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     gradebook_file = manifest.get("gradebook_file")
     
+    print(f"[DEBUG] Canvas comment posting started for export_id: {export_id}")
+    
     with _session_lock:
         session = get_session()
         batch = session.classwork_batch
         if batch is None:
             raise HTTPException(status_code=400, detail="No batch session found.")
+        
+        print(f"[DEBUG] Batch has {len(batch.assignments)} assignments")
         
         results_summary = []
         success_count = 0
@@ -2464,6 +2471,8 @@ async def classwork_canvas_post_comments(
             client = get_canvas_client()
             
             for mode in batch.assignments:
+                print(f"[DEBUG] Processing assignment: {mode.assignment_id}")
+                
                 if not mode.canvas_course_id or not mode.canvas_assignment_id:
                     results_summary.append({
                         "assignment_id": mode.assignment_id,
@@ -2483,9 +2492,12 @@ async def classwork_canvas_post_comments(
                             comments_dict[canvas_user_id] = {
                                 "text": entry.comment.strip()
                             }
+                            print(f"[DEBUG] Found comment for student {entry.student_id}: {entry.comment[:50]}...")
                         else:
                             # Log warning if Canvas user ID not found
                             print(f"[COMMENT POST] Warning: No Canvas user ID for student {entry.student_id}")
+                
+                print(f"[DEBUG] Assignment {mode.assignment_id}: {len(comments_dict)} comments to post")
                 
                 if not comments_dict:
                     results_summary.append({
@@ -2496,6 +2508,7 @@ async def classwork_canvas_post_comments(
                     continue
                 
                 # Post comments to Canvas
+                print(f"[DEBUG] Posting comments to Canvas: {mode.canvas_course_id}, assignment {mode.canvas_assignment_id}")
                 result = client.bulk_post_comments(
                     course_id=mode.canvas_course_id,
                     assignment_id=mode.canvas_assignment_id,
@@ -2518,6 +2531,8 @@ async def classwork_canvas_post_comments(
             
         except CanvasClientError as e:
             raise HTTPException(status_code=500, detail=f"Canvas API error: {e}")
+        
+        print(f"[DEBUG] Canvas posting complete: {success_count} success, {failed_count} failed")
         
         return templates.TemplateResponse(
             "classwork_batch_done.html",

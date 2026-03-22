@@ -133,6 +133,65 @@ Request body:
 - The overwrite checkbox is advisory only (cannot actually replace)
 - Best practice: Grade each assignment once to avoid comment accumulation
 
+## Known Issues & Fixes
+
+### Issue: Comments not appearing in exports or Canvas posts
+
+**Symptoms:**
+- Comments entered in grading UI appear to save but are missing from downloaded ZIP files
+- Comments posted to Canvas are blank/empty
+- No debug output appears when posting to Canvas
+
+**Root Cause:**
+Comments were saved in memory when users clicked "Save" on the review page, but they were never written to disk (`session.json`). This caused:
+1. ZIP exports to be created from stale session data (no comments)
+2. Canvas API endpoint to read empty session data (no comments to post)
+
+**Fix Applied (2026-03-22):**
+Added `persist_session()` calls to ensure comments are written to disk:
+
+1. **In `/classwork/review` (POST):**
+   ```python
+   _classwork_apply_form_updates(form, mode, action)
+   _classwork_sync_mode_into_batch(session)
+   persist_session()  # ← ADDED: Save comments to disk
+   ```
+
+2. **In `/classwork/batch/finalize` (POST):**
+   ```python
+   _classwork_sync_mode_into_batch(session)
+   persist_session()  # ← ADDED: Save before creating exports
+   ```
+
+3. **Added debug logging to `/classwork/canvas_post_comments`:**
+   - Shows when posting starts
+   - Lists comments found per student (first 50 chars)
+   - Reports number of comments to post
+   - Shows success/failure counts
+
+**Debug Output Example:**
+```
+[DEBUG] Canvas comment posting started for export_id: 2be0e434e8b14445b9c896fae66775e7
+[DEBUG] Batch has 1 assignments
+[DEBUG] Processing assignment: week_9_wednesday_classwork
+[DEBUG] Found comment for student jdoe: Great work on the proof!...
+[DEBUG] Assignment week_9_wednesday_classwork: 3 comments to post
+[DEBUG] Posting comments to Canvas: 2371610, assignment 18369793
+[DEBUG] Canvas posting complete: 3 success, 0 failed
+```
+
+**How to Verify Fix:**
+1. Add comments to students in `/classwork/review`
+2. Click "Save" - verify comments persist across page refreshes
+3. Click "Finalize" and download ZIP - verify comments are present
+4. Click "Post to Canvas" - verify debug output shows comments
+5. Check Canvas SpeedGrader - verify comments appear
+
+**If Issues Persist:**
+- Check server console for debug output (shows comment flow)
+- Verify `data/grades/session.json` contains your comments
+- Ensure you're using the latest code (server restart required after updates)
+
 ## Testing
 
 To test the feature:
