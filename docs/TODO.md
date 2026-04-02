@@ -11,6 +11,8 @@
   3. Only then consider extracting sections to separate modules
 - **NEXT STEPS**: When ready, run `python scripts/add_server_markers.py` to add markers without breaking anything
 - **RECOVERY**: System was rolled back to commit `014c692` after breaking changes; working version restored via git
+- **STATUS UPDATE (2026-04-02)**: The active approach is now manual workflow-by-workflow extraction into `app/routes/`.
+  Fitch debug has already been extracted. See `docs/REFACTORING_STATUS.md`.
 
 ## FERPA guardrails
 

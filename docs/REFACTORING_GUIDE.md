@@ -1,5 +1,13 @@
 # Refactoring guide: making the grading facilitator less confusing
 
+> **Status:** Superseded as the primary plan on 2026-04-02.
+> Use [docs/REFACTORING_STATUS.md](/c:/Users/seber/logic-grading-facilitator-MAIN/docs/REFACTORING_STATUS.md)
+> as the current source of truth.
+>
+> This guide still contains useful inventory work and function-grouping notes, but
+> parts of it assume a larger and more ambitious split than the project currently
+> wants. Treat it as background reference, not as the active implementation plan.
+
 > **Who this is for:** Future-Sharon vibecoding, and any coding AI working on the project.
 > Written while the full codebase was loaded in context, so the function-by-function
 > classifications should be accurate. Verify any specific line numbers before using

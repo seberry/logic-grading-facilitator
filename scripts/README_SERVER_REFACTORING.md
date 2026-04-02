@@ -1,5 +1,12 @@
 # Server Refactoring Scripts
 
+> **Status:** Deprecated as the primary refactoring path on 2026-04-02.
+> The active direction is small manual extractions into `app/routes/`, documented in
+> `docs/REFACTORING_STATUS.md`.
+>
+> This file is retained only so the old marker/reordering scripts are documented.
+> Do not treat these scripts as the recommended next step.
+
 This directory contains two scripts for improving `app/server.py` readability:
 
 ## Scripts
