@@ -156,8 +156,17 @@ Used by the Strip View to show cropped answers.
 
 # 8. Repository Layout (Code vs Data)
 
-* `app/` – Core application code (Server, Models, UI Logic).
-* `scripts/` – Offline CLI utilities (Auto-grouping, Debugging).
+* `app/server.py` – FastAPI app shell plus the remaining exam setup/import and legacy grading routes.
+* `app/routes/classwork.py` – Classwork workflow routes, including Canvas classwork integration.
+* `app/routes/exam_exports.py` – Exam finish/export/finalize routes.
+* `app/routes/problem_strips.py` – Per-problem strip grading routes and segmentation entry points.
+* `app/routes/flashcards.py` – Student-name flashcards workflow.
+* `app/routes/fitch_debug.py` – Fitch debug / human-correction workflow.
+* `app/classwork_core.py` – Classwork-specific helper and export logic.
+* `app/exam_shared.py` – Shared exam-side helpers used by setup/import and exports.
+* `app/exam_exports_core.py` – Export-specific exam helper logic.
+* `app/session_state.py` – Shared session load/save functions and locks.
+* `scripts/` – Offline CLI utilities (auto-grouping, debugging, code-map generation).
 * `docs/` – Design documentation.
 * `data/` – **Live quiz data** (FERPA-sensitive).
     * `raw_scans/` – Images (both raw `IMG_*.jpg` and renamed `quiz_*.jpg`).

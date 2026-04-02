@@ -1,0 +1,164 @@
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
+import re
+import json
+from pathlib import Path
+from datetime import datetime
+
+from fastapi import HTTPException
+
+from .models import GradingKey, RosterEntry, Session, WorkUnit
+from .storage import DATA_DIR
+
+
+CANVAS_REUPLOAD_ORIGINAL_ZIPS_DIR = DATA_DIR / "canvas_reupload" / "original_zips"
+CANVAS_REUPLOAD_MANIFEST_DIR = DATA_DIR / "canvas_reupload" / "manifests"
+
+
+def _build_total_scores_by_student(session: Session) -> Dict[str, float]:
+    out: Dict[str, float] = {}
+    for wu in session.work_units:
+        if not wu.student_id:
+            continue
+        total = _score_summary_for_work_unit(session, wu)["total_score"]
+        prev = out.get(wu.student_id)
+        if prev is None or total > prev:
+            out[wu.student_id] = total
+    return out
+
+
+def _required_total_max(grading_key: GradingKey) -> float:
+    return sum(float(p.points) for p in grading_key.problems if not p.extra_credit)
+
+
+def _score_summary_for_work_unit(session: Session, wu: WorkUnit) -> Dict[str, float]:
+    regular_total = 0.0
+    extra_credit_total = 0.0
+    problems_by_id = {p.id: p for p in session.grading_key.problems}
+    for problem_id, score in wu.per_problem.items():
+        if score is None:
+            continue
+        spec = problems_by_id.get(problem_id)
+        if spec and spec.extra_credit:
+            extra_credit_total += float(score)
+        else:
+            regular_total += float(score)
+
+    total_max = _required_total_max(session.grading_key)
+    total_score = min(total_max, regular_total + extra_credit_total)
+    return {
+        "regular_score": regular_total,
+        "extra_credit_score": extra_credit_total,
+        "total_score": total_score,
+        "total_max": total_max,
+    }
+
+
+def slugify_name(name: str) -> str:
+    s = name.strip().lower()
+    s = s.replace(",", " ")
+    s = re.sub(r"\s+", "_", s)
+    s = re.sub(r"[^a-z0-9_]", "", s)
+    s = re.sub(r"_+", "_", s).strip("_")
+    return s or "student"
+
+
+def _normalize_canvas_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (value or "").lower())
+
+
+def _filename_prefix_key(filename: str) -> str:
+    base = Path(filename).name
+    stem = Path(base).stem
+    prefix = stem.split("_", 1)[0]
+    return _normalize_canvas_key(prefix)
+
+
+def _build_roster_prefix_index(
+    roster: List[RosterEntry],
+) -> tuple[Dict[str, RosterEntry], Dict[str, List[RosterEntry]]]:
+    index: Dict[str, RosterEntry] = {}
+    collisions: Dict[str, List[RosterEntry]] = {}
+    for entry in roster:
+        key = _normalize_canvas_key(entry.name)
+        if not key:
+            continue
+        if key in index:
+            collisions.setdefault(key, [index[key]]).append(entry)
+        else:
+            index[key] = entry
+    return index, collisions
+
+
+def _list_canvas_original_zips() -> List[Path]:
+    if not CANVAS_REUPLOAD_ORIGINAL_ZIPS_DIR.exists():
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Canvas original ZIP directory not found. "
+                f"Create: {CANVAS_REUPLOAD_ORIGINAL_ZIPS_DIR}"
+            ),
+        )
+    zips = sorted(
+        [p for p in CANVAS_REUPLOAD_ORIGINAL_ZIPS_DIR.glob("*.zip") if p.is_file()],
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    if not zips:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No ZIP files found for Canvas reupload source. "
+                f"Put original Canvas ZIP(s) under {CANVAS_REUPLOAD_ORIGINAL_ZIPS_DIR}"
+            ),
+        )
+    return zips
+
+
+def _canvas_import_manifest_path(quiz_id: str) -> Path:
+    safe_quiz_id = re.sub(r"[^A-Za-z0-9_.-]", "_", (quiz_id or "quiz").strip()) or "quiz"
+    return CANVAS_REUPLOAD_MANIFEST_DIR / f"{safe_quiz_id}.json"
+
+
+def _load_canvas_import_manifest(quiz_id: str) -> Optional[Dict[str, Any]]:
+    path = _canvas_import_manifest_path(quiz_id)
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _save_canvas_import_manifest(
+    quiz_id: str,
+    source_zip_filename: str,
+    original_zip_name: str,
+    work_units: List[WorkUnit],
+    per_student_originals: Dict[str, List[str]],
+) -> None:
+    CANVAS_REUPLOAD_MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
+
+    manifest_work_units: List[Dict[str, Any]] = []
+    for wu in work_units:
+        manifest_work_units.append(
+            {
+                "unit_id": wu.unit_id,
+                "student_id": wu.student_id,
+                "original_filenames": per_student_originals.get(wu.student_id or "", []),
+                "canonical_page_filenames": list(wu.page_filenames),
+            }
+        )
+
+    manifest = {
+        "quiz_id": quiz_id,
+        "source_zip_filename": source_zip_filename,
+        "original_zip_name": original_zip_name,
+        "saved_at": datetime.now().isoformat(timespec="seconds"),
+        "work_units": manifest_work_units,
+    }
+    _canvas_import_manifest_path(quiz_id).write_text(
+        json.dumps(manifest, indent=2),
+        encoding="utf-8",
+    )

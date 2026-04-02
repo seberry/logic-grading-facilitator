@@ -29,6 +29,43 @@ The following routes were moved out of `app/server.py` without changing paths:
 - `POST /debug/fitch/rerun`
 - `POST /debug/fitch/run_grader`
 
+### 2026-04-02: Flashcards extracted
+
+The flashcards workflow now lives in:
+
+- `app/routes/flashcards.py`
+
+### 2026-04-02: Problem strips extracted
+
+The per-problem strip grading workflow now lives in:
+
+- `app/routes/problem_strips.py`
+
+Shared session state for extracted workflows now lives in:
+
+- `app/session_state.py`
+
+### 2026-04-02: Classwork extracted
+
+The classwork workflow now lives in:
+
+- `app/routes/classwork.py`
+
+Classwork-specific helper logic now lives in:
+
+- `app/classwork_core.py`
+
+### 2026-04-02: Exam exports extracted
+
+The exam export/finalize workflow now lives in:
+
+- `app/routes/exam_exports.py`
+
+Shared exam-side helper logic now lives in:
+
+- `app/exam_shared.py`
+- `app/exam_exports_core.py`
+
 ## Current rules
 
 1. Do not do whole-file reordering of `app/server.py`.
@@ -37,15 +74,39 @@ The following routes were moved out of `app/server.py` without changing paths:
 4. Keep route paths stable during extraction.
 5. Verify imports and route registration after every extraction.
 
+## Current structure
+
+The broad code layout is now:
+
+- `app/server.py`
+  App creation, mounts, setup/import routes, and remaining legacy exam workflow.
+- `app/routes/fitch_debug.py`
+  Fitch debug workflow.
+- `app/routes/flashcards.py`
+  Flashcards workflow.
+- `app/routes/problem_strips.py`
+  Per-problem strip grading and segmentation routes.
+- `app/routes/classwork.py`
+  Classwork routes, including Canvas classwork integration.
+- `app/routes/exam_exports.py`
+  Finish/export/finalize routes for the exam workflow.
+- `app/classwork_core.py`
+  Classwork-specific helper and file/gradebook logic.
+- `app/exam_shared.py`
+  Shared exam-side helpers still used by setup/import and exports.
+- `app/exam_exports_core.py`
+  Export-only exam helper logic.
+- `app/session_state.py`
+  Shared session loading/saving and locks.
+
 ## Likely next candidates
 
 These are the next most plausible extractions, in rough order:
 
-1. Exam strip grading and segmentation routes
-2. Flashcards workflow
-3. Legacy exam grading/export routes
-4. Setup wizard and gradebook merge routes
-5. Classwork routes, keeping manual and Canvas classwork together for now
+1. Exam setup/import routes
+2. Name-review handoff pipeline
+3. Remaining legacy grading-page/work-unit routes
+4. Shared exam helper cleanup after those moves
 
 ## Superseded material
 
