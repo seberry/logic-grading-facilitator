@@ -218,6 +218,9 @@
     <p class="lede">
       Human-in-the-loop checker for strict model text. OCR is still deferred; this page is for editing the model, running the deterministic checker, and iterating on the recursive trace format.
     </p>
+    {% if problem_id %}
+      <p class="muted">Active rubric problem: <strong>{{ problem_id }}</strong>{% if problem_label %} — {{ problem_label }}{% endif %}</p>
+    {% endif %}
 
     {% if message %}
       <div class="status {{ status or 'success' }}">{{ message }}</div>
@@ -228,11 +231,18 @@
 
     <form method="post" action="/debug/fol-model/run_checker">
       <input type="hidden" name="scan" value="{{ selected_scan or '' }}">
+      <input type="hidden" name="problem_id" value="{{ problem_id or '' }}">
 
       <div class="top-grid">
         <section class="panel">
           <label for="scan-picker">Sample scan</label>
-          <select id="scan-picker" name="scan_picker" onchange="if (this.value) window.location='?scan=' + encodeURIComponent(this.value);">
+          <select id="scan-picker" name="scan_picker" onchange="(function(sel){
+            const params = new URLSearchParams(window.location.search);
+            if (sel.value) params.set('scan', sel.value); else params.delete('scan');
+            if (params.get('problem_id')) params.set('problem_id', params.get('problem_id'));
+            if (params.get('problem_type')) params.set('problem_type', params.get('problem_type'));
+            window.location = '/debug/fol-model?' + params.toString();
+          })(this)">
             {% if available_scans %}
               {% for scan_name in available_scans %}
                 <option value="{{ scan_name }}" {% if scan_name == selected_scan %}selected{% endif %}>{{ scan_name }}</option>
@@ -241,15 +251,34 @@
               <option value="">No debug scans found</option>
             {% endif %}
           </select>
+          <label for="rubric-problem-picker" style="margin-top: 1rem;">Load from active rubric</label>
+          <select
+            id="rubric-problem-picker"
+            name="rubric_problem_picker"
+            onchange="(function(sel){
+              const params = new URLSearchParams(window.location.search);
+              if (params.get('scan')) params.set('scan', params.get('scan'));
+              if (sel.value) {
+                params.set('problem_id', sel.value);
+                params.delete('problem_type');
+              } else {
+                params.delete('problem_id');
+              }
+              window.location = '/debug/fol-model?' + params.toString();
+            })(this)">
+            <option value="">No rubric problem selected</option>
+            {% for item in available_session_problems %}
+              <option value="{{ item.id }}" {% if item.id == problem_id %}selected{% endif %}>{{ item.id }} — {{ item.label }}</option>
+            {% endfor %}
+          </select>
           <label for="problem-type-picker" style="margin-top: 1rem;">Problem type</label>
           <select
             id="problem-type-picker"
             name="problem_type"
             onchange="(function(sel){
               const params = new URLSearchParams(window.location.search);
-              if (params.get('scan')) {
-                params.set('scan', params.get('scan'));
-              }
+              if (params.get('scan')) params.set('scan', params.get('scan'));
+              params.delete('problem_id');
               params.set('problem_type', sel.value);
               window.location = '/debug/fol-model?' + params.toString();
             })(this)">
@@ -257,12 +286,18 @@
               <option value="{{ opt.id }}" {% if opt.id == problem_type %}selected{% endif %}>{{ opt.label }}</option>
             {% endfor %}
           </select>
+          <label for="trace-mode-picker" style="margin-top: 1rem;">Trace mode</label>
+          <select id="trace-mode-picker" name="trace_mode">
+            {% for opt in trace_mode_options %}
+              <option value="{{ opt.id }}" {% if opt.id == trace_mode %}selected{% endif %}>{{ opt.label }}</option>
+            {% endfor %}
+          </select>
           <div class="controls">
             <button type="button" disabled>Re-run OCR</button>
             <button type="submit" class="secondary" formaction="/debug/fol-model/save">Save transcription</button>
             <button type="submit"{% if not checker_enabled %} disabled{% endif %}>Run checker</button>
           </div>
-          <p class="muted">`Save transcription` persists state only when a scan slug is selected. `Re-run OCR` stays disabled for now. The live checker currently runs only for the plain truth-in-model type.</p>
+          <p class="muted">`Save transcription` persists state only when a scan slug is selected. `Re-run OCR` stays disabled for now. If you load a rubric-backed FOL problem, the setup box below is populated from that real config.</p>
         </section>
 
         <section class="panel">
@@ -282,6 +317,7 @@
           <section class="panel">
             <label for="problem-setup-text">Problem setup / rubric preview</label>
             <textarea id="problem-setup-text" name="problem_setup_text">{{ problem_setup_text }}</textarea>
+            <p class="muted">This box now expects YAML shaped like the proposed `autograde` config.</p>
           </section>
 
           <section class="panel">
@@ -297,7 +333,7 @@
 
         <section class="panel">
           <label>{% if checker_ran %}Trace{% else %}Trace mockup{% endif %}</label>
-          <p class="muted">Indented recursive outline, with witnesses and counterexamples made explicit. For non-truth-value tasks this is currently a dummy design preview.</p>
+          <p class="muted">Use `Terse` for grading-display style output and `Full` for audit/debug output. All current FOL model task kinds on this page run through the live task wrapper using the YAML setup at left.</p>
           {% for block in trace_blocks %}
             <article class="trace-card">
               <h3>{{ block.title }}</h3>

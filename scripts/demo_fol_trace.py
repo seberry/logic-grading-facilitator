@@ -36,6 +36,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Print a sample FOL trace for a model/sentence pair.")
     parser.add_argument("--model-file", help="Path to a text file containing the model description.")
     parser.add_argument("--sentences-file", help="Path to a text file containing target sentences.")
+    parser.add_argument("--trace-mode", choices=("full", "terse"), default="terse")
     args = parser.parse_args()
 
     if args.model_file:
@@ -50,7 +51,7 @@ def main() -> None:
     else:
         sentences_text = DEFAULT_SENTENCES
 
-    result = check_sentences(model_text, sentences_text)
+    result = check_sentences(model_text, sentences_text, trace_mode=args.trace_mode)
 
     print("=== MODEL SUMMARY ===")
     print(result.model_summary)

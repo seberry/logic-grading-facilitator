@@ -5,16 +5,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
+import yaml
 from fastapi import APIRouter, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from app.fol_model_checker import (
-    FolModelParseError,
-    build_draft_comment,
-    build_trace_blocks,
-    check_sentences,
-)
+from app.fol_model_checker import FolModelParseError, check_fol_task
+from app.session_state import get_session
 from app.storage import DEBUG_FOL_MODEL_DIR, RAW_SCANS_DIR
 
 router = APIRouter()
@@ -31,6 +28,10 @@ SUPPORTED_PROBLEM_TYPES = [
     {"id": "non_validity", "label": "Show non-validity"},
     {"id": "non_logical_truth", "label": "Show non-logical truth"},
     {"id": "non_logical_falsehood", "label": "Show non-logical falsehood"},
+]
+TRACE_MODE_OPTIONS = [
+    {"id": "terse", "label": "Terse"},
+    {"id": "full", "label": "Full"},
 ]
 
 DEFAULT_MODEL_TEXT = """DOMAIN: {1,2,3}
@@ -104,29 +105,31 @@ Result: False because object 1 is a counterexample""",
 
 PROBLEM_TYPE_PRESETS: Dict[str, Dict[str, Any]] = {
     "truth_value": {
-        "problem_setup_text": """TYPE: truth_value
-QUESTION: Determine whether each sentence is true or false in the given model.
-DEFAULT_CORRECT_SCORE: 2
-DEFAULT_INCORRECT_SCORE: 0
-TARGETS:
-- Pa
-- ∀x (Px → Qx)
+        "problem_setup_text": """task_kind: truth_value
+default_score_correct: 2
+default_score_incorrect: 0
+prompt_data:
+  formulas:
+    - "Pa"
+    - "∀x (Px → Qx)"
 """,
         "model_text": DEFAULT_MODEL_TEXT,
-        "sentences_text": DEFAULT_SENTENCES_TEXT,
+        "sentences_text": """1. Pa
+2. ∀x (Px → Qx)
+""",
         "trace_blocks": DEFAULT_TRACE_BLOCKS,
         "draft_comment": DEFAULT_DRAFT_COMMENT,
         "draft_grade": "",
         "checker_enabled": True,
     },
     "non_equivalence": {
-        "problem_setup_text": """TYPE: non_equivalence
-QUESTION: Give a model showing the two sentences are not logically equivalent.
-DEFAULT_CORRECT_SCORE: 3
-DEFAULT_INCORRECT_SCORE: 0
-LEFT: ∀x Px
-RIGHT: ∃x Px
-SUCCESS_CONDITION: exactly one of LEFT or RIGHT must be true in the model
+        "problem_setup_text": """task_kind: non_equivalence
+default_score_correct: 3
+default_score_incorrect: 0
+prompt_data:
+  formulas:
+    - "∀x Px"
+    - "∃x Px"
 """,
         "model_text": """DOMAIN: {1,2}
 
@@ -139,42 +142,24 @@ P: {1}
         "sentences_text": """1. ∀x Px
 2. ∃x Px
 """,
-        "trace_blocks": [
-            {
-                "title": "Dummy non-equivalence trace",
-                "result": "Design sketch",
-                "body": """Goal: show exactly one sentence is true.
-
-Check LEFT = ∀x Px
-  Object 2 is a counterexample
-Result: LEFT is false
-
-Check RIGHT = ∃x Px
-  Witness x = 1 works
-Result: RIGHT is true
-
-Conclusion: the two sentences differ in truth value in this model, so they are not logically equivalent.""",
-            }
-        ],
+        "trace_blocks": DEFAULT_TRACE_BLOCKS,
         "draft_comment": """Question: non-equivalence witness
-Checker: planned FOL model checker
+Checker: FOL model checker v0
 
-Design note:
-For this problem type the future checker should evaluate both sentences in the same model and confirm that they come apart.
+This sample checks whether the two formulas come apart in one model.
 """,
         "draft_grade": "",
-        "checker_enabled": False,
+        "checker_enabled": True,
     },
     "joint_consistency": {
-        "problem_setup_text": """TYPE: joint_consistency
-QUESTION: Give a model in which all listed sentences are true together.
-DEFAULT_CORRECT_SCORE: 3
-DEFAULT_INCORRECT_SCORE: 0
-TARGETS:
-- ∃x Px
-- ∃x Qx
-- ∀x (Px → ¬Qx)
-SUCCESS_CONDITION: every target sentence must be true
+        "problem_setup_text": """task_kind: joint_consistency
+default_score_correct: 3
+default_score_incorrect: 0
+prompt_data:
+  formulas:
+    - "∃x Px"
+    - "∃x Qx"
+    - "∀x (Px → ¬Qx)"
 """,
         "model_text": """DOMAIN: {1,2}
 
@@ -188,38 +173,24 @@ Q: {2}
 2. ∃x Qx
 3. ∀x (Px → ¬Qx)
 """,
-        "trace_blocks": [
-            {
-                "title": "Dummy joint-consistency trace",
-                "result": "Design sketch",
-                "body": """Goal: show all target sentences come out true in one model.
-
-Sentence 1 succeeds with witness x = 1.
-Sentence 2 succeeds with witness x = 2.
-Sentence 3 succeeds because every P-object fails to be Q.
-
-Conclusion: the set is jointly consistent because there is at least one model making them all true.""",
-            }
-        ],
+        "trace_blocks": DEFAULT_TRACE_BLOCKS,
         "draft_comment": """Question: joint consistency
-Checker: planned FOL model checker
+Checker: FOL model checker v0
 
-Design note:
-For this type the future checker should mark the answer correct only if every target sentence is true in the supplied model.
+This sample checks whether all target formulas are true together in one model.
 """,
         "draft_grade": "",
-        "checker_enabled": False,
+        "checker_enabled": True,
     },
     "non_validity": {
-        "problem_setup_text": """TYPE: non_validity
-QUESTION: Give a model in which all premises are true and the conclusion is false.
-DEFAULT_CORRECT_SCORE: 3
-DEFAULT_INCORRECT_SCORE: 0
-PREMISES:
-- ∀x (Px → Qx)
-- ∃x Px
-CONCLUSION: ∀x Qx
-SUCCESS_CONDITION: every premise true, conclusion false
+        "problem_setup_text": """task_kind: non_validity
+default_score_correct: 3
+default_score_incorrect: 0
+prompt_data:
+  premises:
+    - "∀x (Px → Qx)"
+    - "∃x Px"
+  conclusion: "∀x Qx"
 """,
         "model_text": """DOMAIN: {1,2}
 
@@ -233,35 +204,22 @@ Q: {1}
 2. ∃x Px
 3. ∀x Qx
 """,
-        "trace_blocks": [
-            {
-                "title": "Dummy non-validity trace",
-                "result": "Design sketch",
-                "body": """Goal: premises true, conclusion false.
-
-Premise 1: true
-Premise 2: true
-Conclusion: false because object 2 is not Q
-
-Conclusion: this model is a countermodel to the argument, so the argument is not valid.""",
-            }
-        ],
+        "trace_blocks": DEFAULT_TRACE_BLOCKS,
         "draft_comment": """Question: non-validity countermodel
-Checker: planned FOL model checker
+Checker: FOL model checker v0
 
-Design note:
-This type is just a structured special case: evaluate premises as all true, then conclusion as false.
+This sample checks whether the premises are all true and the conclusion false.
 """,
         "draft_grade": "",
-        "checker_enabled": False,
+        "checker_enabled": True,
     },
     "non_logical_truth": {
-        "problem_setup_text": """TYPE: non_logical_truth
-QUESTION: Give a model in which the target sentence is true.
-DEFAULT_CORRECT_SCORE: 2
-DEFAULT_INCORRECT_SCORE: 0
-TARGET: ∃x Px
-SUCCESS_CONDITION: target sentence true
+        "problem_setup_text": """task_kind: non_logical_truth
+default_score_correct: 2
+default_score_incorrect: 0
+prompt_data:
+  formulas:
+    - "∃x Px"
 """,
         "model_text": """DOMAIN: {1}
 
@@ -272,32 +230,22 @@ P: {1}
 """,
         "sentences_text": """1. ∃x Px
 """,
-        "trace_blocks": [
-            {
-                "title": "Dummy non-logical-truth trace",
-                "result": "Design sketch",
-                "body": """Goal: show that the sentence is satisfiable.
-
-The checker should verify only that the target sentence is true in the supplied model.
-That demonstrates non-logical truth by example.""",
-            }
-        ],
+        "trace_blocks": DEFAULT_TRACE_BLOCKS,
         "draft_comment": """Question: non-logical truth
-Checker: planned FOL model checker
+Checker: FOL model checker v0
 
-Design note:
-This is the one-sentence satisfiability case.
+This sample checks whether the target formula is true in at least one model.
 """,
         "draft_grade": "",
-        "checker_enabled": False,
+        "checker_enabled": True,
     },
     "non_logical_falsehood": {
-        "problem_setup_text": """TYPE: non_logical_falsehood
-QUESTION: Give a model in which the target sentence is false.
-DEFAULT_CORRECT_SCORE: 2
-DEFAULT_INCORRECT_SCORE: 0
-TARGET: ∀x Px
-SUCCESS_CONDITION: target sentence false
+        "problem_setup_text": """task_kind: non_logical_falsehood
+default_score_correct: 2
+default_score_incorrect: 0
+prompt_data:
+  formulas:
+    - "∀x Px"
 """,
         "model_text": """DOMAIN: {1,2}
 
@@ -308,25 +256,28 @@ P: {1}
 """,
         "sentences_text": """1. ∀x Px
 """,
-        "trace_blocks": [
-            {
-                "title": "Dummy non-logical-falsehood trace",
-                "result": "Design sketch",
-                "body": """Goal: show that the sentence is falsifiable.
-
-The checker should verify only that the target sentence is false in the supplied model.
-That demonstrates non-logical falsehood by counterexample.""",
-            }
-        ],
+        "trace_blocks": DEFAULT_TRACE_BLOCKS,
         "draft_comment": """Question: non-logical falsehood
-Checker: planned FOL model checker
+Checker: FOL model checker v0
 
-Design note:
-This is the one-sentence falsifiability case.
+This sample checks whether the target formula is false in at least one model.
 """,
         "draft_grade": "",
-        "checker_enabled": False,
+        "checker_enabled": True,
     },
+}
+
+LIVE_TASK_KINDS = {
+    "truth_value",
+    "truth_in_given_model",
+    "true_false_in_given_model",
+    "make_true",
+    "make_false",
+    "non_equivalence",
+    "joint_consistency",
+    "non_validity",
+    "non_logical_truth",
+    "non_logical_falsehood",
 }
 
 
@@ -378,6 +329,8 @@ def _state_path(scan_slug: str) -> Path:
 
 def _default_page_state() -> Dict[str, Any]:
     return {
+        "problem_id": "",
+        "problem_label": "",
         "problem_type": "truth_value",
         "problem_setup_text": PROBLEM_TYPE_PRESETS["truth_value"]["problem_setup_text"],
         "model_text": DEFAULT_MODEL_TEXT,
@@ -390,6 +343,8 @@ def _default_page_state() -> Dict[str, Any]:
         "checker_error": "",
         "checker_ran": False,
         "checker_enabled": True,
+        "trace_mode": "terse",
+        "available_session_problems": [],
     }
 
 
@@ -409,6 +364,8 @@ def _load_scan_state(scan_slug: Optional[str]) -> Dict[str, Any]:
 
     for key in (
         "problem_type",
+        "problem_id",
+        "problem_label",
         "problem_setup_text",
         "model_text",
         "sentences_text",
@@ -416,6 +373,7 @@ def _load_scan_state(scan_slug: Optional[str]) -> Dict[str, Any]:
         "draft_comment",
         "draft_grade",
         "checker_enabled",
+        "trace_mode",
     ):
         if key in raw:
             state[key] = raw[key]
@@ -430,12 +388,15 @@ def _save_scan_state(scan_slug: str, state: Dict[str, Any]) -> None:
             {
                 "model_text": state.get("model_text", ""),
                 "problem_type": state.get("problem_type", "truth_value"),
+                "problem_id": state.get("problem_id", ""),
+                "problem_label": state.get("problem_label", ""),
                 "problem_setup_text": state.get("problem_setup_text", ""),
                 "sentences_text": state.get("sentences_text", ""),
                 "trace_blocks": state.get("trace_blocks", []),
                 "draft_comment": state.get("draft_comment", ""),
                 "draft_grade": state.get("draft_grade", ""),
                 "checker_enabled": state.get("checker_enabled", True),
+                "trace_mode": state.get("trace_mode", "terse"),
             },
             indent=2,
             ensure_ascii=False,
@@ -462,6 +423,7 @@ def _render_page(
             "selected_scan": selected,
             "image_url": image_url,
             "problem_type_options": SUPPORTED_PROBLEM_TYPES,
+            "trace_mode_options": TRACE_MODE_OPTIONS,
             **state,
         },
     )
@@ -491,16 +453,82 @@ def _merge_preset(problem_type: str, state: Optional[Dict[str, Any]] = None) -> 
     return merged
 
 
+def _available_session_fol_problems() -> List[Dict[str, str]]:
+    try:
+        session = get_session()
+    except Exception:
+        return []
+
+    items: List[Dict[str, str]] = []
+    for spec in session.grading_key.problems:
+        if spec.problem_type == "fol_model":
+            items.append({"id": spec.id, "label": spec.label})
+    return items
+
+
+def _setup_text_from_autograde(autograde: Dict[str, Any]) -> str:
+    return yaml.safe_dump(autograde, sort_keys=False, allow_unicode=True).strip() + "\n"
+
+
+def _load_state_from_problem(problem_id: str, state: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    session = get_session()
+    spec = next((p for p in session.grading_key.problems if p.id == problem_id), None)
+    if spec is None:
+        raise HTTPException(status_code=404, detail=f"Unknown problem id {problem_id!r}")
+
+    merged = _default_page_state()
+    if state:
+        merged.update(state)
+
+    autograde = spec.autograde if isinstance(spec.autograde, dict) else {}
+    task_kind = str(autograde.get("task_kind") or "truth_value")
+    merged.update(
+        {
+            "problem_id": spec.id,
+            "problem_label": spec.label,
+            "problem_type": task_kind,
+            "problem_setup_text": _setup_text_from_autograde(autograde),
+            "checker_enabled": _checker_enabled_for_task(task_kind),
+            "checker_ran": False,
+            "checker_error": "",
+            "status": "",
+            "message": f"Loaded rubric config for {spec.id}.",
+        }
+    )
+    return merged
+
+
+def _parse_problem_setup_text(problem_setup_text: str) -> Dict[str, Any]:
+    try:
+        parsed = yaml.safe_load(problem_setup_text) or {}
+    except yaml.YAMLError as exc:
+        raise FolModelParseError(f"Problem setup YAML could not be parsed: {exc}")
+    if not isinstance(parsed, dict):
+        raise FolModelParseError("Problem setup must parse to a YAML object/map.")
+    return parsed
+
+
+def _checker_enabled_for_task(task_kind: str) -> bool:
+    return task_kind in LIVE_TASK_KINDS
+
+
 @router.get("/debug/fol-model", response_class=HTMLResponse)
 async def fol_model_debug_page(
     request: Request,
     scan: Optional[str] = None,
     problem_type: Optional[str] = None,
+    problem_id: Optional[str] = None,
 ) -> Response:
     state = _load_scan_state(scan)
+    state["available_session_problems"] = _available_session_fol_problems()
+    if problem_id:
+        state = _load_state_from_problem(problem_id, state if scan and _state_path(scan).exists() else None)
+        state["available_session_problems"] = _available_session_fol_problems()
+        return _render_page(request, scan=scan, state=state)
     selected_type = problem_type or state.get("problem_type", "truth_value")
     if problem_type:
         state = _merge_preset(selected_type, state if scan and _state_path(scan).exists() else None)
+        state["available_session_problems"] = _available_session_fol_problems()
     status = request.query_params.get("status", "")
     message = request.query_params.get("message", "")
     if status or message:
@@ -513,7 +541,9 @@ async def fol_model_debug_page(
 async def save_fol_model_transcription(
     request: Request,
     scan: Optional[str] = Form(None),
+    problem_id: str = Form(""),
     problem_type: str = Form("truth_value"),
+    trace_mode: str = Form("terse"),
     problem_setup_text: str = Form(""),
     model_text: str = Form(...),
     sentences_text: str = Form(...),
@@ -521,16 +551,25 @@ async def save_fol_model_transcription(
     draft_grade: str = Form(""),
 ) -> Response:
     if not scan or not scan.strip():
+        parsed_setup: Dict[str, Any] = {}
+        try:
+            if problem_setup_text.strip():
+                parsed_setup = _parse_problem_setup_text(problem_setup_text)
+        except FolModelParseError:
+            parsed_setup = {}
+        effective_task_kind = str(parsed_setup.get("task_kind") or problem_type or "truth_value")
         state = _default_page_state()
         state.update(
             {
-                "problem_type": problem_type,
+                "problem_type": effective_task_kind,
+                "problem_id": problem_id,
                 "problem_setup_text": problem_setup_text,
                 "model_text": model_text,
                 "sentences_text": sentences_text,
                 "draft_comment": draft_comment,
                 "draft_grade": draft_grade,
-                "checker_enabled": problem_type == "truth_value",
+                "checker_enabled": _checker_enabled_for_task(effective_task_kind),
+                "trace_mode": trace_mode,
                 "status": "error",
                 "message": "Pick a scan slug before saving state to disk.",
             }
@@ -538,16 +577,25 @@ async def save_fol_model_transcription(
         return _render_page(request, scan=None, state=state)
 
     scan_slug = scan.strip()
+    parsed_setup: Dict[str, Any] = {}
+    try:
+        if problem_setup_text.strip():
+            parsed_setup = _parse_problem_setup_text(problem_setup_text)
+    except FolModelParseError:
+        parsed_setup = {}
+    effective_task_kind = str(parsed_setup.get("task_kind") or problem_type or "truth_value")
     state = _load_scan_state(scan_slug)
     state.update(
         {
-            "problem_type": problem_type,
+            "problem_type": effective_task_kind,
+            "problem_id": problem_id,
             "problem_setup_text": problem_setup_text,
             "model_text": model_text,
             "sentences_text": sentences_text,
             "draft_comment": draft_comment,
             "draft_grade": draft_grade,
-            "checker_enabled": problem_type == "truth_value",
+            "checker_enabled": _checker_enabled_for_task(effective_task_kind),
+            "trace_mode": trace_mode,
             "status": "success",
             "message": "Saved current transcription state.",
         }
@@ -564,7 +612,9 @@ async def save_fol_model_transcription(
 async def run_fol_model_checker(
     request: Request,
     scan: Optional[str] = Form(None),
+    problem_id: str = Form(""),
     problem_type: str = Form("truth_value"),
+    trace_mode: str = Form("terse"),
     problem_setup_text: str = Form(""),
     model_text: str = Form(...),
     sentences_text: str = Form(...),
@@ -576,36 +626,47 @@ async def run_fol_model_checker(
     state.update(
         {
             "problem_type": problem_type,
+            "problem_id": problem_id,
             "problem_setup_text": problem_setup_text,
             "model_text": model_text,
             "sentences_text": sentences_text,
             "draft_comment": draft_comment,
             "draft_grade": draft_grade,
-            "checker_enabled": problem_type == "truth_value",
+            "checker_enabled": _checker_enabled_for_task(problem_type),
+            "trace_mode": trace_mode,
             "status": "",
             "message": "",
             "checker_error": "",
-            "checker_ran": problem_type == "truth_value",
+            "checker_ran": False,
         }
     )
+    state["available_session_problems"] = _available_session_fol_problems()
 
-    if problem_type != "truth_value":
-        preset = PROBLEM_TYPE_PRESETS.get(problem_type, PROBLEM_TYPE_PRESETS["truth_value"])
-        state["trace_blocks"] = preset["trace_blocks"]
-        state["draft_comment"] = draft_comment or preset["draft_comment"]
-        state["status"] = "success"
-        state["message"] = "This problem type is currently in design-preview mode. The live checker still only runs for truth-in-model."
-    else:
-        try:
-            result = check_sentences(model_text, sentences_text)
-            state["trace_blocks"] = build_trace_blocks(result)
-            state["draft_comment"] = build_draft_comment(result)
+    try:
+        autograde = _parse_problem_setup_text(problem_setup_text)
+        task_kind = str(autograde.get("task_kind") or problem_type or "truth_value")
+        state["problem_type"] = task_kind
+        if task_kind in LIVE_TASK_KINDS:
+            task_result = check_fol_task(model_text, autograde, trace_mode=trace_mode)
+            state["trace_blocks"] = task_result.trace_blocks
+            state["draft_comment"] = task_result.draft_comment
+            state["checker_enabled"] = _checker_enabled_for_task(task_kind)
+            state["checker_ran"] = True
             state["status"] = "success"
             state["message"] = "Checker ran successfully."
-        except FolModelParseError as exc:
-            state["checker_error"] = str(exc)
-            state["status"] = "error"
-            state["message"] = "Checker could not run."
+        elif task_kind in PROBLEM_TYPE_PRESETS:
+            preset = PROBLEM_TYPE_PRESETS[task_kind]
+            state["trace_blocks"] = preset["trace_blocks"]
+            state["draft_comment"] = draft_comment or preset["draft_comment"]
+            state["checker_enabled"] = False
+            state["status"] = "success"
+            state["message"] = "This task kind is currently in design-preview mode."
+        else:
+            raise FolModelParseError(f"Unsupported task_kind: {task_kind}")
+    except FolModelParseError as exc:
+        state["checker_error"] = str(exc)
+        state["status"] = "error"
+        state["message"] = "Checker could not run."
 
     if scan_slug:
         _save_scan_state(scan_slug, state)

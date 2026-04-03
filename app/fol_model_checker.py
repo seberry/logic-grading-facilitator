@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import app.syntax as syntax
 
@@ -44,6 +44,17 @@ class FolCheckResult:
 
 
 @dataclass
+class FolTaskCheckResult:
+    task_kind: str
+    passed: bool
+    summary: str
+    model_summary: str
+    trace_blocks: List[Dict[str, str]]
+    draft_comment: str
+    sentence_results: List[SentenceCheckResult]
+
+
+@dataclass
 class TraceNode:
     kind: str
     display: str
@@ -52,6 +63,8 @@ class TraceNode:
     reductions: List[str] = field(default_factory=list)
     children: List["TraceNode"] = field(default_factory=list)
     context: Dict[str, str] = field(default_factory=dict)
+    evaluated_display: str = ""
+    truth_display: str = ""
 
 
 def parse_model_text(text: str) -> FolModel:
@@ -102,7 +115,7 @@ def parse_sentences_text(text: str) -> List[Tuple[int, str]]:
     return results
 
 
-def check_sentences(model_text: str, sentences_text: str) -> FolCheckResult:
+def check_sentences(model_text: str, sentences_text: str, trace_mode: str = "full") -> FolCheckResult:
     model = parse_model_text(model_text)
     sentences = parse_sentences_text(sentences_text)
     if not sentences:
@@ -111,7 +124,7 @@ def check_sentences(model_text: str, sentences_text: str) -> FolCheckResult:
     sentence_results: List[SentenceCheckResult] = []
     all_parsed_ok = True
     for index, sentence in sentences:
-        sentence_results.append(_evaluate_sentence(index, sentence, model))
+        sentence_results.append(_evaluate_sentence(index, sentence, model, trace_mode=trace_mode))
         all_parsed_ok = all_parsed_ok and sentence_results[-1].parsed_ok
 
     return FolCheckResult(
@@ -161,7 +174,186 @@ def build_draft_comment(result: FolCheckResult) -> str:
     return "\n".join(lines)
 
 
-def _evaluate_sentence(index: int, sentence: str, model: FolModel) -> SentenceCheckResult:
+def check_fol_task(model_text: str, autograde: Dict[str, Any], trace_mode: str = "full") -> FolTaskCheckResult:
+    task_kind = str(autograde.get("task_kind") or "truth_value").strip() or "truth_value"
+    prompt_data = autograde.get("prompt_data") or {}
+    if not isinstance(prompt_data, dict):
+        raise FolModelParseError("autograde.prompt_data must be an object/map.")
+
+    if task_kind in {"truth_value", "truth_in_given_model", "true_false_in_given_model", "make_true", "make_false"}:
+        formulas = _require_formula_list(prompt_data.get("formulas"))
+        base_result = check_sentences(model_text, _format_sentences(formulas), trace_mode=trace_mode)
+        trace_blocks = build_trace_blocks(base_result)
+        passed = _basic_task_passed(task_kind, base_result)
+        summary = _basic_task_summary(task_kind, base_result)
+        return FolTaskCheckResult(
+            task_kind=task_kind,
+            passed=passed,
+            summary=summary,
+            model_summary=base_result.model_summary,
+            trace_blocks=trace_blocks,
+            draft_comment=build_task_draft_comment(task_kind, summary, base_result),
+            sentence_results=base_result.sentence_results,
+        )
+
+    if task_kind == "joint_consistency":
+        formulas = _require_formula_list(prompt_data.get("formulas"))
+        base_result = check_sentences(model_text, _format_sentences(formulas), trace_mode=trace_mode)
+        passed = base_result.all_parsed_ok and all(bool(item.result) for item in base_result.sentence_results)
+        summary = (
+            "All target sentences are true in this model, so the set is jointly consistent."
+            if passed
+            else "Not all target sentences are true in this model, so this is not a successful consistency witness."
+        )
+        trace_blocks = build_trace_blocks(base_result)
+        trace_blocks.append(
+            {
+                "title": "Task summary: joint consistency",
+                "result": "Pass" if passed else "Fail",
+                "body": summary,
+            }
+        )
+        return FolTaskCheckResult(
+            task_kind=task_kind,
+            passed=passed,
+            summary=summary,
+            model_summary=base_result.model_summary,
+            trace_blocks=trace_blocks,
+            draft_comment=build_task_draft_comment(task_kind, summary, base_result),
+            sentence_results=base_result.sentence_results,
+        )
+
+    if task_kind == "non_equivalence":
+        formulas = _require_formula_list(prompt_data.get("formulas"))
+        if len(formulas) != 2:
+            raise FolModelParseError("non_equivalence requires exactly two formulas.")
+        base_result = check_sentences(model_text, _format_sentences(formulas), trace_mode=trace_mode)
+        left_result, right_result = base_result.sentence_results
+        passed = (
+            base_result.all_parsed_ok
+            and left_result.result is not None
+            and right_result.result is not None
+            and left_result.result != right_result.result
+        )
+        summary = (
+            "The two formulas differ in truth value in this model, so they are not logically equivalent."
+            if passed
+            else "The two formulas do not come apart in truth value here, so this is not yet a successful non-equivalence witness."
+        )
+        trace_blocks = build_trace_blocks(base_result)
+        trace_blocks.append(
+            {
+                "title": "Task summary: non-equivalence",
+                "result": "Pass" if passed else "Fail",
+                "body": summary,
+            }
+        )
+        return FolTaskCheckResult(
+            task_kind=task_kind,
+            passed=passed,
+            summary=summary,
+            model_summary=base_result.model_summary,
+            trace_blocks=trace_blocks,
+            draft_comment=build_task_draft_comment(task_kind, summary, base_result),
+            sentence_results=base_result.sentence_results,
+        )
+
+    if task_kind == "non_validity":
+        premises = _require_formula_list(prompt_data.get("premises"))
+        conclusion = prompt_data.get("conclusion")
+        if not isinstance(conclusion, str) or not conclusion.strip():
+            raise FolModelParseError("non_validity requires prompt_data.conclusion.")
+        base_result = check_sentences(
+            model_text,
+            _format_sentences([*premises, conclusion.strip()]),
+            trace_mode=trace_mode,
+        )
+        premise_results = base_result.sentence_results[:-1]
+        conclusion_result = base_result.sentence_results[-1]
+        premises_true = base_result.all_parsed_ok and all(bool(item.result) for item in premise_results)
+        conclusion_false = conclusion_result.parsed_ok and (conclusion_result.result is False)
+        passed = premises_true and conclusion_false
+        summary = (
+            "All premises are true and the conclusion is false in this model, so it is a countermodel and the argument is not valid."
+            if passed
+            else "This model does not make all premises true and the conclusion false, so it is not yet a successful countermodel."
+        )
+        trace_blocks = build_trace_blocks(base_result)
+        trace_blocks.append(
+            {
+                "title": "Task summary: non-validity",
+                "result": "Pass" if passed else "Fail",
+                "body": summary,
+            }
+        )
+        return FolTaskCheckResult(
+            task_kind=task_kind,
+            passed=passed,
+            summary=summary,
+            model_summary=base_result.model_summary,
+            trace_blocks=trace_blocks,
+            draft_comment=build_task_draft_comment(task_kind, summary, base_result),
+            sentence_results=base_result.sentence_results,
+        )
+
+    if task_kind == "non_logical_truth":
+        formulas = _require_formula_list(prompt_data.get("formulas"))
+        base_result = check_sentences(model_text, _format_sentences(formulas), trace_mode=trace_mode)
+        passed = base_result.all_parsed_ok and all(bool(item.result) for item in base_result.sentence_results)
+        summary = (
+            "The target sentence or sentences are true in this model, so this gives a witness of non-logical truth."
+            if passed
+            else "At least one target sentence is not true in this model, so this is not yet a successful witness of non-logical truth."
+        )
+        trace_blocks = build_trace_blocks(base_result)
+        trace_blocks.append(
+            {
+                "title": "Task summary: non-logical truth",
+                "result": "Pass" if passed else "Fail",
+                "body": summary,
+            }
+        )
+        return FolTaskCheckResult(
+            task_kind=task_kind,
+            passed=passed,
+            summary=summary,
+            model_summary=base_result.model_summary,
+            trace_blocks=trace_blocks,
+            draft_comment=build_task_draft_comment(task_kind, summary, base_result),
+            sentence_results=base_result.sentence_results,
+        )
+
+    if task_kind == "non_logical_falsehood":
+        formulas = _require_formula_list(prompt_data.get("formulas"))
+        base_result = check_sentences(model_text, _format_sentences(formulas), trace_mode=trace_mode)
+        passed = base_result.all_parsed_ok and all(item.result is False for item in base_result.sentence_results)
+        summary = (
+            "The target sentence or sentences are false in this model, so this gives a witness of non-logical falsehood."
+            if passed
+            else "At least one target sentence is not false in this model, so this is not yet a successful witness of non-logical falsehood."
+        )
+        trace_blocks = build_trace_blocks(base_result)
+        trace_blocks.append(
+            {
+                "title": "Task summary: non-logical falsehood",
+                "result": "Pass" if passed else "Fail",
+                "body": summary,
+            }
+        )
+        return FolTaskCheckResult(
+            task_kind=task_kind,
+            passed=passed,
+            summary=summary,
+            model_summary=base_result.model_summary,
+            trace_blocks=trace_blocks,
+            draft_comment=build_task_draft_comment(task_kind, summary, base_result),
+            sentence_results=base_result.sentence_results,
+        )
+
+    raise FolModelParseError(f"Unsupported fol_model task_kind: {task_kind}")
+
+
+def _evaluate_sentence(index: int, sentence: str, model: FolModel, trace_mode: str = "full") -> SentenceCheckResult:
     original_setting = syntax.predicate_settings
     try:
         syntax.predicate_settings = True
@@ -193,7 +385,7 @@ def _evaluate_sentence(index: int, sentence: str, model: FolModel) -> SentenceCh
             sentence=sentence,
             parsed_ok=True,
             result=value,
-            trace=_render_trace_tree(trace_tree),
+            trace=render_trace_tree(trace_tree, trace_mode=trace_mode),
             trace_tree=trace_tree,
         )
     except FolModelParseError as exc:
@@ -220,6 +412,7 @@ def _eval_wff(
 ) -> TraceNode:
     display = _display_formula(wff)
     node = TraceNode(kind="formula", display=display)
+    node.evaluated_display = display
 
     if wff.wff_type == "identity":
         left_val = _resolve_term(wff.my_terms[0], model, env)
@@ -228,6 +421,8 @@ def _eval_wff(
         node.intro.extend(_describe_term(wff.my_terms[0], left_val, env))
         node.intro.extend(_describe_term(wff.my_terms[1], right_val, env))
         node.result = left_val == right_val
+        node.evaluated_display = f"{left_val}={right_val}"
+        node.truth_display = _tv(bool(node.result))
         node.reductions.append(f"{left_val} {'=' if node.result else '≠'} {right_val}")
         return node
 
@@ -249,6 +444,8 @@ def _eval_wff(
         node.intro.append(f"{wff.my_letter} = {_format_predicate_set(predicate)}")
         node.intro.append(f"So this is {wff.my_letter}{pretty_tuple}")
         node.result = tuple_value in predicate.tuples
+        node.evaluated_display = _format_atomic_display(wff.my_letter, tuple_value)
+        node.truth_display = _tv(bool(node.result))
         node.reductions.append(
             f"{pretty_tuple} {'is' if node.result else 'is not'} in {wff.my_letter}"
         )
@@ -259,6 +456,8 @@ def _eval_wff(
         child = _eval_wff(wff.right_side, model, env.copy())
         node.children.append(child)
         node.result = not bool(child.result)
+        node.evaluated_display = f"¬({child.evaluated_display})"
+        node.truth_display = f"¬{child.truth_display}"
         node.reductions.append(f"not { _tv(bool(child.result)) } = {_tv(node.result)}")
         return node
 
@@ -278,6 +477,8 @@ def _eval_wff(
             node.result = (not left_value) or right_value
         else:
             node.result = left_value == right_value
+        node.evaluated_display = f"({left_node.evaluated_display} {wff.main_op} {right_node.evaluated_display})"
+        node.truth_display = f"({_tv(left_value)} {wff.main_op} {_tv(right_value)})"
         node.reductions.append(
             f"{_tv(left_value)} {wff.main_op} {_tv(right_value)} = {_tv(bool(node.result))}"
         )
@@ -290,6 +491,7 @@ def _eval_wff(
         node.kind = "quantifier"
         node.context["quantifier"] = wff.main_op
         node.context["variable"] = var_name
+        node.truth_display = ""
         node.intro.append(f"Domain: {_format_brace_set(model.domain)}")
         if wff.main_op == "∀":
             for obj in model.domain:
@@ -303,12 +505,16 @@ def _eval_wff(
                 child = _eval_wff(wff.right_side, model, next_env)
                 branch.children.append(child)
                 branch.result = child.result
+                branch.evaluated_display = child.evaluated_display
+                branch.truth_display = child.truth_display
                 node.children.append(branch)
                 if not child.result:
                     node.result = False
+                    node.truth_display = _tv(False)
                     node.reductions.append(f"counterexample: {var_name} = {obj}")
                     return node
             node.result = True
+            node.truth_display = _tv(True)
             node.reductions.append("Every object in the domain satisfies the formula")
             return node
 
@@ -323,12 +529,16 @@ def _eval_wff(
             child = _eval_wff(wff.right_side, model, next_env)
             branch.children.append(child)
             branch.result = child.result
+            branch.evaluated_display = child.evaluated_display
+            branch.truth_display = child.truth_display
             node.children.append(branch)
             if child.result:
                 node.result = True
+                node.truth_display = _tv(True)
                 node.reductions.append(f"witness found: {var_name} = {obj}")
                 return node
         node.result = False
+        node.truth_display = _tv(False)
         node.reductions.append("No witness in the domain makes the formula true")
         return node
 
@@ -462,7 +672,19 @@ def _format_predicate_set(predicate: PredicateInterpretation) -> str:
     return "{" + ",".join(_format_tuple(item) for item in ordered) + "}"
 
 
-def _render_trace_tree(node: TraceNode, indent: int = 0) -> str:
+def _format_atomic_display(name: str, args: Tuple[int, ...]) -> str:
+    if len(args) == 1:
+        return f"{name}{args[0]}"
+    return f"{name}{_format_tuple(args)}"
+
+
+def render_trace_tree(node: TraceNode, trace_mode: str = "full") -> str:
+    if trace_mode == "terse":
+        return _render_trace_tree_terse(node)
+    return _render_trace_tree_full(node)
+
+
+def _render_trace_tree_full(node: TraceNode, indent: int = 0) -> str:
     prefix = "  " * indent
     heading = node.display
     if node.kind in {"formula", "binary", "negation", "quantifier", "identity", "atomic"}:
@@ -471,12 +693,48 @@ def _render_trace_tree(node: TraceNode, indent: int = 0) -> str:
     for detail in node.intro:
         lines.append(f"{prefix}  {detail}")
     for child in node.children:
-        lines.append(_render_trace_tree(child, indent + 1))
+        lines.append(_render_trace_tree_full(child, indent + 1))
     for reduction in node.reductions:
         lines.append(f"{prefix}  {reduction}")
     if node.result is not None:
         lines.append(f"{prefix}Result: {'True' if node.result else 'False'}")
     return "\n".join(lines)
+
+
+def _render_trace_tree_terse(node: TraceNode, indent: int = 0) -> str:
+    prefix = "  " * indent
+    if node.kind == "quantifier":
+        lines = [f"{prefix}{node.display}"]
+        for child in node.children:
+            assignment = ", ".join(f"{var}={value}" for var, value in child.context.items())
+            target = child.children[0] if child.children else child
+            if _contains_quantifier(target):
+                lines.append(f"{prefix}{assignment}")
+                lines.append(_render_trace_tree_terse(target, indent + 1))
+            else:
+                lines.append(f"{prefix}{assignment}: {_collapse_quantifier_free(target)}")
+        if node.reductions:
+            lines.extend(f"{prefix}{reduction}" for reduction in node.reductions)
+        if node.result is not None:
+            lines.append(f"{prefix}Therefore {node.display} is {_tv(bool(node.result))}")
+        return "\n".join(lines)
+    return f"{prefix}{_collapse_quantifier_free(node)}"
+
+
+def _contains_quantifier(node: TraceNode) -> bool:
+    if node.kind == "quantifier":
+        return True
+    return any(_contains_quantifier(child) for child in node.children)
+
+
+def _collapse_quantifier_free(node: TraceNode) -> str:
+    if node.kind == "negation" and node.children:
+        return f"{node.evaluated_display} = {node.truth_display} = {_tv(bool(node.result))}"
+    if node.kind == "binary" and len(node.children) == 2:
+        return f"{node.evaluated_display} = {node.truth_display} = {_tv(bool(node.result))}"
+    if node.kind in {"atomic", "identity"}:
+        return f"{node.evaluated_display} = {node.truth_display}"
+    return f"{node.evaluated_display or node.display} = {_tv(bool(node.result))}"
 
 
 def _tv(value: bool) -> str:
@@ -490,3 +748,62 @@ def _display_formula(wff: syntax.Wff) -> str:
         return syntax.wff_to_string(wff)
     finally:
         syntax.predicate_settings = original_setting
+
+
+def _require_formula_list(value: Any) -> List[str]:
+    if not isinstance(value, list) or not value:
+        raise FolModelParseError("Expected a non-empty list of formulas.")
+    formulas: List[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise FolModelParseError("Every formula must be a non-empty string.")
+        formulas.append(item.strip())
+    return formulas
+
+
+def _format_sentences(formulas: List[str]) -> str:
+    return "\n".join(f"{idx}. {formula}" for idx, formula in enumerate(formulas, 1))
+
+
+def _basic_task_passed(task_kind: str, result: FolCheckResult) -> bool:
+    if not result.all_parsed_ok:
+        return False
+    if task_kind in {"make_false"}:
+        return all(item.result is False for item in result.sentence_results)
+    return all(item.result is True for item in result.sentence_results)
+
+
+def _basic_task_summary(task_kind: str, result: FolCheckResult) -> str:
+    passed = _basic_task_passed(task_kind, result)
+    if task_kind in {"make_false"}:
+        return (
+            "All target sentences are false in this model."
+            if passed
+            else "At least one target sentence is not false in this model."
+        )
+    return (
+        "All target sentences have the required truth value in this model."
+        if passed
+        else "At least one target sentence does not have the required truth value in this model."
+    )
+
+
+def build_task_draft_comment(task_kind: str, summary: str, result: FolCheckResult) -> str:
+    lines = [
+        "Question: FOL model",
+        f"Task kind: {task_kind}",
+        "Checker: FOL model checker v0",
+        "",
+        "Model summary:",
+        result.model_summary,
+        "",
+        "Sentence results:",
+    ]
+    for item in result.sentence_results:
+        if not item.parsed_ok:
+            lines.append(f"- {item.index}. {item.sentence}: parse error ({item.error})")
+        else:
+            verdict = "true" if item.result else "false"
+            lines.append(f"- {item.index}. {item.sentence}: {verdict}")
+    lines.extend(["", "Task summary:", summary])
+    return "\n".join(lines)

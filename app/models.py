@@ -1,4 +1,4 @@
-from typing import List, Dict, Optional
+from typing import Any, List, Dict, Optional
 from pydantic import BaseModel, Field
 
 
@@ -14,6 +14,8 @@ class ProblemSpec(BaseModel):
     label: str       # human-readable label, e.g. "Problem 1 (symbolization)"
     points: float    # max points for this problem
     extra_credit: bool = False
+    problem_type: Optional[str] = None
+    autograde: Dict[str, Any] = Field(default_factory=dict)
 
 
 class GradingKey(BaseModel):

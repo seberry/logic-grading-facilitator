@@ -31,6 +31,12 @@ PROBLEM_TYPE_OPTIONS = [
 ]
 
 
+def _effective_problem_type(session: Session, problem_id: str, spec) -> Optional[str]:
+    if getattr(spec, "problem_type", None):
+        return spec.problem_type
+    return session.problem_types.get(problem_id)
+
+
 def _compute_segments_data(session: Session, spec, cache_path: Path) -> List[Dict]:
     problem_id = spec.id
     print(f"[CACHE MISS] Computing fresh segmentation for {problem_id}...")
@@ -290,7 +296,7 @@ def get_problem_strips(
             "strips": strips,
             "max_points": spec.points,
             "problem_note": session.problem_notes.get(problem_id, ""),
-            "problem_type": session.problem_types.get(problem_id),
+            "problem_type": _effective_problem_type(session, problem_id, spec),
             "problem_type_options": PROBLEM_TYPE_OPTIONS,
             "next_problem_id": next_problem_id,
         },
