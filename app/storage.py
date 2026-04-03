@@ -58,6 +58,7 @@ GRADES_DIR = DATA_DIR / "grades"
 RUBRIC_DIR = DATA_DIR / "rubric"
 NAME_REVIEW_CACHE_DIR = DATA_DIR / "name_review_cache"
 DEBUG_FITCH_DIR = DATA_DIR / "debug_fitch"
+DEBUG_FOL_MODEL_DIR = DATA_DIR / "debug_fol_model"
 AUTO_GROUPED_DIR = DATA_DIR / "auto_grouped"
 FLASHCARDS_DIR = DATA_DIR / "flashcards"
 
@@ -68,6 +69,7 @@ DATA_ARCHIVE_DIR = _resolve_archive_dir(DATA_DIR)
 DATA_ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
 NAME_REVIEW_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 DEBUG_FITCH_DIR.mkdir(parents=True, exist_ok=True)
+DEBUG_FOL_MODEL_DIR.mkdir(parents=True, exist_ok=True)
 RAW_SCANS_DIR.mkdir(parents=True, exist_ok=True)
 FLASHCARDS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -235,6 +237,7 @@ def archive_current_data(label: str) -> str:
         (DATA_DIR / "rosters", snapshot_root / "rosters"),
         (NAME_REVIEW_CACHE_DIR, snapshot_root / "name_review_cache"),
         (DATA_DIR / "debug_fitch", snapshot_root / "debug_fitch"),
+        (DATA_DIR / "debug_fol_model", snapshot_root / "debug_fol_model"),
         (DATA_DIR / "auto_grouped", snapshot_root / "auto_grouped"),
         (DATA_DIR / "classwork", snapshot_root / "classwork"),
         (DATA_DIR / "canvas_cache", snapshot_root / "canvas_cache"),

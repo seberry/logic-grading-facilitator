@@ -246,3 +246,200 @@ problem_types:
 
 Stores per-problem type tags used for future autograde workflows (e.g., Fitch proofs).
 These can be set from the Problem Strips UI via the “Problem type wheel.”
+
+## 9. Proposed Rubric Extension (draft)
+
+This section documents a proposed rubric/schema change for future autograde workflows.
+It is a design target, not yet the current implementation.
+
+### 9.1 Motivation
+
+Right now `ProblemSpec` is minimal:
+
+```yaml
+- id: "Q1"
+  label: "Problem 1"
+  points: 5
+```
+
+The current app stores per-problem type tags separately in session state (`problem_types`),
+and the local model only receives the problem `id` and `label` as segmentation hints.
+
+For richer workflows such as:
+
+- Fitch proof OCR/checking
+- FOL model tasks
+- future Kripke model tasks
+
+the rubric needs a place to store:
+
+- the broad problem family (`problem_type`)
+- task-specific fixed logical inputs (`prompt_data`)
+- OCR/perception hints for the local model (`ocr`)
+
+### 9.2 Proposed `ProblemSpec` extension
+
+Add these optional fields:
+
+```yaml
+- id: "Q3"
+  label: "Give a model showing these formulas are not logically equivalent"
+  points: 4
+  extra_credit: false
+  problem_type: "fol_model"
+  autograde: {}
+```
+
+Conceptually:
+
+- `problem_type`: broad family such as `plain`, `fitch_proof`, `fol_model`
+- `autograde`: family-specific metadata preserved in the rubric
+
+### 9.3 Proposed shape for `fol_model`
+
+Use one broad family plus a task-kind inside `autograde`.
+
+```yaml
+- id: "Q3"
+  label: "Give a model showing these formulas are not logically equivalent"
+  points: 4
+  problem_type: "fol_model"
+  autograde:
+    task_kind: "non_equivalence"
+    default_score_correct: 4
+    default_score_incorrect: 0
+    prompt_data:
+      formulas:
+        - "∀x Px"
+        - "∃x Px"
+    ocr:
+      expected_answer_shape: "model_only"
+      extra_prompt: "The student answer should mainly be a model, not a prose explanation."
+```
+
+Recommended `task_kind` values:
+
+- `truth_in_given_model`
+- `true_false_in_given_model`
+- `make_true`
+- `make_false`
+- `joint_consistency`
+- `non_equivalence`
+- `non_validity`
+- maybe later `non_logical_truth`
+- maybe later `non_logical_falsehood`
+
+### 9.4 Why not `left` / `right`?
+
+For binary tasks such as non-equivalence, prefer:
+
+```yaml
+prompt_data:
+  formulas:
+    - "∀x Px"
+    - "∃x Px"
+```
+
+instead of:
+
+```yaml
+prompt_data:
+  left: "∀x Px"
+  right: "∃x Px"
+```
+
+Using `formulas` avoids building order assumptions into OCR, trace wording,
+or the student-facing interpretation of the task.
+
+### 9.5 Example task shapes
+
+Truth in a fixed model:
+
+```yaml
+problem_type: "fol_model"
+autograde:
+  task_kind: "true_false_in_given_model"
+  prompt_data:
+    given_model_text: |
+      DOMAIN: {1,2}
+      CONSTANTS:
+      a: 1
+      PREDICATES:
+      P: {1}
+    formulas:
+      - "∀x Px"
+  ocr:
+    expected_answer_shape: "truth_value_only"
+```
+
+Make a sentence true:
+
+```yaml
+problem_type: "fol_model"
+autograde:
+  task_kind: "make_true"
+  prompt_data:
+    formulas:
+      - "Pa"
+  ocr:
+    expected_answer_shape: "model_only"
+```
+
+Joint consistency:
+
+```yaml
+problem_type: "fol_model"
+autograde:
+  task_kind: "joint_consistency"
+  prompt_data:
+    formulas:
+      - "∃x Px"
+      - "∃x Qx"
+      - "∀x (Px → ¬Qx)"
+```
+
+Non-validity:
+
+```yaml
+problem_type: "fol_model"
+autograde:
+  task_kind: "non_validity"
+  prompt_data:
+    premises:
+      - "∀x (Px → Qx)"
+      - "∃x Px"
+    conclusion: "∀x Qx"
+```
+
+### 9.6 Proposed shape for `fitch_proof`
+
+Do not force Fitch proofs into the same low-level structure as FOL model tasks.
+Only share the top-level `problem_type` / `autograde` pattern.
+
+```yaml
+- id: "Q5"
+  label: "Fitch proof"
+  points: 6
+  problem_type: "fitch_proof"
+  autograde:
+    conclusion: "∀x Px"
+    premise_count: 2
+    ocr:
+      expected_answer_shape: "fitch_proof"
+      pipeline: "fitch_debug"
+```
+
+### 9.7 Intended division of responsibility
+
+For these richer workflows:
+
+- the rubric supplies fixed logical inputs and OCR hints
+- the student answer supplies the variable content to interpret and check
+
+For example:
+
+- in `make_true`, the rubric supplies the target sentence; OCR supplies the model
+- in `true_false_in_given_model`, the rubric supplies the model and sentence; OCR supplies only the student's verdict
+- in `non_validity`, the rubric supplies premises and conclusion; OCR supplies the countermodel
+
+This separation is intentional and should guide future route, prompt, and checker design.

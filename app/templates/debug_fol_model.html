@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>FOL Model Debugger</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      background: #f3f4f6;
+      color: #1f2937;
+    }
+
+    .page {
+      max-width: 1300px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+
+    h1 {
+      margin: 0 0 0.35rem 0;
+      font-size: 2rem;
+    }
+
+    .lede {
+      margin: 0 0 1.5rem 0;
+      color: #4b5563;
+      max-width: 70ch;
+    }
+
+    .panel {
+      background: #fff;
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      box-shadow: 0 8px 25px rgba(15, 23, 42, 0.06);
+      padding: 1rem 1.1rem;
+      margin-bottom: 1rem;
+    }
+
+    .top-grid {
+      display: grid;
+      grid-template-columns: minmax(320px, 1fr) minmax(320px, 1.25fr);
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .editor-grid {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .stack {
+      display: grid;
+      gap: 1rem;
+    }
+
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 0.45rem;
+    }
+
+    textarea,
+    input[type="text"],
+    input[type="number"],
+    select {
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 0.75rem 0.85rem;
+      font: inherit;
+      background: #fff;
+      color: #111827;
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 220px;
+      line-height: 1.45;
+      font-family: Consolas, "SFMono-Regular", Menlo, Monaco, monospace;
+    }
+
+    .comment-box {
+      min-height: 180px;
+    }
+
+    .scan-frame {
+      min-height: 420px;
+      border: 1px dashed #cbd5e1;
+      border-radius: 8px;
+      background: #f8fafc;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .scan-frame img {
+      display: block;
+      max-width: 100%;
+      max-height: 420px;
+      object-fit: contain;
+      background: #fff;
+    }
+
+    .muted {
+      color: #6b7280;
+      font-size: 0.95rem;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+
+    button {
+      border: 0;
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      font: inherit;
+      font-weight: 600;
+      background: #2563eb;
+      color: #fff;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      background: #0f766e;
+    }
+
+    button[disabled] {
+      background: #cbd5e1;
+      color: #475569;
+      cursor: not-allowed;
+    }
+
+    .status {
+      border-radius: 8px;
+      padding: 0.85rem 1rem;
+      margin-bottom: 1rem;
+      font-weight: 600;
+    }
+
+    .status.success {
+      background: #ecfdf5;
+      border: 1px solid #a7f3d0;
+      color: #065f46;
+    }
+
+    .status.error {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #991b1b;
+    }
+
+    .trace-card {
+      border: 1px solid #dbe4f0;
+      border-radius: 8px;
+      padding: 0.95rem 1rem;
+      background: #f8fbff;
+      margin-bottom: 0.8rem;
+    }
+
+    .trace-card h3 {
+      margin: 0 0 0.2rem 0;
+      font-size: 1rem;
+    }
+
+    .trace-result {
+      display: inline-block;
+      margin-bottom: 0.6rem;
+      padding: 0.2rem 0.55rem;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      background: #e0f2fe;
+      color: #0f766e;
+    }
+
+    .trace-result.parse-error {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .trace-card pre {
+      margin: 0;
+      white-space: pre-wrap;
+      font-family: Consolas, "SFMono-Regular", Menlo, Monaco, monospace;
+      font-size: 0.94rem;
+      line-height: 1.45;
+    }
+
+    .grade-row {
+      display: grid;
+      grid-template-columns: 160px 1fr;
+      gap: 1rem;
+      align-items: end;
+    }
+
+    @media (max-width: 980px) {
+      .top-grid,
+      .editor-grid,
+      .grade-row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>FOL Model Debugger</h1>
+    <p class="lede">
+      Human-in-the-loop checker for strict model text. OCR is still deferred; this page is for editing the model, running the deterministic checker, and iterating on the recursive trace format.
+    </p>
+
+    {% if message %}
+      <div class="status {{ status or 'success' }}">{{ message }}</div>
+    {% endif %}
+    {% if checker_error %}
+      <div class="status error">{{ checker_error }}</div>
+    {% endif %}
+
+    <form method="post" action="/debug/fol-model/run_checker">
+      <input type="hidden" name="scan" value="{{ selected_scan or '' }}">
+
+      <div class="top-grid">
+        <section class="panel">
+          <label for="scan-picker">Sample scan</label>
+          <select id="scan-picker" name="scan_picker" onchange="if (this.value) window.location='?scan=' + encodeURIComponent(this.value);">
+            {% if available_scans %}
+              {% for scan_name in available_scans %}
+                <option value="{{ scan_name }}" {% if scan_name == selected_scan %}selected{% endif %}>{{ scan_name }}</option>
+              {% endfor %}
+            {% else %}
+              <option value="">No debug scans found</option>
+            {% endif %}
+          </select>
+          <label for="problem-type-picker" style="margin-top: 1rem;">Problem type</label>
+          <select
+            id="problem-type-picker"
+            name="problem_type"
+            onchange="(function(sel){
+              const params = new URLSearchParams(window.location.search);
+              if (params.get('scan')) {
+                params.set('scan', params.get('scan'));
+              }
+              params.set('problem_type', sel.value);
+              window.location = '/debug/fol-model?' + params.toString();
+            })(this)">
+            {% for opt in problem_type_options %}
+              <option value="{{ opt.id }}" {% if opt.id == problem_type %}selected{% endif %}>{{ opt.label }}</option>
+            {% endfor %}
+          </select>
+          <div class="controls">
+            <button type="button" disabled>Re-run OCR</button>
+            <button type="submit" class="secondary" formaction="/debug/fol-model/save">Save transcription</button>
+            <button type="submit"{% if not checker_enabled %} disabled{% endif %}>Run checker</button>
+          </div>
+          <p class="muted">`Save transcription` persists state only when a scan slug is selected. `Re-run OCR` stays disabled for now. The live checker currently runs only for the plain truth-in-model type.</p>
+        </section>
+
+        <section class="panel">
+          <label>Scan preview</label>
+          <div class="scan-frame">
+            {% if image_url %}
+              <img src="{{ image_url }}" alt="FOL model scan preview" />
+            {% else %}
+              <div class="muted">Place sample assets under <code>data/.../debug_fol_model/&lt;scan_slug&gt;/</code> to preview them here.</div>
+            {% endif %}
+          </div>
+        </section>
+      </div>
+
+      <div class="editor-grid">
+        <div class="stack">
+          <section class="panel">
+            <label for="problem-setup-text">Problem setup / rubric preview</label>
+            <textarea id="problem-setup-text" name="problem_setup_text">{{ problem_setup_text }}</textarea>
+          </section>
+
+          <section class="panel">
+            <label for="model-text">Model</label>
+            <textarea id="model-text" name="model_text">{{ model_text }}</textarea>
+          </section>
+
+          <section class="panel">
+            <label for="sentences-text">Target sentences</label>
+            <textarea id="sentences-text" name="sentences_text">{{ sentences_text }}</textarea>
+          </section>
+        </div>
+
+        <section class="panel">
+          <label>{% if checker_ran %}Trace{% else %}Trace mockup{% endif %}</label>
+          <p class="muted">Indented recursive outline, with witnesses and counterexamples made explicit. For non-truth-value tasks this is currently a dummy design preview.</p>
+          {% for block in trace_blocks %}
+            <article class="trace-card">
+              <h3>{{ block.title }}</h3>
+              <div class="trace-result{% if block.result == 'Parse error' %} parse-error{% endif %}">{{ block.result }}</div>
+              <pre>{{ block.body }}</pre>
+            </article>
+          {% endfor %}
+        </section>
+      </div>
+
+      <section class="panel">
+        <div class="grade-row">
+          <div>
+            <label for="draft-grade">Draft grade</label>
+            <input id="draft-grade" name="draft_grade" type="number" step="0.01" value="{{ draft_grade }}" />
+          </div>
+          <div>
+            <label for="draft-comment">Draft comment</label>
+            <textarea id="draft-comment" name="draft_comment" class="comment-box">{{ draft_comment }}</textarea>
+          </div>
+        </div>
+      </section>
+    </form>
+  </div>
+</body>
+</html>

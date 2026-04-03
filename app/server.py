@@ -34,6 +34,7 @@ from .storage import (
     archive_current_data,
     NAME_REVIEW_CACHE_DIR,
     DEBUG_FITCH_DIR,
+    DEBUG_FOL_MODEL_DIR,
     AUTO_GROUPED_DIR,
     IS_PRODUCTION,
     FLASHCARDS_DIR,
@@ -77,6 +78,7 @@ from .vlm_client import LMStudioQwenClient  # type: ignore
 from .vlm_classifier import classify_page  # type: ignore
 from .canvas_client import CanvasClient, CanvasClientError, get_canvas_client
 from .routes.fitch_debug import router as fitch_debug_router
+from .routes.fol_model_debug import router as fol_model_debug_router
 from .routes.flashcards import router as flashcards_router
 from .routes.problem_strips import router as problem_strips_router, _clear_segment_caches
 from .routes.classwork import router as classwork_router
@@ -167,6 +169,12 @@ app.mount(
 )
 
 app.mount(
+    "/debug_fol_model_assets",
+    StaticFiles(directory=str(DEBUG_FOL_MODEL_DIR)),
+    name="debug_fol_model_assets",
+)
+
+app.mount(
     "/flashcards_assets",
     StaticFiles(directory=str(FLASHCARDS_DIR)),
     name="flashcards_assets",
@@ -183,6 +191,7 @@ app.mount(
     name="classwork_files",
 )
 app.include_router(fitch_debug_router)
+app.include_router(fol_model_debug_router)
 app.include_router(flashcards_router)
 app.include_router(problem_strips_router)
 app.include_router(classwork_router)
