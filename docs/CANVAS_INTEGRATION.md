@@ -62,6 +62,15 @@ The Canvas setup page provides a streamlined three-step workflow:
 - Text submissions: Converted to `.txt` files
 - Multiple files per student: All downloaded and included
 
+**Filename handling note:**
+- The app preserves the exact Canvas filename as `original_filename` for display and
+  comment ZIP exports.
+- It stores the local file under a separate safe `stored_filename` for disk paths and
+  `/classwork_files/...` preview URLs.
+- This avoids viewer failures on Canvas filenames containing URL-like escapes such as
+  `%28` / `%29`, without breaking manual ZIP-based reupload workflows that care about
+  the original filename.
+
 **Benefits:**
 - Eliminates manual download step from Canvas UI
 - Ensures you have latest submissions (not stale ZIP)

@@ -45,7 +45,7 @@ class WorkUnit(BaseModel):
 
 
 class ClassworkFileRef(BaseModel):
-    """Single uploaded classwork file tied to one student."""
+    """Single classwork file with separate storage and original display/export names."""
     stored_filename: str
     original_filename: str
     ext: str

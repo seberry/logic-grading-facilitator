@@ -564,8 +564,8 @@ the exact same format as the existing entries.
       writes:
         - path: "data/gradebook_merge/tmp/{token}.csv"
           what: "Uploaded gradebook CSV, stored for later merge at finalize."
-        - path: "data/classwork/files/{uuid}_{original}"
-          what: "Extracted submission files from uploaded ZIP."
+        - path: "data/classwork/files/{safe_stored_filename}"
+          what: "Extracted submission files from uploaded ZIP using app-owned safe storage names."
         - path: "data/grades/session.json"
           what: "ClassworkBatchState with assignments list; ClassworkModeState per assignment."
 
@@ -617,7 +617,7 @@ the exact same format as the existing entries.
         - path: "data/grades/session.json"
           purpose: "session.classwork_mode (the active ClassworkModeState)."
         - path: "data/classwork/files/{stored_filename}"
-          purpose: "Submission files for inline preview (images served via /classwork_files/ mount; text via /classwork/preview_text/)."
+          purpose: "Submission files for inline preview (images served via /classwork_files/ mount; text via /classwork/preview_text/). stored_filename is app-owned and safe for URLs; original_filename is preserved separately for labels/exports."
       writes:
         - path: "data/grades/session.json"
           what: "Updated scores and comments on ClassworkEntry objects."
@@ -680,7 +680,7 @@ the exact same format as the existing entries.
         - path: "data/grades/session.json"
           purpose: "Batch state with per-assignment scores and comments."
         - path: "data/classwork/files/{stored_filename}"
-          purpose: "Original submission files for comment ZIP (preserves filenames)."
+          purpose: "Locally stored submission payloads. Export code uses original_filename for the Canvas-facing ZIP name, not stored_filename."
       writes:
         - path: "data/classwork/exports/{export_id}/"
           what: "Merged gradebook CSV, per-assignment comment ZIPs, manifest.json."
@@ -759,10 +759,10 @@ the exact same format as the existing entries.
 Also add these entries to the `data_files` section:
 
 ```yaml
-  - path: "data/classwork/files/{uuid}_{original}"
+  - path: "data/classwork/files/{safe_stored_filename}"
     role: "classwork_submissions"
     authority: "Extracted submission files; served via /classwork_files/ static mount."
-    notes: "Created by _classwork_build_mode_from_zip() or canvas download. Referenced by ClassworkFileRef.stored_filename."
+    notes: "Created by _classwork_build_mode_from_zip() or canvas download. Referenced by ClassworkFileRef.stored_filename. The exact Canvas/ZIP name is preserved separately in ClassworkFileRef.original_filename for UI labels and reupload ZIPs."
 
   - path: "data/classwork/exports/{export_id}/"
     role: "classwork_exports"

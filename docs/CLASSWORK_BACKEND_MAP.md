@@ -80,6 +80,14 @@ Session (models.py)
             └── unmatched_files: List[str]
 ```
 
+`ClassworkFileRef` intentionally stores two names:
+- `stored_filename`: app-owned safe filename used on disk and in `/classwork_files/...`
+- `original_filename`: exact Canvas/ZIP filename preserved for UI labels and reupload ZIPs
+
+This split avoids preview failures when original filenames contain URL-significant
+characters like `%28` while still preserving the original Canvas-visible name for
+manual reupload workflows.
+
 **The classwork_mode ↔ batch.assignments relationship:**
 `classwork_mode` is a **pointer** — it points to one of the `ClassworkModeState` objects inside `batch.assignments`. When you switch assignments (via `batch/open` or `batch/open_next`), it just reassigns `session.classwork_mode` to a different element of the list. When you save scores during review, `_classwork_sync_mode_into_batch()` copies the modified mode object back into the batch's list.
 
@@ -93,7 +101,7 @@ All paths relative to DATA_DIR:
 |------|-----------|---------|
 | `grades/session.json` | persist_session() | All classwork state lives here |
 | `gradebook_merge/tmp/{token}.csv` | classwork setup routes | Original gradebook CSV, kept for merge at finalize |
-| `classwork/files/{uuid}_{original}` | _classwork_build_mode_from_zip() | Extracted student submission files |
+| `classwork/files/{safe_stored_filename}` | _classwork_build_mode_from_zip() | Extracted student submission files |
 | `classwork/exports/{export_id}/` | finalize routes | Merged CSV + comment ZIPs + manifest.json |
 | `canvas_cache/` | canvas_client.py | Cached API responses (courses, assignments, gradebook) |
 | `canvas_cache/submissions/` | server.py (canvas_setup) | Downloaded submission files (temp) |

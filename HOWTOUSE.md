@@ -73,6 +73,10 @@ Use `http://127.0.0.1:5000/classwork` for effort-based grading and one-pass grad
   - Classwork (`CW`) = **10 points**
 - In batch mode, set the target gradebook column once when queueing each assignment.
 - Finalize batch reuses those saved mappings and does not ask for columns again.
+- In the Canvas API classwork flow, the viewer includes all submissions Canvas reports as submitted, including late submissions. The current UI marks them only as `submitted` rather than separately labeling `late`.
+- Classwork files keep two names internally:
+  - `original_filename` is the exact Canvas/ZIP filename preserved for labels and export ZIPs.
+  - `stored_filename` is an app-owned safe local filename used for preview URLs and disk storage.
 
 ## Flashcards Dataset Builder (UI)
 

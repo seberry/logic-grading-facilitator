@@ -250,6 +250,18 @@ def _classwork_zip_unique_name(used: set[str], preferred: str) -> str:
         counter += 1
 
 
+def _classwork_make_stored_name(setup_id: str, original_name: str) -> str:
+    """
+    Generate a filesystem-safe app-owned storage name.
+
+    We preserve the exact original Canvas/ZIP filename separately in
+    ClassworkFileRef.original_filename for display and re-export. The stored
+    filename is only for local disk paths and /classwork_files URLs.
+    """
+    ext = Path(original_name or "").suffix.lower()
+    return f"{setup_id}_{uuid4().hex}{ext}"
+
+
 def _classwork_comment_text(mode: ClassworkModeState, entry: ClassworkEntry) -> str:
     comment = (entry.comment or "").strip()
     return (
@@ -394,7 +406,7 @@ def _classwork_build_mode_from_zip(
 
                 ext = Path(original_name).suffix.lower()
                 payload = zf.read(info)
-                stored_name = f"{setup_id}_{original_name}"
+                stored_name = _classwork_make_stored_name(setup_id, original_name)
                 stored_path = _unique_path(CLASSWORK_FILES_DIR / stored_name)
                 stored_path.parent.mkdir(parents=True, exist_ok=True)
                 stored_path.write_bytes(payload)
@@ -480,7 +492,7 @@ def _classwork_build_mode_from_downloads(
 
             original_name = file_path.name
             ext = Path(original_name).suffix.lower()
-            stored_name = f"{setup_id}_{original_name}"
+            stored_name = _classwork_make_stored_name(setup_id, original_name)
             stored_path = CLASSWORK_FILES_DIR / stored_name
             stored_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(file_path, stored_path)
