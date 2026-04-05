@@ -120,6 +120,47 @@ class FolModelDebugRoutesTests(unittest.TestCase):
         self.assertIn("Task summary: non-equivalence", response.text)
         self.assertIn("not logically equivalent", response.text)
 
+    def test_rerun_ocr_loads_proposed_model_text(self) -> None:
+        ocr_text_path = self.debug_dir / "sample_scan" / "ocr_model_text.txt"
+        raw_response_path = self.debug_dir / "sample_scan" / "ocr_raw_response.txt"
+        ocr_text_path.write_text("DOMAIN: {1}\n\nCONSTANTS:\na: 1\n\nPREDICATES:\nP: {1}\n", encoding="utf-8")
+        raw_response_path.write_text("DOMAIN: {1}\n...", encoding="utf-8")
+
+        async def fake_run(command):
+            return 0, "mock ocr log"
+
+        fake_image = self.debug_dir / "sample_scan" / "sample_scan.png"
+        fake_image.write_bytes(b"fake-image")
+
+        with (
+            patch.object(fol_model_debug_routes, "DEBUG_FOL_MODEL_DIR", self.debug_dir),
+            patch.object(fol_model_debug_routes, "RAW_SCANS_DIR", self.debug_dir / "raw_scans"),
+            patch.object(fol_model_debug_routes, "_run_subprocess_with_logs", side_effect=fake_run),
+        ):
+            response = self.client.post(
+                "/debug/fol-model/rerun",
+                data={
+                    "scan": "sample_scan",
+                    "problem_type": "truth_value",
+                    "trace_mode": "terse",
+                    "problem_setup_text": (
+                        "task_kind: truth_value\n"
+                        "prompt_data:\n"
+                        "  formulas:\n"
+                        "    - \"Pa\"\n"
+                    ),
+                    "model_text": "",
+                    "sentences_text": "1. Pa",
+                    "draft_comment": "",
+                    "draft_grade": "",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("OCR reran successfully.", response.text)
+        self.assertIn("DOMAIN: {1}", response.text)
+        self.assertIn("mock ocr log", response.text)
+
     def test_joint_consistency_runs_live_task_wrapper(self) -> None:
         with patch.object(fol_model_debug_routes, "DEBUG_FOL_MODEL_DIR", self.debug_dir):
             response = self.client.post(

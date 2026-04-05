@@ -76,3 +76,48 @@ All `data/...` paths below are relative to `DATA_DIR` (defaults to `data/samples
 5) **Hand-correct structure:** edit the JSON in the **final_structure.json** panel and click **Save edits**. The file is written back to `data/debug_fitch/<slug>/final_structure.json`; keep the top-level value as a list.
 
 6) **Verify the proof:** click **Run grader** to send the saved structure through `app/verifier.py`. The log shows inferred premise count, guessed conclusion, and any rule issues without leaving the browser.
+
+## 6. FOL model OCR + debug page
+**Goal:** Use the local vision model to propose a canonical FOL model transcription from a cropped answer image, then hand-correct it and run the deterministic model checker.
+
+1) **Prepare a safe image sample**
+   - Put a cropped image under `data/raw_scans/` or `data/debug_fol_model/<scan_slug>/`.
+   - Prefer fake/sanitized samples rather than real student data unless you are intentionally working inside a protected local folder.
+
+2) **Optional direct OCR script run**
+   ```bash
+   python scripts/debug_fol_model_ocr.py \
+     --image data/raw_scans/my_fol_crop.png \
+     --output-dir data/debug_fol_model/my_fol_crop \
+     --autograde-file data/debug_fol_model/my_fol_crop/ocr_request.yaml
+   ```
+   The script writes:
+   - `ocr_prompt.txt`
+   - `ocr_raw_response.txt`
+   - `ocr_model_text.txt`
+
+3) **Start the server**
+   ```bash
+   python -m uvicorn app.server:app --reload --port 5000
+   ```
+
+4) **Open the FOL debug page**
+   - Visit `http://127.0.0.1:5000/debug/fol-model`
+   - Pick the scan slug from the dropdown.
+   - Optionally load a rubric-backed `fol_model` problem so the YAML setup box is prefilled from `autograde`.
+
+5) **Run OCR**
+   - Click **Re-run OCR**.
+   - The page calls `scripts/debug_fol_model_ocr.py` on the selected image.
+   - The proposed canonical transcription is loaded into the **Model** textarea.
+   - The OCR log and raw model response are shown below the trace panel.
+
+6) **Hand-correct and check**
+   - Edit the model text if needed.
+   - Choose `Terse` or `Full` trace mode.
+   - Click **Run checker** to evaluate the configured task and inspect the recursive trace.
+
+**Current scope / known limits**
+- OCR currently aims at canonical model transcription, not full grading.
+- The best-supported answer shape right now is `model_only`.
+- The page is meant for safe local debugging before wiring the same flow into strip grading.

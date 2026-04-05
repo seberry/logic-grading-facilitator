@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import shutil
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
@@ -21,6 +24,10 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG")
 STATE_FILENAME = "state.json"
+OCR_REQUEST_FILENAME = "ocr_request.yaml"
+OCR_PROMPT_FILENAME = "ocr_prompt.txt"
+OCR_RESPONSE_FILENAME = "ocr_raw_response.txt"
+OCR_TRANSCRIPTION_FILENAME = "ocr_model_text.txt"
 SUPPORTED_PROBLEM_TYPES = [
     {"id": "truth_value", "label": "Determine truth value"},
     {"id": "non_equivalence", "label": "Show non-equivalence"},
@@ -327,6 +334,10 @@ def _state_path(scan_slug: str) -> Path:
     return DEBUG_FOL_MODEL_DIR / scan_slug / STATE_FILENAME
 
 
+def _artifact_path(scan_slug: str, filename: str) -> Path:
+    return DEBUG_FOL_MODEL_DIR / scan_slug / filename
+
+
 def _default_page_state() -> Dict[str, Any]:
     return {
         "problem_id": "",
@@ -344,6 +355,8 @@ def _default_page_state() -> Dict[str, Any]:
         "checker_ran": False,
         "checker_enabled": True,
         "trace_mode": "terse",
+        "ocr_log": "",
+        "ocr_response_text": "",
         "available_session_problems": [],
     }
 
@@ -374,6 +387,8 @@ def _load_scan_state(scan_slug: Optional[str]) -> Dict[str, Any]:
         "draft_grade",
         "checker_enabled",
         "trace_mode",
+        "ocr_log",
+        "ocr_response_text",
     ):
         if key in raw:
             state[key] = raw[key]
@@ -397,6 +412,8 @@ def _save_scan_state(scan_slug: str, state: Dict[str, Any]) -> None:
                 "draft_grade": state.get("draft_grade", ""),
                 "checker_enabled": state.get("checker_enabled", True),
                 "trace_mode": state.get("trace_mode", "terse"),
+                "ocr_log": state.get("ocr_log", ""),
+                "ocr_response_text": state.get("ocr_response_text", ""),
             },
             indent=2,
             ensure_ascii=False,
@@ -512,6 +529,48 @@ def _checker_enabled_for_task(task_kind: str) -> bool:
     return task_kind in LIVE_TASK_KINDS
 
 
+def _load_artifact_text(scan_slug: Optional[str], filename: str) -> str:
+    if not scan_slug:
+        return ""
+    path = _artifact_path(scan_slug, filename)
+    if not path.exists():
+        return ""
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def _ensure_raw_scan_available(scan_slug: str) -> Path:
+    existing = _find_scan_image_path(scan_slug)
+    if existing and RAW_SCANS_DIR in existing.parents:
+        return existing
+
+    if existing and DEBUG_FOL_MODEL_DIR in existing.parents:
+        RAW_SCANS_DIR.mkdir(parents=True, exist_ok=True)
+        destination = RAW_SCANS_DIR / existing.name
+        if not destination.exists():
+            shutil.copy(existing, destination)
+        return destination
+
+    raise HTTPException(
+        status_code=404,
+        detail=f"Could not locate a scan image for '{scan_slug}' in {RAW_SCANS_DIR} or {DEBUG_FOL_MODEL_DIR}.",
+    )
+
+
+async def _run_subprocess_with_logs(command: List[str]) -> tuple[int, str]:
+    proc = await asyncio.create_subprocess_exec(
+        *command,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        cwd=Path(__file__).resolve().parents[2],
+    )
+    stdout, _ = await proc.communicate()
+    output = stdout.decode("utf-8", errors="replace")
+    return proc.returncode, output
+
+
 @router.get("/debug/fol-model", response_class=HTMLResponse)
 async def fol_model_debug_page(
     request: Request,
@@ -606,6 +665,96 @@ async def save_fol_model_transcription(
         url=f"/debug/fol-model?scan={quote(scan_slug)}&status=success&message={quote('Saved current transcription state.')}",
         status_code=303,
     )
+
+
+@router.post("/debug/fol-model/rerun", response_class=HTMLResponse)
+async def rerun_fol_model_ocr(
+    request: Request,
+    scan: Optional[str] = Form(None),
+    problem_id: str = Form(""),
+    problem_type: str = Form("truth_value"),
+    trace_mode: str = Form("terse"),
+    problem_setup_text: str = Form(""),
+    model_text: str = Form(...),
+    sentences_text: str = Form(...),
+    draft_comment: str = Form(""),
+    draft_grade: str = Form(""),
+) -> Response:
+    scan_slug = scan.strip() if scan else None
+    state = _load_scan_state(scan_slug)
+    state.update(
+        {
+            "problem_type": problem_type,
+            "problem_id": problem_id,
+            "problem_setup_text": problem_setup_text,
+            "model_text": model_text,
+            "sentences_text": sentences_text,
+            "draft_comment": draft_comment,
+            "draft_grade": draft_grade,
+            "checker_enabled": _checker_enabled_for_task(problem_type),
+            "trace_mode": trace_mode,
+            "status": "",
+            "message": "",
+            "checker_error": "",
+            "checker_ran": False,
+            "ocr_log": "",
+            "ocr_response_text": "",
+        }
+    )
+    state["available_session_problems"] = _available_session_fol_problems()
+
+    if not scan_slug:
+        state["status"] = "error"
+        state["message"] = "Pick a scan slug before running OCR."
+        return _render_page(request, scan=None, state=state)
+
+    try:
+        autograde = _parse_problem_setup_text(problem_setup_text)
+        task_kind = str(autograde.get("task_kind") or problem_type or "truth_value")
+        state["problem_type"] = task_kind
+        state["checker_enabled"] = _checker_enabled_for_task(task_kind)
+
+        image_path = _ensure_raw_scan_available(scan_slug)
+        debug_dir = DEBUG_FOL_MODEL_DIR / scan_slug
+        debug_dir.mkdir(parents=True, exist_ok=True)
+
+        request_path = _artifact_path(scan_slug, OCR_REQUEST_FILENAME)
+        request_path.write_text(
+            yaml.safe_dump(autograde, sort_keys=False, allow_unicode=True),
+            encoding="utf-8",
+        )
+
+        command = [
+            sys.executable,
+            "scripts/debug_fol_model_ocr.py",
+            "--image",
+            str(image_path),
+            "--output-dir",
+            str(debug_dir),
+            "--autograde-file",
+            str(request_path),
+        ]
+        code, output = await _run_subprocess_with_logs(command)
+        state["ocr_log"] = output
+        state["ocr_response_text"] = _load_artifact_text(scan_slug, OCR_RESPONSE_FILENAME)
+        proposed_text = _load_artifact_text(scan_slug, OCR_TRANSCRIPTION_FILENAME)
+        if proposed_text.strip():
+            state["model_text"] = proposed_text
+
+        if code == 0:
+            state["status"] = "success"
+            state["message"] = "OCR reran successfully. Review the proposed model text."
+        else:
+            state["status"] = "error"
+            state["message"] = "OCR rerun failed. See log output below."
+    except (FolModelParseError, HTTPException) as exc:
+        state["checker_error"] = str(exc)
+        state["status"] = "error"
+        state["message"] = "OCR rerun failed."
+
+    if scan_slug:
+        _save_scan_state(scan_slug, state)
+    return _render_page(request, scan=scan_slug, state=state)
 
 
 @router.post("/debug/fol-model/run_checker", response_class=HTMLResponse)

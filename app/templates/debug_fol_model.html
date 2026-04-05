@@ -216,7 +216,7 @@
   <div class="page">
     <h1>FOL Model Debugger</h1>
     <p class="lede">
-      Human-in-the-loop checker for strict model text. OCR is still deferred; this page is for editing the model, running the deterministic checker, and iterating on the recursive trace format.
+      Human-in-the-loop checker for strict model text. The OCR step can now propose a canonical model transcription from the selected crop, and you can edit that result before running the deterministic checker.
     </p>
     {% if problem_id %}
       <p class="muted">Active rubric problem: <strong>{{ problem_id }}</strong>{% if problem_label %} — {{ problem_label }}{% endif %}</p>
@@ -293,11 +293,11 @@
             {% endfor %}
           </select>
           <div class="controls">
-            <button type="button" disabled>Re-run OCR</button>
+            <button type="submit" formaction="/debug/fol-model/rerun">Re-run OCR</button>
             <button type="submit" class="secondary" formaction="/debug/fol-model/save">Save transcription</button>
             <button type="submit"{% if not checker_enabled %} disabled{% endif %}>Run checker</button>
           </div>
-          <p class="muted">`Save transcription` persists state only when a scan slug is selected. `Re-run OCR` stays disabled for now. If you load a rubric-backed FOL problem, the setup box below is populated from that real config.</p>
+          <p class="muted">`Re-run OCR` uses the selected crop plus the YAML setup to ask the local model for a canonical transcription. `Save transcription` persists your edited version when a scan slug is selected.</p>
         </section>
 
         <section class="panel">
@@ -323,6 +323,7 @@
           <section class="panel">
             <label for="model-text">Model</label>
             <textarea id="model-text" name="model_text">{{ model_text }}</textarea>
+            <p class="muted">After OCR, this becomes the proposed canonical model text for human correction.</p>
           </section>
 
           <section class="panel">
@@ -341,6 +342,18 @@
               <pre>{{ block.body }}</pre>
             </article>
           {% endfor %}
+        </section>
+      </div>
+
+      <div class="editor-grid">
+        <section class="panel">
+          <label>OCR log</label>
+          <textarea readonly>{{ ocr_log }}</textarea>
+        </section>
+
+        <section class="panel">
+          <label>Raw OCR response</label>
+          <textarea readonly>{{ ocr_response_text }}</textarea>
         </section>
       </div>
 
