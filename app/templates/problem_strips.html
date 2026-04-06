@@ -264,16 +264,9 @@
       border-radius: 8px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.04);
     }
-    .problem-context h2 {
-      margin: 0 0 0.6rem 0;
-      font-size: 1rem;
-    }
     .problem-context p {
-      margin: 0.35rem 0;
-      color: #475569;
-    }
-    .problem-context strong {
-      color: #0f172a;
+      margin: 0;
+      color: #334155;
     }
 
     .problem-note label {
@@ -369,21 +362,10 @@
   </p>
 
   <section class="problem-context">
-    <h2>Rubric Context</h2>
-    {% if problem_locator_text %}
-      <p><strong>Printed locator:</strong> {{ problem_locator_text }}</p>
-    {% endif %}
     {% if problem_spec.prompt %}
       <p><strong>What the problem asked:</strong> {{ problem_spec.prompt }}</p>
-    {% endif %}
-    {% if problem_spec.segmentation_hint %}
-      <p><strong>Model hint:</strong> {{ problem_spec.segmentation_hint }}</p>
-    {% endif %}
-    {% if problem_spec.rubric_notes %}
-      <p><strong>Rubric notes:</strong> {{ problem_spec.rubric_notes }}</p>
-    {% endif %}
-    {% if not problem_locator_text and not problem_spec.prompt and not problem_spec.segmentation_hint and not problem_spec.rubric_notes %}
-      <p>No extra rubric context stored for this problem yet. The strip finder is currently using the basic label only.</p>
+    {% else %}
+      <p><strong>What the problem asked:</strong> No prompt saved in the rubric for this problem yet.</p>
     {% endif %}
   </section>
 

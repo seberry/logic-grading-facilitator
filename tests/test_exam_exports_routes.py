@@ -79,6 +79,8 @@ class ExamExportsRoutesTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Scaled Total (20.0)", response.text)
         self.assertIn("Showing raw totals out of 10.0 and scaled totals out of 20.0.", response.text)
+        self.assertIn(">9.0</td>", response.text)
+        self.assertIn(">18.0</td>", response.text)
 
     def test_finalize_assignment_archives_and_renders_confirmation(self) -> None:
         with patch.object(

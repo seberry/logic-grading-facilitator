@@ -56,6 +56,7 @@ from .storage import (
     DATA_DIR,
     load_roster,
     load_grading_key,
+    save_session,
     RUBRIC_DIR,
     DEFAULT_ROSTER_PATH,
     DEFAULT_GRADING_KEY_PATH,

@@ -52,7 +52,7 @@ def finish_page(request: Request, scale_to: Optional[float] = None) -> Response:
             score = wu.per_problem.get(p.id)
             per_problem_scores[p.id] = score
             per_problem_comments[p.id] = wu.per_problem_comments.get(p.id)
-        score_summary = _score_summary_for_work_unit(session, wu)
+        score_summary = _score_summary_for_work_unit(session, wu, scale_to=scale_to)
         total = score_summary["total_score"]
 
         sid = wu.student_id

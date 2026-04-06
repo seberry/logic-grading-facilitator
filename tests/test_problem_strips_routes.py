@@ -180,5 +180,46 @@ problems:
         self.assertEqual(problem.rubric_notes, "Full credit needs a countermodel at w0.")
 
 
+class NameReviewSubmitTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.client = TestClient(server.app)
+        self.tmp_dir = Path("working") / "test_tmp" / f"name_review_{uuid4().hex}"
+        self.tmp_dir.mkdir(parents=True, exist_ok=True)
+        (self.tmp_dir / "page1.jpg").write_bytes(b"fake-image-bytes")
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp_dir, ignore_errors=True)
+
+    def test_name_review_submit_starts_grading_without_server_error(self) -> None:
+        roster = [RosterEntry(student_id="s1", name="Berry, Sharon")]
+        grading_key = GradingKey(
+            quiz_id="quiz1",
+            max_points=5,
+            problems=[ProblemSpec(id="Q1", label="Problem 1", points=5)],
+        )
+
+        with (
+            patch.object(server, "RAW_SCANS_DIR", self.tmp_dir),
+            patch.object(server, "load_roster", return_value=roster),
+            patch.object(server, "load_grading_key", return_value=grading_key),
+            patch.object(server, "save_session"),
+        ):
+            response = self.client.post(
+                "/name_review",
+                data={
+                    "quiz_id": "quiz1",
+                    "raw_scans_subdir": "",
+                    "page_count": "1",
+                    "filename_0": "page1.jpg",
+                    "student_0": "s1",
+                    "next_action": "grade",
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["location"], "/problem/Q1/strips")
+
+
 if __name__ == "__main__":
     unittest.main()
