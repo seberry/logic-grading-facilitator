@@ -116,14 +116,49 @@
       border-radius: 3px;
       border: 1px solid rgba(0,0,0,0.08);
     }
+    .scale-form {
+      margin-top: 1rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      align-items: end;
+    }
+    .scale-form label {
+      display: block;
+      font-size: 0.9rem;
+      color: #475569;
+      margin-bottom: 0.25rem;
+    }
+    .scale-form input {
+      padding: 0.6rem 0.75rem;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-size: 0.95rem;
+      width: 120px;
+    }
+    .scale-note {
+      margin-top: 0.75rem;
+      color: #475569;
+    }
   </style>
 </head>
 <body>
   <div class="card">
     <h1>Finish grading</h1>
     <p>Download your grade export and the renamed scans.</p>
+    <form method="get" action="/finish" class="scale-form">
+      <div>
+        <label for="scale_to">Rescale final totals to</label>
+        <input id="scale_to" name="scale_to" type="number" step="0.01" min="0.01" value="{{ scale_to if scale_to is not none else '' }}" placeholder="e.g. 10">
+      </div>
+      <button class="btn" type="submit">Apply scaling</button>
+      <a class="btn btn-secondary" href="/finish">Show raw totals</a>
+    </form>
+    {% if scale_to is not none %}
+      <p class="scale-note">Showing raw totals out of {{ total_max }} and scaled totals out of {{ scale_to }}. The grades CSV link below uses the same scaling.</p>
+    {% endif %}
     <div class="actions">
-      <a class="btn" href="/export">Download grades CSV</a>
+      <a class="btn" href="/export{% if scale_to is not none %}?scale_to={{ scale_to }}{% endif %}">Download grades CSV</a>
       <a class="btn" href="/gradebook_merge">Gradebook merge tool</a>
       <a class="btn" href="/classwork">Classwork viewer</a>
       <a class="btn" href="/export_feedback_zip">Download feedback ZIP</a>
@@ -143,7 +178,10 @@
               {% for p in problems %}
                 <th><a class="problem-link" href="/problem/{{ p.id }}/strips">{{ p.id }} ({{ p.points }})</a></th>
               {% endfor %}
-              <th>Total ({{ total_max }})</th>
+              <th>Raw Total ({{ total_max }})</th>
+              {% if scale_to is not none %}
+                <th>Scaled Total ({{ scale_to }})</th>
+              {% endif %}
             </tr>
           </thead>
           <tbody>
@@ -207,9 +245,10 @@
                 {% else %}
                   {% set total_cls = "" %}
                 {% endif %}
-                <td class="score-cell {{ total_cls }}">
-                  {{ row.total_score }}
-                </td>
+                <td class="score-cell {{ total_cls }}">{{ row.raw_total_score }}</td>
+                {% if scale_to is not none %}
+                  <td class="score-cell {{ total_cls }}">{{ row.total_score }}</td>
+                {% endif %}
               </tr>
             {% endfor %}
           </tbody>

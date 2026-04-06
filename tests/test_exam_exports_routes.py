@@ -60,6 +60,26 @@ class ExamExportsRoutesTests(unittest.TestCase):
         self.assertIn("student_id,quiz1_score", response.text)
         self.assertIn("s1,9.0", response.text)
 
+    def test_export_scores_can_rescale(self) -> None:
+        session = _build_session()
+
+        with patch.object(exam_exports_routes, "get_session", return_value=session):
+            response = self.client.get("/export?scale_to=10")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('filename="quiz1_scores_out_of_10.csv"', response.headers["content-disposition"])
+        self.assertIn("s1,9.0", response.text)
+
+    def test_finish_page_can_show_scaled_totals(self) -> None:
+        session = _build_session()
+
+        with patch.object(exam_exports_routes, "get_session", return_value=session):
+            response = self.client.get("/finish?scale_to=20")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Scaled Total (20.0)", response.text)
+        self.assertIn("Showing raw totals out of 10.0 and scaled totals out of 20.0.", response.text)
+
     def test_finalize_assignment_archives_and_renders_confirmation(self) -> None:
         with patch.object(
             exam_exports_routes,

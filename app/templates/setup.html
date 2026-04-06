@@ -98,6 +98,16 @@
       opacity: 0.6;
       cursor: not-allowed;
     }
+    .helper-box {
+      background: #f8fafc;
+      border: 1px solid #dbe4f0;
+      border-radius: 0.5rem;
+      padding: 0.9rem 1rem;
+    }
+    .helper-box textarea {
+      min-height: 200px;
+      background: #fff;
+    }
   </style>
 </head>
 <body>
@@ -242,11 +252,47 @@
             </div>
           </div>
           <button type="button" id="quick_rubric_btn" class="secondary">Generate rubric YAML</button>
+          <div class="helper-box">
+            <label for="rubric_prompt_text">Prompt to give an AI when drafting rubric YAML</label>
+            <textarea id="rubric_prompt_text" readonly>Produce valid YAML for the Logic Grading Facilitator rubric schema.
+
+Requirements:
+- Output YAML only.
+- Use one unique problem id per grading row, like Q1, Q2, Q3, even if the exam restarts numbering in a later section/problem bank.
+- For each problem include:
+  - id: stable unique id used by the app
+  - label: short grading label
+  - points: numeric max points
+- When the printed exam has sections or restarted numbering, also include:
+  - section: printed section heading, such as "Formalization" or "Models"
+  - problem_number: the printed number visible on the exam, such as "1" or "3"
+- If possible also include:
+  - prompt: exact or near-exact statement of what the student was asked to do
+  - segmentation_hint: short phrase that would help a local vision model find this answer region on the page
+  - rubric_notes: concise grading guidance for the human grader
+- Keep max_points equal to the sum of non-extra-credit problem points.
+
+Target YAML shape:
+quiz_id: "{{ quiz_id }}"
+max_points: 10
+problems:
+  - id: "Q1"
+    label: "Short label"
+    points: 3
+    section: "Formalization"
+    problem_number: "1"
+    prompt: "Exact or close paraphrase of the printed prompt."
+    segmentation_hint: "What visible text or layout helps locate this answer."
+    rubric_notes: "How to grade it."
+
+If a page has two problem banks with overlapping numbers, distinguish them using section + problem_number so the local model can tell which printed "1" or "3" to look for.</textarea>
+          </div>
           <form method="post" action="/setup/save_rubric">
             <label for="rubric_text">Edit rubric YAML</label>
             <textarea id="rubric_text" name="yaml_text">{{ rubric_text }}</textarea>
             <p class="muted">The YAML must parse into the <code>GradingKey</code> model. File will be saved as <code>{{ quiz_id }}.yaml</code> in <code>data/rubric/</code>.</p>
             <p class="muted">Tip: each problem <code>label</code> is used as a natural-language hint when the model locates that answer region in strip view. Match the wording on the exam if possible.</p>
+            <p class="muted">For exams with multiple sections that restart numbering, add <code>section</code> and <code>problem_number</code>. The strip finder will use those too.</p>
             <button type="submit">Save rubric</button>
           </form>
         </div>

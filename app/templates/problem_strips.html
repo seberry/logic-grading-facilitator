@@ -255,6 +255,26 @@
       max-width: 640px;
       margin-bottom: 1.5rem;
     }
+    .problem-context {
+      max-width: 920px;
+      margin-bottom: 1.5rem;
+      padding: 1rem 1.1rem;
+      background: #fff;
+      border: 1px solid #dbe4f0;
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .problem-context h2 {
+      margin: 0 0 0.6rem 0;
+      font-size: 1rem;
+    }
+    .problem-context p {
+      margin: 0.35rem 0;
+      color: #475569;
+    }
+    .problem-context strong {
+      color: #0f172a;
+    }
 
     .problem-note label {
       display: block;
@@ -348,6 +368,25 @@
     Review and grade student answers. <a href="?refresh=1" style="color:#2563eb;">↻ Segmentation</a>
   </p>
 
+  <section class="problem-context">
+    <h2>Rubric Context</h2>
+    {% if problem_locator_text %}
+      <p><strong>Printed locator:</strong> {{ problem_locator_text }}</p>
+    {% endif %}
+    {% if problem_spec.prompt %}
+      <p><strong>What the problem asked:</strong> {{ problem_spec.prompt }}</p>
+    {% endif %}
+    {% if problem_spec.segmentation_hint %}
+      <p><strong>Model hint:</strong> {{ problem_spec.segmentation_hint }}</p>
+    {% endif %}
+    {% if problem_spec.rubric_notes %}
+      <p><strong>Rubric notes:</strong> {{ problem_spec.rubric_notes }}</p>
+    {% endif %}
+    {% if not problem_locator_text and not problem_spec.prompt and not problem_spec.segmentation_hint and not problem_spec.rubric_notes %}
+      <p>No extra rubric context stored for this problem yet. The strip finder is currently using the basic label only.</p>
+    {% endif %}
+  </section>
+
   <div id="pinned-panel" class="pinned-panel hidden" aria-live="polite">
     <div class="pinned-panel-header">
       <span>Pinned reference answer</span>
@@ -362,11 +401,11 @@
 
     <section class="problem-note">
       <label for="problem_note">
-        Question / rubric note for {{ problem_id }}
+        Live grading note for {{ problem_id }}
       </label>
       <textarea id="problem_note"
                 name="problem_note"
-                placeholder="e.g. &quot;Truth table for ¬(P→Q); 3 pts for correct pattern, 1 pt explanation&quot;">{{ problem_note }}</textarea>
+                placeholder="e.g. common deductions to watch for, edge cases, or a temporary reminder for this grading run">{{ problem_note }}</textarea>
     </section>
 
     <section class="problem-type">

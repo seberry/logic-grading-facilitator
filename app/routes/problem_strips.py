@@ -37,6 +37,29 @@ def _effective_problem_type(session: Session, problem_id: str, spec) -> Optional
     return session.problem_types.get(problem_id)
 
 
+def _build_problem_locator_text(spec) -> str:
+    parts: List[str] = []
+    if getattr(spec, "section", None):
+        parts.append(f'section "{spec.section}"')
+    if getattr(spec, "problem_number", None):
+        parts.append(f'printed problem number "{spec.problem_number}"')
+    return ", ".join(parts)
+
+
+def _build_segmentation_description(spec) -> str:
+    details: List[str] = []
+    locator = _build_problem_locator_text(spec)
+    if locator:
+        details.append(f"Locator: {locator}.")
+    if getattr(spec, "label", None):
+        details.append(f"Rubric label: {spec.label}.")
+    if getattr(spec, "prompt", None):
+        details.append(f"Problem prompt: {spec.prompt}.")
+    if getattr(spec, "segmentation_hint", None):
+        details.append(f"Segmentation hint: {spec.segmentation_hint}.")
+    return " ".join(details) or spec.id
+
+
 def _compute_segments_data(session: Session, spec, cache_path: Path) -> List[Dict]:
     problem_id = spec.id
     print(f"[CACHE MISS] Computing fresh segmentation for {problem_id}...")
@@ -55,7 +78,7 @@ def _compute_segments_data(session: Session, spec, cache_path: Path) -> List[Dic
             seg = segment_page_for_problem(
                 image_path=image_path,
                 problem_id=problem_id,
-                problem_description=spec.label,
+                problem_description=_build_segmentation_description(spec),
                 client=client,
             )
 
@@ -293,6 +316,8 @@ def get_problem_strips(
             "request": request,
             "problem_id": problem_id,
             "problem_label": spec.label,
+            "problem_spec": spec,
+            "problem_locator_text": _build_problem_locator_text(spec),
             "strips": strips,
             "max_points": spec.points,
             "problem_note": session.problem_notes.get(problem_id, ""),

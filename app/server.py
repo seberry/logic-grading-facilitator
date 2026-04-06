@@ -1077,7 +1077,11 @@ async def setup_save_rubric(yaml_text: str = Form(...)) -> Response:
 
     RUBRIC_DIR.mkdir(parents=True, exist_ok=True)
     target = RUBRIC_DIR / f"{grading_key.quiz_id}.yaml"
-    cleaned_yaml = yaml.safe_dump(grading_key.model_dump(), sort_keys=False)
+    cleaned_yaml = yaml.safe_dump(
+        grading_key.model_dump(exclude_none=True),
+        sort_keys=False,
+        allow_unicode=True,
+    )
     target.write_text(cleaned_yaml, encoding="utf-8")
 
     return RedirectResponse(

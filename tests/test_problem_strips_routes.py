@@ -19,7 +19,16 @@ def _build_session() -> Session:
             quiz_id="quiz1",
             max_points=10,
             problems=[
-                ProblemSpec(id="Q1", label="FOL model", points=5),
+                ProblemSpec(
+                    id="Q1",
+                    label="FOL model",
+                    points=5,
+                    section="Models",
+                    problem_number="1",
+                    prompt="Create a model making the target sentence false.",
+                    segmentation_hint="Look in the Models section, problem 1.",
+                    rubric_notes="Full credit for a model with the required evaluation.",
+                ),
                 ProblemSpec(id="Q2", label="Proof", points=5),
             ],
         ),
@@ -64,6 +73,8 @@ class ProblemStripsRoutesTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Problem Q1 Grading", response.text)
         self.assertIn("Berry, Sharon", response.text)
+        self.assertIn("What the problem asked", response.text)
+        self.assertIn("Models", response.text)
 
     def test_problem_type_post_updates_session(self) -> None:
         session = _build_session()
@@ -142,6 +153,31 @@ problems:
             grading_key.problems[0].autograde["prompt_data"]["conclusion"],
             "Qa",
         )
+
+    def test_load_grading_key_preserves_problem_context_fields(self) -> None:
+        yaml_text = """
+quiz_id: quiz1
+max_points: 5
+problems:
+  - id: Q1
+    label: Modal model
+    points: 5
+    section: Models
+    problem_number: "3"
+    prompt: Show that two sentences are not equivalent.
+    segmentation_hint: Look under the Models heading for item 3.
+    rubric_notes: Full credit needs a countermodel at w0.
+"""
+        rubric_path = self.tmp_dir / "quiz1_context.yaml"
+        rubric_path.write_text(yaml_text, encoding="utf-8")
+        grading_key = load_grading_key(rubric_path)
+
+        problem = grading_key.problems[0]
+        self.assertEqual(problem.section, "Models")
+        self.assertEqual(problem.problem_number, "3")
+        self.assertEqual(problem.prompt, "Show that two sentences are not equivalent.")
+        self.assertEqual(problem.segmentation_hint, "Look under the Models heading for item 3.")
+        self.assertEqual(problem.rubric_notes, "Full credit needs a countermodel at w0.")
 
 
 if __name__ == "__main__":

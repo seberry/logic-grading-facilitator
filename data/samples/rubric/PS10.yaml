@@ -1,0 +1,99 @@
+quiz_id: PS10
+max_points: 12
+problems:
+  - id: Q1
+    label: Formalize possible match and happy crowd
+    points: 1
+    section: Formalization
+    problem_number: "1"
+    prompt: It is possible that the match is played and the crowd is happy.
+    segmentation_hint: Look in the Formalization section for printed item 1.
+    rubric_notes: Credit the formalization that correctly represents possibility over a conjunction of M and C.
+  - id: Q2
+    label: Formalize necessary rain implies no match
+    points: 1
+    section: Formalization
+    problem_number: "2"
+    prompt: It is necessarily true that if it rains, the match is not played.
+    segmentation_hint: Look in the Formalization section for printed item 2.
+    rubric_notes: Credit the formalization that places necessity over the conditional from R to not-M.
+  - id: Q3
+    label: Formalize necessary match implies happy crowd
+    points: 1
+    section: Formalization
+    problem_number: "3"
+    prompt: Necessarily, if the match is being played then the crowd is happy.
+    segmentation_hint: Look in the Formalization section for printed item 3.
+    rubric_notes: Credit the formalization that places necessity over the conditional from M to C.
+  - id: Q4
+    label: Formalize impossible rain and match together
+    points: 1
+    section: Formalization
+    problem_number: "4"
+    prompt: It is impossible for it to rain and the match to be played at the same time.
+    segmentation_hint: Look in the Formalization section for printed item 4.
+    rubric_notes: Credit a formalization equivalent to not-possible of R and M together.
+  - id: Q5
+    label: Formalize possible not rain and not necessary match
+    points: 1
+    section: Formalization
+    problem_number: "5"
+    prompt: It is possible that it doesn’t rain, but it is not necessary that the match is played.
+    segmentation_hint: Look in the Formalization section for printed item 5.
+    rubric_notes: Credit a conjunction with possible not-R and not necessary M.
+  - id: Q6
+    label: Formalize necessary match implies possible happy crowd
+    points: 1
+    section: Formalization
+    problem_number: "6"
+    prompt: If it is necessary that the match is played, then it is possible that the crowd is happy.
+    segmentation_hint: Look in the Formalization section for printed item 6.
+    rubric_notes: Credit the conditional from necessary M to possible C.
+  - id: Q7
+    label: Formalize possible rain implies possible no match under necessity
+    points: 1
+    section: Formalization
+    problem_number: "7"
+    prompt: "It is necessarily true that: if it is possible that it rains, then it is possible that the match is not played."
+    segmentation_hint: Look in the Formalization section for printed item 7.
+    rubric_notes: Credit the formalization with outer necessity and inner conditional from possible R to possible not-M.
+  - id: Q8
+    label: Formalize happy crowd and necessary conditional about no rain
+    points: 1
+    section: Formalization
+    problem_number: "8"
+    prompt: The crowd is happy, and it is necessarily true that the match is played if it isn’t raining.
+    segmentation_hint: Look in the Formalization section for printed item 8.
+    rubric_notes: Credit a conjunction of C with necessity over the conditional from not-R to M.
+  - id: Q9
+    label: Kripke model making P and possible not-P false
+    points: 1
+    section: Models
+    problem_number: "1"
+    prompt: Create a Kripke model which makes P & ^¬P false.
+    segmentation_hint: Look in the Models section for printed item 1.
+    rubric_notes: Grade the student on the task as written on the sheet, not the intended alternative variant.
+  - id: Q10
+    label: Kripke model making possible P and possible not-P false
+    points: 1
+    section: Models
+    problem_number: "2"
+    prompt: Create a Kripke model which makes ^P & ^¬P false.
+    segmentation_hint: Look in the Models section for printed item 2.
+    rubric_notes: Grade the student on the task as written on the sheet, not the intended alternative variant.
+  - id: Q11
+    label: Kripke countermodel for P iff Q versus box of iff
+    points: 1
+    section: Models
+    problem_number: "3"
+    prompt: Create a Kripke model which shows the following sentences are not logically equivalent (at w@ = w0). P ↔ Q, □(P ↔ Q).
+    segmentation_hint: Look in the Models section for printed item 3 with the formulas P ↔ Q and box(P ↔ Q).
+    rubric_notes: Full credit requires a Kripke model with evaluation at w0 separating the two formulas.
+  - id: Q12
+    label: Kripke countermodel for P iff Q versus diamond of iff
+    points: 1
+    section: Models
+    problem_number: "4"
+    prompt: Create a Kripke model which shows the following sentences are not logically equivalent (at w@ = w0). P ↔ Q, ^(P ↔ Q).
+    segmentation_hint: Look in the Models section for printed item 4 with the formulas P ↔ Q and diamond(P ↔ Q).
+    rubric_notes: Full credit requires a Kripke model with evaluation at w0 separating the two formulas.

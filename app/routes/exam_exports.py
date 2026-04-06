@@ -20,6 +20,7 @@ from ..exam_exports_core import (
 from ..exam_shared import (
     _build_roster_prefix_index,
     _build_total_scores_by_student,
+    _parse_scale_to,
     _filename_prefix_key,
     _required_total_max,
     _score_summary_for_work_unit,
@@ -32,11 +33,12 @@ router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 'templates'))
 
 @router.get("/finish", response_class=HTMLResponse)
-def finish_page(request: Request) -> Response:
+def finish_page(request: Request, scale_to: Optional[float] = None) -> Response:
     session = get_session()
     grading_key = session.grading_key
     problems = grading_key.problems if grading_key else []
     total_max = _required_total_max(grading_key) if problems else 0.0
+    scale_to = _parse_scale_to(scale_to)
 
     roster_map = {r.student_id: r.name for r in session.roster}
     rows_by_student: Dict[str, Dict] = {}
@@ -63,6 +65,7 @@ def finish_page(request: Request) -> Response:
                 "per_problem_comments": per_problem_comments,
                 "regular_score": score_summary["regular_score"],
                 "extra_credit_score": score_summary["extra_credit_score"],
+                "raw_total_score": score_summary["raw_total_score"],
                 "total_score": total,
             }
 
@@ -74,6 +77,7 @@ def finish_page(request: Request) -> Response:
             "request": request,
             "problems": problems,
             "total_max": total_max,
+            "scale_to": scale_to,
             "rows": rows,
         },
     )
@@ -135,7 +139,7 @@ def export_renamed_scans():
 
 
 @router.get("/export")
-def export_scores():
+def export_scores(scale_to: Optional[float] = None):
     """
     Export a simple CSV of student_id,total_score for completed WorkUnits.
 
@@ -145,7 +149,8 @@ def export_scores():
       when something was scanned/created twice).
     """
     session = get_session()
-    totals = _build_total_scores_by_student(session)
+    scale_to = _parse_scale_to(scale_to)
+    totals = _build_total_scores_by_student(session, scale_to=scale_to)
 
     # Build CSV in-memory
     buf = io.StringIO()
@@ -155,13 +160,16 @@ def export_scores():
         writer.writerow([sid, total])
 
     csv_data = buf.getvalue()
+    filename = f"{session.grading_key.quiz_id}_scores.csv"
+    if scale_to is not None:
+        scale_label = str(int(scale_to)) if float(scale_to).is_integer() else str(scale_to)
+        filename = f"{session.grading_key.quiz_id}_scores_out_of_{scale_label}.csv"
+
     return Response(
         content=csv_data,
         media_type="text/csv",
         headers={
-            "Content-Disposition": (
-                f'attachment; filename="{session.grading_key.quiz_id}_scores.csv"'
-            )
+            "Content-Disposition": (f'attachment; filename="{filename}"')
         },
     )
 

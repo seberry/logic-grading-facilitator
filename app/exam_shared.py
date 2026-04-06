@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 import re
 import json
+import math
 from pathlib import Path
 from datetime import datetime
 
@@ -16,12 +17,15 @@ CANVAS_REUPLOAD_ORIGINAL_ZIPS_DIR = DATA_DIR / "canvas_reupload" / "original_zip
 CANVAS_REUPLOAD_MANIFEST_DIR = DATA_DIR / "canvas_reupload" / "manifests"
 
 
-def _build_total_scores_by_student(session: Session) -> Dict[str, float]:
+def _build_total_scores_by_student(
+    session: Session,
+    scale_to: Optional[float] = None,
+) -> Dict[str, float]:
     out: Dict[str, float] = {}
     for wu in session.work_units:
         if not wu.student_id:
             continue
-        total = _score_summary_for_work_unit(session, wu)["total_score"]
+        total = _score_summary_for_work_unit(session, wu, scale_to=scale_to)["total_score"]
         prev = out.get(wu.student_id)
         if prev is None or total > prev:
             out[wu.student_id] = total
@@ -32,7 +36,28 @@ def _required_total_max(grading_key: GradingKey) -> float:
     return sum(float(p.points) for p in grading_key.problems if not p.extra_credit)
 
 
-def _score_summary_for_work_unit(session: Session, wu: WorkUnit) -> Dict[str, float]:
+def _scaled_total_score(raw_total: float, raw_total_max: float, scale_to: Optional[float]) -> float:
+    if scale_to is None:
+        return raw_total
+    if raw_total_max <= 0:
+        return 0.0
+    return round((raw_total / raw_total_max) * scale_to, 4)
+
+
+def _parse_scale_to(scale_to: Optional[float]) -> Optional[float]:
+    if scale_to is None:
+        return None
+    value = float(scale_to)
+    if not math.isfinite(value) or value <= 0:
+        raise HTTPException(status_code=400, detail="scale_to must be a positive number.")
+    return value
+
+
+def _score_summary_for_work_unit(
+    session: Session,
+    wu: WorkUnit,
+    scale_to: Optional[float] = None,
+) -> Dict[str, float]:
     regular_total = 0.0
     extra_credit_total = 0.0
     problems_by_id = {p.id: p for p in session.grading_key.problems}
@@ -46,12 +71,16 @@ def _score_summary_for_work_unit(session: Session, wu: WorkUnit) -> Dict[str, fl
             regular_total += float(score)
 
     total_max = _required_total_max(session.grading_key)
-    total_score = min(total_max, regular_total + extra_credit_total)
+    raw_total_score = min(total_max, regular_total + extra_credit_total)
+    scaled_to = _parse_scale_to(scale_to)
+    total_score = _scaled_total_score(raw_total_score, total_max, scaled_to)
     return {
         "regular_score": regular_total,
         "extra_credit_score": extra_credit_total,
+        "raw_total_score": raw_total_score,
         "total_score": total_score,
         "total_max": total_max,
+        "scale_to": scaled_to or total_max,
     }
 
 

@@ -14,6 +14,11 @@ class ProblemSpec(BaseModel):
     label: str       # human-readable label, e.g. "Problem 1 (symbolization)"
     points: float    # max points for this problem
     extra_credit: bool = False
+    section: Optional[str] = None
+    problem_number: Optional[str] = None
+    prompt: Optional[str] = None
+    segmentation_hint: Optional[str] = None
+    rubric_notes: Optional[str] = None
     problem_type: Optional[str] = None
     autograde: Dict[str, Any] = Field(default_factory=dict)
 
