@@ -7,9 +7,16 @@ from app.fol_model_checker import FolModelParseError, check_fol_task
 from .base import AutoGradeResult, AutoGradeTraceBlock
 
 
-def autograde(answer_text: str, autograde_config: Dict[str, Any]) -> AutoGradeResult:
+def autograde(
+    answer_text: str,
+    autograde_config: Dict[str, Any],
+    runtime_options: Dict[str, Any] | None = None,
+) -> AutoGradeResult:
+    runtime = runtime_options or {}
+    trace_mode = str(runtime.get("trace_mode") or "terse")
+
     try:
-        task_result = check_fol_task(answer_text, autograde_config, trace_mode="terse")
+        task_result = check_fol_task(answer_text, autograde_config, trace_mode=trace_mode)
     except FolModelParseError as exc:
         return AutoGradeResult(
             problem_type="fol_model",
@@ -41,6 +48,7 @@ def autograde(answer_text: str, autograde_config: Dict[str, Any]) -> AutoGradeRe
         metadata={
             "task_kind": task_result.task_kind,
             "model_summary": task_result.model_summary,
+            "trace_mode": trace_mode,
         },
     )
 

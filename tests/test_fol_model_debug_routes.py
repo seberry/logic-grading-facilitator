@@ -81,7 +81,7 @@ class FolModelDebugRoutesTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("Checker ran successfully.", response.text)
+        self.assertIn("Checker ran successfully through the shared autograde layer.", response.text)
         self.assertIn("Sentence 2: ∀x (Px → Qx)", response.text)
         self.assertIn("counterexample", response.text)
 
@@ -116,7 +116,7 @@ class FolModelDebugRoutesTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("Checker ran successfully.", response.text)
+        self.assertIn("Checker ran successfully through the shared autograde layer.", response.text)
         self.assertIn("Task summary: non-equivalence", response.text)
         self.assertIn("not logically equivalent", response.text)
 
@@ -184,7 +184,7 @@ class FolModelDebugRoutesTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("Checker ran successfully.", response.text)
+        self.assertIn("Checker ran successfully through the shared autograde layer.", response.text)
         self.assertIn("Task summary: joint consistency", response.text)
         self.assertIn("jointly consistent", response.text)
 

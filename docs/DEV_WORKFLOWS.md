@@ -115,7 +115,7 @@ All `data/...` paths below are relative to `DATA_DIR` (defaults to `data/samples
 6) **Hand-correct and check**
    - Edit the model text if needed.
    - Choose `Terse` or `Full` trace mode.
-   - Click **Run checker** to evaluate the configured task and inspect the recursive trace.
+   - Click **Run checker** to evaluate the configured task through the shared `app/autograde/` layer and inspect the recursive trace.
 
 **Current scope / known limits**
 - OCR currently aims at canonical model transcription, not full grading.

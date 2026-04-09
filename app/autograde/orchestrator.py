@@ -10,9 +10,11 @@ def autograde_submission(
     problem_type: str | None,
     answer_text: str,
     autograde_config: Dict[str, Any] | None = None,
+    runtime_options: Dict[str, Any] | None = None,
 ) -> AutoGradeResult:
     normalized_problem_type = str(problem_type or "").strip()
     config = autograde_config or {}
+    runtime = runtime_options or {}
 
     if not normalized_problem_type:
         return AutoGradeResult(
@@ -35,4 +37,4 @@ def autograde_submission(
             ),
         )
 
-    return engine(answer_text, config)
+    return engine(answer_text, config, runtime)

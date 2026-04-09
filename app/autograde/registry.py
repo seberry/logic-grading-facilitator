@@ -5,7 +5,7 @@ from typing import Callable, Dict
 from . import fitch_proof, fol_model, kripke_model, modal_proof
 from .base import AutoGradeResult
 
-Engine = Callable[[str, dict], AutoGradeResult]
+Engine = Callable[[str, dict, dict | None], AutoGradeResult]
 
 
 ENGINE_REGISTRY: Dict[str, Engine] = {

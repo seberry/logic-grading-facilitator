@@ -13,7 +13,8 @@ from fastapi import APIRouter, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from app.fol_model_checker import FolModelParseError, check_fol_task
+from app.autograde import AutoGradeTraceBlock, autograde_submission
+from app.fol_model_checker import FolModelParseError
 from app.session_state import get_session
 from app.storage import DEBUG_FOL_MODEL_DIR, RAW_SCANS_DIR
 
@@ -529,6 +530,17 @@ def _checker_enabled_for_task(task_kind: str) -> bool:
     return task_kind in LIVE_TASK_KINDS
 
 
+def _trace_blocks_for_template(blocks: List[AutoGradeTraceBlock]) -> List[Dict[str, str]]:
+    return [
+        {
+            "title": block.title,
+            "result": block.result,
+            "body": block.body,
+        }
+        for block in blocks
+    ]
+
+
 def _load_artifact_text(scan_slug: Optional[str], filename: str) -> str:
     if not scan_slug:
         return ""
@@ -796,13 +808,23 @@ async def run_fol_model_checker(
         task_kind = str(autograde.get("task_kind") or problem_type or "truth_value")
         state["problem_type"] = task_kind
         if task_kind in LIVE_TASK_KINDS:
-            task_result = check_fol_task(model_text, autograde, trace_mode=trace_mode)
-            state["trace_blocks"] = task_result.trace_blocks
-            state["draft_comment"] = task_result.draft_comment
+            result = autograde_submission(
+                problem_type="fol_model",
+                answer_text=model_text,
+                autograde_config=autograde,
+                runtime_options={"trace_mode": trace_mode},
+            )
+            state["trace_blocks"] = _trace_blocks_for_template(result.trace_blocks)
+            state["draft_comment"] = result.draft_comment
             state["checker_enabled"] = _checker_enabled_for_task(task_kind)
             state["checker_ran"] = True
-            state["status"] = "success"
-            state["message"] = "Checker ran successfully."
+            if result.status == "scored":
+                state["status"] = "success"
+                state["message"] = "Checker ran successfully through the shared autograde layer."
+            else:
+                state["checker_error"] = "; ".join(result.errors) or result.summary
+                state["status"] = "error"
+                state["message"] = "Checker could not run."
         elif task_kind in PROBLEM_TYPE_PRESETS:
             preset = PROBLEM_TYPE_PRESETS[task_kind]
             state["trace_blocks"] = preset["trace_blocks"]

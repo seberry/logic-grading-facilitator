@@ -5,7 +5,11 @@ from typing import Any, Dict
 from .base import AutoGradeResult
 
 
-def autograde(answer_text: str, autograde_config: Dict[str, Any]) -> AutoGradeResult:
+def autograde(
+    answer_text: str,
+    autograde_config: Dict[str, Any],
+    runtime_options: Dict[str, Any] | None = None,
+) -> AutoGradeResult:
     return AutoGradeResult(
         problem_type="modal_proof",
         status="not_implemented",

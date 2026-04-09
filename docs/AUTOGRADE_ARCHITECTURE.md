@@ -8,7 +8,7 @@ new checkers should fit into.
 
 | Problem type | Status | Notes |
 | --- | --- | --- |
-| `fol_model` | Implemented through shared orchestrator | Uses the existing deterministic FOL checker and emits normalized trace/comment output. |
+| `fol_model` | Implemented through shared orchestrator | Uses the existing deterministic FOL checker and emits normalized trace/comment output. The FOL debug page now calls this shared layer. |
 | `fitch_proof` | Scaffold only | Existing verifier/debug tools exist elsewhere; strip-view autograding is not wired yet. |
 | `kripke_model` | Scaffold only | Intended destination for the Kripke debug/checker flow. |
 | `modal_proof` | Scaffold only | Reserved for future modal proof checker integration. |
@@ -86,6 +86,12 @@ result = autograde_submission(
 ```
 
 The orchestrator is deliberately small. It should stay boring.
+
+## Current route ownership
+
+- `app/routes/fol_model_debug.py` should call `app.autograde.autograde_submission(...)` rather than reaching into `app.fol_model_checker` directly for live checker runs.
+- The checker module still owns FOL-specific logic and trace construction.
+- The route should own UI state, OCR reruns, artifact loading, and template shaping only.
 
 ## Why scaffolds are present for unfinished engines
 
