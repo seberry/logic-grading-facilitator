@@ -1,0 +1,15 @@
+{
+  "problem_type": "truth_value",
+  "problem_id": "",
+  "problem_label": "Synthetic truth-value sample",
+  "problem_setup_text": "task_kind: truth_value\ndefault_score_correct: 2\ndefault_score_incorrect: 0\nprompt_data:\n  formulas:\n    - \"Pa\"\n    - \"∃x Rxa\"\n    - \"∀x (Px → Qx)\"\n",
+  "model_text": "DOMAIN: {1,2,3}\n\nCONSTANTS:\na: 1\nb: 2\n\nPREDICATES:\nP: {1,2}\nQ: {2}\nR: {(1,2),(2,3)}\n",
+  "sentences_text": "1. Pa\n2. ∃x Rxa\n3. ∀x (Px → Qx)\n",
+  "trace_blocks": [],
+  "draft_comment": "",
+  "draft_grade": "",
+  "checker_enabled": true,
+  "trace_mode": "terse",
+  "ocr_log": "",
+  "ocr_response_text": ""
+}

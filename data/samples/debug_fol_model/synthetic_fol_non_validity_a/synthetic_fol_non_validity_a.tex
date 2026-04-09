@@ -1,0 +1,29 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\pagestyle{empty}
+
+\begin{document}
+\noindent\textbf{Problem 3.} Give a countermodel showing the argument is not valid.\\[0.75em]
+
+\noindent Premises: $\forall x\,(Px \to Qx)$ and $\exists x\,Px$\\
+Conclusion: $\forall x\,Qx$
+
+\vspace{1.0em}
+\noindent\textbf{Student work}\\[0.4em]
+\begin{tabular}{@{}ll@{}}
+Domain: & $\{1,2\}$ \\
+Predicates: & $P = \{1\}$ \\
+ & $Q = \{1\}$
+\end{tabular}
+
+\vspace{1.0em}
+\noindent Check:
+\begin{itemize}
+\item $\forall x(Px \to Qx)$ is true.
+\item $\exists x Px$ is true.
+\item $\forall x Qx$ is false because $2 \notin Q$.
+\end{itemize}
+\end{document}

@@ -1,0 +1,15 @@
+{
+  "problem_type": "non_validity",
+  "problem_id": "",
+  "problem_label": "Synthetic non-validity sample",
+  "problem_setup_text": "task_kind: non_validity\ndefault_score_correct: 3\ndefault_score_incorrect: 0\nprompt_data:\n  premises:\n    - \"∀x (Px → Qx)\"\n    - \"∃x Px\"\n  conclusion: \"∀x Qx\"\n",
+  "model_text": "DOMAIN: {1,2}\n\nCONSTANTS:\n\nPREDICATES:\nP: {1}\nQ: {1}\n",
+  "sentences_text": "1. ∀x (Px → Qx)\n2. ∃x Px\n3. ∀x Qx\n",
+  "trace_blocks": [],
+  "draft_comment": "",
+  "draft_grade": "",
+  "checker_enabled": true,
+  "trace_mode": "terse",
+  "ocr_log": "",
+  "ocr_response_text": ""
+}

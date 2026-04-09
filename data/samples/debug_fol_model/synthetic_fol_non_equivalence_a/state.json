@@ -1,0 +1,15 @@
+{
+  "problem_type": "non_equivalence",
+  "problem_id": "",
+  "problem_label": "Synthetic non-equivalence sample",
+  "problem_setup_text": "task_kind: non_equivalence\ndefault_score_correct: 3\ndefault_score_incorrect: 0\nprompt_data:\n  formulas:\n    - \"∀x Px\"\n    - \"∃x Px\"\n",
+  "model_text": "DOMAIN: {1,2}\n\nCONSTANTS:\na: 1\n\nPREDICATES:\nP: {1}\n",
+  "sentences_text": "1. ∀x Px\n2. ∃x Px\n",
+  "trace_blocks": [],
+  "draft_comment": "",
+  "draft_grade": "",
+  "checker_enabled": true,
+  "trace_mode": "terse",
+  "ocr_log": "",
+  "ocr_response_text": ""
+}

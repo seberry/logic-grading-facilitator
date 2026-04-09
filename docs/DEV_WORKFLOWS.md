@@ -105,6 +105,7 @@ All `data/...` paths below are relative to `DATA_DIR` (defaults to `data/samples
    - Visit `http://127.0.0.1:5000/debug/fol-model`
    - Pick the scan slug from the dropdown.
    - Optionally load a rubric-backed `fol_model` problem so the YAML setup box is prefilled from `autograde`.
+   - FERPA-safe synthetic samples now live under `data/samples/debug_fol_model/` if you want ready-made test inputs.
 
 5) **Run OCR**
    - Click **Re-run OCR**.
