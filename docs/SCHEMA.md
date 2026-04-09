@@ -295,6 +295,12 @@ Conceptually:
 - `problem_type`: broad family such as `plain`, `fitch_proof`, `fol_model`
 - `autograde`: family-specific metadata preserved in the rubric
 
+### 9.2a Implementation note
+
+The shared autograde scaffolding now exists in `app/autograde/`, but only `fol_model`
+is currently wired through a real deterministic engine. The presence of other engine
+modules should be read as reserved extension points, not as completed grading flows.
+
 ### 9.3 Proposed shape for `fol_model`
 
 Use one broad family plus a task-kind inside `autograde`.

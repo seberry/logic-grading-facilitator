@@ -30,6 +30,11 @@
 - Wire “fitch_proof” tag into a dedicated UI path in the problem strips view.
 - Reuse the debug pipeline (`docs/STRATEGY_FITCH_PROOFS.md`) to show OCR + verifier outputs in-place.
 
+## Shared autograde architecture
+- Build route/UI integration on top of `app/autograde/` instead of adding checker-specific logic directly inside strip routes.
+- Keep unfinished engines explicit: `fitch_proof`, `kripke_model`, and `modal_proof` are currently scaffold-only.
+- Add a batch experiment harness for Kripke OCR/debug runs so prompt changes can be compared over folders of cropped samples.
+
 ## Exports
 - Consider adding crops/OCR outputs into the feedback ZIP once those artifacts are stable; Canvas ignores comment columns in CSV imports, so richer feedback needs files rather than CSV.
 
