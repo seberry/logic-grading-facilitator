@@ -1,0 +1,10 @@
+[package]
+name = "deduct_checker_cli"
+version = "0.1.0"
+edition = "2021"
+description = "Machine-facing CLI wrapper around the separate deduct proof checker library."
+
+[dependencies]
+deduct = { path = "../../vendor/deduct-master" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

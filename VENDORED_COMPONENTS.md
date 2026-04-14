@@ -16,6 +16,9 @@ Purpose in this repository:
   proof checker integration.
 - Not currently ported into the Python source tree.
 - Not currently treated as part of the existing Python Fitch checker.
+- When used for backend checking, the recommended extracted source location is
+  `vendor/deduct-master/`, with the machine-facing wrapper crate at
+  `tools/deduct_checker_cli/`.
 
 Operational note:
 

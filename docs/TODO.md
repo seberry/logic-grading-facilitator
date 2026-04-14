@@ -32,7 +32,8 @@
 
 ## Shared autograde architecture
 - Build route/UI integration on top of `app/autograde/` instead of adding checker-specific logic directly inside strip routes.
-- Keep unfinished engines explicit: `fitch_proof`, `kripke_model`, and `modal_proof` are currently scaffold-only.
+- Keep unfinished engines explicit: `fitch_proof` and `kripke_model` are currently scaffold-only.
+- Add a modal proof debug page on top of the existing `deduct` CLI backend if local inspection/editing becomes important.
 - Add a batch experiment harness for Kripke OCR/debug runs so prompt changes can be compared over folders of cropped samples.
 
 ## Exports

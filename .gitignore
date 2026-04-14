@@ -76,3 +76,7 @@ lmstudio/
 models/
 venv/
 .aider*
+vendor/deduct-master/
+tools/deduct_checker_cli/target/
+pytest-cache-files-*/
+working/.pytest_cache/

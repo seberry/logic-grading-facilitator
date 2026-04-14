@@ -11,7 +11,7 @@ new checkers should fit into.
 | `fol_model` | Implemented through shared orchestrator | Uses the existing deterministic FOL checker and emits normalized trace/comment output. The FOL debug page now calls this shared layer. |
 | `fitch_proof` | Scaffold only | Existing verifier/debug tools exist elsewhere; strip-view autograding is not wired yet. |
 | `kripke_model` | Scaffold only | Intended destination for the Kripke debug/checker flow. |
-| `modal_proof` | Scaffold only | Reserved for future modal proof checker integration. |
+| `modal_proof` | Implemented through shared orchestrator | Uses a separate `deduct` Rust CLI wrapper via subprocess; backend integration is in place, but no dedicated modal debug page exists yet. |
 
 ## Package layout
 
@@ -24,6 +24,7 @@ app/autograde/
   fitch_proof.py
   kripke_model.py
   modal_proof.py
+app/modal_proof_deduct.py
 ```
 
 Responsibilities:
@@ -32,6 +33,7 @@ Responsibilities:
 - `registry.py`: `problem_type -> engine` lookup
 - `orchestrator.py`: single entrypoint for callers
 - `<problem_type>.py`: thin adapter around the deterministic checker for that family
+- `app/modal_proof_deduct.py`: subprocess adapter for the separate `deduct` CLI wrapper
 
 ## Design rule
 
@@ -92,6 +94,7 @@ The orchestrator is deliberately small. It should stay boring.
 - `app/routes/fol_model_debug.py` should call `app.autograde.autograde_submission(...)` rather than reaching into `app.fol_model_checker` directly for live checker runs.
 - The checker module still owns FOL-specific logic and trace construction.
 - The route should own UI state, OCR reruns, artifact loading, and template shaping only.
+- `modal_proof` currently has no dedicated route ownership; the backend checker is wired for orchestrator use first, with UI/debug work deferred.
 
 ## Why scaffolds are present for unfinished engines
 
@@ -103,3 +106,15 @@ that the user-facing workflow is finished. They are acceptable as long as:
 - draft comments say the engine is not wired yet
 
 That gives future work a stable place to land without creating hidden coupling in route code.
+
+## Modal proof implementation note
+
+`modal_proof` is the exception to the scaffold-only rule above. Its backend checker
+integration now exists, but it intentionally preserves a hard boundary:
+
+- Python calls a separate compiled binary through `subprocess`
+- the Rust-side wrapper crate lives in `tools/deduct_checker_cli/`
+- the upstream AGPL `deduct` source is expected at `vendor/deduct-master/`
+- no Rust code has been ported into the Python source tree for this integration
+
+See `docs/MODAL_PROOF_DEDUCT_CLI.md` for setup details.

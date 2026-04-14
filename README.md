@@ -139,8 +139,12 @@ More automation: See `docs/FUTURE_AUTOMATION.md` for details, but the major phas
 The repo now includes a small shared autograde package at `app/autograde/`.
 
 - `fol_model` is the first real engine wired through that shared layer.
-- `fitch_proof`, `kripke_model`, and `modal_proof` currently have explicit scaffold modules only.
-- Those stubs are present to define extension points and shared result shapes; they are not a claim that the user-facing workflows are finished.
+- `modal_proof` now has backend checker integration through a separate `deduct` CLI wrapper, controlled by `DEDUCT_CHECKER_BIN`.
+- `fitch_proof` and `kripke_model` remain explicit scaffold modules only.
+- The unfinished engines are present to define extension points and shared result shapes; they are not a claim that the user-facing workflows are finished.
+
+See [docs/MODAL_PROOF_DEDUCT_CLI.md](/C:/Users/seber/logic-grading-facilitator-MAIN/docs/MODAL_PROOF_DEDUCT_CLI.md)
+for the build/run boundary of the separate modal checker component.
 
 See [docs/AUTOGRADE_ARCHITECTURE.md](/C:/Users/seber/logic-grading-facilitator-MAIN/docs/AUTOGRADE_ARCHITECTURE.md) for the current contract and status table.
 
