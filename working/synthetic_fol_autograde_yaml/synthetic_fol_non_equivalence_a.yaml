@@ -1,0 +1,7 @@
+task_kind: non_equivalence
+default_score_correct: 3
+default_score_incorrect: 0
+prompt_data:
+  formulas:
+    - "∀x Px"
+    - "∃x Px"

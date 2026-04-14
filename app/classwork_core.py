@@ -20,6 +20,7 @@ from PIL import Image, ImageDraw, ImageFont
 from .helpers import _unique_path
 from .models import (
     ClassworkBatchState,
+    ClassworkDownloadWarning,
     ClassworkEntry,
     ClassworkFileRef,
     ClassworkModeState,
@@ -461,6 +462,7 @@ def _classwork_build_mode_from_downloads(
     id_col: str,
     gradebook_column: Optional[str] = None,
     gradebook_fieldnames: Optional[List[str]] = None,
+    download_warnings: Optional[List[Dict[str, str]]] = None,
 ) -> ClassworkModeState:
     setup_id = uuid4().hex
     student_files_ref: Dict[str, List[ClassworkFileRef]] = {}
@@ -532,6 +534,15 @@ def _classwork_build_mode_from_downloads(
         gradebook_column=(gradebook_column or "").strip() or None,
         entries=entries,
         unmatched_files=[],
+        download_warnings=[
+            ClassworkDownloadWarning(
+                student_id=str(item.get("student_id") or ""),
+                student_name=str(item.get("student_name") or ""),
+                filename=str(item.get("filename") or ""),
+                error=str(item.get("error") or ""),
+            )
+            for item in (download_warnings or [])
+        ],
     )
 
 

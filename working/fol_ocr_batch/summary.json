@@ -1,0 +1,35 @@
+[
+  {
+    "scan_slug": "synthetic_fol_non_equivalence_a",
+    "image_path": "data\\samples\\debug_fol_model\\synthetic_fol_non_equivalence_a\\synthetic_fol_non_equivalence_a.png",
+    "config_source": "data\\samples\\debug_fol_model\\synthetic_fol_non_equivalence_a\\state.json",
+    "ocr_status": "ok",
+    "checker_status": "scored",
+    "passed": true,
+    "score": 3.0,
+    "summary": "The two formulas differ in truth value in this model, so they are not logically equivalent.",
+    "error": ""
+  },
+  {
+    "scan_slug": "synthetic_fol_non_validity_a",
+    "image_path": "data\\samples\\debug_fol_model\\synthetic_fol_non_validity_a\\synthetic_fol_non_validity_a.png",
+    "config_source": "data\\samples\\debug_fol_model\\synthetic_fol_non_validity_a\\state.json",
+    "ocr_status": "ok",
+    "checker_status": "scored",
+    "passed": true,
+    "score": 3.0,
+    "summary": "All premises are true and the conclusion is false in this model, so it is a countermodel and the argument is not valid.",
+    "error": ""
+  },
+  {
+    "scan_slug": "synthetic_fol_truth_value_a",
+    "image_path": "data\\samples\\debug_fol_model\\synthetic_fol_truth_value_a\\synthetic_fol_truth_value_a.png",
+    "config_source": "data\\samples\\debug_fol_model\\synthetic_fol_truth_value_a\\state.json",
+    "ocr_status": "ok",
+    "checker_status": "scored",
+    "passed": false,
+    "score": 0.0,
+    "summary": "At least one target sentence does not have the required truth value in this model.",
+    "error": ""
+  }
+]

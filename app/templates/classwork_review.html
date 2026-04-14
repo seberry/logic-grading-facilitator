@@ -8,6 +8,7 @@
     .top { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 0.9rem 1rem; margin-bottom: 1rem; }
     .muted { color: #6b7280; }
     .error { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 0.7rem; border-radius: 8px; margin-bottom: 0.8rem; }
+    .warning { background: #fffbeb; border: 1px solid #fcd34d; color: #92400e; padding: 0.7rem; border-radius: 8px; margin-bottom: 0.8rem; }
     .entry { display: grid; grid-template-columns: 1.2fr 1fr; gap: 1rem; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 0.8rem; margin-bottom: 0.9rem; }
     .entry.missing { border-color: #fca5a5; background: #fffbfb; }
     .meta { margin-bottom: 0.7rem; }
@@ -53,6 +54,27 @@
       {% endif %}
       {% if error_message %}
         <div class="error">{{ error_message }}</div>
+      {% endif %}
+      {% if mode.download_warnings %}
+        <div class="warning">
+          <strong>Canvas download warning</strong>
+          <div>{{ mode.download_warnings|length }} file download(s) failed after retry. Some submissions may be incomplete below.</div>
+          <table style="margin-top: 0.6rem;">
+            <thead>
+              <tr><th>Student ID</th><th>Student</th><th>File</th><th>Error</th></tr>
+            </thead>
+            <tbody>
+              {% for warning in mode.download_warnings %}
+                <tr>
+                  <td>{{ warning.student_id }}</td>
+                  <td>{{ warning.student_name }}</td>
+                  <td>{{ warning.filename }}</td>
+                  <td>{{ warning.error }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
       {% endif %}
       {% if analysis.conflicts %}
         <div class="error">

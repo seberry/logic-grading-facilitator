@@ -1,0 +1,7 @@
+DOMAIN: {1,2}
+
+CONSTANTS:
+a: 1
+
+PREDICATES:
+P: {1}

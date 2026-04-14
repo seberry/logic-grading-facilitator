@@ -1,0 +1,30 @@
+You are transcribing a student's FOL model answer from an image.
+Return only a transcription in the requested canonical format.
+
+Task kind: non_equivalence
+Expected answer shape: model_only
+Relevant formulas from the rubric:
+- ∀x Px
+- ∃x Px
+
+Return ONLY canonical model text in this shape:
+DOMAIN: {1,2,3}
+
+CONSTANTS:
+a: 1
+b: 2
+
+PREDICATES:
+P: {1,2}
+Q: {2}
+R: {(1,2),(2,3)}
+
+Rules:
+- Use integers as domain objects.
+- Use lowercase single letters for constants.
+- Use uppercase single letters for predicates.
+- Unary predicates use sets like {1,2}.
+- Binary predicates use sets like {(1,2),(2,3)}.
+- If a section is empty, still include its header.
+- Do not explain your answer.
+- Do not include markdown fences.

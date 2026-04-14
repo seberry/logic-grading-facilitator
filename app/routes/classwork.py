@@ -52,6 +52,48 @@ templates = Jinja2Templates(
     directory=str(Path(__file__).resolve().parents[1] / 'templates')
 )
 
+
+def _clear_classwork_session_data(session: Any) -> None:
+    stored_filenames: set[str] = set()
+    gradebook_tokens: set[str] = set()
+
+    modes: List[ClassworkModeState] = []
+    if session.classwork_batch is not None:
+        modes.extend(session.classwork_batch.assignments)
+        if session.classwork_batch.gradebook_token:
+            gradebook_tokens.add(session.classwork_batch.gradebook_token)
+    if session.classwork_mode is not None:
+        modes.append(session.classwork_mode)
+        if session.classwork_mode.gradebook_token:
+            gradebook_tokens.add(session.classwork_mode.gradebook_token)
+
+    for mode in modes:
+        if mode.gradebook_token:
+            gradebook_tokens.add(mode.gradebook_token)
+        for entry in mode.entries:
+            for ref in entry.files:
+                if ref.stored_filename:
+                    stored_filenames.add(ref.stored_filename)
+
+    for stored_filename in stored_filenames:
+        try:
+            stored_path = _classwork_resolve_stored_file(stored_filename)
+        except HTTPException:
+            continue
+        try:
+            stored_path.unlink(missing_ok=True)
+        except OSError:
+            continue
+
+    for token in gradebook_tokens:
+        try:
+            _classwork_gradebook_tmp_path(token).unlink(missing_ok=True)
+        except OSError:
+            continue
+
+    session.classwork_batch = None
+    session.classwork_mode = None
+
 @router.get("/classwork/canvas_courses")
 def get_canvas_courses():
     """Fetch list of Canvas courses for the user."""
@@ -388,10 +430,21 @@ async def classwork_batch_set_column(
 async def classwork_batch_clear() -> Response:
     with _session_lock:
         session = get_session()
-        session.classwork_batch = None
-        session.classwork_mode = None
+        _clear_classwork_session_data(session)
         persist_session()
     return RedirectResponse(url="/classwork?status=success&message=" + quote("Queue cleared."), status_code=303)
+
+
+@router.post("/classwork/reset", response_class=HTMLResponse)
+async def classwork_reset() -> Response:
+    with _session_lock:
+        session = get_session()
+        _clear_classwork_session_data(session)
+        persist_session()
+    return RedirectResponse(
+        url="/classwork?status=success&message=" + quote("Classwork session reset. Temporary files were removed."),
+        status_code=303,
+    )
 
 
 @router.get("/classwork/batch/finalize", response_class=HTMLResponse)
@@ -585,8 +638,7 @@ async def classwork_batch_close_session(request: Request) -> Response:
     assignment_ids = manifest.get("assignment_ids") or sorted(comments_files.keys())
     with _session_lock:
         session = get_session()
-        session.classwork_batch = None
-        session.classwork_mode = None
+        _clear_classwork_session_data(session)
         persist_session()
     return templates.TemplateResponse(
         "classwork_batch_done.html",
@@ -1005,7 +1057,7 @@ async def classwork_canvas_setup(
                 
                 # Download submissions to temp directory for this assignment only
                 # Now returns tuple: (student_files, canvas_user_ids)
-                student_files, canvas_ids_for_assignment = client.download_assignment_submissions(
+                student_files, canvas_ids_for_assignment, download_warnings = client.download_assignment_submissions(
                     course_id=course_id,
                     assignment_id=canvas_aid,
                     output_dir=temp_path / f"assignment_{canvas_aid}"
@@ -1034,6 +1086,7 @@ async def classwork_canvas_setup(
                     id_col=id_col,
                     gradebook_column=None,  # Will be auto-matched
                     gradebook_fieldnames=fieldnames,  # Pass fieldnames for matching
+                    download_warnings=download_warnings,
                 )
                 
                 # Add Canvas metadata

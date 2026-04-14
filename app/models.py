@@ -66,6 +66,14 @@ class ClassworkEntry(BaseModel):
     comment: Optional[str] = None
 
 
+class ClassworkDownloadWarning(BaseModel):
+    """Canvas download failure recorded after retries are exhausted."""
+    student_id: str
+    student_name: str
+    filename: str
+    error: str
+
+
 class ClassworkModeState(BaseModel):
     """State for effort-based classwork review mode."""
     assignment_id: str
@@ -75,6 +83,7 @@ class ClassworkModeState(BaseModel):
     gradebook_column: Optional[str] = None
     entries: List[ClassworkEntry] = Field(default_factory=list)
     unmatched_files: List[str] = Field(default_factory=list)
+    download_warnings: List[ClassworkDownloadWarning] = Field(default_factory=list)
     # Canvas integration fields
     canvas_course_id: Optional[int] = None
     canvas_assignment_id: Optional[int] = None

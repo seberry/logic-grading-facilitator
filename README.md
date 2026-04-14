@@ -7,6 +7,13 @@ includes code adapted from `OpenLogicProject/fitch-checker` under `GPL-3.0`.
 See `THIRD_PARTY_NOTICES.md` for provenance details and `LICENSES/GPL-3.0.txt`
 for the included license text for that reused component.
 
+## Collaboration note
+
+When an agent task would be significantly faster, simpler, or less token-heavy
+if a human manually fetches or pastes a file, the agent should say so before
+doing a slow workaround. Prefer asking for the file directly when that is
+likely to save substantial time or tokens.
+
 A lightweight local tool for grading scanned student submissions with minimal friction, clean data structures, and a clear path toward future automation (OCR, clustering, autograding). Designed to eliminate the mechanical overhead of: matching scans to names, managing multi-page submissions, entering per-problem scores, and exporting grades back to Canvas.
 
 This project is built around a simple core abstraction:

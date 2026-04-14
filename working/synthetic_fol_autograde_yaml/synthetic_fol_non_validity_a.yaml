@@ -1,0 +1,8 @@
+task_kind: non_validity
+default_score_correct: 3
+default_score_incorrect: 0
+prompt_data:
+  premises:
+    - "∀x (Px → Qx)"
+    - "∃x Px"
+  conclusion: "∀x Qx"

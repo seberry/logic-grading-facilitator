@@ -44,6 +44,11 @@
     {% if error_message %}
       <div class="error">{{ error_message }}</div>
     {% endif %}
+    {% if batch or existing %}
+      <form method="post" action="/classwork/reset" onsubmit="return confirm('Reset the current classwork session and remove its temporary downloaded files? Exports will be kept.');">
+        <button type="submit" class="btn secondary">Reset Classwork Session</button>
+      </form>
+    {% endif %}
     <h2>Step 1: Upload Gradebook / Create Queue</h2>
     <form method="post" action="/classwork/batch/start" enctype="multipart/form-data">
       <label for="batch_gradebook_csv">Canvas gradebook CSV</label>

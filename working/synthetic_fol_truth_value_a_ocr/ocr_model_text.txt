@@ -1,0 +1,10 @@
+DOMAIN: {1,2,3}
+
+CONSTANTS:
+a: 1
+b: 2
+
+PREDICATES:
+P: {1,2}
+Q: {2}
+R: {(1,2),(2,3)}

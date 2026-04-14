@@ -9,6 +9,7 @@ import os
 import time
 import json
 import csv
+import logging
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -34,6 +35,8 @@ GRADEBOOK_CACHE_TTL = 300  # 5 minutes
 
 # Maximum number of cache files to keep per course
 MAX_CACHE_FILES_PER_COURSE = 5
+ATTACHMENT_DOWNLOAD_MAX_ATTEMPTS = 4
+ATTACHMENT_DOWNLOAD_BACKOFF_SECONDS = 1.0
 
 
 def _cleanup_old_cache_files(course_id: str, cache_type: str, keep_count: int = MAX_CACHE_FILES_PER_COURSE) -> None:
@@ -93,11 +96,74 @@ class CanvasClient:
                 "Set CANVAS_BASE_URL and CANVAS_API_KEY environment variables."
             )
         
-        self._client = httpx.Client(
+        self._client = self._build_http_client()
+
+    def _build_http_client(self) -> httpx.Client:
+        return httpx.Client(
             timeout=30.0,
             follow_redirects=True,  # Follow Canvas 302 redirects for file downloads
             headers={"Authorization": f"Bearer {self.api_key}"}
         )
+
+    def _reset_http_client(self) -> None:
+        self._client.close()
+        self._client = self._build_http_client()
+
+    def _download_attachment_with_retry(
+        self,
+        *,
+        file_url: str,
+        filename: str,
+        logger: logging.Logger,
+        phase_label: str = "pass 1",
+    ) -> bytes:
+        """Download a Canvas attachment with limited retries for transient failures."""
+        last_error: Optional[Exception] = None
+
+        for attempt in range(1, ATTACHMENT_DOWNLOAD_MAX_ATTEMPTS + 1):
+            try:
+                response = self._client.get(file_url)
+                response.raise_for_status()
+                if attempt > 1:
+                    logger.info(
+                        "  Downloaded %s on %s retry %s/%s",
+                        filename,
+                        phase_label,
+                        attempt,
+                        ATTACHMENT_DOWNLOAD_MAX_ATTEMPTS,
+                    )
+                return response.content
+            except httpx.HTTPStatusError as e:
+                status_code = e.response.status_code
+                should_retry = status_code >= 500
+                logger.warning(
+                    "  %s attempt %s/%s failed for %s with HTTP %s",
+                    phase_label,
+                    attempt,
+                    ATTACHMENT_DOWNLOAD_MAX_ATTEMPTS,
+                    filename,
+                    status_code,
+                )
+                last_error = e
+                if not should_retry or attempt == ATTACHMENT_DOWNLOAD_MAX_ATTEMPTS:
+                    break
+            except httpx.RequestError as e:
+                logger.warning(
+                    "  %s attempt %s/%s failed for %s: %s",
+                    phase_label,
+                    attempt,
+                    ATTACHMENT_DOWNLOAD_MAX_ATTEMPTS,
+                    filename,
+                    e,
+                )
+                last_error = e
+                if attempt == ATTACHMENT_DOWNLOAD_MAX_ATTEMPTS:
+                    break
+
+            time.sleep(ATTACHMENT_DOWNLOAD_BACKOFF_SECONDS * attempt)
+
+        assert last_error is not None
+        raise last_error
     
     def _make_request(self, endpoint: str, params: Dict = None) -> Dict[str, Any]:
         """Make authenticated request to Canvas API."""
@@ -575,7 +641,7 @@ class CanvasClient:
         course_id: int,
         assignment_id: int,
         output_dir: Path,
-    ) -> tuple[Dict[str, List[Path]], Dict[str, int]]:
+    ) -> tuple[Dict[str, List[Path]], Dict[str, int], List[Dict[str, str]]]:
         """
         Download all submission files for an assignment from Canvas.
         
@@ -588,16 +654,18 @@ class CanvasClient:
             Tuple of:
             - Dict mapping student_id (sis_login_id) to list of downloaded file paths
             - Dict mapping student_id (sis_login_id) to canvas_user_id (integer)
+            - List of exhausted download warnings with student/file/error context
             
         Raises:
             CanvasClientError: If download fails
         """
-        import logging
         logger = logging.getLogger(__name__)
         
         output_dir.mkdir(parents=True, exist_ok=True)
         student_files: Dict[str, List[Path]] = {}
         canvas_user_ids: Dict[str, int] = {}  # sis_login_id -> canvas_user_id mapping
+        download_warnings: List[Dict[str, str]] = []
+        failed_downloads: List[Dict[str, str]] = []
         
         try:
             # Fetch all submissions for this assignment
@@ -646,8 +714,12 @@ class CanvasClient:
                         
                         # Download file
                         try:
-                            response = self._client.get(file_url)
-                            response.raise_for_status()
+                            file_bytes = self._download_attachment_with_retry(
+                                file_url=file_url,
+                                filename=filename,
+                                logger=logger,
+                                phase_label="pass 1",
+                            )
                             
                             # Save to output directory
                             # Preserve Canvas naming: {last_name}_{first_name}_assignment_{id}_{original_name}
@@ -661,7 +733,7 @@ class CanvasClient:
                                 file_path = output_dir / f"{stem}_{counter}{suffix}"
                                 counter += 1
                             
-                            file_path.write_bytes(response.content)
+                            file_path.write_bytes(file_bytes)
                             
                             # Add to student's file list
                             if student_id not in student_files:
@@ -672,9 +744,27 @@ class CanvasClient:
                             
                         except httpx.HTTPStatusError as e:
                             logger.error(f"  Failed to download {filename}: {e}")
+                            failed_downloads.append(
+                                {
+                                    "student_id": str(student_id),
+                                    "student_name": student_name,
+                                    "filename": filename,
+                                    "file_url": file_url,
+                                    "error": str(e),
+                                }
+                            )
                             continue
                         except Exception as e:
                             logger.error(f"  Error downloading {filename}: {e}")
+                            failed_downloads.append(
+                                {
+                                    "student_id": str(student_id),
+                                    "student_name": student_name,
+                                    "filename": filename,
+                                    "file_url": file_url,
+                                    "error": str(e),
+                                }
+                            )
                             continue
                 
                 # Case 2: Text submission (online_text_entry)
@@ -704,9 +794,57 @@ class CanvasClient:
                     
                     logger.info(f"  Created text file from submission")
             
+            if failed_downloads:
+                logger.info(
+                    "Retrying %s exhausted attachment download(s) in a second pass with a fresh client",
+                    len(failed_downloads),
+                )
+                self._reset_http_client()
+                second_pass_failures: List[Dict[str, str]] = []
+                for item in failed_downloads:
+                    filename = item["filename"]
+                    file_url = item["file_url"]
+                    student_id = item["student_id"]
+                    student_name = item["student_name"]
+                    try:
+                        file_bytes = self._download_attachment_with_retry(
+                            file_url=file_url,
+                            filename=filename,
+                            logger=logger,
+                            phase_label="pass 2",
+                        )
+                        file_path = output_dir / filename
+                        counter = 1
+                        while file_path.exists():
+                            stem = Path(filename).stem
+                            suffix = Path(filename).suffix
+                            file_path = output_dir / f"{stem}_{counter}{suffix}"
+                            counter += 1
+                        file_path.write_bytes(file_bytes)
+                        if student_id not in student_files:
+                            student_files[student_id] = []
+                        student_files[student_id].append(file_path)
+                        logger.info("  Recovered on second pass: %s", filename)
+                    except Exception as e:
+                        second_pass_failures.append(
+                            {
+                                "student_id": student_id,
+                                "student_name": student_name,
+                                "filename": filename,
+                                "error": str(e),
+                            }
+                        )
+                        logger.error("  Final failure after second pass for %s: %s", filename, e)
+                download_warnings = second_pass_failures
+
             logger.info(f"Download complete: {len(student_files)} students with files")
             logger.info(f"Canvas user ID mapping built: {len(canvas_user_ids)} students")
-            return student_files, canvas_user_ids
+            if download_warnings:
+                logger.warning(
+                    "Download completed with %s final attachment failure(s)",
+                    len(download_warnings),
+                )
+            return student_files, canvas_user_ids, download_warnings
             
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:

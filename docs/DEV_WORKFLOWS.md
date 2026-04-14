@@ -91,6 +91,11 @@ All `data/...` paths below are relative to `DATA_DIR` (defaults to `data/samples
      --output-dir data/debug_fol_model/my_fol_crop \
      --autograde-file data/debug_fol_model/my_fol_crop/ocr_request.yaml
    ```
+   This script is only the OCR proposal stage:
+   `image -> local model -> proposed canonical text`.
+   It does not run the deterministic checker.
+   `--autograde-file` may point either to a plain autograde YAML file or to a
+   saved debug `state.json` file containing `problem_setup_text`.
    The script writes:
    - `ocr_prompt.txt`
    - `ocr_raw_response.txt`
@@ -122,3 +127,26 @@ All `data/...` paths below are relative to `DATA_DIR` (defaults to `data/samples
 - OCR currently aims at canonical model transcription, not full grading.
 - The best-supported answer shape right now is `model_only`.
 - The page is meant for safe local debugging before wiring the same flow into strip grading.
+
+## 7. FOL OCR batch handoff test
+**Goal:** Exercise the full non-browser handoff:
+`image -> OCR proposal -> checker input -> deterministic autograde`.
+
+```bash
+python scripts/run_fol_ocr_batch.py
+```
+
+Useful flags:
+
+```bash
+python scripts/run_fol_ocr_batch.py --checker-input ocr
+python scripts/run_fol_ocr_batch.py --checker-input gold
+```
+
+Interpretation:
+- `ocr`: simulate “human clicked approve” with no manual edits; feed the OCR proposal directly into the checker.
+- `gold`: bypass OCR text as checker input and use the known-good sample transcription from `state.json`; useful for isolating OCR problems from checker problems.
+
+Artifacts:
+- `working/fol_ocr_batch/summary.json`
+- `working/fol_ocr_batch/summary.html`
