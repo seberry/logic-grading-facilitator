@@ -118,3 +118,8 @@ integration now exists, but it intentionally preserves a hard boundary:
 - no Rust code has been ported into the Python source tree for this integration
 
 See `docs/MODAL_PROOF_DEDUCT_CLI.md` for setup details.
+
+Related development tooling now also includes `scripts/debug_modal_proof_ocr.py`,
+an experimental OCR/debug scaffold that targets the same `modal_proof` engine.
+That script currently belongs to stage 1-2 work above (extraction/transcription
+plus normalization), not to the checker boundary itself.

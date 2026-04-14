@@ -40,6 +40,26 @@ checker without porting its code into Python.
 The Python side currently uses this boundary through the `modal_proof`
 autograde engine and the `/debug/modal-proof` page.
 
+## Current OCR companion status
+
+There is also an experimental sibling script at `scripts/debug_modal_proof_ocr.py`.
+It is not part of the Rust checker boundary itself; it is a local OCR/debug tool
+that feeds the same Python-side modal proof shape used by `/debug/modal-proof`.
+
+Current behavior:
+
+- detects vertical scope bars
+- recursively masks child subproofs with `<SUBPROOF_ID_X>` tokens
+- asks the local model for a modal-specific flat transcription format
+- stitches child crops back into nested proof JSON
+- rewrites strict-subproof local citations when the model mixes crop-local labels
+  with global line references
+- can immediately run the `deduct` checker and save the resulting
+  `checker_request.json` / `checker_response.json`
+
+The current clean probe that has been validated end-to-end is a typeset strict
+subproof proving `□(A ∧ B)` from `□A` and `□B`.
+
 ## Debug-page proof JSON shape
 
 The modal debug page accepts a more flexible JSON shape than the Rust CLI.

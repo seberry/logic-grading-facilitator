@@ -160,6 +160,41 @@ Use `http://127.0.0.1:5000/debug/modal-proof` to exercise the modal checker back
 
 This page is for manual/typeset proof structures only; it does not yet handle PDF import or OCR.
 
+## Modal proof OCR scaffold
+
+There is now a separate experimental script at `scripts/debug_modal_proof_ocr.py`
+for modal Fitch-style proof OCR. It is intentionally a sibling to the older
+Fitch OCR path rather than a full abstraction over both families.
+
+Current status:
+
+- it reuses the recursive vertical-bar / crop / mask strategy
+- it asks the local model for a modal-specific intermediate transcription format
+- it converts that into the nested proof JSON accepted by `/debug/modal-proof`
+- it can optionally run the separate Rust `deduct` checker and save the request
+  and response beside the OCR artifacts
+
+This scaffold has been validated on a clean typeset strict-subproof example,
+including:
+
+- top-level boxed premises such as `□A` and `□B`
+- a strict opener line `□`
+- internal citations such as `∧I 4 5`
+- a final `□I 3-6`
+
+Artifacts from a run are written to a chosen output folder and typically include:
+
+- `ocr_prompt.txt`
+- `response_<node>.json`
+- `intermediate_<node>.json`
+- `final_structure.json`
+- `state.json`
+- `checker_request.json`
+- `checker_response.json`
+
+This is still a development/debug path, not a finished grading workflow for
+real handwritten submissions.
+
 ## Fitch proof debug + human-correction page
 Use the in-browser review page to inspect OCR artifacts, hand-edit the stitched proof JSON, and run the verifier without leaving the UI:
 
