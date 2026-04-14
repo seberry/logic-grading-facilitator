@@ -11,7 +11,7 @@ new checkers should fit into.
 | `fol_model` | Implemented through shared orchestrator | Uses the existing deterministic FOL checker and emits normalized trace/comment output. The FOL debug page now calls this shared layer. |
 | `fitch_proof` | Scaffold only | Existing verifier/debug tools exist elsewhere; strip-view autograding is not wired yet. |
 | `kripke_model` | Scaffold only | Intended destination for the Kripke debug/checker flow. |
-| `modal_proof` | Implemented through shared orchestrator | Uses a separate `deduct` Rust CLI wrapper via subprocess; backend integration is in place, but no dedicated modal debug page exists yet. |
+| `modal_proof` | Implemented through shared orchestrator | Uses a separate `deduct` Rust CLI wrapper via subprocess; backend integration is in place and `/debug/modal-proof` provides a dedicated manual/typeset debug page. |
 
 ## Package layout
 
@@ -94,7 +94,7 @@ The orchestrator is deliberately small. It should stay boring.
 - `app/routes/fol_model_debug.py` should call `app.autograde.autograde_submission(...)` rather than reaching into `app.fol_model_checker` directly for live checker runs.
 - The checker module still owns FOL-specific logic and trace construction.
 - The route should own UI state, OCR reruns, artifact loading, and template shaping only.
-- `modal_proof` currently has no dedicated route ownership; the backend checker is wired for orchestrator use first, with UI/debug work deferred.
+- `modal_proof` now has dedicated route ownership in `app/routes/modal_proof_debug.py` for backend-focused debugging of saved/manual proof examples.
 
 ## Why scaffolds are present for unfinished engines
 

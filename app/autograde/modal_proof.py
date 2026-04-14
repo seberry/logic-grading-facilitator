@@ -6,6 +6,7 @@ from app.modal_proof_deduct import (
     ModalProofCheckerProtocolError,
     ModalProofCheckerUnavailable,
     ModalProofConfigError,
+    build_modal_proof_request,
     run_modal_proof_checker,
 )
 
@@ -18,8 +19,10 @@ def autograde(
     runtime_options: Dict[str, Any] | None = None,
 ) -> AutoGradeResult:
     system = str(autograde_config.get("system", "")).strip()
+    request_payload = None
 
     try:
+        request_payload = build_modal_proof_request(answer_text, autograde_config)
         result = run_modal_proof_checker(
             answer_text=answer_text,
             autograde_config=autograde_config,
@@ -33,7 +36,10 @@ def autograde(
             summary=str(exc),
             draft_comment=f"Modal proof checker could not run: {exc}",
             extracted_answer={"raw_answer": answer_text},
-            metadata={"autograde_config": autograde_config},
+            metadata={
+                "autograde_config": autograde_config,
+                "checker_request": request_payload,
+            },
             errors=[str(exc)],
         )
     except (ModalProofCheckerUnavailable, ModalProofCheckerProtocolError) as exc:
@@ -44,7 +50,10 @@ def autograde(
             summary=str(exc),
             draft_comment=f"Modal proof checker unavailable: {exc}",
             extracted_answer={"raw_answer": answer_text},
-            metadata={"autograde_config": autograde_config},
+            metadata={
+                "autograde_config": autograde_config,
+                "checker_request": request_payload,
+            },
             errors=[str(exc)],
         )
 
@@ -141,5 +150,7 @@ def autograde(
         metadata={
             "autograde_config": autograde_config,
             "checker_metadata": result.metadata,
+            "checker_request": getattr(result, "request_payload", request_payload),
+            "checker_response": getattr(result, "response_payload", None),
         },
     )

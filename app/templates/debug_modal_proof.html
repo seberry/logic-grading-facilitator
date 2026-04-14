@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Modal Proof Debugger</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      background: #f3f4f6;
+      color: #1f2937;
+    }
+
+    .page {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+
+    h1 {
+      margin: 0 0 0.4rem 0;
+      font-size: 2rem;
+    }
+
+    .lede {
+      margin: 0 0 1.5rem 0;
+      color: #4b5563;
+      max-width: 72ch;
+    }
+
+    .panel {
+      background: #fff;
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      box-shadow: 0 8px 25px rgba(15, 23, 42, 0.06);
+      padding: 1rem 1.1rem;
+      margin-bottom: 1rem;
+    }
+
+    .top-grid {
+      display: grid;
+      grid-template-columns: minmax(320px, 0.95fr) minmax(360px, 1.05fr);
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    .output-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 0.45rem;
+    }
+
+    textarea,
+    input[type="text"],
+    input[type="number"],
+    select {
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 0.75rem 0.85rem;
+      font: inherit;
+      background: #fff;
+      color: #111827;
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 260px;
+      line-height: 1.45;
+      font-family: Consolas, "SFMono-Regular", Menlo, Monaco, monospace;
+    }
+
+    .small-textarea {
+      min-height: 180px;
+    }
+
+    .comment-box {
+      min-height: 170px;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+
+    button {
+      border: 0;
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      font: inherit;
+      font-weight: 600;
+      background: #2563eb;
+      color: #fff;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      background: #0f766e;
+    }
+
+    .status {
+      border-radius: 8px;
+      padding: 0.85rem 1rem;
+      margin-bottom: 1rem;
+      font-weight: 600;
+    }
+
+    .status.success {
+      background: #ecfdf5;
+      border: 1px solid #a7f3d0;
+      color: #065f46;
+    }
+
+    .status.error {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #991b1b;
+    }
+
+    .muted {
+      color: #6b7280;
+      font-size: 0.95rem;
+    }
+
+    .summary-box {
+      background: #f8fafc;
+      border: 1px solid #dbe4f0;
+      border-radius: 8px;
+      padding: 0.9rem 1rem;
+      white-space: pre-wrap;
+    }
+
+    .issue-list {
+      margin: 0;
+      padding-left: 1.2rem;
+    }
+
+    .issue-list li + li {
+      margin-top: 0.35rem;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 0.4rem;
+    }
+
+    th,
+    td {
+      border-bottom: 1px solid #e5e7eb;
+      padding: 0.45rem 0.5rem;
+      text-align: left;
+      vertical-align: top;
+      font-size: 0.94rem;
+    }
+
+    th {
+      background: #f8fafc;
+      font-weight: 700;
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      margin-top: 1rem;
+      font-weight: 600;
+    }
+
+    .checkbox-row input {
+      width: 1rem;
+      height: 1rem;
+      accent-color: #2563eb;
+    }
+
+    .artifact {
+      margin-top: 1rem;
+    }
+
+    @media (max-width: 980px) {
+      .top-grid,
+      .output-grid,
+      .two-col {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>Modal Proof Debugger</h1>
+    <p class="lede">
+      Backend-focused debug page for the separate Rust <code>deduct</code> checker. This page is for manual or typeset proof structures only: edit the proof JSON, run the shared modal autograde path, and inspect the exact checker request and response.
+    </p>
+
+    {% if message %}
+      <div class="status {{ status or 'success' }}">{{ message }}</div>
+    {% endif %}
+    {% if checker_error %}
+      <div class="status error">{{ checker_error }}</div>
+    {% endif %}
+
+    <form method="post" action="/debug/modal-proof/run_checker">
+      <div class="top-grid">
+        <section class="panel">
+          <label for="example-picker">Saved example</label>
+          <select
+            id="example-picker"
+            name="example"
+            onchange="(function(sel){
+              const params = new URLSearchParams(window.location.search);
+              if (sel.value) params.set('example', sel.value); else params.delete('example');
+              window.location = '/debug/modal-proof?' + params.toString();
+            })(this)">
+            {% if selected_example == "starter" %}
+              <option value="starter" selected>starter</option>
+            {% else %}
+              <option value="starter">starter</option>
+            {% endif %}
+            {% for item in available_examples %}
+              <option value="{{ item }}" {% if item == selected_example %}selected{% endif %}>{{ item }}</option>
+            {% endfor %}
+          </select>
+
+          <div class="two-col" style="margin-top: 1rem;">
+            <div>
+              <label for="system">Modal system</label>
+              <select id="system" name="system">
+                {% for opt in system_options %}
+                  <option value="{{ opt }}" {% if opt == system %}selected{% endif %}>{{ opt }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div>
+              <label for="conclusion">Conclusion</label>
+              <input id="conclusion" name="conclusion" type="text" value="{{ conclusion }}" />
+            </div>
+          </div>
+
+          <label class="checkbox-row">
+            <input type="checkbox" name="include_derived_rules" value="true" {% if include_derived_rules %}checked{% endif %} />
+            Include derived rules
+          </label>
+
+          <div class="controls">
+            <button type="submit" class="secondary" formaction="/debug/modal-proof/save">Save state</button>
+            <button type="submit">Run checker</button>
+          </div>
+
+          <p class="muted">
+            Saving writes <code>state.json</code> under <code>data/.../debug_modal_proof/&lt;example&gt;/</code>. Running the checker also updates that state with the latest request, response, and summary.
+          </p>
+
+          {% for filename, artifact_text in optional_artifacts.items() %}
+            <div class="artifact">
+              <label>{{ filename }}</label>
+              <textarea class="small-textarea" readonly>{{ artifact_text }}</textarea>
+            </div>
+          {% endfor %}
+        </section>
+
+        <section class="panel">
+          <label for="proof-json-text">Proof JSON</label>
+          <textarea id="proof-json-text" name="proof_json_text">{{ proof_json_text }}</textarea>
+          <p class="muted">
+            Use the same proof shape as the modal autograde backend: a JSON list of lines or an object with a <code>lines</code> list. Nested subproofs are allowed. Each line may use <code>wffstr</code>/<code>jstr</code> or <code>sentence</code>/<code>citation</code>.
+          </p>
+        </section>
+      </div>
+
+      <div class="output-grid">
+        <section class="panel">
+          <label>Run summary</label>
+          <div class="summary-box">{{ run_summary }}</div>
+
+          <div class="two-col" style="margin-top: 1rem;">
+            <div>
+              <label for="draft-grade">Draft grade</label>
+              <input id="draft-grade" name="draft_grade" type="number" step="0.01" value="{{ draft_grade }}" />
+            </div>
+            <div></div>
+          </div>
+
+          <label for="draft-comment" style="margin-top: 1rem;">Draft comment</label>
+          <textarea id="draft-comment" name="draft_comment" class="comment-box">{{ draft_comment }}</textarea>
+        </section>
+
+        <section class="panel">
+          <label>Normalized lines</label>
+          {% if normalized_lines %}
+            <table>
+              <thead>
+                <tr>
+                  <th>Depth</th>
+                  <th>Sentence</th>
+                  <th>Citation</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for line in normalized_lines %}
+                  <tr>
+                    <td>{{ line.depth }}</td>
+                    <td>{{ line.sentence }}</td>
+                    <td>{{ line.citation }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          {% else %}
+            <p class="muted">No normalized lines are available yet.</p>
+          {% endif %}
+        </section>
+      </div>
+
+      <div class="output-grid">
+        <section class="panel">
+          <label>Parse errors</label>
+          {% if parse_errors %}
+            <ul class="issue-list">
+              {% for issue in parse_errors %}
+                <li>line {{ issue.line }}{% if issue.code %} ({{ issue.code }}){% endif %}: {{ issue.message }}</li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="muted">No parse errors reported.</p>
+          {% endif %}
+        </section>
+
+        <section class="panel">
+          <label>Rule errors</label>
+          {% if check_errors %}
+            <ul class="issue-list">
+              {% for issue in check_errors %}
+                <li>line {{ issue.line }}{% if issue.code %} ({{ issue.code }}){% endif %}: {{ issue.message }}</li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="muted">No rule errors reported.</p>
+          {% endif %}
+        </section>
+      </div>
+
+      <div class="output-grid">
+        <section class="panel">
+          <label>Checker request</label>
+          <textarea class="small-textarea" readonly>{{ checker_request | tojson(indent=2) if checker_request else "" }}</textarea>
+        </section>
+
+        <section class="panel">
+          <label>Checker response</label>
+          <textarea class="small-textarea" readonly>{{ checker_response | tojson(indent=2) if checker_response else "" }}</textarea>
+        </section>
+      </div>
+    </form>
+  </div>
+</body>
+</html>

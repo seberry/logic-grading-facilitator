@@ -139,7 +139,7 @@ More automation: See `docs/FUTURE_AUTOMATION.md` for details, but the major phas
 The repo now includes a small shared autograde package at `app/autograde/`.
 
 - `fol_model` is the first real engine wired through that shared layer.
-- `modal_proof` now has backend checker integration through a separate `deduct` CLI wrapper, controlled by `DEDUCT_CHECKER_BIN`.
+- `modal_proof` now has backend checker integration through a separate `deduct` CLI wrapper, controlled by `DEDUCT_CHECKER_BIN`, plus a dedicated `/debug/modal-proof` page for manual/typeset proof debugging.
 - `fitch_proof` and `kripke_model` remain explicit scaffold modules only.
 - The unfinished engines are present to define extension points and shared result shapes; they are not a claim that the user-facing workflows are finished.
 
@@ -147,6 +147,18 @@ See [docs/MODAL_PROOF_DEDUCT_CLI.md](/C:/Users/seber/logic-grading-facilitator-M
 for the build/run boundary of the separate modal checker component.
 
 See [docs/AUTOGRADE_ARCHITECTURE.md](/C:/Users/seber/logic-grading-facilitator-MAIN/docs/AUTOGRADE_ARCHITECTURE.md) for the current contract and status table.
+
+## Modal proof debug page
+
+Use `http://127.0.0.1:5000/debug/modal-proof` to exercise the modal checker backend with saved example states or the built-in starter proof. The page is intentionally backend-focused:
+
+- edit the proof JSON directly
+- choose `K`, `T`, `S4`, or `S5`
+- toggle derived rules
+- run the shared `modal_proof` autograde path
+- inspect the exact checker request, checker response, normalized lines, and reported parse/rule issues
+
+This page is for manual/typeset proof structures only; it does not yet handle PDF import or OCR.
 
 ## Fitch proof debug + human-correction page
 Use the in-browser review page to inspect OCR artifacts, hand-edit the stitched proof JSON, and run the verifier without leaving the UI:

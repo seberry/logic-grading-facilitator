@@ -46,6 +46,8 @@ class ModalCheckerResult:
     conclusion_reached: Optional[bool]
     normalized_lines: List[ModalCheckerLine]
     metadata: Dict[str, Any]
+    request_payload: Dict[str, Any]
+    response_payload: Dict[str, Any]
 
 
 def _normalize_modal_payload(payload: Any) -> Dict[str, Any]:
@@ -236,4 +238,6 @@ def run_modal_proof_checker(
         conclusion_reached=conclusion_reached,
         normalized_lines=_parse_normalized_lines(response.get("normalized_lines")),
         metadata=metadata,
+        request_payload=request_payload,
+        response_payload=response,
     )
