@@ -1,8 +1,14 @@
 """
-Python port of the OpenLogicProject/fitch-checker syntax.php logic parser.
-Original project licensed under GNU GPL v3.0. This module provides equivalent
-functionality using Python classes and typing, preserving the recursive parsing
-structure of the original PHP implementation.
+Adapted from the OpenLogicProject/fitch-checker project:
+https://github.com/OpenLogicProject/fitch-checker
+
+Upstream component: syntax.php
+Upstream license: GNU General Public License v3.0 (GPL-3.0)
+
+This module is a Python adaptation/port for this project. It provides
+equivalent parser functionality using Python classes and typing while
+preserving the recursive parsing structure of the upstream implementation.
+See THIRD_PARTY_NOTICES.md for provenance details.
 """
 from __future__ import annotations
 

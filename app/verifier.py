@@ -1,7 +1,13 @@
 """
-Python port of the OpenLogicProject/fitch-checker proofs.php verifier logic.
-Original project licensed under GNU GPL v3.0; this translation preserves the
-rule-checking semantics while adapting data structures to Python.
+Adapted from the OpenLogicProject/fitch-checker project:
+https://github.com/OpenLogicProject/fitch-checker
+
+Upstream component: proofs.php
+Upstream license: GNU General Public License v3.0 (GPL-3.0)
+
+This module is a Python adaptation/port for this project. It preserves the
+upstream rule-checking semantics while adapting the data structures to Python.
+See THIRD_PARTY_NOTICES.md for provenance details.
 """
 from __future__ import annotations
 

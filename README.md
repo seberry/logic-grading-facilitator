@@ -1,5 +1,12 @@
 # Logic Grading Facilitator
 
+## Third-party notices
+
+The Fitch proof parser/verifier in `app/syntax.py` and `app/verifier.py`
+includes code adapted from `OpenLogicProject/fitch-checker` under `GPL-3.0`.
+See `THIRD_PARTY_NOTICES.md` for provenance details and `LICENSES/GPL-3.0.txt`
+for the included license text for that reused component.
+
 A lightweight local tool for grading scanned student submissions with minimal friction, clean data structures, and a clear path toward future automation (OCR, clustering, autograding). Designed to eliminate the mechanical overhead of: matching scans to names, managing multi-page submissions, entering per-problem scores, and exporting grades back to Canvas.
 
 This project is built around a simple core abstraction:
