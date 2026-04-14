@@ -85,6 +85,34 @@ class ModalProofDeductTests(unittest.TestCase):
         self.assertEqual(result.conclusion_reached, True)
         self.assertEqual(result.normalized_lines[0].sentence, "A")
 
+    def test_run_checker_uses_utf8_for_unicode_input(self) -> None:
+        answer_text = json.dumps([{"wffstr": "A ∧ B", "jstr": "PR"}], ensure_ascii=False)
+        completed = subprocess.CompletedProcess(
+            args=["fake"],
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "ok": True,
+                    "parse_errors": [],
+                    "check_errors": [],
+                    "conclusion_reached": None,
+                    "normalized_lines": [{"depth": 0, "sentence": "A ∧ B", "citation": "PR"}],
+                    "metadata": {"system": "K", "checker_version": "test"},
+                },
+                ensure_ascii=False,
+            ),
+            stderr="",
+        )
+
+        with (
+            patch.dict("os.environ", {DEDUCT_CHECKER_BIN_ENV: "C:\\fake\\deduct_checker_cli.exe"}, clear=False),
+            patch("app.modal_proof_deduct.Path.exists", return_value=True),
+            patch("app.modal_proof_deduct.subprocess.run", return_value=completed) as mock_run,
+        ):
+            run_modal_proof_checker(answer_text, {"system": "K"})
+
+        self.assertEqual(mock_run.call_args.kwargs.get("encoding"), "utf-8")
+
     def test_run_checker_rejects_bad_json_response(self) -> None:
         answer_text = json.dumps([{"wffstr": "A", "jstr": "PR"}])
         completed = subprocess.CompletedProcess(
