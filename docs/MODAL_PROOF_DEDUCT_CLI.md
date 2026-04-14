@@ -38,4 +38,121 @@ checker without porting its code into Python.
 - Supported modal systems: `K`, `T`, `S4`, `S5`
 
 The Python side currently uses this boundary through the `modal_proof`
-autograde engine only. No modal debug page has been added yet.
+autograde engine and the `/debug/modal-proof` page.
+
+## Debug-page proof JSON shape
+
+The modal debug page accepts a more flexible JSON shape than the Rust CLI.
+Python normalizes this into the stricter request payload before invoking the
+checker.
+
+Accepted top-level shapes:
+
+- a JSON list of proof lines / nested subproof lists
+- an object with a `lines` list
+- an object with a `structure` list
+
+Accepted per-line keys:
+
+- `wffstr` or `sentence` for the formula text
+- `jstr` or `citation` for the rule citation
+- optional `location` list to override the inferred depth
+
+Preferred authoring shape for examples:
+
+```json
+[
+  { "wffstr": "A", "jstr": "PR" },
+  [
+    { "wffstr": "B", "jstr": "PR" },
+    { "wffstr": "A", "jstr": "R 1" }
+  ],
+  { "wffstr": "B → A", "jstr": "→I 2-3" }
+]
+```
+
+Nested lists become subproof depth. The page then shows the exact normalized
+`depth` / `sentence` / `citation` payload sent to Rust in the `Checker request`
+panel.
+
+## Ordinary vs strict subproofs
+
+`deduct` does **not** use a separate JSON container type for strict modal
+subproofs. Both ordinary and strict subproofs are expressed using nested lists.
+
+Ordinary subproof:
+
+- start a nested list
+- put the assumed sentence on the first line
+- use citation `PR` on that first line
+
+Example:
+
+```json
+[
+  [
+    { "wffstr": "A ∧ B", "jstr": "PR" },
+    { "wffstr": "A", "jstr": "∧E 1" }
+  ],
+  { "wffstr": "(A ∧ B) → A", "jstr": "→I 1-2" }
+]
+```
+
+Strict modal subproof:
+
+- start a nested list
+- the first line must be the bare necessity signal `□`
+- that line also uses citation `PR`
+
+Example:
+
+```json
+[
+  { "wffstr": "□P", "jstr": "PR" },
+  [
+    { "wffstr": "□", "jstr": "PR" },
+    { "wffstr": "□P", "jstr": "R4 1" }
+  ],
+  { "wffstr": "□□P", "jstr": "□I 2-3" }
+]
+```
+
+Important consequences:
+
+- the bare `□` line **counts as a real proof line**
+- `□I` cites the whole strict subproof range, including that first `□` line
+- strict-only rules such as `□E`, `R4`, and `R5` must occur inside such a
+  strict subproof
+
+If you want a strict-subproof example that also uses `□E`, this works:
+
+```json
+[
+  { "wffstr": "□P", "jstr": "PR" },
+  [
+    { "wffstr": "□", "jstr": "PR" },
+    { "wffstr": "□P", "jstr": "R4 1" },
+    { "wffstr": "P", "jstr": "□E 3" },
+    { "wffstr": "□P", "jstr": "R 3" }
+  ],
+  { "wffstr": "□□P", "jstr": "□I 2-5" }
+]
+```
+
+This matches the upstream `deduct` parser/checker tests in
+`vendor/deduct-master/src/check/mod.rs`.
+
+## Rule names and systems
+
+The Rust wrapper enables these rulesets:
+
+- basic TFL rules: `R`, `∧I`, `∧E`, `∨I`, `∨E`, `→I`, `→E`, `↔I`, `↔E`, `¬I`,
+  `¬E`, `IP`, `X`
+- derived TFL rules when `include_derived_rules=true`: `DS`, `MT`, `DNE`,
+  `LEM`, `DeM` / `DEM`
+- modal `K`: `□I`, `□E`, `Def⋄`, `MC`
+- modal `T`: `RT`
+- modal `S4`: `R4`
+- modal `S5`: `R5`
+
+For authoring examples, prefer the canonical Unicode spellings shown above.
