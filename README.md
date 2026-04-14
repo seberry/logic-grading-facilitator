@@ -7,6 +7,12 @@ includes code adapted from `OpenLogicProject/fitch-checker` under `GPL-3.0`.
 See `THIRD_PARTY_NOTICES.md` for provenance details and `LICENSES/GPL-3.0.txt`
 for the included license text for that reused component.
 
+The repository also includes `deduct-master.zip`, a bundled archive of the
+separate `Colonial-Dev/deduct` project under `AGPL-3.0`. It is currently kept
+as a vendored reference/tool archive rather than as Python code adapted into
+this codebase. See `VENDORED_COMPONENTS.md`, `THIRD_PARTY_NOTICES.md`, and
+`LICENSES/AGPL-3.0.txt` for details.
+
 ## Collaboration note
 
 When an agent task would be significantly faster, simpler, or less token-heavy
