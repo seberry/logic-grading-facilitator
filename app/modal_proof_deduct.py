@@ -83,7 +83,7 @@ def _repair_box_rule_lookalike(citation: str) -> str:
     compact = str(citation or "").strip()
     if not compact:
         return compact
-    repaired = re.sub(r"^(?:[DO0])\s*([EI])(?=\b|\d)", lambda m: f"□{m.group(1)}", compact)
+    repaired = re.sub(r"^(?:[DO0])\s*([EI])\s*(.+)$", lambda m: f"□{m.group(1)} {m.group(2).strip()}", compact)
     return repaired
 
 
@@ -386,32 +386,40 @@ def run_modal_proof_checker(
         return result
 
     best_result = result
-    for candidate in _build_repaired_request_candidates(request_payload):
-        candidate_result = _run_checker_once(candidate, binary)
-        candidate_score = (len(candidate_result.parse_errors), len(candidate_result.check_errors))
-        best_score = (len(best_result.parse_errors), len(best_result.check_errors))
-        if candidate_score >= best_score:
-            continue
-
-        repairs: List[Dict[str, Any]] = []
-        for line_no, (before, after) in enumerate(zip(request_payload["lines"], candidate["lines"]), start=1):
-            if not isinstance(before, dict) or not isinstance(after, dict):
+    accumulated_repairs: List[Dict[str, Any]] = []
+    while _should_try_repair(best_result):
+        improved = False
+        base_request = best_result.request_payload
+        for candidate in _build_repaired_request_candidates(base_request):
+            candidate_result = _run_checker_once(candidate, binary)
+            candidate_score = (len(candidate_result.parse_errors), len(candidate_result.check_errors))
+            best_score = (len(best_result.parse_errors), len(best_result.check_errors))
+            if candidate_score >= best_score:
                 continue
-            before_sentence = str(before.get("sentence") or "")
-            after_sentence = str(after.get("sentence") or "")
-            before_citation = str(before.get("citation") or "")
-            after_citation = str(after.get("citation") or "")
-            if before_sentence != after_sentence:
-                repairs.append({"line": line_no, "field": "sentence", "from": before_sentence, "to": after_sentence})
-            if before_citation != after_citation:
-                repairs.append({"line": line_no, "field": "citation", "from": before_citation, "to": after_citation})
 
-        if repairs:
-            candidate_result.metadata = dict(candidate_result.metadata)
-            candidate_result.metadata["auto_repairs"] = repairs
+            repairs: List[Dict[str, Any]] = []
+            for line_no, (before, after) in enumerate(zip(base_request["lines"], candidate["lines"]), start=1):
+                if not isinstance(before, dict) or not isinstance(after, dict):
+                    continue
+                before_sentence = str(before.get("sentence") or "")
+                after_sentence = str(after.get("sentence") or "")
+                before_citation = str(before.get("citation") or "")
+                after_citation = str(after.get("citation") or "")
+                if before_sentence != after_sentence:
+                    repairs.append({"line": line_no, "field": "sentence", "from": before_sentence, "to": after_sentence})
+                if before_citation != after_citation:
+                    repairs.append({"line": line_no, "field": "citation", "from": before_citation, "to": after_citation})
 
-        best_result = candidate_result
-        if not _should_try_repair(best_result):
+            accumulated_repairs.extend(repairs)
+            if accumulated_repairs:
+                candidate_result.metadata = dict(candidate_result.metadata)
+                candidate_result.metadata["auto_repairs"] = accumulated_repairs[:]
+
+            best_result = candidate_result
+            improved = True
+            break
+
+        if not improved:
             break
 
     return best_result

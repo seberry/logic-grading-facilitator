@@ -194,7 +194,9 @@ class ModalProofDeductTests(unittest.TestCase):
     def test_candidate_citation_repairs_convert_box_rule_lookalikes(self) -> None:
         self.assertEqual(_candidate_modal_citation_repairs("OE 1"), ["□E 1"])
         self.assertEqual(_candidate_modal_citation_repairs("OI 3-6"), ["□I 3-6"])
-        self.assertEqual(_candidate_modal_citation_repairs("DE1"), ["□E1"])
+        self.assertEqual(_candidate_modal_citation_repairs("DE1"), ["□E 1"])
+        self.assertEqual(_candidate_modal_citation_repairs("OE1"), ["□E 1"])
+        self.assertEqual(_candidate_modal_citation_repairs("OI3-6"), ["□I 3-6"])
         self.assertEqual(_candidate_modal_citation_repairs("PR"), [])
 
     def test_run_checker_retries_with_box_lookalike_repair_when_parse_improves(self) -> None:
@@ -309,6 +311,110 @@ class ModalProofDeductTests(unittest.TestCase):
         self.assertEqual(result.request_payload["lines"][1]["citation"], "□E 1")
         self.assertEqual(result.metadata["auto_repairs"][0]["field"], "citation")
         self.assertEqual(mock_run.call_count, 2)
+
+    def test_run_checker_can_chain_sentence_and_citation_repairs(self) -> None:
+        answer_text = json.dumps(
+            [
+                {"wffstr": "□P", "jstr": "PR"},
+                {"wffstr": "D(P→Q)", "jstr": "PR"},
+                [
+                    {"wffstr": "□", "jstr": "PR"},
+                    {"wffstr": "P", "jstr": "OE1"},
+                    {"wffstr": "P→Q", "jstr": "OE2"},
+                    {"wffstr": "Q", "jstr": "→E 4 5"},
+                ],
+                {"wffstr": "□Q", "jstr": "□I 3-6"},
+            ],
+            ensure_ascii=False,
+        )
+        first = subprocess.CompletedProcess(
+            args=["fake"],
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "ok": False,
+                    "parse_errors": [{"line": 2, "code": "parse", "message": "could not parse sentence"}],
+                    "check_errors": [],
+                    "conclusion_reached": None,
+                    "normalized_lines": [],
+                    "metadata": {"system": "K"},
+                }
+            ),
+            stderr="",
+        )
+        second = subprocess.CompletedProcess(
+            args=["fake"],
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "ok": False,
+                    "parse_errors": [],
+                    "check_errors": [
+                        {"line": 4, "code": "NoSuchRule", "message": "cited a rule that does not exist or is badly formed"},
+                        {"line": 5, "code": "NoSuchRule", "message": "cited a rule that does not exist or is badly formed"},
+                    ],
+                    "conclusion_reached": None,
+                    "normalized_lines": [],
+                    "metadata": {"system": "K"},
+                }
+            ),
+            stderr="",
+        )
+        third = subprocess.CompletedProcess(
+            args=["fake"],
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "ok": True,
+                    "parse_errors": [],
+                    "check_errors": [
+                        {"line": 5, "code": "NoSuchRule", "message": "cited a rule that does not exist or is badly formed"},
+                    ],
+                    "conclusion_reached": None,
+                    "normalized_lines": [],
+                    "metadata": {"system": "K"},
+                }
+            ),
+            stderr="",
+        )
+        fourth = subprocess.CompletedProcess(
+            args=["fake"],
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "ok": True,
+                    "parse_errors": [],
+                    "check_errors": [],
+                    "conclusion_reached": None,
+                    "normalized_lines": [
+                        {"depth": 0, "sentence": "□P", "citation": "PR"},
+                        {"depth": 0, "sentence": "□(P→Q)", "citation": "PR"},
+                        {"depth": 1, "sentence": "□", "citation": "PR"},
+                        {"depth": 1, "sentence": "P", "citation": "□E 1"},
+                        {"depth": 1, "sentence": "P→Q", "citation": "□E 2"},
+                        {"depth": 1, "sentence": "Q", "citation": "→E 4 5"},
+                        {"depth": 0, "sentence": "□Q", "citation": "□I 3-6"},
+                    ],
+                    "metadata": {"system": "K"},
+                },
+                ensure_ascii=False,
+            ),
+            stderr="",
+        )
+
+        with (
+            patch.dict("os.environ", {DEDUCT_CHECKER_BIN_ENV: "C:\\fake\\deduct_checker_cli.exe"}, clear=False),
+            patch("app.modal_proof_deduct.Path.exists", return_value=True),
+            patch("app.modal_proof_deduct.subprocess.run", side_effect=[first, second, third, fourth]) as mock_run,
+        ):
+            result = run_modal_proof_checker(answer_text, {"system": "K"})
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.request_payload["lines"][1]["sentence"], "□(P→Q)")
+        self.assertEqual(result.request_payload["lines"][3]["citation"], "□E 1")
+        self.assertEqual(result.request_payload["lines"][4]["citation"], "□E 2")
+        self.assertEqual(len(result.metadata["auto_repairs"]), 3)
+        self.assertEqual(mock_run.call_count, 4)
 
     def test_run_checker_rejects_bad_json_response(self) -> None:
         answer_text = json.dumps([{"wffstr": "A", "jstr": "PR"}])
