@@ -94,6 +94,37 @@ def apply_default_justifications(proof_structure: list, numprems: int) -> None:
                 item["jstr"] = "Hyp"
 
 
+def remove_empty_lines(proof_structure: list) -> list:
+    cleaned = []
+    for item in proof_structure:
+        if isinstance(item, list):
+            nested = remove_empty_lines(item)
+            if nested:
+                cleaned.append(nested)
+            continue
+        if isinstance(item, dict):
+            wff = str(item.get("wffstr", "")).strip()
+            jstr = str(item.get("jstr", "")).strip()
+            if not wff and not jstr:
+                continue
+            cleaned.append(item)
+    proof_structure[:] = cleaned
+    return proof_structure
+
+
+def infer_missing_rule_heads(proof_structure: list) -> None:
+    for item in proof_structure:
+        if isinstance(item, list):
+            infer_missing_rule_heads(item)
+            continue
+        if not isinstance(item, dict):
+            continue
+        wff = str(item.get("wffstr", "")).strip()
+        jstr = str(item.get("jstr", "")).strip()
+        if wff.startswith("¬") and re.fullmatch(r"I\s+\d+(?:-\d+)?", jstr):
+            item["jstr"] = f"¬{jstr}"
+
+
 def structure_to_proof_lines(structure: List[Union[Dict, List]]) -> List[Union[ProofLine, List]]:
     """
     Convert a nested list/dict structure into ProofLine objects that the verifier can consume.
@@ -218,7 +249,7 @@ def normalize_proof_structure(structure):
         if "<SUBPROOF_ID_" in str(wff):
             return str(wff)
         # 1. Replace multi-char operators first to avoid breaking them
-        wff = wff.replace("->", "→").replace("<->", "↔")
+        wff = wff.replace("->", "→").replace("<->", "↔").replace("<→", "↔")
         
         # 2. Character-by-character replacement for single symbols
         clean_chars = []
@@ -236,7 +267,7 @@ def normalize_proof_structure(structure):
 
     def normalize_rule_candidate(token):
         compact = str(token or "").strip()
-        compact = compact.replace("->", "→").replace("<->", "↔")
+        compact = compact.replace("->", "→").replace("<->", "↔").replace("<→", "↔")
         compact = compact.replace("&", "∧").replace(".", "∧")
         compact = compact.replace("v", "∨").replace("V", "∨")
         compact = compact.replace("~", "¬").replace("-", "¬")
@@ -308,8 +339,12 @@ def normalize_proof_structure(structure):
 
     def clean_justification(jstr):
         if not jstr: return ""
-        jstr = jstr.replace("->", "→").replace("<->", "↔")
+        jstr = jstr.replace("->", "→").replace("<->", "↔").replace("<→", "↔")
         jstr = re.sub(r"([¬∧∨→↔])\s+([IE])\b", r"\1\2", jstr)
+        jstr = jstr.replace("&", "∧").replace("~", "¬")
+        jstr = re.sub(r"\b([∧∨¬→↔A-Z]{1,3})\s*([IE])(?=\d)", r"\1\2 ", jstr)
+        jstr = re.sub(r"\b(X|IP|R|MT|DS|DNE|LEM|DeM|DEM)(?=\d)", r"\1 ", jstr)
+        jstr = re.sub(r"\b([∧∨¬→↔A-Z]{1,4})(\d)", r"\1 \2", jstr)
         
         # Split into Rule and Lines (e.g., "vE 2" -> "vE", "2")
         # We assume the Rule is the first "word"
@@ -410,6 +445,40 @@ def detect_vertical_bars(img: np.ndarray) -> List[Tuple[int, int, int, int]]:
     # Filter out noise (very short lines)
     final_boxes = [b for b in merged if b[3] > 50]
     return final_boxes
+
+
+def filter_scaffold_bars(
+    boxes: List[Tuple[int, int, int, int]],
+    *,
+    img_w: int,
+    img_h: int,
+) -> List[Tuple[int, int, int, int]]:
+    """
+    Ignore the outer full-height Fitch spine when it behaves like page scaffolding
+    rather than the opening bar of a real subproof.
+    """
+    if not boxes:
+        return boxes
+
+    sorted_boxes = sorted(boxes, key=lambda b: (b[0], b[1]))
+    leftmost = sorted_boxes[0]
+    x, y, w, h = leftmost
+
+    is_left_edge = x <= max(24, int(img_w * 0.12))
+    spans_most_height = h >= int(img_h * 0.75)
+    is_narrow = w <= max(24, int(img_w * 0.06))
+
+    if is_left_edge and spans_most_height and is_narrow:
+        return sorted_boxes[1:]
+
+    if len(sorted_boxes) >= 2:
+        nx, ny, nw, nh = sorted_boxes[1]
+        much_taller_than_next = h >= int(nh * 1.4)
+        clearly_left_of_next = (x + w) < nx
+        reasonably_close_column = (nx - x) <= max(120, int(img_w * 0.18))
+        if spans_most_height and much_taller_than_next and clearly_left_of_next and reasonably_close_column:
+            return sorted_boxes[1:]
+    return sorted_boxes
 
 class SubproofNode:
     def __init__(self, box_id, box):
@@ -751,6 +820,7 @@ def main():
     
     # 2. Detect Bars & Build Tree
     bars = detect_vertical_bars(img)
+    bars = filter_scaffold_bars(bars, img_w=img.shape[1], img_h=img.shape[0])
     print(f"Detected {len(bars)} vertical bars.")
     
     # Draw debug bars
@@ -796,6 +866,7 @@ def main():
     # NEW: Normalize VLM Output ---
     print("   [Logic] Normalizing symbols and justifications...")
     normalize_proof_structure(stitched_structure)
+    remove_empty_lines(stitched_structure)
 
     # Identify Premises ---
     # We do this BEFORE renumbering or flattening, while structure is clear.
@@ -806,6 +877,8 @@ def main():
     # B. Renumber: Fix the line numbers 1..N
     total_lines = renumber_lines(stitched_structure)
     print(f"   [Renumber] Proof contains {total_lines - 1} lines.")
+
+    infer_missing_rule_heads(stitched_structure)
 
     # C. Backfill remaining blank justifications using the inferred premise count.
     print("   [Logic] Filling blank justifications with Pr/Hyp defaults...")

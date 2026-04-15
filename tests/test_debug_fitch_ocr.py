@@ -45,6 +45,58 @@ class DebugFitchOcrNormalizationTests(unittest.TestCase):
         self.assertEqual(structure[0]["wffstr"], "⊥")
         self.assertEqual(structure[0]["jstr"], "¬E 4,5")
 
+    def test_normalize_structure_expands_compact_rule_citations(self) -> None:
+        structure = [
+            {"line": 3, "wffstr": "P", "jstr": "&E1"},
+            {"line": 4, "wffstr": "Q", "jstr": "<->E2,3"},
+            {"line": 7, "wffstr": "A", "jstr": "X6"},
+        ]
+
+        debug_fitch_ocr.normalize_proof_structure(structure)
+
+        self.assertEqual(structure[0]["jstr"], "∧E 1")
+        self.assertEqual(structure[1]["jstr"], "↔E 2,3")
+        self.assertEqual(structure[2]["jstr"], "X 6")
+
+    def test_filter_scaffold_bars_drops_full_height_left_spine(self) -> None:
+        boxes = [(12, 0, 10, 460), (120, 80, 8, 140)]
+
+        filtered = debug_fitch_ocr.filter_scaffold_bars(boxes, img_w=560, img_h=480)
+
+        self.assertEqual(filtered, [(120, 80, 8, 140)])
+
+    def test_filter_scaffold_bars_drops_tall_outer_bar_even_when_not_at_edge(self) -> None:
+        boxes = [(118, 45, 17, 538), (140, 242, 8, 138)]
+
+        filtered = debug_fitch_ocr.filter_scaffold_bars(boxes, img_w=564, img_h=564)
+
+        self.assertEqual(filtered, [(140, 242, 8, 138)])
+
+    def test_remove_empty_lines_strips_blank_ocr_noise(self) -> None:
+        structure = [
+            {"wffstr": "A → ¬B", "jstr": ""},
+            {"wffstr": "", "jstr": ""},
+            [
+                {"wffstr": "A ∧ B", "jstr": ""},
+                {"wffstr": "", "jstr": ""},
+            ],
+            {"wffstr": "", "jstr": ""},
+        ]
+
+        debug_fitch_ocr.remove_empty_lines(structure)
+
+        self.assertEqual(len(structure), 2)
+        self.assertEqual(len(structure[1]), 1)
+
+    def test_infer_missing_rule_heads_restores_neg_intro(self) -> None:
+        structure = [
+            {"wffstr": "¬(A ∧ B)", "jstr": "I 2-6"},
+        ]
+
+        debug_fitch_ocr.infer_missing_rule_heads(structure)
+
+        self.assertEqual(structure[0]["jstr"], "¬I 2-6")
+
 
 if __name__ == "__main__":
     unittest.main()
