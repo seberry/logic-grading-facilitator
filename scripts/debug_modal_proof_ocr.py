@@ -339,6 +339,7 @@ def _normalize_formula_text(text: Any, scope_role: str) -> str:
         ("=>", "→"),
         ("[]", "□"),
         ("<>", "⋄"),
+        ("◇", "⋄"),
         ("~", "¬"),
         ("&", "∧"),
         ("^", "∧"),
@@ -382,6 +383,8 @@ def _normalize_justification_text(text: Any) -> str:
         head = "□E"
     elif head == "[]I":
         head = "□I"
+    elif head in {"Def◇", "Def◊", "Def⋄"}:
+        head = "Def⋄"
     return f"{head} {tail}".strip()
 
 
