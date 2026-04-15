@@ -184,15 +184,28 @@ class DebugModalProofOcrTests(unittest.TestCase):
                 output_dir=output_dir,
                 modal_config={"system": "S4", "conclusion": "□□P"},
                 client=fake_client,
+                vision_base_url="http://127.0.0.1:1234/v1",
+                vision_model="google/gemma-3-12b-it",
             )
         finally:
             debug_modal_proof_ocr.detect_vertical_bars = original_detect
             debug_modal_proof_ocr.run_modal_proof_checker = original_run_checker
 
         self.assertEqual(state["system"], "S4")
+        self.assertEqual(state["vision_model"], "google/gemma-3-12b-it")
+        self.assertEqual(state["source_image_name"], "sample.png")
         self.assertIn("□□P", state["proof_json_text"])
         self.assertTrue((output_dir / "state.json").exists())
         self.assertTrue((output_dir / "final_structure.json").exists())
+
+    def test_build_vlm_client_uses_explicit_overrides(self) -> None:
+        client = debug_modal_proof_ocr.build_vlm_client(
+            base_url="http://127.0.0.1:4321/v1",
+            model="google/gemma-3-12b-it",
+        )
+
+        self.assertEqual(client.base_url, "http://127.0.0.1:4321/v1")
+        self.assertEqual(client.model, "google/gemma-3-12b-it")
 
 
 if __name__ == "__main__":

@@ -50,6 +50,42 @@ class ModalProofDeductTests(unittest.TestCase):
 
         self.assertEqual([line["depth"] for line in request["lines"]], [0, 1])
 
+    def test_build_request_normalizes_fitch_premise_and_assumption_labels(self) -> None:
+        answer_text = json.dumps(
+            {
+                "lines": [
+                    {"wffstr": "A & B", "jstr": "Pr"},
+                    [
+                        {"wffstr": "A", "jstr": "Hyp"},
+                        {"wffstr": "B", "jstr": "∧E 1"},
+                    ],
+                ]
+            }
+        )
+
+        request = build_modal_proof_request(answer_text, {"system": "K"})
+
+        self.assertEqual(request["lines"][0]["sentence"], "A ∧ B")
+        self.assertEqual(request["lines"][0]["citation"], "PR")
+        self.assertEqual(request["lines"][1]["citation"], "PR")
+
+    def test_build_request_normalizes_common_fitch_aliases(self) -> None:
+        answer_text = json.dumps(
+            [
+                {"wffstr": "~A", "jstr": "premise"},
+                [
+                    {"wffstr": "B", "jstr": "assumption"},
+                    {"wffstr": "A", "jstr": "X 1"},
+                ],
+            ]
+        )
+
+        request = build_modal_proof_request(answer_text, {"system": "K"})
+
+        self.assertEqual(request["lines"][0]["sentence"], "¬A")
+        self.assertEqual(request["lines"][0]["citation"], "PR")
+        self.assertEqual(request["lines"][1]["citation"], "PR")
+
     def test_run_checker_requires_binary(self) -> None:
         answer_text = json.dumps([{"wffstr": "A", "jstr": "PR"}])
         with patch.dict("os.environ", {DEDUCT_CHECKER_BIN_ENV: ""}, clear=False):

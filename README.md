@@ -152,13 +152,15 @@ See [docs/AUTOGRADE_ARCHITECTURE.md](/C:/Users/seber/logic-grading-facilitator-M
 
 Use `http://127.0.0.1:5000/debug/modal-proof` to exercise the modal checker backend with saved example states or the built-in starter proof. The page is intentionally backend-focused:
 
+- optionally run the modal OCR scaffold against an uploaded/saved proof image
 - edit the proof JSON directly
 - choose `K`, `T`, `S4`, or `S5`
+- choose the LM Studio base URL and vision model
 - toggle derived rules
 - run the shared `modal_proof` autograde path
 - inspect the exact checker request, checker response, normalized lines, and reported parse/rule issues
 
-This page is for manual/typeset proof structures only; it does not yet handle PDF import or OCR.
+This remains a debug workflow for typeset/manual proof structures and proof-image OCR; it is not yet a finished end-to-end handwritten grading flow.
 
 ## Modal proof OCR scaffold
 
@@ -205,6 +207,10 @@ Artifacts from a run are written to a chosen output folder and typically include
 - `state.json`
 - `checker_request.json`
 - `checker_response.json`
+
+The same scaffold is now also available through `/debug/modal-proof`, which
+lets you upload a proof image, choose the LM Studio model, inspect the OCR
+artifacts, hand-correct the JSON if needed, and rerun the modal checker.
 
 This is still a development/debug path, not a finished grading workflow for
 real handwritten submissions.

@@ -50,6 +50,32 @@ class ModalCheckerResult:
     response_payload: Dict[str, Any]
 
 
+def _normalize_modal_sentence_text(text: Any) -> str:
+    sentence = str(text).strip()
+    if not sentence:
+        return ""
+    sentence = sentence.replace("&", "∧")
+    sentence = sentence.replace("~", "¬")
+    return sentence
+
+
+def _normalize_modal_citation_text(text: Any) -> str:
+    citation = str(text).strip()
+    if not citation:
+        return ""
+
+    parts = citation.split(" ", 1)
+    head = parts[0].strip()
+    tail = parts[1].strip() if len(parts) > 1 else ""
+    head_lower = head.lower()
+
+    if head_lower in {"pr", "premise", "prem", "hyp", "assumption", "assume"}:
+        head = "PR"
+
+    normalized = f"{head} {tail}".strip()
+    return normalized
+
+
 def _normalize_modal_payload(payload: Any) -> Dict[str, Any]:
     if isinstance(payload, list):
         return {"lines": payload, "meta": {}}
@@ -71,13 +97,13 @@ def _line_from_dict(item: Dict[str, Any], current_depth: int) -> ModalCheckerLin
     if isinstance(location, list) and location:
         depth = max(0, len(location) - 1)
 
-    sentence = item.get("sentence", item.get("wffstr", ""))
-    citation = item.get("citation", item.get("jstr", ""))
+    sentence = _normalize_modal_sentence_text(item.get("sentence", item.get("wffstr", "")))
+    citation = _normalize_modal_citation_text(item.get("citation", item.get("jstr", "")))
 
     return ModalCheckerLine(
         depth=depth,
-        sentence=str(sentence).strip(),
-        citation=str(citation).strip(),
+        sentence=sentence,
+        citation=citation,
     )
 
 

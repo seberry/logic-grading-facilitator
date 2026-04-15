@@ -206,7 +206,7 @@
   <div class="page">
     <h1>Modal Proof Debugger</h1>
     <p class="lede">
-      Backend-focused debug page for the separate Rust <code>deduct</code> checker. This page is for manual or typeset proof structures only: edit the proof JSON, run the shared modal autograde path, and inspect the exact checker request and response.
+      Backend-focused debug page for the separate Rust <code>deduct</code> checker. You can still edit proof JSON directly, but this page can now also run the modal OCR scaffold against a saved proof image and drop the result into the same checker workflow.
     </p>
 
     {% if message %}
@@ -216,7 +216,7 @@
       <div class="status error">{{ checker_error }}</div>
     {% endif %}
 
-    <form method="post" action="/debug/modal-proof/run_checker">
+    <form method="post" action="/debug/modal-proof/run_checker" enctype="multipart/form-data">
       <div class="top-grid">
         <section class="panel">
           <label for="example-picker">Saved example</label>
@@ -258,13 +258,35 @@
             Include derived rules
           </label>
 
+          <div class="two-col" style="margin-top: 1rem;">
+            <div>
+              <label for="vision-base-url">Vision base URL</label>
+              <input id="vision-base-url" name="vision_base_url" type="text" value="{{ vision_base_url }}" placeholder="http://127.0.0.1:1234/v1" />
+            </div>
+            <div>
+              <label for="vision-model">Vision model</label>
+              <input id="vision-model" name="vision_model" type="text" value="{{ vision_model }}" placeholder="google/gemma-3-12b-it" />
+            </div>
+          </div>
+
+          <div style="margin-top: 1rem;">
+            <label for="proof-image-path">Proof image path</label>
+            <input id="proof-image-path" name="proof_image_path" type="text" value="{{ source_image_name }}" placeholder="Optional if you upload below or already saved one." />
+          </div>
+
+          <div style="margin-top: 1rem;">
+            <label for="proof-image-upload">Upload proof image</label>
+            <input id="proof-image-upload" name="proof_image" type="file" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp" />
+          </div>
+
           <div class="controls">
             <button type="submit" class="secondary" formaction="/debug/modal-proof/save">Save state</button>
+            <button type="submit" class="secondary" formaction="/debug/modal-proof/run_ocr">Run OCR</button>
             <button type="submit">Run checker</button>
           </div>
 
           <p class="muted">
-            Saving writes <code>state.json</code> under <code>data/.../debug_modal_proof/&lt;example&gt;/</code>. Running the checker also updates that state with the latest request, response, and summary.
+            Saving writes <code>state.json</code> under <code>data/.../debug_modal_proof/&lt;example&gt;/</code>. OCR stores image/crop artifacts in that same folder. Running the checker updates the saved state with the latest request, response, and summary.
           </p>
 
           {% for filename, artifact_text in optional_artifacts.items() %}
@@ -273,6 +295,20 @@
               <textarea class="small-textarea" readonly>{{ artifact_text }}</textarea>
             </div>
           {% endfor %}
+
+          {% if image_artifacts %}
+            <div class="artifact">
+              <label>Image artifacts</label>
+              <div class="two-col">
+                {% for artifact in image_artifacts %}
+                  <div>
+                    <div class="muted" style="margin-bottom: 0.35rem;">{{ artifact.filename }}</div>
+                    <img src="{{ artifact.url }}" alt="{{ artifact.filename }}" style="width: 100%; border: 1px solid #d1d5db; border-radius: 8px;" />
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
         </section>
 
         <section class="panel">

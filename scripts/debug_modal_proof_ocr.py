@@ -22,7 +22,7 @@ sys.path.append(project_root)
 try:
     from app.modal_proof_deduct import build_modal_proof_request, run_modal_proof_checker
     from app.storage import DEBUG_MODAL_PROOF_DIR, RAW_SCANS_DIR
-    from app.vlm_client import LMStudioQwenClient
+    from app.vlm_client import LMStudioQwenClient, default_lmstudio_base_url, default_lmstudio_model
 
     vlm_client = LMStudioQwenClient()
 except ImportError as exc:  # pragma: no cover - fallback for standalone use
@@ -30,6 +30,12 @@ except ImportError as exc:  # pragma: no cover - fallback for standalone use
     RAW_SCANS_DIR = Path(project_root) / "data" / "raw_scans"
     DEBUG_MODAL_PROOF_DIR = Path(project_root) / "data" / "debug_modal_proof"
     vlm_client = None
+
+    def default_lmstudio_base_url() -> str:
+        return os.getenv("LMSTUDIO_BASE_URL", "http://127.0.0.1:1234/v1").strip() or "http://127.0.0.1:1234/v1"
+
+    def default_lmstudio_model() -> str:
+        return os.getenv("LMSTUDIO_MODEL_ID", "qwen/qwen3-vl-4b").strip() or "qwen/qwen3-vl-4b"
 
 
 STATE_FILENAME = "state.json"
@@ -39,6 +45,7 @@ CHECKER_REQUEST_FILENAME = "checker_request.json"
 CHECKER_RESPONSE_FILENAME = "checker_response.json"
 RAW_RESPONSE_TEMPLATE = "response_{node_id}.json"
 INTERMEDIATE_TEMPLATE = "intermediate_{node_id}.json"
+SOURCE_IMAGE_FILENAME = "source_image"
 
 SUPPORTED_SYSTEMS = {"K", "T", "S4", "S5"}
 TOKEN_PATTERN = re.compile(r"<SUBPROOF_ID_([A-Za-z0-9_]+)>")
@@ -145,6 +152,19 @@ def build_prompt(config: Dict[str, Any]) -> str:
     if conclusion:
         lines.append(f"Target conclusion: {conclusion}")
     return "\n".join(lines)
+
+
+def build_vlm_client(
+    *,
+    base_url: str | None = None,
+    model: str | None = None,
+    timeout: int = 60,
+) -> LMStudioQwenClient:
+    return LMStudioQwenClient(
+        base_url=(base_url or default_lmstudio_base_url()).strip(),
+        model=(model or default_lmstudio_model()).strip(),
+        timeout=timeout,
+    )
 
 
 def detect_vertical_bars(img: np.ndarray) -> List[Tuple[int, int, int, int]]:
@@ -353,6 +373,8 @@ def _normalize_formula_text(text: Any, scope_role: str) -> str:
 
 def _normalize_justification_text(text: Any) -> str:
     raw = str(text or "").strip()
+    raw = re.sub(r"^\s*incorrect\s+use\s+of\s+", "", raw, flags=re.IGNORECASE)
+    raw = re.sub(r"^\s*invalid\s+use\s+of\s+", "", raw, flags=re.IGNORECASE)
     raw = raw.replace(",", " ")
     raw = raw.replace("–", "-")
     raw = raw.replace("—", "-")
@@ -627,12 +649,18 @@ def build_modal_state(
     checker_request: Optional[Dict[str, Any]],
     checker_response: Optional[Dict[str, Any]],
     run_summary: str,
+    vision_base_url: str | None = None,
+    vision_model: str | None = None,
+    source_image_name: str = "",
 ) -> Dict[str, Any]:
     canonical = _canonical_modal_config(config)
     return {
         "system": canonical["system"],
         "include_derived_rules": canonical["include_derived_rules"],
         "conclusion": canonical.get("conclusion") or "",
+        "vision_base_url": (vision_base_url or default_lmstudio_base_url()).strip(),
+        "vision_model": (vision_model or default_lmstudio_model()).strip(),
+        "source_image_name": source_image_name,
         "proof_json_text": json.dumps({"lines": final_structure, "meta": {}}, indent=2, ensure_ascii=False),
         "draft_comment": "",
         "draft_grade": "",
@@ -648,6 +676,8 @@ def transcribe_image_to_modal_debug_state(
     output_dir: Path,
     modal_config: Dict[str, Any],
     client: LMStudioQwenClient | None = None,
+    vision_base_url: str | None = None,
+    vision_model: str | None = None,
 ) -> Dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
     prompt = build_prompt(modal_config)
@@ -723,6 +753,9 @@ def transcribe_image_to_modal_debug_state(
         checker_request=checker_request,
         checker_response=checker_response,
         run_summary=run_summary,
+        vision_base_url=vision_base_url or getattr(client, "base_url", None),
+        vision_model=vision_model or getattr(client, "model", None),
+        source_image_name=image_path.name,
     )
     (output_dir / STATE_FILENAME).write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
     return state
@@ -733,6 +766,8 @@ def main() -> int:
     parser.add_argument("--image", required=True, help="Path to the image to transcribe.")
     parser.add_argument("--output-dir", required=True, help="Directory where OCR artifacts should be written.")
     parser.add_argument("--autograde-file", help="YAML/JSON file with modal checker config or saved state.json.")
+    parser.add_argument("--lmstudio-base-url", default=default_lmstudio_base_url(), help="LM Studio OpenAI-compatible base URL.")
+    parser.add_argument("--lmstudio-model", default=default_lmstudio_model(), help="LM Studio model identifier.")
     args = parser.parse_args()
 
     image_path = Path(args.image)
@@ -751,13 +786,21 @@ def main() -> int:
     print(f"[OCR] Image: {image_path}")
     print(f"[OCR] Output dir: {output_dir}")
     print(f"[OCR] Modal system: {modal_config['system']}")
+    print(f"[OCR] VLM base URL: {args.lmstudio_base_url}")
+    print(f"[OCR] VLM model: {args.lmstudio_model}")
 
     try:
+        client = build_vlm_client(
+            base_url=args.lmstudio_base_url,
+            model=args.lmstudio_model,
+        )
         state = transcribe_image_to_modal_debug_state(
             image_path=image_path,
             output_dir=output_dir,
             modal_config=modal_config,
-            client=LMStudioQwenClient(),
+            client=client,
+            vision_base_url=args.lmstudio_base_url,
+            vision_model=args.lmstudio_model,
         )
     except Exception as exc:
         (output_dir / "ocr_error.txt").write_text(str(exc), encoding="utf-8")

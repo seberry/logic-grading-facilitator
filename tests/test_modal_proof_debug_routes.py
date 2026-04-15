@@ -32,6 +32,7 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Modal Proof Debugger", response.text)
         self.assertIn("deduct", response.text)
+        self.assertIn("Run OCR", response.text)
         self.assertIn("Proof JSON", response.text)
         self.assertIn("Run checker", response.text)
         self.assertIn("starter", response.text)
@@ -45,6 +46,8 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
                     "system": "S4",
                     "include_derived_rules": "true",
                     "conclusion": "A",
+                    "vision_base_url": "http://127.0.0.1:1234/v1",
+                    "vision_model": "google/gemma-3-12b-it",
                     "proof_json_text": json.dumps([{"wffstr": "A", "jstr": "PR"}]),
                     "draft_comment": "saved comment",
                     "draft_grade": "2",
@@ -59,8 +62,56 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertIn("/debug/modal-proof?example=starter", response.headers["location"])
         self.assertEqual(saved["system"], "S4")
         self.assertTrue(saved["include_derived_rules"])
+        self.assertEqual(saved["vision_base_url"], "http://127.0.0.1:1234/v1")
+        self.assertEqual(saved["vision_model"], "google/gemma-3-12b-it")
         self.assertEqual(saved["draft_comment"], "saved comment")
         self.assertEqual(saved["draft_grade"], "2")
+
+    def test_run_ocr_updates_state_from_uploaded_image(self) -> None:
+        ocr_state = {
+            "system": "S5",
+            "include_derived_rules": False,
+            "conclusion": "□A",
+            "vision_base_url": "http://127.0.0.1:1234/v1",
+            "vision_model": "google/gemma-3-12b-it",
+            "source_image_name": "source_image.png",
+            "proof_json_text": json.dumps({"lines": [{"wffstr": "□A", "jstr": "PR"}], "meta": {}}),
+            "draft_comment": "",
+            "draft_grade": "",
+            "checker_request": {"system": "S5", "lines": []},
+            "checker_response": {"ok": True, "parse_errors": [], "check_errors": []},
+            "run_summary": "OCR produced a modal proof structure and the checker ran.",
+        }
+
+        with (
+            patch.object(modal_proof_debug_routes, "DEBUG_MODAL_PROOF_DIR", self.debug_dir),
+            patch.object(modal_proof_debug_routes, "build_vlm_client", return_value=object()),
+            patch.object(modal_proof_debug_routes, "transcribe_image_to_modal_debug_state", return_value=ocr_state),
+        ):
+            response = self.client.post(
+                "/debug/modal-proof/run_ocr",
+                data={
+                    "example": "starter",
+                    "system": "S5",
+                    "conclusion": "□A",
+                    "vision_base_url": "http://127.0.0.1:1234/v1",
+                    "vision_model": "google/gemma-3-12b-it",
+                    "proof_json_text": json.dumps([{"wffstr": "A", "jstr": "PR"}]),
+                    "draft_comment": "keep me",
+                    "draft_grade": "1",
+                },
+                files={"proof_image": ("proof.png", b"fakepng", "image/png")},
+            )
+
+            saved = json.loads((self.debug_dir / "starter" / "state.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("OCR ran and updated the modal proof state.", response.text)
+        self.assertEqual(saved["vision_model"], "google/gemma-3-12b-it")
+        self.assertEqual(saved["draft_comment"], "keep me")
+        self.assertEqual(saved["draft_grade"], "1")
+        saved_lines = json.loads(saved["proof_json_text"])["lines"]
+        self.assertEqual(saved_lines[0]["wffstr"], "□A")
 
     def test_run_checker_renders_summary_and_payloads(self) -> None:
         result = AutoGradeResult(

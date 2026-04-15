@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import requests
+import os
 from pathlib import Path
 from typing import Any, Dict, List
 from PIL import Image
@@ -104,12 +105,12 @@ class LMStudioQwenClient:
 
     def __init__(
         self,
-        base_url: str = "http://127.0.0.1:1234/v1",  # override via CLI
-        model: str = "qwen/qwen3-vl-4b",             # override via CLI
+        base_url: str | None = None,
+        model: str | None = None,
         timeout: int = 60,
     ) -> None:
-        self.base_url = base_url.rstrip("/")
-        self.model = model
+        self.base_url = (base_url or default_lmstudio_base_url()).rstrip("/")
+        self.model = model or default_lmstudio_model()
         self.timeout = timeout
         self.max_image_dim = 1500
         self.max_data_uri_len = 2_500_000
@@ -308,3 +309,11 @@ class LMStudioQwenClient:
         if last_err is not None:
             raise last_err
         raise RuntimeError("Unexpected VLM retry flow without error/result")
+
+
+def default_lmstudio_base_url() -> str:
+    return os.getenv("LMSTUDIO_BASE_URL", "http://127.0.0.1:1234/v1").strip() or "http://127.0.0.1:1234/v1"
+
+
+def default_lmstudio_model() -> str:
+    return os.getenv("LMSTUDIO_MODEL_ID", "qwen/qwen3-vl-4b").strip() or "qwen/qwen3-vl-4b"
