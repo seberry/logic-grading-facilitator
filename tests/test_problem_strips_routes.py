@@ -3,8 +3,10 @@ from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
 import shutil
+import json
 
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from app import server
 from app.models import GradingKey, ProblemSpec, RosterEntry, Session, WorkUnit
@@ -49,6 +51,11 @@ def _build_session() -> Session:
 class ProblemStripsRoutesTests(unittest.TestCase):
     def setUp(self) -> None:
         self.client = TestClient(server.app)
+        self.tmp_dir = Path("working") / "test_tmp" / f"problem_strips_{uuid4().hex}"
+        self.tmp_dir.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
     def test_problem_strips_page_renders(self) -> None:
         session = _build_session()
@@ -74,7 +81,7 @@ class ProblemStripsRoutesTests(unittest.TestCase):
         self.assertIn("Problem Q1 Grading", response.text)
         self.assertIn("Berry, Sharon", response.text)
         self.assertIn("What the problem asked", response.text)
-        self.assertIn("Models", response.text)
+        self.assertIn("Create a model making the target sentence false.", response.text)
 
     def test_problem_type_post_updates_session(self) -> None:
         session = _build_session()
@@ -117,6 +124,75 @@ class ProblemStripsRoutesTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("fol model", response.text.lower())
         self.assertIn('data-type="fol_model"', response.text)
+
+    def test_fitch_strip_route_crops_scan_and_redirects_to_debug_page(self) -> None:
+        session = _build_session()
+        session.problem_types["Q2"] = "fitch_proof"
+
+        raw_dir = self.tmp_dir / "raw_scans"
+        debug_dir = self.tmp_dir / "debug_fitch"
+        grades_dir = self.tmp_dir / "grades"
+        raw_dir.mkdir(parents=True, exist_ok=True)
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        grades_dir.mkdir(parents=True, exist_ok=True)
+
+        image_path = raw_dir / "quiz1_berry_sharon_p01.jpg"
+        Image.new("RGB", (100, 200), color="white").save(image_path)
+
+        segments = [
+            {
+                "unit_id": 1,
+                "page_filename": "quiz1_berry_sharon_p01.jpg",
+                "page_index": 0,
+                "bbox": [0.1, 0.2, 0.8, 0.9],
+                "present": True,
+            }
+        ]
+        (grades_dir / "segments_Q2.json").write_text(json.dumps(segments), encoding="utf-8")
+
+        with (
+            patch.object(problem_strips_routes, "get_session", return_value=session),
+            patch.object(problem_strips_routes, "RAW_SCANS_DIR", raw_dir),
+            patch.object(problem_strips_routes, "DEBUG_FITCH_DIR", debug_dir),
+            patch.object(problem_strips_routes, "GRADES_DIR", grades_dir),
+            patch.object(problem_strips_routes, "_run_subprocess_with_logs", return_value=(0, "ok")),
+        ):
+            response = self.client.post(
+                "/problem/Q2/fitch_debug",
+                data={
+                    "unit_id": "1",
+                    "page_filename": "quiz1_berry_sharon_p01.jpg",
+                    "bbox_json": "[0.1, 0.2, 0.8, 0.9]",
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 303)
+        self.assertIn("/debug/fitch?scan=", response.headers["location"])
+
+        debug_files = list((debug_dir / "q2_1_quiz1_berry_sharon_p01").glob("*"))
+        self.assertTrue(any(path.suffix.lower() == ".jpg" for path in debug_files))
+
+    def test_fitch_strip_route_rejects_non_fitch_problem(self) -> None:
+        session = _build_session()
+        raw_dir = self.tmp_dir / "raw_scans"
+        raw_dir.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (50, 50), color="white").save(raw_dir / "quiz1_berry_sharon_p01.jpg")
+
+        with (
+            patch.object(problem_strips_routes, "get_session", return_value=session),
+            patch.object(problem_strips_routes, "RAW_SCANS_DIR", raw_dir),
+        ):
+            response = self.client.post(
+                "/problem/Q2/fitch_debug",
+                data={
+                    "unit_id": "1",
+                    "page_filename": "quiz1_berry_sharon_p01.jpg",
+                    "bbox_json": "",
+                },
+            )
+
+        self.assertEqual(response.status_code, 400)
 
 
 class RubricSchemaTests(unittest.TestCase):

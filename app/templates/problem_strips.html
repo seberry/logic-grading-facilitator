@@ -489,6 +489,15 @@
               onclick="toggleEditMode(this)"
               tabindex="-1"> Fix Crop
       </button>
+      {% if problem_type == "fitch_proof" %}
+      <button class="btn btn-secondary"
+              type="button"
+              data-index="{{ loop.index0 }}"
+              data-unit-id="{{ wu.unit_id }}"
+              onclick="sendToFitchOcr(this)"
+              tabindex="-1"> OCR Proof
+      </button>
+      {% endif %}
       {% endif %}
       
       <button class="btn btn-pin"
@@ -994,6 +1003,56 @@ const croppers = {};
           }
         })
         .catch((err) => console.warn('Problem type save failed', err));
+    }
+
+    function currentBboxJson(index) {
+      const wrapper = document.getElementById(`wrapper-${index}`);
+      const img = wrapper ? wrapper.querySelector('.scan-image') : null;
+      if (!img || img.dataset.hasBbox !== 'true') return '';
+
+      const x1 = parseFloat(img.dataset.xmin || '0');
+      const y1 = parseFloat(img.dataset.ymin || '0');
+      const w = parseFloat(img.dataset.w || '1');
+      const h = parseFloat(img.dataset.h || '1');
+      const x2 = x1 + w;
+      const y2 = y1 + h;
+      return JSON.stringify([x1, y1, x2, y2]);
+    }
+
+    function sendToFitchOcr(btn) {
+      const index = btn.dataset.index;
+      const unitId = btn.dataset.unitId;
+      const pageInput = document.getElementById(`page-input-${index}`);
+      const pageFilename = pageInput ? pageInput.value : '';
+      if (!pageFilename) {
+        alert('No scan page is selected for this strip.');
+        return;
+      }
+
+      const form = document.createElement('form');
+      form.method = 'post';
+      form.action = `/problem/${encodeURIComponent("{{ problem_id }}")}/fitch_debug`;
+
+      const unitField = document.createElement('input');
+      unitField.type = 'hidden';
+      unitField.name = 'unit_id';
+      unitField.value = unitId;
+      form.appendChild(unitField);
+
+      const pageField = document.createElement('input');
+      pageField.type = 'hidden';
+      pageField.name = 'page_filename';
+      pageField.value = pageFilename;
+      form.appendChild(pageField);
+
+      const bboxField = document.createElement('input');
+      bboxField.type = 'hidden';
+      bboxField.name = 'bbox_json';
+      bboxField.value = currentBboxJson(index);
+      form.appendChild(bboxField);
+
+      document.body.appendChild(form);
+      form.submit();
     }
 
     document.querySelectorAll('.type-wheel input[type="radio"]').forEach((input) => {

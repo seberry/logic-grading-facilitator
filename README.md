@@ -232,6 +232,8 @@ Use the in-browser review page to inspect OCR artifacts, hand-edit the stitched 
    - **Save edits** after tweaking the JSON in the textarea (persists back to `data/debug_fitch/<slug>/final_structure.json`).
    - **Run grader** to push the saved structure through `app/verifier.py` and see rule issues + inferred conclusion inline.
 
+You can also start from strip grading for `fitch_proof` problems: open `/problem/{problem_id}/strips`, crop the proof grid, and click `OCR Proof` to create the debug artifacts and jump straight into `/debug/fitch`.
+
 
 ---
 

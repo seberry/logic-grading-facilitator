@@ -58,3 +58,22 @@ Tip: Start with a tightly cropped proof grid—excluding question text and margi
 
 ## Human-in-the-loop verification UI
 Artifacts written to `data/debug_fitch/<scan_stem>/` can be reviewed in-browser at `GET /debug/fitch`. The page previews the highlighted scan, lets you re-run the pipeline, edit and save `final_structure.json`, and push the saved structure through `app/verifier.py` to see rule issues without leaving the UI.
+
+## Current strip-view workflow
+
+The proof OCR flow is now partially wired into the main grading UI for `fitch_proof` problems:
+
+1. Open `GET /problem/{problem_id}/strips`.
+2. Use the existing manual crop controls to isolate the proof grid on a student page.
+3. Click `OCR Proof` on that strip.
+4. The app saves the cropped image under `data/debug_fitch/<slug>/`, runs `scripts/debug_fitch_ocr.py`, and redirects directly to `GET /debug/fitch?scan=<slug>`.
+5. Review or correct `final_structure.json`, then run the verifier from the debug page.
+
+This is the intended near-term production loop for real student work:
+
+- segmentation / crop in strip view
+- machine OCR
+- fast human correction in `/debug/fitch`
+- deterministic proof checking
+
+It is deliberately not aiming for zero-touch OCR. The goal is to reduce correction burden enough that the human review step is quick and reliable.

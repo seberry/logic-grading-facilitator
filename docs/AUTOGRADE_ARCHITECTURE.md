@@ -9,7 +9,7 @@ new checkers should fit into.
 | Problem type | Status | Notes |
 | --- | --- | --- |
 | `fol_model` | Implemented through shared orchestrator | Uses the existing deterministic FOL checker and emits normalized trace/comment output. The FOL debug page now calls this shared layer. |
-| `fitch_proof` | Scaffold only | Existing verifier/debug tools exist elsewhere; strip-view autograding is not wired yet. |
+| `fitch_proof` | OCR + human-correction workflow wired; shared autograde adapter still scaffold-only | Strip view can now send cropped proof images into `/debug/fitch` for OCR, manual correction, and deterministic verification. The shared `app/autograde/fitch_proof.py` layer is still not the primary path. |
 | `kripke_model` | Scaffold only | Intended destination for the Kripke debug/checker flow. |
 | `modal_proof` | Implemented through shared orchestrator | Uses a separate `deduct` Rust CLI wrapper via subprocess; backend integration is in place and `/debug/modal-proof` provides a dedicated manual/typeset debug page. |
 
