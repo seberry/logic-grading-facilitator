@@ -205,8 +205,18 @@ def normalize_proof_structure(structure):
         "boti": "⊥I",
     }
 
+    contradiction_rule_heads = {"¬E", "⊥I"}
+    known_rule_heads = {
+        "Pr", "PR", "Hyp", "HYP", "premise", "Premise", "assumption", "Assumption",
+        "∨E", "∨I", "∧E", "∧I", "¬E", "¬I", "→E", "→I", "↔E", "↔I",
+        "vE", "vI", "&E", "&I", ".E", ".I", "~E", "~I", "-E", "-I",
+        "AE", "AI", "MP", "MT", "DS", "DNE", "LEM", "DeM", "DEM", "X", "IP", "R",
+    }
+
     def clean_wff(wff):
         if not wff: return ""
+        if "<SUBPROOF_ID_" in str(wff):
+            return str(wff)
         # 1. Replace multi-char operators first to avoid breaking them
         wff = wff.replace("->", "→").replace("<->", "↔")
         
@@ -224,8 +234,82 @@ def normalize_proof_structure(structure):
         
         return "".join(clean_chars)
 
+    def normalize_rule_candidate(token):
+        compact = str(token or "").strip()
+        compact = compact.replace("->", "→").replace("<->", "↔")
+        compact = compact.replace("&", "∧").replace(".", "∧")
+        compact = compact.replace("v", "∨").replace("V", "∨")
+        compact = compact.replace("~", "¬").replace("-", "¬")
+        return compact
+
+    def looks_like_rule_token(token):
+        if not token:
+            return False
+        compact = normalize_rule_candidate(token).replace(" ", "")
+        return compact in known_rule_heads
+
+    def likely_rule_with_citations(token, next_token):
+        if not looks_like_rule_token(token):
+            return False
+        next_text = str(next_token or "").strip()
+        return bool(re.match(r"^[\da-zA-Z][\d,\-.]*$", next_text))
+
+    def rule_token_at(tokens, index):
+        token = tokens[index]
+        if index + 1 < len(tokens):
+            combined = f"{token}{tokens[index + 1]}"
+            if likely_rule_with_citations(combined, tokens[index + 2] if index + 2 < len(tokens) else ""):
+                return combined, 2
+        if likely_rule_with_citations(token, tokens[index + 1] if index + 1 < len(tokens) else ""):
+            return token, 1
+        return None, 0
+
+    def extract_embedded_justification(raw_wff, raw_j):
+        wff_text = str(raw_wff or "").strip()
+        j_text = str(raw_j or "").strip()
+
+        # A bare line number or similar OCR noise in the justification column
+        # should not block premise/assumption inference.
+        if re.fullmatch(r"[\d,.\-]+", j_text):
+            j_text = ""
+
+        if j_text:
+            return wff_text, j_text
+
+        if not wff_text:
+            return wff_text, j_text
+
+        tokens = wff_text.split()
+        if not tokens:
+            return wff_text, j_text
+
+        # Sometimes the model puts the entire justification in the formula field.
+        head, consumed = rule_token_at(tokens, 0)
+        if head is not None:
+            justification_text = " ".join([head, *tokens[consumed:]]).strip()
+            normalized_head = clean_justification(head)
+            normalized_full = clean_justification(justification_text)
+            if normalized_head in contradiction_rule_heads:
+                return "⊥", normalized_full
+            return "", normalized_full
+
+        # More commonly the model appends the justification onto the formula.
+        for i in range(1, len(tokens)):
+            candidate_head, consumed = rule_token_at(tokens, i)
+            if candidate_head is None:
+                continue
+            formula_part = " ".join(tokens[:i]).strip()
+            justification_part = " ".join([candidate_head, *tokens[i + consumed:]]).strip()
+            if not formula_part or not justification_part:
+                continue
+            return formula_part, justification_part
+
+        return wff_text, j_text
+
     def clean_justification(jstr):
         if not jstr: return ""
+        jstr = jstr.replace("->", "→").replace("<->", "↔")
+        jstr = re.sub(r"([¬∧∨→↔])\s+([IE])\b", r"\1\2", jstr)
         
         # Split into Rule and Lines (e.g., "vE 2" -> "vE", "2")
         # We assume the Rule is the first "word"
@@ -256,18 +340,19 @@ def normalize_proof_structure(structure):
                 
             # CASE B: It's a Line (Dict)
             elif isinstance(item, dict):
-                # 1. Clean Formulas
-                item["wffstr"] = clean_wff(item.get("wffstr", ""))
-                
-                # 2. Clean Justification Text
+                raw_wff = item.get("wffstr", "")
                 raw_j = str(item.get("jstr", "")).strip()
+                extracted_wff, extracted_j = extract_embedded_justification(raw_wff, raw_j)
+
+                # 1. Clean Formulas
+                item["wffstr"] = clean_wff(extracted_wff)
                 
                 # 3. Handle Implicit Assumptions
                 # If this is the very first line of a subproof (List), it MUST be an assumption.
-                if is_subproof_start and index == 0 and not raw_j:
+                if is_subproof_start and index == 0 and not extracted_j:
                     item["jstr"] = "Hyp"
                 else:
-                    item["jstr"] = clean_justification(raw_j)
+                    item["jstr"] = clean_justification(extracted_j)
 
     # Start the recursion
     recursive_normalize(structure)
@@ -442,17 +527,23 @@ def mask_subproof_in_parent(parent_img: np.ndarray, child_node: SubproofNode) ->
 # 3. VLM Interaction (Mockable)
 # ==============================================================================
 
+def build_ocr_prompt() -> str:
+    return (
+        "Transcribe the Fitch-style proof in this image into a JSON list of objects. "
+        "Each object must have exactly these keys: 'line', 'wffstr', and 'jstr'. "
+        "Use 'wffstr' only for the formula on that line. Use 'jstr' only for the justification. "
+        "Do not place justification text inside 'wffstr'. "
+        "If a line is a premise or assumption and no justification is printed, leave 'jstr' as an empty string. "
+        "If you see a red box token like <SUBPROOF_ID_X>, copy it exactly as the entire 'wffstr' value for that line and leave 'jstr' empty. "
+        "Return JSON only, with no markdown fences or explanation."
+    )
+
+
 def call_vlm(image_path: str, client) -> List[Dict]:
     """
     Real VLM call. expects client to be compatible with typical OpenAI/LocalAI SDKs.
     """
-    prompt = (
-        "Transcribe the logic proof in this image into a JSON list of objects. "
-        "Each object must have 'line' (number or empty), 'wffstr' (formula), and 'jstr' (justification). "
-        "IMPORTANT: If you see a red box with a token like <SUBPROOF_ID_X>, "
-        "transcribe it EXACTLY as the 'wffstr' for that line. "
-        "Do not interpret or correct the token."
-    )
+    prompt = build_ocr_prompt()
 
     print(f"   [VLM] Sending {os.path.basename(image_path)}...")
 
