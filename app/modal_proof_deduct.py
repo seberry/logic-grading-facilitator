@@ -61,6 +61,9 @@ def _normalize_modal_sentence_text(text: Any) -> str:
         return ""
     sentence = sentence.replace("&", "∧")
     sentence = sentence.replace("~", "¬")
+    sentence = sentence.replace("◇", "⋄")
+    sentence = sentence.replace("◊", "⋄")
+    sentence = sentence.replace("<>", "⋄")
     return sentence
 
 

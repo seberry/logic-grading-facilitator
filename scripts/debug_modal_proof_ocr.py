@@ -360,6 +360,7 @@ def _normalize_formula_text(text: Any, scope_role: str) -> str:
         ("[]", "□"),
         ("<>", "⋄"),
         ("◇", "⋄"),
+        ("◊", "⋄"),
         ("~", "¬"),
         ("&", "∧"),
         ("^", "∧"),

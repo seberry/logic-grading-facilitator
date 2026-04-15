@@ -82,6 +82,11 @@ class DebugModalProofOcrTests(unittest.TestCase):
         self.assertEqual(stitched[1][1]["jstr"], "R4 1")
         self.assertEqual(stitched[2]["jstr"], "□I 2-3")
 
+    def test_normalize_formula_text_normalizes_diamond_variants(self) -> None:
+        self.assertEqual(debug_modal_proof_ocr._normalize_formula_text("◇A", "derived_line"), "⋄A")
+        self.assertEqual(debug_modal_proof_ocr._normalize_formula_text("◊A", "derived_line"), "⋄A")
+        self.assertEqual(debug_modal_proof_ocr._normalize_formula_text("<>A", "derived_line"), "⋄A")
+
     def test_recursive_stitch_recovers_missing_child_token_before_box_intro(self) -> None:
         root = debug_modal_proof_ocr.SubproofNode("ROOT", (0, 0, 100, 100))
         parent = debug_modal_proof_ocr.SubproofNode("1", (10, 0, 80, 90))

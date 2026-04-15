@@ -90,6 +90,22 @@ class ModalProofDeductTests(unittest.TestCase):
         self.assertEqual(request["lines"][0]["citation"], "PR")
         self.assertEqual(request["lines"][1]["citation"], "PR")
 
+    def test_build_request_normalizes_diamond_variants_to_black_diamond(self) -> None:
+        answer_text = json.dumps(
+            [
+                {"wffstr": "◇A", "jstr": "PR"},
+                {"wffstr": "◊B", "jstr": "PR"},
+                {"wffstr": "<>C", "jstr": "PR"},
+            ],
+            ensure_ascii=False,
+        )
+
+        request = build_modal_proof_request(answer_text, {"system": "K"})
+
+        self.assertEqual(request["lines"][0]["sentence"], "⋄A")
+        self.assertEqual(request["lines"][1]["sentence"], "⋄B")
+        self.assertEqual(request["lines"][2]["sentence"], "⋄C")
+
     def test_run_checker_requires_binary(self) -> None:
         answer_text = json.dumps([{"wffstr": "A", "jstr": "PR"}])
         with (
