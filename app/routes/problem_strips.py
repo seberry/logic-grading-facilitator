@@ -17,7 +17,7 @@ from app.helpers import _build_page_options, _is_image_filename, _select_display
 from app.models import Session
 from app.segmentation_core import QuestionSegment, segment_page_for_problem
 from app.session_state import _segmentation_lock, _session_lock, get_session, persist_session
-from app.storage import DEBUG_FITCH_DIR, GRADES_DIR, RAW_SCANS_DIR
+from app.storage import DEBUG_FITCH_DIR, DEBUG_MODAL_PROOF_DIR, GRADES_DIR, RAW_SCANS_DIR
 from app.vlm_client import LMStudioQwenClient
 
 router = APIRouter()
@@ -176,6 +176,13 @@ def _clean_fitch_debug_slug(raw: str) -> str:
     while "__" in text:
         text = text.replace("__", "_")
     return text.strip("_") or "fitch_debug"
+
+
+def _clean_modal_debug_slug(raw: str) -> str:
+    text = "".join(ch.lower() if ch.isalnum() else "_" for ch in str(raw or "").strip())
+    while "__" in text:
+        text = text.replace("__", "_")
+    return text.strip("_") or "modal_debug"
 
 
 def _bbox_for_strip(seg_data: Optional[Dict[str, Any]], bbox_override_raw: str) -> Optional[List[float]]:
@@ -585,3 +592,80 @@ async def open_fitch_debug_from_strip(
         raise HTTPException(status_code=500, detail=f"Fitch OCR rerun failed for {slug}:\n{output}")
 
     return RedirectResponse(url=f"/debug/fitch?scan={quote(slug)}", status_code=303)
+
+
+@router.post("/problem/{problem_id}/modal_proof_debug")
+async def open_modal_proof_debug_from_strip(
+    problem_id: str,
+    unit_id: int = Form(...),
+    page_filename: str = Form(...),
+    bbox_json: str = Form(""),
+) -> Response:
+    session = get_session()
+    spec = next((p for p in session.grading_key.problems if p.id == problem_id), None)
+    if spec is None:
+        raise HTTPException(status_code=404, detail=f"Unknown problem id {problem_id!r}")
+
+    effective_type = _effective_problem_type(session, problem_id, spec)
+    if effective_type != "modal_proof":
+        raise HTTPException(status_code=400, detail=f"Problem {problem_id!r} is not tagged as modal_proof.")
+
+    work_unit = next((wu for wu in session.work_units if wu.unit_id == unit_id), None)
+    if work_unit is None:
+        raise HTTPException(status_code=404, detail=f"Unknown work unit {unit_id}.")
+    if page_filename not in work_unit.page_filenames:
+        raise HTTPException(status_code=400, detail=f"Page {page_filename!r} does not belong to unit {unit_id}.")
+
+    image_path = RAW_SCANS_DIR / page_filename
+    if not image_path.exists():
+        raise HTTPException(status_code=404, detail=f"Scan image not found: {image_path}")
+
+    cache_path = GRADES_DIR / f"segments_{problem_id}.json"
+    seg_data = None
+    if cache_path.exists():
+        try:
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            if isinstance(cached, list):
+                seg_data = next((row for row in cached if isinstance(row, dict) and row.get("unit_id") == unit_id), None)
+        except Exception:
+            seg_data = None
+
+    bbox = _bbox_for_strip(seg_data, bbox_json)
+
+    slug = _clean_modal_debug_slug(f"{problem_id}_{unit_id}_{Path(page_filename).stem}")
+    target_dir = DEBUG_MODAL_PROOF_DIR / slug
+    target_dir.mkdir(parents=True, exist_ok=True)
+    target_image = target_dir / f"{slug}{image_path.suffix.lower()}"
+
+    with Image.open(image_path) as im:
+        working = im.convert("RGB")
+        if bbox:
+            width, height = working.size
+            x1 = max(0, min(width - 1, int(round(bbox[0] * width))))
+            y1 = max(0, min(height - 1, int(round(bbox[1] * height))))
+            x2 = max(x1 + 1, min(width, int(round(bbox[2] * width))))
+            y2 = max(y1 + 1, min(height, int(round(bbox[3] * height))))
+            working = working.crop((x1, y1, x2, y2))
+        working.save(target_image)
+
+    state_path = target_dir / "state.json"
+    state = {
+        "system": "K",
+        "include_derived_rules": False,
+        "conclusion": "",
+        "vision_base_url": "",
+        "vision_model": "",
+        "source_image_name": target_image.name,
+        "proof_json_text": json.dumps({"lines": [{"wffstr": "A", "jstr": "PR"}], "meta": {}}, indent=2),
+        "draft_comment": "",
+        "draft_grade": "",
+        "checker_request": None,
+        "checker_response": None,
+        "run_summary": "Cropped proof imported from strip view. Review the image, then run OCR.",
+        "status": "success",
+        "message": "Cropped proof imported from strip view.",
+        "checker_error": "",
+    }
+    state_path.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    return RedirectResponse(url=f"/debug/modal-proof?example={quote(slug)}", status_code=303)

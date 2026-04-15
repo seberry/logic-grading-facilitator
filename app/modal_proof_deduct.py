@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,6 +11,10 @@ from typing import Any, Dict, List, Optional
 
 DEDUCT_CHECKER_BIN_ENV = "DEDUCT_CHECKER_BIN"
 SUPPORTED_MODAL_SYSTEMS = {"K", "T", "S4", "S5"}
+DEFAULT_DEDUCT_BINARY_CANDIDATES = [
+    Path(__file__).resolve().parents[1] / "tools" / "deduct_checker_cli" / "target" / "release" / "deduct_checker_cli.exe",
+    Path(__file__).resolve().parents[1] / "tools" / "deduct_checker_cli" / "target" / "release" / "deduct_checker_cli",
+]
 
 
 class ModalProofConfigError(ValueError):
@@ -57,6 +62,37 @@ def _normalize_modal_sentence_text(text: Any) -> str:
     sentence = sentence.replace("&", "∧")
     sentence = sentence.replace("~", "¬")
     return sentence
+
+
+def _repair_box_lookalike(sentence: str) -> str:
+    repaired = sentence
+    repaired = re.sub(r"(?<![A-Za-z0-9_])[DO0](?=\()", "□", repaired)
+    repaired = re.sub(r"(?<![A-Za-z0-9_])[DO0](?=[A-Z¬□⋄◇])", "□", repaired)
+    return repaired
+
+
+def _candidate_modal_sentence_repairs(sentence: str) -> List[str]:
+    candidates: List[str] = []
+    box_repair = _repair_box_lookalike(sentence)
+    if box_repair != sentence:
+        candidates.append(box_repair)
+    return candidates
+
+
+def _repair_box_rule_lookalike(citation: str) -> str:
+    compact = str(citation or "").strip()
+    if not compact:
+        return compact
+    repaired = re.sub(r"^(?:[DO0])\s*([EI])(?=\b|\d)", lambda m: f"□{m.group(1)}", compact)
+    return repaired
+
+
+def _candidate_modal_citation_repairs(citation: str) -> List[str]:
+    candidates: List[str] = []
+    box_repair = _repair_box_rule_lookalike(citation)
+    if box_repair != citation:
+        candidates.append(box_repair)
+    return candidates
 
 
 def _normalize_modal_citation_text(text: Any) -> str:
@@ -163,6 +199,9 @@ def _resolve_checker_binary(runtime_options: Dict[str, Any] | None = None) -> st
     configured = runtime.get("binary_path")
     candidate = str(configured).strip() if configured else os.getenv(DEDUCT_CHECKER_BIN_ENV, "").strip()
     if not candidate:
+        for default_path in DEFAULT_DEDUCT_BINARY_CANDIDATES:
+            if default_path.exists():
+                return str(default_path)
         raise ModalProofCheckerUnavailable(
             f"Modal proof checker is unavailable: set {DEDUCT_CHECKER_BIN_ENV} to the deduct CLI wrapper binary."
         )
@@ -218,14 +257,7 @@ def _parse_normalized_lines(raw_lines: Any) -> List[ModalCheckerLine]:
     return lines
 
 
-def run_modal_proof_checker(
-    answer_text: str,
-    autograde_config: Dict[str, Any],
-    runtime_options: Dict[str, Any] | None = None,
-) -> ModalCheckerResult:
-    request_payload = build_modal_proof_request(answer_text, autograde_config)
-    binary = _resolve_checker_binary(runtime_options)
-
+def _run_checker_once(request_payload: Dict[str, Any], binary: str) -> ModalCheckerResult:
     completed = subprocess.run(
         [binary],
         input=json.dumps(request_payload, ensure_ascii=False),
@@ -268,3 +300,118 @@ def run_modal_proof_checker(
         request_payload=request_payload,
         response_payload=response,
     )
+
+
+def _build_repaired_request_candidates(request_payload: Dict[str, Any]) -> List[Dict[str, Any]]:
+    raw_lines = request_payload.get("lines")
+    if not isinstance(raw_lines, list):
+        return []
+
+    candidates: List[Dict[str, Any]] = []
+    for idx, line in enumerate(raw_lines):
+        if not isinstance(line, dict):
+            continue
+        sentence = str(line.get("sentence") or "").strip()
+        citation = str(line.get("citation") or "").strip()
+        sentence_candidates = _candidate_modal_sentence_repairs(sentence)
+        citation_candidates = _candidate_modal_citation_repairs(citation)
+
+        for repaired_sentence in sentence_candidates:
+            copied_lines = [dict(item) if isinstance(item, dict) else item for item in raw_lines]
+            copied_line = copied_lines[idx]
+            if not isinstance(copied_line, dict):
+                continue
+            copied_line["sentence"] = repaired_sentence
+            candidates.append(
+                {
+                    "system": request_payload.get("system"),
+                    "include_derived_rules": bool(request_payload.get("include_derived_rules", False)),
+                    "conclusion": request_payload.get("conclusion"),
+                    "lines": copied_lines,
+                }
+            )
+        for repaired_citation in citation_candidates:
+            copied_lines = [dict(item) if isinstance(item, dict) else item for item in raw_lines]
+            copied_line = copied_lines[idx]
+            if not isinstance(copied_line, dict):
+                continue
+            copied_line["citation"] = repaired_citation
+            candidates.append(
+                {
+                    "system": request_payload.get("system"),
+                    "include_derived_rules": bool(request_payload.get("include_derived_rules", False)),
+                    "conclusion": request_payload.get("conclusion"),
+                    "lines": copied_lines,
+                }
+            )
+        for repaired_sentence in sentence_candidates:
+            for repaired_citation in citation_candidates:
+                copied_lines = [dict(item) if isinstance(item, dict) else item for item in raw_lines]
+                copied_line = copied_lines[idx]
+                if not isinstance(copied_line, dict):
+                    continue
+                copied_line["sentence"] = repaired_sentence
+                copied_line["citation"] = repaired_citation
+                candidates.append(
+                    {
+                        "system": request_payload.get("system"),
+                        "include_derived_rules": bool(request_payload.get("include_derived_rules", False)),
+                        "conclusion": request_payload.get("conclusion"),
+                        "lines": copied_lines,
+                    }
+                )
+    return candidates
+
+
+def _should_try_repair(result: ModalCheckerResult) -> bool:
+    if result.parse_errors:
+        return True
+    for issue in result.check_errors:
+        message = str(issue.message or "").lower()
+        code = str(issue.code or "").lower()
+        if "no such rule" in message or code == "nosuchrule":
+            return True
+    return False
+
+
+def run_modal_proof_checker(
+    answer_text: str,
+    autograde_config: Dict[str, Any],
+    runtime_options: Dict[str, Any] | None = None,
+) -> ModalCheckerResult:
+    request_payload = build_modal_proof_request(answer_text, autograde_config)
+    binary = _resolve_checker_binary(runtime_options)
+    result = _run_checker_once(request_payload, binary)
+    if not _should_try_repair(result):
+        return result
+
+    best_result = result
+    for candidate in _build_repaired_request_candidates(request_payload):
+        candidate_result = _run_checker_once(candidate, binary)
+        candidate_score = (len(candidate_result.parse_errors), len(candidate_result.check_errors))
+        best_score = (len(best_result.parse_errors), len(best_result.check_errors))
+        if candidate_score >= best_score:
+            continue
+
+        repairs: List[Dict[str, Any]] = []
+        for line_no, (before, after) in enumerate(zip(request_payload["lines"], candidate["lines"]), start=1):
+            if not isinstance(before, dict) or not isinstance(after, dict):
+                continue
+            before_sentence = str(before.get("sentence") or "")
+            after_sentence = str(after.get("sentence") or "")
+            before_citation = str(before.get("citation") or "")
+            after_citation = str(after.get("citation") or "")
+            if before_sentence != after_sentence:
+                repairs.append({"line": line_no, "field": "sentence", "from": before_sentence, "to": after_sentence})
+            if before_citation != after_citation:
+                repairs.append({"line": line_no, "field": "citation", "from": before_citation, "to": after_citation})
+
+        if repairs:
+            candidate_result.metadata = dict(candidate_result.metadata)
+            candidate_result.metadata["auto_repairs"] = repairs
+
+        best_result = candidate_result
+        if not _should_try_repair(best_result):
+            break
+
+    return best_result

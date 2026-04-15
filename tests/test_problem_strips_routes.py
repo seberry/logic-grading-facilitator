@@ -125,6 +125,54 @@ class ProblemStripsRoutesTests(unittest.TestCase):
         self.assertIn("fol model", response.text.lower())
         self.assertIn('data-type="fol_model"', response.text)
 
+    def test_problem_strips_renders_fitch_action_when_problem_type_is_fitch(self) -> None:
+        session = _build_session()
+        session.problem_types["Q1"] = "fitch_proof"
+        segments = [
+            {
+                "unit_id": 1,
+                "page_filename": "quiz1_berry_sharon_p01.jpg",
+                "page_index": 0,
+                "bbox": [0.1, 0.2, 0.8, 0.9],
+                "present": True,
+                "comment": "found",
+                "confidence": 0.9,
+            }
+        ]
+
+        with (
+            patch.object(problem_strips_routes, "get_session", return_value=session),
+            patch.object(problem_strips_routes, "ensure_segments_cached", return_value=segments),
+        ):
+            response = self.client.get("/problem/Q1/strips")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("OCR Proof", response.text)
+
+    def test_problem_strips_renders_modal_action_when_problem_type_is_modal(self) -> None:
+        session = _build_session()
+        session.problem_types["Q1"] = "modal_proof"
+        segments = [
+            {
+                "unit_id": 1,
+                "page_filename": "quiz1_berry_sharon_p01.jpg",
+                "page_index": 0,
+                "bbox": [0.1, 0.2, 0.8, 0.9],
+                "present": True,
+                "comment": "found",
+                "confidence": 0.9,
+            }
+        ]
+
+        with (
+            patch.object(problem_strips_routes, "get_session", return_value=session),
+            patch.object(problem_strips_routes, "ensure_segments_cached", return_value=segments),
+        ):
+            response = self.client.get("/problem/Q1/strips")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("OCR Modal Proof", response.text)
+
     def test_fitch_strip_route_crops_scan_and_redirects_to_debug_page(self) -> None:
         session = _build_session()
         session.problem_types["Q2"] = "fitch_proof"
@@ -193,6 +241,53 @@ class ProblemStripsRoutesTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 400)
+
+    def test_modal_strip_route_crops_scan_and_redirects_to_modal_debug_page(self) -> None:
+        session = _build_session()
+        session.problem_types["Q2"] = "modal_proof"
+
+        raw_dir = self.tmp_dir / "raw_scans"
+        debug_dir = self.tmp_dir / "debug_modal_proof"
+        grades_dir = self.tmp_dir / "grades"
+        raw_dir.mkdir(parents=True, exist_ok=True)
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        grades_dir.mkdir(parents=True, exist_ok=True)
+
+        image_path = raw_dir / "quiz1_berry_sharon_p01.jpg"
+        Image.new("RGB", (100, 200), color="white").save(image_path)
+
+        segments = [
+            {
+                "unit_id": 1,
+                "page_filename": "quiz1_berry_sharon_p01.jpg",
+                "page_index": 0,
+                "bbox": [0.1, 0.2, 0.8, 0.9],
+                "present": True,
+            }
+        ]
+        (grades_dir / "segments_Q2.json").write_text(json.dumps(segments), encoding="utf-8")
+
+        with (
+            patch.object(problem_strips_routes, "get_session", return_value=session),
+            patch.object(problem_strips_routes, "RAW_SCANS_DIR", raw_dir),
+            patch.object(problem_strips_routes, "DEBUG_MODAL_PROOF_DIR", debug_dir),
+            patch.object(problem_strips_routes, "GRADES_DIR", grades_dir),
+        ):
+            response = self.client.post(
+                "/problem/Q2/modal_proof_debug",
+                data={
+                    "unit_id": "1",
+                    "page_filename": "quiz1_berry_sharon_p01.jpg",
+                    "bbox_json": "[0.1, 0.2, 0.8, 0.9]",
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 303)
+        self.assertIn("/debug/modal-proof?example=", response.headers["location"])
+        debug_files = list((debug_dir / "q2_1_quiz1_berry_sharon_p01").glob("*"))
+        self.assertTrue(any(path.suffix.lower() == ".jpg" for path in debug_files))
+        self.assertTrue(any(path.name == "state.json" for path in debug_files))
 
 
 class RubricSchemaTests(unittest.TestCase):

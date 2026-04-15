@@ -429,20 +429,68 @@ def _entry_to_line(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     }
 
 
-def recursive_stitch(entries: List[Dict[str, Any]], library: Dict[str, List[Dict[str, Any]]]) -> List[Any]:
+def _is_strict_subproof_block(block: Any) -> bool:
+    return bool(
+        isinstance(block, list)
+        and block
+        and isinstance(block[0], dict)
+        and str(block[0].get("wffstr", "")).strip() == "□"
+        and str(block[0].get("jstr", "")).strip() == "PR"
+    )
+
+
+def _fallback_insert_index_for_child(resolved: List[Any], child_block: List[Any]) -> int:
+    if _is_strict_subproof_block(child_block):
+        for index, item in enumerate(resolved):
+            if not isinstance(item, dict):
+                continue
+            citation = str(item.get("jstr") or "").strip()
+            if citation.startswith("□I"):
+                return index
+
+    for index, item in enumerate(resolved):
+        if not isinstance(item, dict):
+            continue
+        citation = str(item.get("jstr") or "").strip()
+        if citation and citation != "PR":
+            return index
+    return len(resolved)
+
+
+def recursive_stitch(
+    entries: List[Dict[str, Any]],
+    library: Dict[str, List[Dict[str, Any]]],
+    node: Optional[SubproofNode] = None,
+) -> List[Any]:
     resolved: List[Any] = []
+    consumed_child_ids = set()
     for entry in entries:
         formula_text = str(entry.get("formula_text") or entry.get("wffstr") or "").strip()
         token_match = TOKEN_PATTERN.search(formula_text)
         if token_match:
             child_id = token_match.group(1)
             child_entries = library.get(child_id, [])
-            resolved.append(recursive_stitch(child_entries, library))
+            child_node = None
+            if node is not None:
+                child_node = next((child for child in node.children if child.id == child_id), None)
+            resolved.append(recursive_stitch(child_entries, library, child_node))
+            consumed_child_ids.add(child_id)
             continue
 
         line = _entry_to_line(entry)
         if line is not None:
             resolved.append(line)
+
+    if node is not None:
+        for child in sorted(node.children, key=lambda c: c.box[1]):
+            if child.id in consumed_child_ids:
+                continue
+            child_entries = library.get(child.id, [])
+            if not child_entries:
+                continue
+            child_block = recursive_stitch(child_entries, library, child)
+            insert_at = _fallback_insert_index_for_child(resolved, child_block)
+            resolved.insert(insert_at, child_block)
     return resolved
 
 
@@ -710,7 +758,7 @@ def transcribe_image_to_modal_debug_state(
     else:
         top_level_entries = root_entries
 
-    final_structure = recursive_stitch(top_level_entries, library)
+    final_structure = recursive_stitch(top_level_entries, library, tree_root)
     while isinstance(final_structure, list) and len(final_structure) == 1 and isinstance(final_structure[0], list):
         final_structure = final_structure[0]
 

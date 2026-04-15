@@ -156,6 +156,8 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Checker ran successfully through the shared autograde layer.", response.text)
         self.assertIn("Modal proof checked under system K; conclusion reached.", response.text)
+        self.assertIn("Checker input", response.text)
+        self.assertIn("1. A    PR", response.text)
         self.assertIn('"sentence": "A"', response.text)
         self.assertIn("No parse errors reported.", response.text)
 

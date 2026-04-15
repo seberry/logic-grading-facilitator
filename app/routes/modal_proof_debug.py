@@ -170,6 +170,36 @@ def _checker_lines(checker_response: Any) -> List[Dict[str, Any]]:
     return lines if isinstance(lines, list) else []
 
 
+def _checker_request_lines(checker_request: Any) -> List[Dict[str, Any]]:
+    if not isinstance(checker_request, dict):
+        return []
+    lines = checker_request.get("lines")
+    return lines if isinstance(lines, list) else []
+
+
+def _render_checker_request_preview(checker_request: Any) -> str:
+    lines = _checker_request_lines(checker_request)
+    if not lines:
+        return ""
+
+    rendered: List[str] = []
+    for idx, item in enumerate(lines, start=1):
+        if not isinstance(item, dict):
+            continue
+        try:
+            depth = max(0, int(item.get("depth", 0)))
+        except (TypeError, ValueError):
+            depth = 0
+        sentence = str(item.get("sentence", "")).strip()
+        citation = str(item.get("citation", "")).strip()
+        indent = "  " * depth
+        line = f"{idx:>2}. {indent}{sentence}"
+        if citation:
+            line += f"    {citation}"
+        rendered.append(line)
+    return "\n".join(rendered)
+
+
 def _render_page(
     request: Request,
     *,
@@ -220,6 +250,7 @@ def _render_page(
             "parse_errors": _checker_issues(state.get("checker_response"), "parse_errors"),
             "check_errors": _checker_issues(state.get("checker_response"), "check_errors"),
             "normalized_lines": _checker_lines(state.get("checker_response")),
+            "checker_request_preview": _render_checker_request_preview(state.get("checker_request")),
             "optional_artifacts": artifact_texts,
             "image_artifacts": image_artifacts,
             **state,

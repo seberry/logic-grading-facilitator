@@ -30,6 +30,9 @@ checker without porting its code into Python.
    $env:DEDUCT_CHECKER_BIN = "C:\path\to\logic-grading-facilitator-MAIN\tools\deduct_checker_cli\target\release\deduct_checker_cli.exe"
    ```
 
+If `DEDUCT_CHECKER_BIN` is unset, the Python side also tries the local default
+build outputs under `tools/deduct_checker_cli/target/release/` automatically.
+
 ## Runtime contract
 
 - Environment variable: `DEDUCT_CHECKER_BIN`
@@ -75,6 +78,22 @@ mostly transcription issues near subproof boundaries, such as:
 The current script includes small repair heuristics for those boundary cases
 before handing the structure to the Rust checker.
 
+Current repair heuristics now include:
+
+- tree-aware fallback stitching when a parent crop omits a `<SUBPROOF_ID_X>`
+  token even though the child crop was OCRed successfully
+- strict-subproof boundary repair for nearby `□I` result lines
+- checker-side look-alike retries for modal OCR confusions such as `D` / `O`
+  / `0` in place of `□` in formulas
+- checker-side look-alike retries for rule heads such as `OE` / `OI` in place
+  of `□E` / `□I`
+
+These repairs are intentionally conservative. The checker first runs on the raw
+normalized OCR output. Only if that produces parse failures, or obvious rule-head
+failures such as `no such rule`, does the Python side try a small set of
+candidate repairs and keep only a strictly better result. Applied repairs are
+recorded in checker metadata as `auto_repairs`.
+
 ## Debug-page proof JSON shape
 
 The modal debug page accepts a more flexible JSON shape than the Rust CLI.
@@ -106,9 +125,9 @@ Preferred authoring shape for examples:
 ]
 ```
 
-Nested lists become subproof depth. The page then shows the exact normalized
-`depth` / `sentence` / `citation` payload sent to Rust in the `Checker request`
-panel.
+Nested lists become subproof depth. The page now shows a compact `Checker input`
+preview plus the exact normalized `depth` / `sentence` / `citation` payload sent
+to Rust in the raw checker-request panel.
 
 ## Ordinary vs strict subproofs
 

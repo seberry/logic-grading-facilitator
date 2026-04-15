@@ -82,6 +82,42 @@ class DebugModalProofOcrTests(unittest.TestCase):
         self.assertEqual(stitched[1][1]["jstr"], "R4 1")
         self.assertEqual(stitched[2]["jstr"], "□I 2-3")
 
+    def test_recursive_stitch_recovers_missing_child_token_before_box_intro(self) -> None:
+        root = debug_modal_proof_ocr.SubproofNode("ROOT", (0, 0, 100, 100))
+        parent = debug_modal_proof_ocr.SubproofNode("1", (10, 0, 80, 90))
+        child = debug_modal_proof_ocr.SubproofNode("2", (20, 20, 60, 40))
+        parent.parent = root
+        child.parent = parent
+        root.children.append(parent)
+        parent.children.append(child)
+
+        library = {
+            "ROOT": [
+                {"formula_text": "<SUBPROOF_ID_1>", "scope_role": "subproof_token"},
+            ],
+            "1": [
+                {"formula_text": "□P", "scope_role": "premise", "line_label": "1"},
+                {"formula_text": "□(P→Q)", "scope_role": "premise", "line_label": "2"},
+                {"formula_text": "□Q", "justification_text": "□I 3-6", "scope_role": "derived_line", "line_label": "3"},
+            ],
+            "2": [
+                {"formula_text": "□", "scope_role": "strict_open", "line_label": "1"},
+                {"formula_text": "P", "justification_text": "□E 1", "scope_role": "derived_line", "line_label": "2"},
+                {"formula_text": "P→Q", "justification_text": "□E 2", "scope_role": "derived_line", "line_label": "3"},
+                {"formula_text": "Q", "justification_text": "→E 4 5", "scope_role": "derived_line", "line_label": "4"},
+            ],
+        }
+
+        stitched = debug_modal_proof_ocr.recursive_stitch(library["ROOT"], library, root)
+        while isinstance(stitched, list) and len(stitched) == 1 and isinstance(stitched[0], list):
+            stitched = stitched[0]
+
+        self.assertEqual(stitched[0]["wffstr"], "□P")
+        self.assertEqual(stitched[1]["wffstr"], "□(P→Q)")
+        self.assertIsInstance(stitched[2], list)
+        self.assertEqual(stitched[2][0]["wffstr"], "□")
+        self.assertEqual(stitched[3]["wffstr"], "□Q")
+
     def test_rewrite_strict_subproof_local_citations_remaps_internal_refs(self) -> None:
         structure = [
             {"line_label": "", "wffstr": "□A", "jstr": "PR", "line": 1},

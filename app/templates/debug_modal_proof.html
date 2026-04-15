@@ -139,6 +139,24 @@
       padding: 0.9rem 1rem;
       white-space: pre-wrap;
     }
+    .compact-proof {
+      background: #0f172a;
+      color: #e2e8f0;
+      border-radius: 8px;
+      padding: 0.9rem 1rem;
+      white-space: pre-wrap;
+      font-family: Consolas, "SFMono-Regular", Menlo, Monaco, monospace;
+      line-height: 1.5;
+      overflow-x: auto;
+    }
+    details.panel-toggle {
+      margin-top: 1rem;
+    }
+    details.panel-toggle > summary {
+      cursor: pointer;
+      font-weight: 600;
+      color: #0f172a;
+    }
 
     .issue-list {
       margin: 0;
@@ -325,6 +343,13 @@
           <label>Run summary</label>
           <div class="summary-box">{{ run_summary }}</div>
 
+          <label style="margin-top: 1rem;">Checker input</label>
+          {% if checker_request_preview %}
+            <div class="compact-proof">{{ checker_request_preview }}</div>
+          {% else %}
+            <p class="muted">Run the checker to see the exact normalized proof sent to the deduct CLI.</p>
+          {% endif %}
+
           <div class="two-col" style="margin-top: 1rem;">
             <div>
               <label for="draft-grade">Draft grade</label>
@@ -392,17 +417,20 @@
         </section>
       </div>
 
-      <div class="output-grid">
-        <section class="panel">
-          <label>Checker request</label>
-          <textarea class="small-textarea" readonly>{{ checker_request | tojson(indent=2) if checker_request else "" }}</textarea>
-        </section>
+      <details class="panel panel-toggle">
+        <summary>Raw checker payloads</summary>
+        <div class="output-grid" style="margin-top: 1rem;">
+          <section>
+            <label>Checker request</label>
+            <textarea class="small-textarea" readonly>{{ checker_request | tojson(indent=2) if checker_request else "" }}</textarea>
+          </section>
 
-        <section class="panel">
-          <label>Checker response</label>
-          <textarea class="small-textarea" readonly>{{ checker_response | tojson(indent=2) if checker_response else "" }}</textarea>
-        </section>
-      </div>
+          <section>
+            <label>Checker response</label>
+            <textarea class="small-textarea" readonly>{{ checker_response | tojson(indent=2) if checker_response else "" }}</textarea>
+          </section>
+        </div>
+      </details>
     </form>
   </div>
 </body>
