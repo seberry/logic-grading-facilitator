@@ -182,6 +182,20 @@ including:
 - internal citations such as `∧I 4 5`
 - a final `□I 3-6`
 
+It has also now been validated on a more complex mixed example from the modal
+handout:
+
+- an ordinary subproof containing a strict subproof
+- a post-strict boxed result line such as `□B`
+- a final ordinary introduction line such as `→I 2-7`
+
+That mixed case required a small amount of modal-specific post-stitch repair at
+subproof boundaries, because the model sometimes:
+
+- omits the immediate boxed result line after a strict child subproof
+- or duplicates a conclusion line both inside and just outside the parent
+  subproof crop
+
 Artifacts from a run are written to a chosen output folder and typically include:
 
 - `ocr_prompt.txt`

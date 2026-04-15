@@ -135,6 +135,8 @@ def build_prompt(config: Dict[str, Any]) -> str:
         "- Copy the printed line labels exactly as they appear in the image. Do not renumber lines within a crop.",
         "- If a line starts a strict modal subproof, use scope_role strict_open and formula_text □.",
         "- If you see a red token like <SUBPROOF_ID_2>, return it exactly as formula_text with scope_role subproof_token.",
+        "- After a red subproof token, keep listing any further visible lines in the current crop. Do not stop early just because a child subproof was masked.",
+        "- If a current crop contains both a masked child token and a later closing-result line such as □B or A → B, include both in order.",
         "- Do not invent nested JSON structure yourself; just list the visible lines in order for the current crop.",
         "",
         f"Modal system: {clean['system']}",
@@ -203,13 +205,20 @@ def build_proof_tree(boxes: List[Tuple[int, int, int, int]], img_w: int, img_h: 
     return root
 
 
-def crop_region(img: np.ndarray, box: Tuple[int, int, int, int], padding: int = 10) -> np.ndarray:
+def crop_region(
+    img: np.ndarray,
+    box: Tuple[int, int, int, int],
+    *,
+    x_padding: int = 10,
+    top_padding: int = 10,
+    bottom_padding: int = 80,
+) -> np.ndarray:
     x, y, w, h = box
     img_h, img_w = img.shape[:2]
-    x1 = max(0, x - padding)
-    y1 = max(0, y - padding)
+    x1 = max(0, x - x_padding)
+    y1 = max(0, y - top_padding)
     x2 = img_w
-    y2 = min(img_h, y + h + padding)
+    y2 = min(img_h, y + h + bottom_padding)
     return img[y1:y2, x1:x2]
 
 
@@ -288,7 +297,14 @@ def process_node_recursive(
     prompt: str,
     client: LMStudioQwenClient | None,
 ) -> None:
-    current_img = img.copy() if node.id == "ROOT" else crop_region(img, node.box)
+    if node.id == "ROOT":
+        current_img = img.copy()
+    else:
+        current_img = crop_region(
+            img,
+            node.box,
+            bottom_padding=55 if node.children else 20,
+        )
 
     for child in sorted(node.children, key=lambda c: c.box[1]):
         process_node_recursive(child, img, output_dir, library, prompt=prompt, client=client)
@@ -542,6 +558,65 @@ def rewrite_strict_subproof_local_citations(proof_structure: List[Any]) -> None:
             rewrite_strict_subproof_local_citations(item)
 
 
+def _boxed_formula_matches_inner_line(boxed: str, inner: str) -> bool:
+    boxed_text = str(boxed or "").strip()
+    inner_text = str(inner or "").strip()
+    if not boxed_text.startswith("□"):
+        return False
+    remainder = boxed_text[1:].strip()
+    if remainder.startswith("(") and remainder.endswith(")"):
+        remainder = remainder[1:-1].strip()
+    return remainder == inner_text
+
+
+def repair_modal_subproof_boundary_lines(proof_structure: List[Any]) -> None:
+    for item in proof_structure:
+        if isinstance(item, list):
+            repair_modal_subproof_boundary_lines(item)
+
+    index = 0
+    while index < len(proof_structure):
+        item = proof_structure[index]
+        if not isinstance(item, list):
+            index += 1
+            continue
+
+        if item and isinstance(item[-1], dict) and index + 1 < len(proof_structure):
+            next_item = proof_structure[index + 1]
+            if (
+                isinstance(next_item, dict)
+                and item[-1].get("wffstr") == next_item.get("wffstr")
+                and item[-1].get("jstr") == next_item.get("jstr")
+            ):
+                item.pop()
+
+        for child_index, child in enumerate(item[:-1]):
+            if not isinstance(child, list) or not child:
+                continue
+            next_line = item[child_index + 1]
+            if not isinstance(next_line, dict):
+                continue
+            if str(next_line.get("jstr") or "").strip() not in {"", "derived_line"}:
+                continue
+            if not (
+                isinstance(child[0], dict)
+                and str(child[0].get("wffstr") or "").strip() == "□"
+                and str(child[0].get("jstr") or "").strip() == "PR"
+            ):
+                continue
+            last_child_line = child[-1]
+            if not isinstance(last_child_line, dict):
+                continue
+            if not _boxed_formula_matches_inner_line(next_line.get("wffstr"), last_child_line.get("wffstr")):
+                continue
+            start_line = child[0].get("line")
+            end_line = last_child_line.get("line")
+            if isinstance(start_line, int) and isinstance(end_line, int):
+                next_line["jstr"] = f"□I {start_line}-{end_line}"
+
+        index += 1
+
+
 def build_modal_state(
     *,
     config: Dict[str, Any],
@@ -608,6 +683,8 @@ def transcribe_image_to_modal_debug_state(
 
     renumber_lines(final_structure)
     rewrite_strict_subproof_local_citations(final_structure)
+    repair_modal_subproof_boundary_lines(final_structure)
+    renumber_lines(final_structure)
     (output_dir / FINAL_STRUCTURE_FILENAME).write_text(
         json.dumps(final_structure, indent=2, ensure_ascii=False),
         encoding="utf-8",

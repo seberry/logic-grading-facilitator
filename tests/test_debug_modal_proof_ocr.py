@@ -58,6 +58,7 @@ class DebugModalProofOcrTests(unittest.TestCase):
         self.assertIn("<SUBPROOF_ID_X>", prompt)
         self.assertIn("Modal system: S4", prompt)
         self.assertIn("Target conclusion: □□P", prompt)
+        self.assertIn("Do not stop early just because a child subproof was masked", prompt)
 
     def test_recursive_stitch_builds_nested_modal_structure(self) -> None:
         library = {
@@ -116,6 +117,29 @@ class DebugModalProofOcrTests(unittest.TestCase):
         debug_modal_proof_ocr.rewrite_strict_subproof_local_citations(structure)
 
         self.assertEqual(structure[2][3]["jstr"], "∧I 4 5")
+
+    def test_repair_modal_subproof_boundary_lines_fills_box_intro_and_dedupes(self) -> None:
+        structure = [
+            {"line_label": "1", "wffstr": "□(A → B)", "jstr": "PR", "line": 1},
+            [
+                {"line_label": "1", "wffstr": "□A", "jstr": "PR", "line": 2},
+                [
+                    {"line_label": "1", "wffstr": "□", "jstr": "PR", "line": 3},
+                    {"line_label": "2", "wffstr": "A", "jstr": "□E 2", "line": 4},
+                    {"line_label": "3", "wffstr": "A → B", "jstr": "□E 1", "line": 5},
+                    {"line_label": "4", "wffstr": "B", "jstr": "→E 4 5", "line": 6},
+                ],
+                {"line_label": "7", "wffstr": "□B", "jstr": "derived_line", "line": 7},
+                {"line_label": "8", "wffstr": "□A → □B", "jstr": "→I 2-7", "line": 8},
+            ],
+            {"line_label": "8", "wffstr": "□A → □B", "jstr": "→I 2-7", "line": 9},
+        ]
+
+        debug_modal_proof_ocr.repair_modal_subproof_boundary_lines(structure)
+
+        self.assertEqual(structure[1][2]["jstr"], "□I 3-6")
+        self.assertEqual(len(structure[1]), 3)
+        self.assertEqual(structure[2]["wffstr"], "□A → □B")
 
     def test_transcribe_image_to_modal_debug_state_writes_state(self) -> None:
         image_path = self.tmp_dir / "sample.png"

@@ -60,6 +60,21 @@ Current behavior:
 The current clean probe that has been validated end-to-end is a typeset strict
 subproof proving `□(A ∧ B)` from `□A` and `□B`.
 
+The OCR/debug scaffold has also now been validated on:
+
+- a mixed `K` proof with an ordinary subproof containing a strict subproof,
+  ending in `□A → □B`
+- an `S4` proof using `R4`, after passing `system: S4` in the checker config
+
+The current weak points are no longer basic scope-bar detection. They are
+mostly transcription issues near subproof boundaries, such as:
+
+- a boxed result line immediately after a strict child subproof
+- duplicated conclusion lines when a parent crop reaches slightly too far
+
+The current script includes small repair heuristics for those boundary cases
+before handing the structure to the Rust checker.
+
 ## Debug-page proof JSON shape
 
 The modal debug page accepts a more flexible JSON shape than the Rust CLI.
