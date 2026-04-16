@@ -524,33 +524,44 @@
                       <div class="muted">{{ item.forced_choice_candidates | join(" | ") }}</div>
                     {% endif %}
                   </td>
-                  <td>
-                    {{ item.proposed_correction or item.baseline_formula or "" }}
-                    {% if item.would_auto_apply %}
-                      <div class="muted">would auto-apply</div>
-                    {% else %}
-                      <div class="muted">debug only</div>
-                    {% endif %}
-                  </td>
-                  <td>
-                    {% if item.line_crop_filename %}
-                      <div>
-                        <a href="{{ item.line_crop_url }}">{{ item.line_crop_filename }}</a>
-                      </div>
-                      <img src="{{ item.line_crop_url }}" alt="Chosen verifier crop {{ item.line_number or item.line_label or '?' }}" class="crop-preview" />
-                    {% endif %}
-                    {% if item.candidate_attempts %}
-                      <details style="margin-top: 0.35rem;">
-                        <summary>Alternates</summary>
-                        <div class="muted" style="margin-top: 0.35rem;">
-                          {% for attempt in item.candidate_attempts %}
-                            <div style="margin-bottom: 0.5rem;">
-                              band {{ attempt.band_index + 1 if attempt.band_index is not none else "?" }},
-                              dist {{ attempt.band_distance if attempt.band_distance is not none else "?" }},
-                              structured {{ attempt.structured_formula or "n/a" }},
-                              forced {{ attempt.forced_choice or "n/a" }}
-                              {% if attempt.line_crop_filename %}
-                                <div><a href="{{ attempt.line_crop_url }}">{{ attempt.line_crop_filename }}</a></div>
+                    <td>
+                      {{ item.proposed_correction or item.baseline_formula or "" }}
+                      {% if item.would_auto_apply %}
+                        <div class="muted">would auto-apply</div>
+                      {% else %}
+                        <div class="muted">debug only</div>
+                      {% endif %}
+                      {% if item.attempt_kind %}
+                        <div class="muted">strategy: {{ item.attempt_kind | replace("_", " ") }}</div>
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if item.line_crop_filename %}
+                        <div>
+                          <a href="{{ item.line_crop_url }}">{{ item.line_crop_filename }}</a>
+                        </div>
+                        {% if item.strip_y1 is not none and item.strip_y2 is not none %}
+                          <div class="muted">y {{ item.strip_y1 }}-{{ item.strip_y2 }}</div>
+                        {% endif %}
+                        <img src="{{ item.line_crop_url }}" alt="Chosen verifier crop {{ item.line_number or item.line_label or '?' }}" class="crop-preview" />
+                      {% endif %}
+                      {% if item.candidate_attempts %}
+                        <details style="margin-top: 0.35rem;">
+                          <summary>Alternates</summary>
+                          <div class="muted" style="margin-top: 0.35rem;">
+                            {% for attempt in item.candidate_attempts %}
+                              <div style="margin-bottom: 0.5rem;">
+                                {% if attempt.attempt_kind == "margin_anchor" %}
+                                  margin anchor,
+                                  y {{ attempt.strip_y1 if attempt.strip_y1 is not none else "?" }}-{{ attempt.strip_y2 if attempt.strip_y2 is not none else "?" }},
+                                {% else %}
+                                  band {{ attempt.band_index + 1 if attempt.band_index is not none else "?" }},
+                                  dist {{ attempt.band_distance if attempt.band_distance is not none else "?" }},
+                                {% endif %}
+                                structured {{ attempt.structured_formula or "n/a" }},
+                                forced {{ attempt.forced_choice or "n/a" }}
+                                {% if attempt.line_crop_filename %}
+                                  <div><a href="{{ attempt.line_crop_url }}">{{ attempt.line_crop_filename }}</a></div>
                                 <img src="{{ attempt.line_crop_url }}" alt="Alternate verifier crop {{ attempt.band_index + 1 if attempt.band_index is not none else '?' }}" class="crop-thumb" />
                               {% endif %}
                             </div>

@@ -304,6 +304,40 @@ class DebugModalProofOcrTests(unittest.TestCase):
 
         self.assertEqual(best["line_crop_path"], "expected.jpg")
 
+    def test_margin_anchor_strip_bounds_use_midpoints_between_ordered_centers(self) -> None:
+        bounds = debug_modal_proof_ocr._margin_anchor_strip_bounds([20.0, 50.0, 90.0], 120)
+
+        self.assertEqual(bounds, [(5, 35), (35, 70), (70, 110)])
+
+    def test_best_verifier_attempt_prefers_margin_anchor_correction(self) -> None:
+        best = debug_modal_proof_ocr._best_verifier_attempt(
+            original_formula="¬□¬A",
+            expected_line_order=3,
+            attempts=[
+                {
+                    "attempt_kind": "local_band",
+                    "band_index": 3,
+                    "structured_formula": "¬□¬A",
+                    "forced_choice": "¬□¬A",
+                    "forced_confidence": 0.99,
+                    "structured_counts": {"confidence": 0.99},
+                    "line_crop_path": "local.jpg",
+                },
+                {
+                    "attempt_kind": "margin_anchor",
+                    "band_index": None,
+                    "structured_formula": "¬□¬¬A",
+                    "forced_choice": "¬□¬¬A",
+                    "proposed_correction": "¬□¬¬A",
+                    "forced_confidence": 0.95,
+                    "structured_counts": {"confidence": 0.95},
+                    "line_crop_path": "anchor.jpg",
+                },
+            ],
+        )
+
+        self.assertEqual(best["line_crop_path"], "anchor.jpg")
+
     def test_run_unary_verifier_experiment_records_proposed_correction(self) -> None:
         img = np.full((90, 120, 3), 255, dtype=np.uint8)
         cv2.putText(img, "~[]~~A", (4, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 0), 2)
@@ -538,11 +572,14 @@ class DebugModalProofOcrTests(unittest.TestCase):
             responses=[
                 json.dumps(
                     {
-                        "line_centers_rel": [250],
-                        "confidence": "low",
+                        "main_modal_operator": "box",
+                        "negations_before_modal": 1,
+                        "negations_before_final_atom": 2,
+                        "confidence": "high",
                     },
                     ensure_ascii=False,
                 ),
+                json.dumps({"line_label": "4", "selected_formula": "¬□¬¬P", "confidence": "medium"}, ensure_ascii=False),
                 json.dumps(
                     {
                         "main_modal_operator": "box",

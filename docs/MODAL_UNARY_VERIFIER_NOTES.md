@@ -199,25 +199,43 @@ This still preserves the useful separation:
 1. anchor / strip selection
 2. unary reread of the selected strip
 
-## Planned Debug-Panel Wiring
+## Debug-Panel Wiring Status
 
-The debug page should expose the margin-anchor strategy explicitly so it is
-easy to inspect before trusting it for rewrites.
+The margin-anchor path is now wired into the debug OCR flow as an additional
+verifier crop strategy.
 
-Recommended debug artifacts and UI additions:
+Current behavior:
 
-- margin candidate overlay
-  - show connected-component boxes on the upscaled left margin
-- order-based anchor overlay
-  - show the assigned `1..n` ordering even when classification is uncertain
-- full-width strip overlay
-  - show the exact reread strips that will be sent to the verifier
-- per-line verifier strips
-  - save a JPEG for each anchor-derived strip, similar to the existing
-    `verifier_line_*.jpg`
-- strategy metadata in `unary_verifier.json`
-  - record whether the chosen crop came from:
-    - margin-anchor strips
+- The OCR rerun writes fixed margin-anchor artifacts:
+  - `margin_anchor_margin_base.jpg`
+  - `margin_anchor_margin_upscaled_4x.jpg`
+  - `margin_anchor_binary.png`
+  - `margin_anchor_candidate_boxes.jpg`
+  - `margin_anchor_strip_overlay.jpg`
+  - `margin_anchor_geometry.json`
+- If the margin-anchor geometry finds exactly `1..n` candidates, the unary
+  verifier now creates per-line anchor strips such as:
+  - `verifier_line_anchor_4.jpg`
+  - `verifier_line_anchor_8.jpg`
+- The old node-local band crops are still produced and still act as fallback
+  / comparison crops.
+- `unary_verifier.json` now records:
+  - `attempt_kind`
+  - `strip_y1`
+  - `strip_y2`
+  - chosen crop strategy for the best attempt
+- `/debug/modal-proof` now shows the margin-anchor artifacts in the image
+  artifact panel, and the unary verifier table labels attempts as
+  `margin anchor` vs `local band`.
+
+Current limitation:
+
+- On the target handwritten case, the lower-half margin geometry still drifts.
+  - In the current integrated rerun, the margin-anchor list is usable enough
+    to generate strips, but only some lines prefer that strategy over the
+    existing local-band crop.
+  - This means the debug loop is now in place, but the anchor geometry still
+    needs tuning before it should become the primary rewrite source.
     - local row bands
     - or a fallback path
 

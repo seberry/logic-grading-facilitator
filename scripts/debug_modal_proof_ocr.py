@@ -675,6 +675,8 @@ def _best_verifier_attempt(
         candidate_formula = forced_choice if forced_choice and forced_choice != "uncertain" else structured_formula
         prefix_distance = _unary_prefix_distance(original_formula, candidate_formula)
         exact_original_agreement = forced_choice == original_formula and structured_formula == original_formula
+        attempt_kind = str(attempt.get("attempt_kind") or "local_band").strip()
+        margin_anchor_with_correction = attempt_kind == "margin_anchor" and bool(attempt.get("proposed_correction"))
         band_index = attempt.get("band_index")
         if isinstance(expected_line_order, int) and isinstance(band_index, int):
             band_distance = abs(band_index - expected_line_order)
@@ -686,6 +688,7 @@ def _best_verifier_attempt(
             nearby_band_match = False
             distance_score = 0
         return (
+            1 if margin_anchor_with_correction else 0,
             1 if exact_band_match else 0,
             1 if nearby_band_match else 0,
             1 if exact_original_agreement else 0,
@@ -767,6 +770,262 @@ def _node_crop_origin(node: SubproofNode) -> Tuple[int, int]:
         return (0, 0)
     x, y, _, _ = node.box
     return (max(0, x - 10), max(0, y - 10))
+
+
+def _extract_left_margin_strip(full_img: np.ndarray) -> Tuple[np.ndarray, int]:
+    if full_img.size == 0:
+        return full_img, 0
+    bars = detect_vertical_bars(full_img)
+    first_bar_x = bars[0][0] if bars else max(1, full_img.shape[1] // 8)
+    margin_right = max(1, min(full_img.shape[1], first_bar_x))
+    return full_img[:, :margin_right].copy(), margin_right
+
+
+def _candidate_box_iou(left: Tuple[int, int, int, int], right: Tuple[int, int, int, int]) -> float:
+    lx, ly, lw, lh = left
+    rx, ry, rw, rh = right
+    inter_x1 = max(lx, rx)
+    inter_y1 = max(ly, ry)
+    inter_x2 = min(lx + lw, rx + rw)
+    inter_y2 = min(ly + lh, ry + rh)
+    if inter_x2 <= inter_x1 or inter_y2 <= inter_y1:
+        return 0.0
+    intersection = float((inter_x2 - inter_x1) * (inter_y2 - inter_y1))
+    union = float(lw * lh + rw * rh) - intersection
+    if union <= 0.0:
+        return 0.0
+    return intersection / union
+
+
+def _merge_margin_candidate_boxes(boxes: List[Tuple[int, int, int, int]]) -> List[Tuple[int, int, int, int]]:
+    if not boxes:
+        return []
+
+    merged = sorted(boxes, key=lambda box: (box[1], box[0]))
+    changed = True
+    while changed:
+        changed = False
+        next_boxes: List[Tuple[int, int, int, int]] = []
+        while merged:
+            curr_x, curr_y, curr_w, curr_h = merged.pop(0)
+            curr_x2 = curr_x + curr_w
+            curr_y2 = curr_y + curr_h
+            keep_searching = True
+            while keep_searching:
+                keep_searching = False
+                for index, (nx, ny, nw, nh) in enumerate(merged):
+                    nx2 = nx + nw
+                    ny2 = ny + nh
+                    vertical_overlap = max(0, min(curr_y2, ny2) - max(curr_y, ny))
+                    min_height = max(1, min(curr_h, nh))
+                    horizontal_gap = max(0, max(curr_x, nx) - min(curr_x2, nx2))
+                    if vertical_overlap >= int(0.5 * min_height) and horizontal_gap <= 24:
+                        curr_x = min(curr_x, nx)
+                        curr_y = min(curr_y, ny)
+                        curr_x2 = max(curr_x2, nx2)
+                        curr_y2 = max(curr_y2, ny2)
+                        curr_w = curr_x2 - curr_x
+                        curr_h = curr_y2 - curr_y
+                        merged.pop(index)
+                        changed = True
+                        keep_searching = True
+                        break
+            next_boxes.append((curr_x, curr_y, curr_w, curr_h))
+        merged = sorted(next_boxes, key=lambda box: (box[1], box[0]))
+
+    pruned: List[Tuple[int, int, int, int]] = []
+    for box in sorted(merged, key=lambda item: item[2] * item[3], reverse=True):
+        if any(_candidate_box_iou(box, existing) >= 0.6 for existing in pruned):
+            continue
+        pruned.append(box)
+    return sorted(pruned, key=lambda box: (box[1], box[0]))
+
+
+def _detect_margin_number_candidate_boxes(
+    margin_upscaled_img: np.ndarray,
+) -> Tuple[List[Tuple[int, int, int, int]], np.ndarray]:
+    if margin_upscaled_img.size == 0:
+        return [], np.zeros((0, 0), dtype=np.uint8)
+
+    gray = cv2.cvtColor(margin_upscaled_img, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.medianBlur(gray, 3)
+    binary = cv2.adaptiveThreshold(
+        blurred,
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV,
+        31,
+        11,
+    )
+
+    horizontal_len = max(12, gray.shape[1] // 2)
+    horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (horizontal_len, 1))
+    horizontal_mask = cv2.morphologyEx(binary, cv2.MORPH_OPEN, horizontal_kernel)
+    cleaned = cv2.subtract(binary, horizontal_mask)
+    cleaned = cv2.morphologyEx(
+        cleaned,
+        cv2.MORPH_CLOSE,
+        cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
+    )
+
+    num_labels, _, stats, _ = cv2.connectedComponentsWithStats(cleaned, connectivity=8)
+    boxes: List[Tuple[int, int, int, int]] = []
+    max_h = gray.shape[0]
+    max_w = gray.shape[1]
+    for label in range(1, num_labels):
+        x, y, w, h, area = stats[label]
+        if area < 90:
+            continue
+        if h < 24 or h > int(max_h * 0.22):
+            continue
+        if w < 6 or w > max_w:
+            continue
+        if x > int(max_w * 0.85):
+            continue
+        boxes.append((int(x), int(y), int(w), int(h)))
+
+    return _merge_margin_candidate_boxes(boxes), cleaned
+
+
+def _margin_anchor_strip_bounds(anchor_centers: List[float], image_height: int) -> List[Tuple[int, int]]:
+    if not anchor_centers or image_height <= 0:
+        return []
+    if len(anchor_centers) == 1:
+        center = anchor_centers[0]
+        return [(max(0, int(round(center - 24))), min(image_height, int(round(center + 24))))]
+
+    boundaries: List[float] = []
+    first_gap = max(24.0, anchor_centers[1] - anchor_centers[0])
+    boundaries.append(max(0.0, anchor_centers[0] - (first_gap / 2.0)))
+    for left, right in zip(anchor_centers, anchor_centers[1:]):
+        boundaries.append((left + right) / 2.0)
+    last_gap = max(24.0, anchor_centers[-1] - anchor_centers[-2])
+    boundaries.append(min(float(image_height), anchor_centers[-1] + (last_gap / 2.0)))
+
+    bounds: List[Tuple[int, int]] = []
+    for index in range(len(anchor_centers)):
+        y1 = max(0, min(image_height - 1, int(round(boundaries[index]))))
+        y2 = max(y1 + 1, min(image_height, int(round(boundaries[index + 1]))))
+        bounds.append((y1, y2))
+    return bounds
+
+
+def _build_margin_anchor_geometry(
+    *,
+    full_img: np.ndarray,
+    total_lines: int,
+    output_dir: Path,
+) -> Dict[str, Any]:
+    geometry: Dict[str, Any] = {
+        "usable": False,
+        "expected_lines": total_lines,
+        "candidate_count": 0,
+        "anchors": [],
+        "strips": [],
+    }
+    if full_img.size == 0 or total_lines <= 0:
+        return geometry
+
+    margin_img, margin_right = _extract_left_margin_strip(full_img)
+    geometry["margin_right"] = margin_right
+    if margin_img.size == 0:
+        return geometry
+
+    margin_base_path = output_dir / "margin_anchor_margin_base.jpg"
+    margin_upscaled_path = output_dir / "margin_anchor_margin_upscaled_4x.jpg"
+    margin_binary_path = output_dir / "margin_anchor_binary.png"
+    candidate_boxes_path = output_dir / "margin_anchor_candidate_boxes.jpg"
+    strip_overlay_path = output_dir / "margin_anchor_strip_overlay.jpg"
+    geometry_path = output_dir / "margin_anchor_geometry.json"
+
+    cv2.imwrite(str(margin_base_path), margin_img)
+    margin_upscaled = _upscale_for_verifier(margin_img)
+    cv2.imwrite(str(margin_upscaled_path), margin_upscaled)
+
+    candidate_boxes_upscaled, binary = _detect_margin_number_candidate_boxes(margin_upscaled)
+    cv2.imwrite(str(margin_binary_path), binary)
+
+    candidate_overlay = margin_upscaled.copy()
+    scale = 4.0
+    anchors: List[Dict[str, Any]] = []
+    for index, (x, y, w, h) in enumerate(sorted(candidate_boxes_upscaled, key=lambda box: (box[1], box[0])), start=1):
+        cv2.rectangle(candidate_overlay, (x, y), (x + w, y + h), (40, 160, 60), 2)
+        cv2.putText(
+            candidate_overlay,
+            str(index),
+            (x, max(18, y - 6)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.7,
+            (0, 0, 220),
+            2,
+            cv2.LINE_AA,
+        )
+        anchors.append(
+            {
+                "assigned_line_number": index,
+                "bbox_upscaled": [int(x), int(y), int(w), int(h)],
+                "bbox_original": [round(x / scale, 1), round(y / scale, 1), round(w / scale, 1), round(h / scale, 1)],
+                "center_y_original": round((y + (h / 2.0)) / scale, 1),
+                "height_original": round(h / scale, 1),
+            }
+        )
+    cv2.imwrite(str(candidate_boxes_path), candidate_overlay)
+
+    geometry["candidate_count"] = len(anchors)
+    geometry["anchors"] = anchors
+
+    if len(anchors) == total_lines:
+        anchor_centers = [float(anchor["center_y_original"]) for anchor in anchors]
+        strip_bounds = _margin_anchor_strip_bounds(anchor_centers, full_img.shape[0])
+        strips: List[Dict[str, Any]] = []
+        overlay = full_img.copy()
+        for anchor, (y1, y2) in zip(anchors, strip_bounds):
+            record = {
+                "line_number": anchor["assigned_line_number"],
+                "center_y_original": anchor["center_y_original"],
+                "y1": int(y1),
+                "y2": int(y2),
+                "bbox_original": anchor["bbox_original"],
+            }
+            strips.append(record)
+            cv2.rectangle(overlay, (0, y1), (max(1, full_img.shape[1] - 1), max(y1 + 1, y2 - 1)), (0, 165, 255), 2)
+            cv2.putText(
+                overlay,
+                f"L{anchor['assigned_line_number']}",
+                (10, max(20, y1 + 18)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (220, 40, 40),
+                2,
+                cv2.LINE_AA,
+            )
+        cv2.imwrite(str(strip_overlay_path), overlay)
+        geometry["usable"] = True
+        geometry["strips"] = strips
+
+    geometry["artifacts"] = {
+        "margin_base": str(margin_base_path),
+        "margin_upscaled": str(margin_upscaled_path),
+        "binary": str(margin_binary_path),
+        "candidate_boxes": str(candidate_boxes_path),
+        "strip_overlay": str(strip_overlay_path),
+    }
+    geometry_path.write_text(json.dumps(geometry, indent=2, ensure_ascii=False), encoding="utf-8")
+    return geometry
+
+
+def _extract_margin_anchor_strip(full_img: np.ndarray, anchor_record: Dict[str, Any]) -> np.ndarray:
+    if full_img.size == 0:
+        return full_img
+    try:
+        y1 = int(anchor_record.get("y1"))
+        y2 = int(anchor_record.get("y2"))
+    except (TypeError, ValueError):
+        return full_img
+    y1 = max(0, min(full_img.shape[0] - 1, y1))
+    y2 = max(y1 + 1, min(full_img.shape[0], y2))
+    strip = full_img[y1:y2, :]
+    return strip.copy() if strip.size else full_img
 
 
 def _upscale_for_verifier(crop_img: np.ndarray, scale: int = 4) -> np.ndarray:
@@ -947,6 +1206,79 @@ def _is_structurally_close_unary_formula(original: str, candidate: str | None) -
     return _unary_formula_skeleton(original) == _unary_formula_skeleton(candidate) and _same_modal_class(original, candidate)
 
 
+def _run_unary_verifier_attempt(
+    *,
+    entry: Dict[str, Any],
+    original_formula: str,
+    verifier_client: LMStudioQwenClient,
+    crop_img: np.ndarray,
+    verifier_path: Path,
+    attempt_metadata: Dict[str, Any],
+) -> Dict[str, Any] | None:
+    if crop_img.size == 0:
+        return None
+
+    line_crop = _upscale_for_verifier(crop_img)
+    cv2.imwrite(str(verifier_path), line_crop)
+
+    with verifier_path.open("rb") as handle:
+        line_base64_image = base64.b64encode(handle.read()).decode("utf-8")
+
+    structured_raw = verifier_client.chat(
+        [
+            {"role": "system", "content": "You are a careful vision model. Follow the user's instructions exactly."},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": _build_structured_unary_verifier_prompt(entry)},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{line_base64_image}"}} ,
+                ],
+            },
+        ]
+    )
+    structured_parsed = _parse_unary_recheck_choice(structured_raw)
+    structured_formula = _derive_formula_from_structured_counts(entry, structured_parsed)
+
+    scope_role = str(entry.get("scope_role") or "derived_line").strip()
+    forced_candidates = _nearby_verifier_candidates(original_formula, structured_formula)
+    forced_raw = verifier_client.chat(
+        [
+            {"role": "system", "content": "You are a careful vision model. Follow the user's instructions exactly."},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": _build_forced_choice_unary_verifier_prompt(entry, forced_candidates)},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{line_base64_image}"}} ,
+                ],
+            },
+        ]
+    )
+    forced_parsed = _parse_unary_recheck_choice(forced_raw)
+    forced_choice = _normalize_selected_formula(forced_parsed.get("selected_formula"), scope_role)
+
+    proposed_correction = None
+    if (
+        structured_formula
+        and forced_choice == structured_formula
+        and structured_formula != original_formula
+        and _is_structurally_close_unary_formula(original_formula, structured_formula)
+    ):
+        proposed_correction = structured_formula
+
+    return {
+        **attempt_metadata,
+        "line_crop_path": str(verifier_path),
+        "structured_counts": structured_parsed,
+        "structured_formula": structured_formula,
+        "forced_choice_candidates": forced_candidates,
+        "forced_choice": forced_choice,
+        "forced_confidence": forced_parsed.get("confidence"),
+        "proposed_correction": proposed_correction,
+        "structured_raw_response": structured_raw,
+        "forced_raw_response": forced_raw,
+    }
+
+
 def _run_unary_verifier_experiment(
     *,
     proof_structure: List[Any],
@@ -957,6 +1289,8 @@ def _run_unary_verifier_experiment(
     checker_response: Dict[str, Any] | None,
 ) -> List[Dict[str, Any]]:
     for path in output_dir.glob("verifier_line_*.jpg"):
+        path.unlink(missing_ok=True)
+    for path in output_dir.glob("margin_anchor_*"):
         path.unlink(missing_ok=True)
     (output_dir / UNARY_VERIFIER_FILENAME).unlink(missing_ok=True)
 
@@ -969,10 +1303,24 @@ def _run_unary_verifier_experiment(
         (int(line.get("line")) for line in all_lines if isinstance(line.get("line"), int)),
         default=0,
     )
-    full_image_line_anchors = _request_full_image_line_anchors(
+    margin_anchor_geometry = _build_margin_anchor_geometry(
         full_img=full_img,
-        verifier_client=verifier_client,
         total_lines=max_line_number,
+        output_dir=output_dir,
+    )
+    margin_anchor_lookup = {
+        int(record["line_number"]): record
+        for record in margin_anchor_geometry.get("strips", [])
+        if isinstance(record, dict) and isinstance(record.get("line_number"), int)
+    }
+    full_image_line_anchors = (
+        {}
+        if margin_anchor_geometry.get("usable")
+        else _request_full_image_line_anchors(
+            full_img=full_img,
+            verifier_client=verifier_client,
+            total_lines=max_line_number,
+        )
     )
     records: List[Dict[str, Any]] = []
     for entry in all_lines:
@@ -986,6 +1334,30 @@ def _run_unary_verifier_experiment(
         line_order = entry.get("_ocr_line_order")
         line_number = entry.get("line")
         attempt_records: List[Dict[str, Any]] = []
+        if isinstance(line_number, int) and margin_anchor_geometry.get("usable") and line_number in margin_anchor_lookup:
+            anchor_record = margin_anchor_lookup[line_number]
+            anchor_crop = _extract_margin_anchor_strip(full_img, anchor_record)
+            anchor_attempt = _run_unary_verifier_attempt(
+                entry=entry,
+                original_formula=original_formula,
+                verifier_client=verifier_client,
+                crop_img=anchor_crop,
+                verifier_path=output_dir / f"verifier_line_anchor_{line_number}.jpg",
+                attempt_metadata={
+                    "attempt_kind": "margin_anchor",
+                    "band_index": None,
+                    "band_distance": None,
+                    "anchor_rel": None,
+                    "projected_crop_y": None,
+                    "band_mid_y": float(anchor_record.get("center_y_original") or 0.0),
+                    "anchor_center_y": anchor_record.get("center_y_original"),
+                    "strip_y1": anchor_record.get("y1"),
+                    "strip_y2": anchor_record.get("y2"),
+                },
+            )
+            if anchor_attempt is not None:
+                attempt_records.append(anchor_attempt)
+
         if node is not None and isinstance(line_order, int):
             node_crop = _verifier_node_crop_image(node=node, full_img=full_img)
             bands = _detect_text_row_bands(node_crop)
@@ -1007,74 +1379,30 @@ def _run_unary_verifier_experiment(
                     bands=bands,
                     band_index=candidate_index,
                 )
-                line_crop = _upscale_for_verifier(line_crop)
                 suffix = f"{line_order + 1}"
                 if candidate_index != line_order:
                     suffix = f"{suffix}_band{candidate_index + 1}"
                 verifier_path = output_dir / f"verifier_line_{node_id}_{suffix}.jpg"
-                cv2.imwrite(str(verifier_path), line_crop)
-
-                with verifier_path.open("rb") as handle:
-                    line_base64_image = base64.b64encode(handle.read()).decode("utf-8")
-
-                structured_raw = verifier_client.chat(
-                    [
-                        {"role": "system", "content": "You are a careful vision model. Follow the user's instructions exactly."},
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": _build_structured_unary_verifier_prompt(entry)},
-                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{line_base64_image}"}} ,
-                            ],
-                        },
-                    ]
-                )
-                structured_parsed = _parse_unary_recheck_choice(structured_raw)
-                structured_formula = _derive_formula_from_structured_counts(entry, structured_parsed)
-
-                forced_candidates = _nearby_verifier_candidates(original_formula, structured_formula)
-                forced_raw = verifier_client.chat(
-                    [
-                        {"role": "system", "content": "You are a careful vision model. Follow the user's instructions exactly."},
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": _build_forced_choice_unary_verifier_prompt(entry, forced_candidates)},
-                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{line_base64_image}"}} ,
-                            ],
-                        },
-                    ]
-                )
-                forced_parsed = _parse_unary_recheck_choice(forced_raw)
-                forced_choice = _normalize_selected_formula(forced_parsed.get("selected_formula"), scope_role)
-
-                proposed_correction = None
-                if (
-                    structured_formula
-                    and forced_choice == structured_formula
-                    and structured_formula != original_formula
-                    and _is_structurally_close_unary_formula(original_formula, structured_formula)
-                ):
-                    proposed_correction = structured_formula
-
-                attempt_records.append(
-                    {
+                attempt = _run_unary_verifier_attempt(
+                    entry=entry,
+                    original_formula=original_formula,
+                    verifier_client=verifier_client,
+                    crop_img=line_crop,
+                    verifier_path=verifier_path,
+                    attempt_metadata={
+                        "attempt_kind": "local_band",
                         "band_index": candidate_index,
                         "band_distance": abs(candidate_index - line_order),
                         "anchor_rel": anchor_rel,
                         "projected_crop_y": projected_crop_y,
                         "band_mid_y": (bands[candidate_index][0] + bands[candidate_index][1]) / 2.0,
-                        "line_crop_path": str(verifier_path),
-                        "structured_counts": structured_parsed,
-                        "structured_formula": structured_formula,
-                        "forced_choice_candidates": forced_candidates,
-                        "forced_choice": forced_choice,
-                        "forced_confidence": forced_parsed.get("confidence"),
-                        "proposed_correction": proposed_correction,
-                        "structured_raw_response": structured_raw,
-                        "forced_raw_response": forced_raw,
-                    }
+                        "anchor_center_y": None,
+                        "strip_y1": None,
+                        "strip_y2": None,
+                    },
                 )
+                if attempt is not None:
+                    attempt_records.append(attempt)
 
         if not attempt_records:
             records.append(
@@ -1112,6 +1440,10 @@ def _run_unary_verifier_experiment(
                 "forced_choice": best_attempt.get("forced_choice"),
                 "proposed_correction": best_attempt.get("proposed_correction"),
                 "would_auto_apply": bool(best_attempt.get("proposed_correction")),
+                "attempt_kind": best_attempt.get("attempt_kind"),
+                "anchor_center_y": best_attempt.get("anchor_center_y"),
+                "strip_y1": best_attempt.get("strip_y1"),
+                "strip_y2": best_attempt.get("strip_y2"),
                 "line_crop_path": best_attempt.get("line_crop_path"),
                 "structured_raw_response": best_attempt.get("structured_raw_response"),
                 "forced_raw_response": best_attempt.get("forced_raw_response"),

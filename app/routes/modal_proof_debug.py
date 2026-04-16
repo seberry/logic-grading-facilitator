@@ -40,7 +40,18 @@ OCR_TEXT_ARTIFACTS = (
     "unary_verifier.json",
     "verifier_rewrites.json",
 )
-IMAGE_ARTIFACTS = ("source_image", "debug_bars.jpg", "crop_ROOT.jpg", "crop_1.jpg", "crop_2.jpg")
+IMAGE_ARTIFACTS = (
+    "source_image",
+    "debug_bars.jpg",
+    "crop_ROOT.jpg",
+    "crop_1.jpg",
+    "crop_2.jpg",
+    "margin_anchor_margin_base.jpg",
+    "margin_anchor_margin_upscaled_4x.jpg",
+    "margin_anchor_binary.png",
+    "margin_anchor_candidate_boxes.jpg",
+    "margin_anchor_strip_overlay.jpg",
+)
 SYSTEM_OPTIONS = ["K", "T", "S4", "S5"]
 STARTER_EXAMPLE = "starter"
 

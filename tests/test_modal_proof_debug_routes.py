@@ -159,16 +159,23 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
                         "forced_choice": "¬□¬¬A",
                         "proposed_correction": "¬□¬¬A",
                         "would_auto_apply": True,
+                        "attempt_kind": "margin_anchor",
+                        "strip_y1": 120,
+                        "strip_y2": 148,
                         "line_crop_path": "working\\sample\\verifier_line_1_4.jpg",
                         "candidate_attempts": [
                             {
+                                "attempt_kind": "margin_anchor",
                                 "band_index": 3,
                                 "band_distance": 0,
+                                "strip_y1": 120,
+                                "strip_y2": 148,
                                 "structured_formula": "¬□¬¬A",
                                 "forced_choice": "¬□¬¬A",
                                 "line_crop_path": "working\\sample\\verifier_line_1_4.jpg",
                             },
                             {
+                                "attempt_kind": "local_band",
                                 "band_index": 2,
                                 "band_distance": 1,
                                 "structured_formula": "⋄¬A",
@@ -197,6 +204,8 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertIn("Alternates", response.text)
         self.assertIn("verifier_line_1_4_band3.jpg", response.text)
         self.assertIn('class="crop-thumb"', response.text)
+        self.assertIn("strategy: margin anchor", response.text)
+        self.assertIn("y 120-148", response.text)
         self.assertIn("Verifier Rewrites", response.text)
         self.assertIn("Original OCR JSON", response.text)
 
