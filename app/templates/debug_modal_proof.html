@@ -437,6 +437,7 @@
                 <th>Structured 8b</th>
                 <th>Forced-choice 8b</th>
                 <th>Proposed</th>
+                <th>Crops</th>
               </tr>
             </thead>
             <tbody>
@@ -475,6 +476,31 @@
                       <div class="muted">would auto-apply</div>
                     {% else %}
                       <div class="muted">debug only</div>
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if item.line_crop_filename %}
+                      <div>
+                        <a href="{{ item.line_crop_url }}">{{ item.line_crop_filename }}</a>
+                      </div>
+                    {% endif %}
+                    {% if item.candidate_attempts %}
+                      <details style="margin-top: 0.35rem;">
+                        <summary>Alternates</summary>
+                        <div class="muted" style="margin-top: 0.35rem;">
+                          {% for attempt in item.candidate_attempts %}
+                            <div style="margin-bottom: 0.5rem;">
+                              band {{ attempt.band_index + 1 if attempt.band_index is not none else "?" }},
+                              dist {{ attempt.band_distance if attempt.band_distance is not none else "?" }},
+                              structured {{ attempt.structured_formula or "n/a" }},
+                              forced {{ attempt.forced_choice or "n/a" }}
+                              {% if attempt.line_crop_filename %}
+                                <div><a href="{{ attempt.line_crop_url }}">{{ attempt.line_crop_filename }}</a></div>
+                              {% endif %}
+                            </div>
+                          {% endfor %}
+                        </div>
+                      </details>
                     {% endif %}
                   </td>
                 </tr>

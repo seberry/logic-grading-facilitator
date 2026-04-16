@@ -147,6 +147,23 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
                         "forced_choice": "¬□¬¬A",
                         "proposed_correction": "¬□¬¬A",
                         "would_auto_apply": True,
+                        "line_crop_path": "working\\sample\\verifier_line_1_4.jpg",
+                        "candidate_attempts": [
+                            {
+                                "band_index": 3,
+                                "band_distance": 0,
+                                "structured_formula": "¬□¬¬A",
+                                "forced_choice": "¬□¬¬A",
+                                "line_crop_path": "working\\sample\\verifier_line_1_4.jpg",
+                            },
+                            {
+                                "band_index": 2,
+                                "band_distance": 1,
+                                "structured_formula": "⋄¬A",
+                                "forced_choice": "⋄¬A",
+                                "line_crop_path": "working\\sample\\verifier_line_1_4_band3.jpg",
+                            },
+                        ],
                     }
                 ],
                 ensure_ascii=False,
@@ -154,6 +171,7 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
             encoding="utf-8",
         )
         (example_dir / "verifier_line_1_4.jpg").write_bytes(b"fakejpg")
+        (example_dir / "verifier_line_1_4_band3.jpg").write_bytes(b"fakejpg")
 
         with patch.object(modal_proof_debug_routes, "DEBUG_MODAL_PROOF_DIR", self.debug_dir):
             response = self.client.get("/debug/modal-proof?example=sample")
@@ -162,6 +180,8 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertIn("Unary Verifier Experiment", response.text)
         self.assertIn("¬□¬¬A", response.text)
         self.assertIn("verifier_line_1_4.jpg", response.text)
+        self.assertIn("Alternates", response.text)
+        self.assertIn("verifier_line_1_4_band3.jpg", response.text)
 
     def test_run_checker_renders_summary_and_payloads(self) -> None:
         result = AutoGradeResult(

@@ -195,7 +195,36 @@ def _load_unary_verifier_results(example_slug: str) -> List[Dict[str, Any]]:
         parsed = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return []
-    return parsed if isinstance(parsed, list) else []
+    if not isinstance(parsed, list):
+        return []
+
+    annotated: List[Dict[str, Any]] = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        record = dict(item)
+        line_crop_path = str(record.get("line_crop_path") or "").strip()
+        if line_crop_path:
+            filename = Path(line_crop_path).name
+            record["line_crop_filename"] = filename
+            record["line_crop_url"] = f"/debug_modal_proof_assets/{example_slug}/{quote(filename)}"
+
+        attempts = record.get("candidate_attempts")
+        if isinstance(attempts, list):
+            annotated_attempts: List[Dict[str, Any]] = []
+            for attempt in attempts:
+                if not isinstance(attempt, dict):
+                    continue
+                attempt_record = dict(attempt)
+                attempt_crop_path = str(attempt_record.get("line_crop_path") or "").strip()
+                if attempt_crop_path:
+                    filename = Path(attempt_crop_path).name
+                    attempt_record["line_crop_filename"] = filename
+                    attempt_record["line_crop_url"] = f"/debug_modal_proof_assets/{example_slug}/{quote(filename)}"
+                annotated_attempts.append(attempt_record)
+            record["candidate_attempts"] = annotated_attempts
+        annotated.append(record)
+    return annotated
 
 
 def _render_checker_request_preview(checker_request: Any) -> str:
