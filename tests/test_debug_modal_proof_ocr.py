@@ -4,6 +4,7 @@ import json
 import shutil
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 from uuid import uuid4
 
 import cv2
@@ -146,35 +147,225 @@ class DebugModalProofOcrTests(unittest.TestCase):
             )
         )
 
-    def test_recheck_suspicious_unary_formulas_accepts_extra_visible_negation(self) -> None:
-        crop_path = self.tmp_dir / "crop_1.jpg"
-        cv2.imwrite(str(crop_path), np.full((40, 40, 3), 255, dtype=np.uint8))
-        entries = [
+    def test_build_unary_formula_candidates_preserves_skeleton(self) -> None:
+        candidates = debug_modal_proof_ocr._build_unary_formula_candidates(
             {
-                "formula_text": "¬□¬A",
-                "justification_text": "MC 3",
+                "formula_text": "□A",
+                "justification_text": "DN 1",
                 "scope_role": "derived_line",
                 "line_label": "4",
             }
+        )
+
+        self.assertEqual(candidates[0], "□A")
+        self.assertIn("¬¬A", candidates)
+        self.assertIn("¬¬¬A", candidates)
+        self.assertNotIn("□B", candidates)
+
+    def test_build_unary_formula_candidates_ignores_non_unary_formula(self) -> None:
+        candidates = debug_modal_proof_ocr._build_unary_formula_candidates(
+            {
+                "formula_text": "A ∧ B",
+                "justification_text": "∧I 1 2",
+                "scope_role": "derived_line",
+                "line_label": "5",
+            }
+        )
+
+        self.assertEqual(candidates, [])
+
+    def test_select_unary_forced_choice_candidates_keeps_nearby_variants(self) -> None:
+        forced = debug_modal_proof_ocr._select_unary_forced_choice_candidates(
+            original_formula="¬□¬A",
+            generated_candidates=["¬□¬A", "¬□¬¬A", "¬□A", "¬¬A"],
+            candidate_scores={
+                "¬□¬A": (0, 3),
+                "¬□¬¬A": (0, 4),
+                "¬□A": (0, 3),
+                "¬¬A": (1, 2),
+            },
+        )
+
+        self.assertEqual(forced[0], "¬□¬A")
+        self.assertIn("¬□¬¬A", forced)
+        self.assertIn("¬□A", forced)
+        self.assertNotIn("¬¬A", forced)
+
+    def test_recheck_suspicious_unary_formulas_keeps_original_when_visual_choice_stays_original(self) -> None:
+        crop_path = self.tmp_dir / "crop_1.jpg"
+        cv2.imwrite(str(crop_path), np.full((40, 40, 3), 255, dtype=np.uint8))
+        structure = [
+            {"line_label": "4", "wffstr": "□A", "jstr": "DN 1", "_ocr_node_id": "1"},
         ]
+
+        def fake_run_checker(answer_text, autograde_config):
+            payload = json.loads(answer_text)
+            sentence = payload["lines"][0]["wffstr"]
+            score = (0, 2) if sentence == "□A" else (0, 2)
+            return type(
+                "Result",
+                (),
+                {
+                    "parse_errors": [object()] * score[0],
+                    "check_errors": [object()] * score[1],
+                },
+            )()
+
         fake_client = FakeModalVisionClient(
-            responses=[
-                json.dumps({"line_label": "4", "formula_text": "¬□¬¬A"}, ensure_ascii=False),
-            ]
+            [json.dumps({"selected_formula": "□A", "confidence": "medium"}, ensure_ascii=False)]
         )
+        with patch.object(debug_modal_proof_ocr, "run_modal_proof_checker", side_effect=fake_run_checker):
+            records = debug_modal_proof_ocr._recheck_suspicious_unary_formulas(
+                proof_structure=structure,
+                crop_path=crop_path,
+                client=fake_client,
+                output_dir=self.tmp_dir,
+                modal_config={"system": "K"},
+                node_id="1",
+            )
 
-        records = debug_modal_proof_ocr._recheck_suspicious_unary_formulas(
-            entries=entries,
-            crop_path=crop_path,
-            client=fake_client,
-            output_dir=self.tmp_dir,
-            node_id="1",
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["improving_candidates"], [])
+        self.assertEqual(structure[0]["wffstr"], "□A")
+        self.assertGreaterEqual(len(records[0]["forced_choice_candidates"]), 1)
+        self.assertEqual(records[0]["vlm_choice"], "□A")
+        self.assertFalse(records[0]["accepted"])
+
+    def test_recheck_suspicious_unary_formulas_accepts_vlm_selected_improving_candidate(self) -> None:
+        crop_path = self.tmp_dir / "crop_1.jpg"
+        cv2.imwrite(str(crop_path), np.full((40, 40, 3), 255, dtype=np.uint8))
+        structure = [
+            {"line_label": "4", "wffstr": "□A", "jstr": "DN 1", "_ocr_node_id": "1"},
+        ]
+
+        def fake_run_checker(answer_text, autograde_config):
+            payload = json.loads(answer_text)
+            sentence = payload["lines"][0]["wffstr"]
+            score_map = {
+                "□A": (0, 2),
+                "¬A": (0, 3),
+                "¬¬A": (0, 1),
+                "¬¬¬A": (0, 2),
+                "□¬A": (0, 3),
+                "¬□A": (0, 3),
+                "¬□¬A": (0, 2),
+            }
+            score = score_map.get(sentence, (0, 4))
+            return type(
+                "Result",
+                (),
+                {
+                    "parse_errors": [object()] * score[0],
+                    "check_errors": [object()] * score[1],
+                },
+            )()
+
+        fake_client = FakeModalVisionClient(
+            [json.dumps({"line_label": "4", "selected_formula": "¬¬A", "confidence": "medium"}, ensure_ascii=False)]
         )
+        with patch.object(debug_modal_proof_ocr, "run_modal_proof_checker", side_effect=fake_run_checker):
+            records = debug_modal_proof_ocr._recheck_suspicious_unary_formulas(
+                proof_structure=structure,
+                crop_path=crop_path,
+                client=fake_client,
+                output_dir=self.tmp_dir,
+                modal_config={"system": "K"},
+                node_id="1",
+            )
 
-        self.assertEqual(entries[0]["formula_text"], "¬□¬¬A")
-        self.assertEqual(records[0]["before"], "¬□¬A")
-        self.assertEqual(records[0]["after"], "¬□¬¬A")
+        self.assertEqual(structure[0]["wffstr"], "¬¬A")
+        self.assertEqual(records[0]["vlm_choice"], "¬¬A")
         self.assertTrue(records[0]["accepted"])
+
+    def test_recheck_suspicious_unary_formulas_can_use_near_tie_candidate_on_visual_choice(self) -> None:
+        crop_path = self.tmp_dir / "crop_1.jpg"
+        cv2.imwrite(str(crop_path), np.full((120, 120, 3), 255, dtype=np.uint8))
+        structure = [
+            {"line_label": "", "wffstr": "¬□¬A", "jstr": "MC 3", "_ocr_node_id": "1", "_ocr_entry_index": 3},
+        ]
+
+        def fake_run_checker(answer_text, autograde_config):
+            payload = json.loads(answer_text)
+            sentence = payload["lines"][0]["wffstr"]
+            score_map = {
+                "¬□¬A": (0, 3),
+                "¬□¬¬A": (0, 4),
+                "¬□A": (0, 3),
+                "¬A": (0, 5),
+                "¬¬A": (0, 5),
+                "¬¬¬A": (0, 5),
+                "□A": (0, 5),
+            }
+            score = score_map.get(sentence, (0, 6))
+            return type(
+                "Result",
+                (),
+                {
+                    "parse_errors": [object()] * score[0],
+                    "check_errors": [object()] * score[1],
+                },
+            )()
+
+        fake_client = FakeModalVisionClient(
+            [json.dumps({"selected_formula": "¬□¬¬A", "confidence": "high"}, ensure_ascii=False)]
+        )
+        with patch.object(debug_modal_proof_ocr, "run_modal_proof_checker", side_effect=fake_run_checker):
+            records = debug_modal_proof_ocr._recheck_suspicious_unary_formulas(
+                proof_structure=structure,
+                crop_path=crop_path,
+                client=fake_client,
+                output_dir=self.tmp_dir,
+                modal_config={"system": "K"},
+                node_id="1",
+            )
+
+        self.assertEqual(structure[0]["wffstr"], "¬□¬¬A")
+        self.assertIn("¬□¬¬A", records[0]["forced_choice_candidates"])
+        self.assertTrue(records[0]["accepted"])
+
+    def test_recheck_suspicious_unary_formulas_keeps_original_when_vlm_is_uncertain(self) -> None:
+        crop_path = self.tmp_dir / "crop_1.jpg"
+        cv2.imwrite(str(crop_path), np.full((40, 40, 3), 255, dtype=np.uint8))
+        structure = [
+            {"line_label": "4", "wffstr": "¬□¬A", "jstr": "MC 3", "_ocr_node_id": "1"},
+        ]
+
+        def fake_run_checker(answer_text, autograde_config):
+            payload = json.loads(answer_text)
+            sentence = payload["lines"][0]["wffstr"]
+            score_map = {
+                "¬□¬A": (0, 4),
+                "¬¬¬A": (0, 2),
+                "□¬A": (0, 3),
+                "¬□A": (0, 3),
+                "¬□¬A": (0, 4),
+            }
+            score = score_map.get(sentence, (0, 5))
+            return type(
+                "Result",
+                (),
+                {
+                    "parse_errors": [object()] * score[0],
+                    "check_errors": [object()] * score[1],
+                },
+            )()
+
+        fake_client = FakeModalVisionClient(
+            [json.dumps({"line_label": "4", "selected_formula": "uncertain", "confidence": "uncertain"}, ensure_ascii=False)]
+        )
+        with patch.object(debug_modal_proof_ocr, "run_modal_proof_checker", side_effect=fake_run_checker):
+            records = debug_modal_proof_ocr._recheck_suspicious_unary_formulas(
+                proof_structure=structure,
+                crop_path=crop_path,
+                client=fake_client,
+                output_dir=self.tmp_dir,
+                modal_config={"system": "K"},
+                node_id="1",
+            )
+
+        self.assertEqual(structure[0]["wffstr"], "¬□¬A")
+        self.assertEqual(records[0]["vlm_choice"], "uncertain")
+        self.assertFalse(records[0]["accepted"])
         self.assertTrue((self.tmp_dir / debug_modal_proof_ocr.UNARY_RECHECK_FILENAME).exists())
 
     def test_recursive_stitch_recovers_missing_child_token_before_box_intro(self) -> None:
@@ -295,7 +486,7 @@ class DebugModalProofOcrTests(unittest.TestCase):
                     ],
                     ensure_ascii=False,
                 ),
-                json.dumps({"line_label": "4", "formula_text": "¬□¬¬P"}, ensure_ascii=False),
+                json.dumps({"line_label": "4", "selected_formula": "¬□¬¬P", "confidence": "medium"}, ensure_ascii=False),
             ]
         )
 
@@ -303,14 +494,32 @@ class DebugModalProofOcrTests(unittest.TestCase):
         original_run_checker = debug_modal_proof_ocr.run_modal_proof_checker
         try:
             debug_modal_proof_ocr.detect_vertical_bars = lambda img: [(0, 0, 2, 100)]
-            debug_modal_proof_ocr.run_modal_proof_checker = lambda answer_text, autograde_config: type(
-                "Result",
-                (),
-                {
-                    "request_payload": {"system": "S4", "lines": []},
-                    "response_payload": {"ok": True, "parse_errors": [], "check_errors": []},
-                },
-            )()
+            def fake_run_checker(answer_text, autograde_config):
+                payload = json.loads(answer_text)
+                def iter_lines(items):
+                    for item in items:
+                        if isinstance(item, list):
+                            yield from iter_lines(item)
+                        elif isinstance(item, dict):
+                            yield item
+
+                target_sentence = next(
+                    (line.get("wffstr", "") for line in iter_lines(payload["lines"]) if line.get("line_label") == "4"),
+                    "",
+                )
+                score = (0, 1) if target_sentence == "¬□¬¬P" else (0, 3)
+                return type(
+                    "Result",
+                    (),
+                    {
+                        "request_payload": {"system": "S4", "lines": []},
+                        "response_payload": {"ok": True, "parse_errors": [], "check_errors": []},
+                        "parse_errors": [object()] * score[0],
+                        "check_errors": [object()] * score[1],
+                    },
+                )()
+
+            debug_modal_proof_ocr.run_modal_proof_checker = fake_run_checker
 
             state = debug_modal_proof_ocr.transcribe_image_to_modal_debug_state(
                 image_path=image_path,

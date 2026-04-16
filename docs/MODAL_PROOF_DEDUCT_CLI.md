@@ -90,6 +90,19 @@ Current repair heuristics now include:
 - checker-side look-alike retries for rule heads such as `OE` / `OI` in place
   of `□E` / `□I`
 
+Current unary recheck behavior is still experimental:
+
+- it now scores nearby unary-prefix variants against the full stitched proof
+  before asking the local VLM to reread a suspicious line
+- it uses a tighter line-focused crop plus a counting-oriented prompt for
+  explicit unary-mark disambiguation
+- in local testing on the handwritten modal example
+  `q1_3_ps11_anderson_blane_p01`, `qwen/qwen3-vl-8b` was better than
+  `qwen/qwen3-vl-4b` for targeted one-line forced-choice rereads, but not
+  clearly better as the primary whole-proof OCR model
+- the current limiting factor is line localization inside a crop, especially
+  near masked subproof tokens and tightly packed handwritten rows
+
 These repairs are intentionally conservative. The checker first runs on the raw
 normalized OCR output. Only if that produces parse failures, or obvious rule-head
 failures such as `no such rule`, does the Python side try a small set of

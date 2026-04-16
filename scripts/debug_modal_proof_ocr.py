@@ -401,6 +401,7 @@ def call_vlm(image_path: Path, prompt: str, client: LMStudioQwenClient | None) -
 
 UNARY_PREFIX_CHARS = {"¬", "□", "⋄"}
 UNARY_SENSITIVE_RULE_HEADS = {"MC", "DN", "Def⋄"}
+UNARY_CANDIDATE_PREFIXES = ("¬", "¬¬", "¬¬¬", "□", "□¬", "¬□", "¬□¬", "⋄", "⋄¬", "¬⋄", "¬⋄¬")
 
 
 def _leading_unary_prefix(formula_text: str) -> str:
@@ -438,21 +439,7 @@ def _unary_formula_skeleton(formula_text: str) -> str:
     return re.sub(r"[¬□⋄()\s]", "", str(formula_text or ""))
 
 
-def _unary_operator_count(formula_text: str) -> int:
-    return sum(1 for char in str(formula_text or "") if char in UNARY_PREFIX_CHARS)
-
-
-def _accept_unary_recheck_formula(original_formula: str, revised_formula: str) -> bool:
-    if not revised_formula or revised_formula == original_formula:
-        return False
-    if _unary_formula_skeleton(original_formula) != _unary_formula_skeleton(revised_formula):
-        return False
-    if abs(_unary_operator_count(original_formula) - _unary_operator_count(revised_formula)) > 2:
-        return False
-    return True
-
-
-def _parse_rechecked_formula(raw: str) -> Dict[str, Any]:
+def _parse_unary_recheck_choice(raw: str) -> Dict[str, Any]:
     cleaned = _strip_fences(raw)
     parsed = json.loads(cleaned)
     if isinstance(parsed, list):
@@ -462,72 +449,386 @@ def _parse_rechecked_formula(raw: str) -> Dict[str, Any]:
     return parsed
 
 
-def _build_unary_formula_recheck_prompt(entry: Dict[str, Any]) -> str:
-    line_label = str(entry.get("line_label") or "").strip()
-    formula_text = str(entry.get("formula_text") or entry.get("wffstr") or "").strip()
+def _candidate_unary_prefixes(formula_text: str, justification: str) -> List[str]:
+    prefix = _leading_unary_prefix(formula_text)
+    rule_head = justification.split(" ", 1)[0] if justification else ""
+    if not prefix:
+        return []
+
+    contains_box = "□" in prefix
+    contains_diamond = "⋄" in prefix
+    negation_count = prefix.count("¬")
+
+    candidates: List[str] = [prefix]
+    if contains_diamond:
+        pool = ("¬", "¬¬", "¬¬¬", "⋄", "⋄¬", "¬⋄", "¬⋄¬")
+    elif contains_box or negation_count >= 2 or rule_head in UNARY_SENSITIVE_RULE_HEADS:
+        pool = ("¬", "¬¬", "¬¬¬", "□", "□¬", "¬□", "¬□¬")
+    else:
+        pool = ("¬", "¬¬", "¬¬¬")
+
+    for candidate in pool:
+        if candidate not in candidates:
+            candidates.append(candidate)
+    if prefix.endswith("¬") and prefix.count("¬") < 4:
+        extended_prefix = f"{prefix}¬"
+        if extended_prefix not in candidates:
+            candidates.append(extended_prefix)
+    return candidates
+
+
+def _build_unary_formula_candidates(entry: Dict[str, Any]) -> List[str]:
+    scope_role = str(entry.get("scope_role") or "derived_line").strip()
+    formula_text = _normalize_formula_text(entry.get("formula_text") or entry.get("wffstr") or "", scope_role)
+    justification = _normalize_justification_text(entry.get("justification_text") or entry.get("jstr") or "")
+    prefix = _leading_unary_prefix(formula_text)
+    if not prefix:
+        return []
+
+    body = formula_text[len(prefix) :].strip()
+    if not body:
+        return [formula_text]
+
+    candidates: List[str] = []
+    for candidate_prefix in _candidate_unary_prefixes(formula_text, justification):
+        candidate = f"{candidate_prefix}{body}"
+        if _unary_formula_skeleton(candidate) != _unary_formula_skeleton(formula_text):
+            continue
+        if candidate not in candidates:
+            candidates.append(candidate)
+    return candidates
+
+
+def _checker_score(result: Any) -> Tuple[int, int]:
+    return (len(getattr(result, "parse_errors", []) or []), len(getattr(result, "check_errors", []) or []))
+
+
+def _clone_jsonish(value: Any) -> Any:
+    return json.loads(json.dumps(value, ensure_ascii=False))
+
+
+def _iter_proof_line_dicts(structure: List[Any]) -> List[Dict[str, Any]]:
+    lines: List[Dict[str, Any]] = []
+    for item in structure:
+        if isinstance(item, list):
+            lines.extend(_iter_proof_line_dicts(item))
+        elif isinstance(item, dict):
+            lines.append(item)
+    return lines
+
+
+def _line_matches_source(
+    line: Dict[str, Any],
+    source_node_id: str,
+    source_line_label: str,
+    source_entry_index: int | None,
+) -> bool:
+    if str(line.get("_ocr_node_id") or "") != source_node_id:
+        return False
+    if source_line_label:
+        return str(line.get("line_label") or "").strip() == source_line_label
+    if source_entry_index is not None:
+        try:
+            return int(line.get("_ocr_entry_index")) == source_entry_index
+        except (TypeError, ValueError):
+            return False
+    return False
+
+
+def _substitute_formula_for_source_line(
+    structure: List[Any],
+    *,
+    source_node_id: str,
+    source_line_label: str,
+    source_entry_index: int | None,
+    formula_text: str,
+) -> List[Any]:
+    cloned = _clone_jsonish(structure)
+    for line in _iter_proof_line_dicts(cloned):
+        if _line_matches_source(line, source_node_id, source_line_label, source_entry_index):
+            line["wffstr"] = formula_text
+            break
+    return cloned
+
+
+def _score_unary_formula_candidates(
+    *,
+    proof_structure: List[Any],
+    source_node_id: str,
+    source_line_label: str,
+    source_entry_index: int | None,
+    candidates: List[str],
+    modal_config: Dict[str, Any],
+) -> Dict[str, Tuple[int, int]]:
+    scores: Dict[str, Tuple[int, int]] = {}
+    canonical_config = _canonical_modal_config(modal_config)
+    for candidate in candidates:
+        candidate_structure = _substitute_formula_for_source_line(
+            proof_structure,
+            source_node_id=source_node_id,
+            source_line_label=source_line_label,
+            source_entry_index=source_entry_index,
+            formula_text=candidate,
+        )
+        answer_text = json.dumps({"lines": candidate_structure, "meta": {}}, ensure_ascii=False)
+        result = run_modal_proof_checker(answer_text=answer_text, autograde_config=canonical_config)
+        scores[candidate] = _checker_score(result)
+    return scores
+
+
+def _detect_text_row_bands(crop_img: np.ndarray) -> List[Tuple[int, int]]:
+    gray = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
+    dark_mask = gray < 185
+    row_counts = dark_mask.sum(axis=1).astype(np.float32)
+    if row_counts.size == 0:
+        return []
+
+    kernel = np.ones(9, dtype=np.float32) / 9.0
+    smoothed = np.convolve(row_counts, kernel, mode="same")
+    threshold = max(6.0, float(smoothed.max()) * 0.16)
+    active_rows = np.where(smoothed >= threshold)[0]
+    if active_rows.size == 0:
+        return []
+
+    bands: List[Tuple[int, int]] = []
+    start = int(active_rows[0])
+    prev = int(active_rows[0])
+    for idx in active_rows[1:]:
+        idx = int(idx)
+        if idx <= prev + 4:
+            prev = idx
+            continue
+        bands.append((start, prev))
+        start = idx
+        prev = idx
+    bands.append((start, prev))
+
+    merged: List[Tuple[int, int]] = []
+    for band_start, band_end in bands:
+        if merged and band_start <= merged[-1][1] + 10:
+            merged[-1] = (merged[-1][0], band_end)
+        else:
+            merged.append((band_start, band_end))
+    return [(start, end) for start, end in merged if end - start >= 6]
+
+
+def _focused_unary_line_crop_path(
+    *,
+    crop_path: Path,
+    line_order: int | None,
+    output_dir: Path,
+    node_id: str,
+) -> Path:
+    if line_order is None:
+        return crop_path
+
+    crop_img = cv2.imread(str(crop_path))
+    if crop_img is None:
+        return crop_path
+
+    bands = _detect_text_row_bands(crop_img)
+    if not bands or line_order < 0 or line_order >= len(bands):
+        return crop_path
+
+    band_top, band_bottom = bands[line_order]
+    img_h, img_w = crop_img.shape[:2]
+    pad_y = 12
+    y1 = max(0, band_top - pad_y)
+    y2 = min(img_h, band_bottom + pad_y)
+    x2 = min(img_w, max(80, int(img_w * 0.68)))
+    focused = crop_img[y1:y2, 0:x2]
+    if focused.size == 0:
+        return crop_path
+
+    focused_path = output_dir / f"unary_line_{node_id}_{line_order + 1}.jpg"
+    cv2.imwrite(str(focused_path), focused)
+    return focused_path
+
+
+def _build_unary_formula_recheck_prompt(entry: Dict[str, Any], candidates: List[str]) -> str:
+    formula_text = _normalize_formula_text(
+        entry.get("formula_text") or entry.get("wffstr") or "",
+        str(entry.get("scope_role") or "derived_line").strip(),
+    )
     justification = _normalize_justification_text(entry.get("justification_text") or entry.get("jstr") or "")
     lines = [
-        "Focus on one handwritten proof line in this crop.",
-        'Return only a JSON object: {"line_label":"...", "formula_text":"..."}',
-        f"Read only the line labeled {line_label}.",
-        "Preserve every unary operator exactly, especially ¬, □, and ⋄.",
-        "Do not collapse doubled negation. If the handwriting shows ¬¬, return ¬¬.",
-        "Do not rewrite the formula to make the proof valid; copy the visible marks exactly.",
-        f"Current OCR formula for that line: {formula_text}",
+        "This image shows one handwritten modal logic proof formula.",
+        'Return only a JSON object with keys: selected_formula, confidence, box_present, diamond_present, left_of_main_modal_negations, negations_before_final_atom.',
+        "Count the visible unary marks carefully before choosing.",
+        "A box is □, a diamond is ⋄, and a negation is ¬.",
+        "Choose the exact candidate that best matches the handwriting.",
+        "Do not invent a formula outside the candidate list.",
+        f"Current OCR formula: {formula_text}",
     ]
     if justification:
-        lines.append(f"Current OCR justification for that line: {justification}")
-    lines.append("Return the same line_label and the exact formula_text for that one line only.")
+        lines.append(f"Current OCR justification: {justification}")
+    lines.append("Candidates:")
+    for candidate in candidates:
+        lines.append(f"- {candidate}")
+    lines.append('If you cannot tell, return "selected_formula": "uncertain".')
     return "\n".join(lines)
+
+
+def _select_unary_forced_choice_candidates(
+    *,
+    original_formula: str,
+    generated_candidates: List[str],
+    candidate_scores: Dict[str, Tuple[int, int]],
+) -> List[str]:
+    original_score = candidate_scores.get(original_formula)
+    if original_score is None:
+        return [original_formula]
+
+    forced_candidates = [original_formula]
+    ranked_alternatives = sorted(
+        (
+            (candidate, score)
+            for candidate, score in candidate_scores.items()
+            if candidate != original_formula and _unary_formula_skeleton(candidate) == _unary_formula_skeleton(original_formula)
+        ),
+        key=lambda item: (item[1][0], item[1][1], generated_candidates.index(item[0])),
+    )
+
+    for candidate, score in ranked_alternatives:
+        parse_delta = score[0] - original_score[0]
+        check_delta = score[1] - original_score[1]
+        if parse_delta > 0:
+            continue
+        if check_delta > 1:
+            continue
+        forced_candidates.append(candidate)
+        if len(forced_candidates) >= 4:
+            break
+
+    return forced_candidates
 
 
 def _recheck_suspicious_unary_formulas(
     *,
-    entries: List[Dict[str, Any]],
+    proof_structure: List[Any],
     crop_path: Path,
     client: LMStudioQwenClient | None,
     output_dir: Path,
+    modal_config: Dict[str, Any],
     node_id: str,
 ) -> List[Dict[str, Any]]:
     if client is None:
         return []
 
-    with crop_path.open("rb") as handle:
-        base64_image = base64.b64encode(handle.read()).decode("utf-8")
-
     recheck_records: List[Dict[str, Any]] = []
-    for entry in entries:
+    for entry in _iter_proof_line_dicts(proof_structure):
+        if str(entry.get("_ocr_node_id") or "") != node_id:
+            continue
         if not _should_recheck_unary_formula(entry):
             continue
 
         scope_role = str(entry.get("scope_role") or "derived_line").strip()
         line_label = str(entry.get("line_label") or "").strip()
+        source_node_id = str(entry.get("_ocr_node_id") or "").strip()
+        source_entry_index = entry.get("_ocr_entry_index")
+        source_line_order = entry.get("_ocr_line_order")
+        if not source_node_id:
+            continue
+        if not line_label and not isinstance(source_entry_index, int):
+            continue
         original_formula = _normalize_formula_text(entry.get("formula_text") or entry.get("wffstr") or "", scope_role)
+        generated_candidates = _build_unary_formula_candidates(entry)
+        if len(generated_candidates) <= 1:
+            continue
+
+        try:
+            candidate_scores = _score_unary_formula_candidates(
+                proof_structure=proof_structure,
+                source_node_id=source_node_id,
+                source_line_label=line_label,
+                source_entry_index=source_entry_index,
+                candidates=generated_candidates,
+                modal_config=modal_config,
+            )
+        except Exception as exc:
+            recheck_records.append(
+                {
+                    "node_id": source_node_id,
+                    "line_label": line_label,
+                    "before": original_formula,
+                    "generated_candidates": generated_candidates,
+                    "checker_error": str(exc),
+                    "accepted": False,
+                    "final_formula": original_formula,
+                }
+            )
+            continue
+
+        original_score = candidate_scores.get(original_formula)
+        if original_score is None:
+            continue
+        improving_candidates = [
+            candidate for candidate in generated_candidates if candidate_scores.get(candidate, original_score) < original_score
+        ]
+        forced_choice_candidates = _select_unary_forced_choice_candidates(
+            original_formula=original_formula,
+            generated_candidates=generated_candidates,
+            candidate_scores=candidate_scores,
+        )
+        if len(forced_choice_candidates) <= 1:
+            recheck_records.append(
+                {
+                    "node_id": source_node_id,
+                    "line_label": line_label,
+                    "before": original_formula,
+                    "generated_candidates": generated_candidates,
+                    "candidate_scores": {candidate: list(score) for candidate, score in candidate_scores.items()},
+                    "improving_candidates": [],
+                    "forced_choice_candidates": [original_formula],
+                    "vlm_choice": None,
+                    "accepted": False,
+                    "final_formula": original_formula,
+                }
+            )
+            continue
+
+        line_crop_path = _focused_unary_line_crop_path(
+            crop_path=crop_path,
+            line_order=source_line_order if isinstance(source_line_order, int) else None,
+            output_dir=output_dir,
+            node_id=source_node_id,
+        )
+        with line_crop_path.open("rb") as handle:
+            line_base64_image = base64.b64encode(handle.read()).decode("utf-8")
+
         raw_response = client.chat(
             [
                 {"role": "system", "content": "You are a careful vision model. Follow the user's instructions exactly."},
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": _build_unary_formula_recheck_prompt(entry)},
-                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}},
+                        {"type": "text", "text": _build_unary_formula_recheck_prompt(entry, forced_choice_candidates)},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{line_base64_image}"}},
                     ],
                 },
             ]
         )
-        parsed = _parse_rechecked_formula(raw_response)
-        revised_formula = _normalize_formula_text(parsed.get("formula_text") or "", scope_role)
-        accepted = _accept_unary_recheck_formula(original_formula, revised_formula)
+        parsed = _parse_unary_recheck_choice(raw_response)
+        selected_formula = str(parsed.get("selected_formula") or "").strip()
+        if selected_formula and selected_formula != "uncertain":
+            selected_formula = _normalize_formula_text(selected_formula, scope_role)
+        accepted = bool(selected_formula and selected_formula not in {"uncertain", original_formula} and selected_formula in forced_choice_candidates)
         if accepted:
-            entry["formula_text"] = revised_formula
+            entry["wffstr"] = selected_formula
 
         recheck_records.append(
             {
-                "node_id": node_id,
+                "node_id": source_node_id,
                 "line_label": line_label,
                 "before": original_formula,
-                "after": revised_formula or original_formula,
+                "generated_candidates": generated_candidates,
+                "candidate_scores": {candidate: list(score) for candidate, score in candidate_scores.items()},
+                "improving_candidates": improving_candidates,
+                "forced_choice_candidates": forced_choice_candidates,
+                "vlm_choice": selected_formula or "uncertain",
                 "accepted": accepted,
+                "final_formula": selected_formula if accepted else original_formula,
+                "line_crop_path": str(line_crop_path),
                 "raw_response": raw_response,
             }
         )
@@ -581,13 +882,6 @@ def process_node_recursive(
 
     raw_response, parsed_entries = call_vlm(save_path, prompt, client)
     (output_dir / RAW_RESPONSE_TEMPLATE.format(node_id=node.id)).write_text(raw_response, encoding="utf-8")
-    _recheck_suspicious_unary_formulas(
-        entries=parsed_entries,
-        crop_path=save_path,
-        client=client,
-        output_dir=output_dir,
-        node_id=node.id,
-    )
     (output_dir / INTERMEDIATE_TEMPLATE.format(node_id=node.id)).write_text(
         json.dumps(parsed_entries, indent=2, ensure_ascii=False),
         encoding="utf-8",
@@ -658,7 +952,13 @@ def _normalize_justification_text(text: Any) -> str:
     return f"{head} {tail}".strip()
 
 
-def _entry_to_line(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _entry_to_line(
+    entry: Dict[str, Any],
+    *,
+    node_id: str | None = None,
+    entry_index: int | None = None,
+    line_order: int | None = None,
+) -> Optional[Dict[str, Any]]:
     scope_role = str(entry.get("scope_role") or "derived_line").strip()
     formula_text = str(entry.get("formula_text") or entry.get("wffstr") or "").strip()
     token_match = TOKEN_PATTERN.search(formula_text)
@@ -670,11 +970,18 @@ def _entry_to_line(entry: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     else:
         jstr = _normalize_justification_text(entry.get("justification_text") or entry.get("jstr") or "")
 
-    return {
+    line = {
         "line_label": str(entry.get("line_label") or "").strip(),
         "wffstr": _normalize_formula_text(formula_text, scope_role),
         "jstr": jstr,
     }
+    if node_id:
+        line["_ocr_node_id"] = str(node_id)
+    if entry_index is not None:
+        line["_ocr_entry_index"] = int(entry_index)
+    if line_order is not None:
+        line["_ocr_line_order"] = int(line_order)
+    return line
 
 
 def _is_strict_subproof_block(block: Any) -> bool:
@@ -712,7 +1019,8 @@ def recursive_stitch(
 ) -> List[Any]:
     resolved: List[Any] = []
     consumed_child_ids = set()
-    for entry in entries:
+    visible_line_order = 0
+    for entry_index, entry in enumerate(entries):
         formula_text = str(entry.get("formula_text") or entry.get("wffstr") or "").strip()
         token_match = TOKEN_PATTERN.search(formula_text)
         if token_match:
@@ -725,9 +1033,15 @@ def recursive_stitch(
             consumed_child_ids.add(child_id)
             continue
 
-        line = _entry_to_line(entry)
+        line = _entry_to_line(
+            entry,
+            node_id=node.id if node is not None else None,
+            entry_index=entry_index,
+            line_order=visible_line_order,
+        )
         if line is not None:
             resolved.append(line)
+            visible_line_order += 1
 
     if node is not None:
         for child in sorted(node.children, key=lambda c: c.box[1]):
@@ -938,6 +1252,18 @@ def repair_modal_subproof_boundary_lines(proof_structure: List[Any]) -> None:
         index += 1
 
 
+def _strip_internal_ocr_metadata(proof_structure: List[Any]) -> None:
+    for item in proof_structure:
+        if isinstance(item, list):
+            _strip_internal_ocr_metadata(item)
+            continue
+        if not isinstance(item, dict):
+            continue
+        item.pop("_ocr_node_id", None)
+        item.pop("_ocr_entry_index", None)
+        item.pop("_ocr_line_order", None)
+
+
 def build_modal_state(
     *,
     config: Dict[str, Any],
@@ -1014,8 +1340,21 @@ def transcribe_image_to_modal_debug_state(
     rewrite_strict_subproof_local_citations(final_structure)
     repair_modal_subproof_boundary_lines(final_structure)
     renumber_lines(final_structure)
+    for crop_path in sorted(output_dir.glob("crop_*.jpg")):
+        crop_node_id = crop_path.stem.removeprefix("crop_")
+        _recheck_suspicious_unary_formulas(
+            proof_structure=final_structure,
+            crop_path=crop_path,
+            client=client,
+            output_dir=output_dir,
+            modal_config=modal_config,
+            node_id=crop_node_id,
+        )
+
+    persisted_structure = _clone_jsonish(final_structure)
+    _strip_internal_ocr_metadata(persisted_structure)
     (output_dir / FINAL_STRUCTURE_FILENAME).write_text(
-        json.dumps(final_structure, indent=2, ensure_ascii=False),
+        json.dumps(persisted_structure, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
 
@@ -1024,7 +1363,7 @@ def transcribe_image_to_modal_debug_state(
     run_summary = "OCR produced a modal proof structure. Review it in /debug/modal-proof."
 
     try:
-        proof_json_text = json.dumps({"lines": final_structure, "meta": {}}, ensure_ascii=False)
+        proof_json_text = json.dumps({"lines": persisted_structure, "meta": {}}, ensure_ascii=False)
         checker_result = run_modal_proof_checker(
             answer_text=proof_json_text,
             autograde_config=_canonical_modal_config(modal_config),
@@ -1045,7 +1384,7 @@ def transcribe_image_to_modal_debug_state(
 
     state = build_modal_state(
         config=modal_config,
-        final_structure=final_structure,
+        final_structure=persisted_structure,
         checker_request=checker_request,
         checker_response=checker_response,
         run_summary=run_summary,
