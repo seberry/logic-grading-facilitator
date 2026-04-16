@@ -103,6 +103,9 @@ Current unary recheck behavior is still experimental:
 - the current limiting factor is line localization inside a crop, especially
   near masked subproof tokens and tightly packed handwritten rows
 
+For a more current summary of handwritten unary-verifier experiments, see
+`docs/MODAL_UNARY_VERIFIER_NOTES.md`.
+
 These repairs are intentionally conservative. The checker first runs on the raw
 normalized OCR output. Only if that produces parse failures, or obvious rule-head
 failures such as `no such rule`, does the Python side try a small set of

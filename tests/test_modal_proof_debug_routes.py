@@ -152,6 +152,7 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
                     {
                         "node_id": "1",
                         "line_label": "4",
+                        "node_line_order": 3,
                         "baseline_formula": "¬□¬A",
                         "structured_formula": "¬□¬¬A",
                         "forced_choice_candidates": ["¬□¬A", "¬□¬¬A"],
@@ -192,6 +193,7 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertIn("¬□¬¬A", response.text)
         self.assertIn("verifier_line_1_4.jpg", response.text)
         self.assertIn('class="crop-preview"', response.text)
+        self.assertIn("node slot 4", response.text)
         self.assertIn("Alternates", response.text)
         self.assertIn("verifier_line_1_4_band3.jpg", response.text)
         self.assertIn('class="crop-thumb"', response.text)

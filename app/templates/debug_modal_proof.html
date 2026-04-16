@@ -493,7 +493,12 @@
                   {% for item in unary_verifier_results %}
                 <tr>
                   <td>{{ item.node_id or "" }}</td>
-                  <td>{{ item.line_number or item.line_label or "?" }}</td>
+                  <td>
+                    {{ item.line_number or item.line_label or "?" }}
+                    {% if item.node_line_order is not none %}
+                      <div class="muted">node slot {{ item.node_line_order + 1 }}</div>
+                    {% endif %}
+                  </td>
                   <td>{{ item.baseline_formula or "" }}</td>
                   <td>
                     {% if item.structured_formula %}

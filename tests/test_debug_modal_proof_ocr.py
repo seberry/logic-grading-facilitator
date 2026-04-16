@@ -225,6 +225,20 @@ class DebugModalProofOcrTests(unittest.TestCase):
 
         self.assertLess(line_crop.shape[0], crop_img.shape[0])
         self.assertGreaterEqual(line_crop.shape[1], 80)
+        self.assertLess(line_crop.shape[0], 40)
+
+    def test_extract_band_crop_uses_tight_band_padding_not_neighbor_midpoints(self) -> None:
+        crop_img = np.full((200, 120, 3), 255, dtype=np.uint8)
+        bands = [(20, 30), (100, 110), (170, 180)]
+
+        line_crop = debug_modal_proof_ocr._extract_band_crop(
+            node_crop_img=crop_img,
+            bands=bands,
+            band_index=1,
+        )
+
+        self.assertEqual(line_crop.shape[0], 34)
+        self.assertGreaterEqual(line_crop.shape[1], 80)
 
     def test_build_structured_unary_verifier_prompt_mentions_exact_counts(self) -> None:
         prompt = debug_modal_proof_ocr._build_structured_unary_verifier_prompt(

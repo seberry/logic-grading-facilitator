@@ -555,15 +555,7 @@ def _extract_single_line_crop(
     if not bands or line_order < 0 or line_order >= len(bands):
         return node_crop_img
 
-    band_top, band_bottom = bands[line_order]
-    img_h, img_w = node_crop_img.shape[:2]
-    prev_boundary = 0 if line_order == 0 else int((bands[line_order - 1][1] + band_top) / 2)
-    next_boundary = img_h if line_order == len(bands) - 1 else int((band_bottom + bands[line_order + 1][0]) / 2)
-    y1 = max(0, prev_boundary - 4)
-    y2 = min(img_h, next_boundary + 4)
-    x2 = min(img_w, max(80, int(img_w * 0.68)))
-    line_crop = node_crop_img[y1:y2, 0:x2]
-    return line_crop if line_crop.size else node_crop_img
+    return _extract_band_crop(node_crop_img=node_crop_img, bands=bands, band_index=line_order)
 
 
 def _extract_band_crop(
@@ -577,10 +569,9 @@ def _extract_band_crop(
 
     band_top, band_bottom = bands[band_index]
     img_h, img_w = node_crop_img.shape[:2]
-    prev_boundary = 0 if band_index == 0 else int((bands[band_index - 1][1] + band_top) / 2)
-    next_boundary = img_h if band_index == len(bands) - 1 else int((band_bottom + bands[band_index + 1][0]) / 2)
-    y1 = max(0, prev_boundary - 4)
-    y2 = min(img_h, next_boundary + 4)
+    pad_y = 12
+    y1 = max(0, band_top - pad_y)
+    y2 = min(img_h, band_bottom + pad_y)
     x2 = min(img_w, max(80, int(img_w * 0.68)))
     band_crop = node_crop_img[y1:y2, 0:x2]
     return band_crop if band_crop.size else node_crop_img
@@ -1091,6 +1082,7 @@ def _run_unary_verifier_experiment(
                     "node_id": node_id,
                     "line_label": str(entry.get("line_label") or "").strip(),
                     "line_number": line_number,
+                    "node_line_order": line_order if isinstance(line_order, int) else None,
                     "baseline_formula": original_formula,
                     "structured_error": "Could not isolate a single-line verifier crop.",
                     "would_auto_apply": False,
@@ -1109,6 +1101,7 @@ def _run_unary_verifier_experiment(
                 "node_id": node_id,
                 "line_label": str(entry.get("line_label") or "").strip(),
                 "line_number": line_number,
+                "node_line_order": line_order if isinstance(line_order, int) else None,
                 "baseline_formula": original_formula,
                 "band_count": len(_detect_text_row_bands(_verifier_node_crop_image(node=node, full_img=full_img))) if node is not None else 0,
                 "anchor_rel": best_attempt.get("anchor_rel"),
