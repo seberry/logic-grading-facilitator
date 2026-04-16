@@ -309,6 +309,29 @@ class DebugModalProofOcrTests(unittest.TestCase):
 
         self.assertEqual(bounds, [(5, 35), (35, 70), (70, 110)])
 
+    def test_merge_margin_candidate_boxes_merges_stacked_digit_fragments(self) -> None:
+        merged = debug_modal_proof_ocr._merge_margin_candidate_boxes(
+            [
+                (30, 860, 65, 35),
+                (51, 895, 34, 40),
+                (25, 1200, 42, 60),
+            ]
+        )
+
+        self.assertEqual(merged, [(30, 860, 65, 75), (25, 1200, 42, 60)])
+
+    def test_extract_left_margin_strip_can_use_narrower_fraction(self) -> None:
+        img = np.full((60, 100, 3), 255, dtype=np.uint8)
+        original_detect = debug_modal_proof_ocr.detect_vertical_bars
+        try:
+            debug_modal_proof_ocr.detect_vertical_bars = lambda _img: [(40, 0, 2, 60)]
+            crop_img, margin_right = debug_modal_proof_ocr._extract_left_margin_strip(img, right_fraction=0.65)
+        finally:
+            debug_modal_proof_ocr.detect_vertical_bars = original_detect
+
+        self.assertEqual(margin_right, 26)
+        self.assertEqual(crop_img.shape[1], 26)
+
     def test_best_verifier_attempt_prefers_margin_anchor_correction(self) -> None:
         best = debug_modal_proof_ocr._best_verifier_attempt(
             original_formula="¬□¬A",

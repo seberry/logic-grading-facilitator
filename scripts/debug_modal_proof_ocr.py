@@ -772,12 +772,15 @@ def _node_crop_origin(node: SubproofNode) -> Tuple[int, int]:
     return (max(0, x - 10), max(0, y - 10))
 
 
-def _extract_left_margin_strip(full_img: np.ndarray) -> Tuple[np.ndarray, int]:
+def _extract_left_margin_strip(full_img: np.ndarray, right_fraction: float = 1.0) -> Tuple[np.ndarray, int]:
     if full_img.size == 0:
         return full_img, 0
     bars = detect_vertical_bars(full_img)
     first_bar_x = bars[0][0] if bars else max(1, full_img.shape[1] // 8)
-    margin_right = max(1, min(full_img.shape[1], first_bar_x))
+    scaled_right = int(first_bar_x * max(0.2, min(1.0, right_fraction)))
+    if first_bar_x >= 30:
+        scaled_right = max(24, scaled_right)
+    margin_right = max(1, min(full_img.shape[1], scaled_right))
     return full_img[:, :margin_right].copy(), margin_right
 
 
@@ -818,8 +821,13 @@ def _merge_margin_candidate_boxes(boxes: List[Tuple[int, int, int, int]]) -> Lis
                     ny2 = ny + nh
                     vertical_overlap = max(0, min(curr_y2, ny2) - max(curr_y, ny))
                     min_height = max(1, min(curr_h, nh))
+                    horizontal_overlap = max(0, min(curr_x2, nx2) - max(curr_x, nx))
+                    min_width = max(1, min(curr_w, nw))
                     horizontal_gap = max(0, max(curr_x, nx) - min(curr_x2, nx2))
-                    if vertical_overlap >= int(0.5 * min_height) and horizontal_gap <= 24:
+                    vertical_gap = max(0, max(curr_y, ny) - min(curr_y2, ny2))
+                    same_row_merge = vertical_overlap >= int(0.5 * min_height) and horizontal_gap <= 24
+                    stacked_fragment_merge = horizontal_overlap >= int(0.45 * min_width) and vertical_gap <= 18
+                    if same_row_merge or stacked_fragment_merge:
                         curr_x = min(curr_x, nx)
                         curr_y = min(curr_y, ny)
                         curr_x2 = max(curr_x2, nx2)
@@ -887,6 +895,39 @@ def _detect_margin_number_candidate_boxes(
     return _merge_margin_candidate_boxes(boxes), cleaned
 
 
+def _score_margin_candidate_boxes(
+    boxes: List[Tuple[int, int, int, int]],
+    *,
+    expected_count: int,
+    strip_width: int,
+) -> Tuple[int, int, int, int, int, int]:
+    if not boxes:
+        return (0, -expected_count, -9999, -9999, -9999, -9999)
+
+    heights = [h for _, _, _, h in boxes]
+    median_height = float(np.median(np.array(heights, dtype=np.float32))) if heights else 0.0
+    tall_skinny_noise = sum(
+        1
+        for x, _, w, h in boxes
+        if h > max(72.0, median_height * 2.4) and w < max(18.0, median_height * 0.55) and x > int(strip_width * 0.7)
+    )
+    far_right_noise = sum(
+        1
+        for x, _, w, _ in boxes
+        if x > int(strip_width * 0.7) and w < int(strip_width * 0.28)
+    )
+    count_distance = abs(len(boxes) - expected_count)
+    total_height_penalty = int(sum(max(0.0, h - max(72.0, median_height * 2.1)) for h in heights))
+    return (
+        1 if len(boxes) == expected_count else 0,
+        -count_distance,
+        -tall_skinny_noise,
+        -far_right_noise,
+        -total_height_penalty,
+        -strip_width,
+    )
+
+
 def _margin_anchor_strip_bounds(anchor_centers: List[float], image_height: int) -> List[Tuple[int, int]]:
     if not anchor_centers or image_height <= 0:
         return []
@@ -926,11 +967,6 @@ def _build_margin_anchor_geometry(
     if full_img.size == 0 or total_lines <= 0:
         return geometry
 
-    margin_img, margin_right = _extract_left_margin_strip(full_img)
-    geometry["margin_right"] = margin_right
-    if margin_img.size == 0:
-        return geometry
-
     margin_base_path = output_dir / "margin_anchor_margin_base.jpg"
     margin_upscaled_path = output_dir / "margin_anchor_margin_upscaled_4x.jpg"
     margin_binary_path = output_dir / "margin_anchor_binary.png"
@@ -938,11 +974,31 @@ def _build_margin_anchor_geometry(
     strip_overlay_path = output_dir / "margin_anchor_strip_overlay.jpg"
     geometry_path = output_dir / "margin_anchor_geometry.json"
 
-    cv2.imwrite(str(margin_base_path), margin_img)
-    margin_upscaled = _upscale_for_verifier(margin_img)
-    cv2.imwrite(str(margin_upscaled_path), margin_upscaled)
+    candidate_variants: List[Tuple[Tuple[int, int, int, int, int, int], float, np.ndarray, int, np.ndarray, List[Tuple[int, int, int, int]], np.ndarray]] = []
+    for right_fraction in (0.6, 0.65, 0.75, 0.85, 1.0):
+        margin_img, margin_right = _extract_left_margin_strip(full_img, right_fraction=right_fraction)
+        if margin_img.size == 0:
+            continue
+        margin_upscaled = _upscale_for_verifier(margin_img)
+        candidate_boxes_upscaled, binary = _detect_margin_number_candidate_boxes(margin_upscaled)
+        score = _score_margin_candidate_boxes(
+            candidate_boxes_upscaled,
+            expected_count=total_lines,
+            strip_width=margin_upscaled.shape[1],
+        )
+        candidate_variants.append((score, right_fraction, margin_img, margin_right, margin_upscaled, candidate_boxes_upscaled, binary))
 
-    candidate_boxes_upscaled, binary = _detect_margin_number_candidate_boxes(margin_upscaled)
+    if not candidate_variants:
+        return geometry
+
+    _, selected_fraction, margin_img, margin_right, margin_upscaled, candidate_boxes_upscaled, binary = max(
+        candidate_variants,
+        key=lambda item: item[0],
+    )
+    geometry["margin_right"] = margin_right
+    geometry["selected_right_fraction"] = selected_fraction
+    cv2.imwrite(str(margin_base_path), margin_img)
+    cv2.imwrite(str(margin_upscaled_path), margin_upscaled)
     cv2.imwrite(str(margin_binary_path), binary)
 
     candidate_overlay = margin_upscaled.copy()

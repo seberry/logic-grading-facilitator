@@ -106,6 +106,14 @@ Current unary recheck behavior is still experimental:
 For a more current summary of handwritten unary-verifier experiments, see
 `docs/MODAL_UNARY_VERIFIER_NOTES.md`.
 
+When the margin-anchor verifier path is usable, OCR reruns may also emit:
+
+- `margin_anchor_*.jpg` / `margin_anchor_*.png` / `margin_anchor_geometry.json`
+- `verifier_line_anchor_*.jpg`
+
+Those artifacts are debug-only and are surfaced in `/debug/modal-proof`
+alongside the older `verifier_line_*.jpg` local-band crops.
+
 These repairs are intentionally conservative. The checker first runs on the raw
 normalized OCR output. Only if that produces parse failures, or obvious rule-head
 failures such as `no such rule`, does the Python side try a small set of

@@ -16,6 +16,8 @@ Useful experiment artifact directories in the repo workspace:
 - `working/modal-proof-verifier-rerun6`
 - `working/modal-proof-verifier-rerun7`
 - `working/modal-proof-verifier-rerun13`
+- `working/modal-proof-verifier-rerun14`
+- `working/modal-proof-verifier-rerun15`
 - `working/modal-proof-line-number-locator`
 - `working/modal-proof-line-number-locator-leftonly-gutter`
 - `working/modal-proof-margin-band-ocr`
@@ -231,21 +233,43 @@ Current behavior:
 Current limitation:
 
 - On the target handwritten case, the lower-half margin geometry still drifts.
-  - In the current integrated rerun, the margin-anchor list is usable enough
-    to generate strips, but only some lines prefer that strategy over the
-    existing local-band crop.
-  - This means the debug loop is now in place, but the anchor geometry still
-    needs tuning before it should become the primary rewrite source.
-    - local row bands
-    - or a fallback path
+  - `rerun14` proved the debug wiring and artifact flow but still missed the
+    real `7` margin anchor and kept the old local-band crop as the winner for
+    line 8.
+  - `rerun15` improves the lower half by:
+    - searching a few narrower left-margin widths and choosing the best layout
+    - merging vertically stacked digit fragments before ordering
+  - With that change, the target case now recovers a usable `1..10` anchor
+    list again and line 8 can be selected from `margin_anchor`.
+  - Line 10 still does not prefer the anchor crop, so the old local-band path
+    remains an important fallback.
 
-Recommended integration order:
+## Current Rerun Reference
 
-1. Add a debug-only artifact producer for margin anchors and strip overlays.
-2. Show those artifacts in `/debug/modal-proof`.
-3. Gate the unary verifier so it can use anchor-derived strips first.
-4. Keep the old local band path beside it for comparison until the new path is
-   clearly better.
+The current integrated reference rerun is:
+
+- `working/modal-proof-verifier-rerun15`
+
+That run is the one to inspect when checking:
+
+- `margin_anchor_geometry.json`
+- `margin_anchor_candidate_boxes.jpg`
+- `margin_anchor_strip_overlay.jpg`
+- the chosen `verifier_line_anchor_*.jpg` crops in `unary_verifier.json`
+
+## Next Tuning Target
+
+The next geometry iteration should focus on:
+
+- `_extract_left_margin_strip`
+  - candidate width selection for the left strip
+- `_merge_margin_candidate_boxes`
+  - fragment-merging rules for stacked digit pieces
+- `_score_margin_candidate_boxes`
+  - ranking layouts when several strip widths produce plausible candidates
+- `_margin_anchor_strip_bounds`
+  - only if strip heights need more regularization after the box geometry is
+    stable
 
 ## Prompt Notes
 
