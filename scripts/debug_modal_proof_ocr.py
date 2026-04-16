@@ -201,7 +201,56 @@ def detect_vertical_bars(img: np.ndarray) -> List[Tuple[int, int, int, int]]:
             merged.append((curr_x, curr_y, curr_w, curr_h))
             curr_x, curr_y, curr_w, curr_h = nx, ny, nw, nh
     merged.append((curr_x, curr_y, curr_w, curr_h))
-    return [box for box in merged if box[3] > 50]
+    refined = [_refine_vertical_bar_box(img, box) for box in merged]
+    return [box for box in refined if box[3] > 50]
+
+
+def _refine_vertical_bar_box(img: np.ndarray, box: Tuple[int, int, int, int]) -> Tuple[int, int, int, int]:
+    x, y, w, h = box
+    img_h, img_w = img.shape[:2]
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    x1 = max(0, x)
+    y1 = max(0, y)
+    x2 = min(img_w, x + w)
+    y2 = min(img_h, y + h)
+    roi = gray[y1:y2, x1:x2]
+    if roi.size == 0:
+        return box
+
+    dark_mask = roi < 140
+    col_counts = dark_mask.sum(axis=0)
+    min_count = max(20, int(0.2 * roi.shape[0]))
+    active_cols = [idx for idx, count in enumerate(col_counts) if count >= min_count]
+    if not active_cols:
+        return box
+
+    groups: List[Tuple[int, int]] = []
+    start = active_cols[0]
+    prev = active_cols[0]
+    for idx in active_cols[1:]:
+        if idx == prev + 1:
+            prev = idx
+            continue
+        groups.append((start, prev))
+        start = idx
+        prev = idx
+    groups.append((start, prev))
+
+    # Prefer the rightmost substantial vertical stroke inside the merged contour.
+    best_left, best_right = max(
+        groups,
+        key=lambda group: (group[1], int(col_counts[group[0] : group[1] + 1].sum())),
+    )
+    group_mask = dark_mask[:, best_left : best_right + 1]
+    active_rows = np.where(group_mask.any(axis=1))[0]
+    if len(active_rows) == 0:
+        return box
+
+    refined_x = x1 + best_left
+    refined_y = y1 + int(active_rows[0])
+    refined_w = best_right - best_left + 1
+    refined_h = int(active_rows[-1] - active_rows[0] + 1)
+    return (refined_x, refined_y, refined_w, refined_h)
 
 
 def build_proof_tree(boxes: List[Tuple[int, int, int, int]], img_w: int, img_h: int) -> SubproofNode:
@@ -242,6 +291,40 @@ def crop_region(
     return img[y1:y2, x1:x2]
 
 
+def _fit_token_layout(
+    token: str,
+    *,
+    start_x: int,
+    center_y: int,
+    max_width: int,
+) -> Tuple[float, int, Tuple[int, int, int, int]]:
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    thickness = 2
+    pad = 8
+    scale = 1.0
+    min_scale = 0.4
+
+    while scale >= min_scale:
+        (tw, th), baseline = cv2.getTextSize(token, font, scale, thickness)
+        total_width = tw + 2 * pad
+        if total_width <= max_width:
+            left = start_x
+            top = max(0, center_y - th - pad)
+            right = left + total_width
+            bottom = center_y + pad
+            return scale, thickness, (left, top, right, bottom)
+        scale -= 0.1
+
+    scale = min_scale
+    (tw, th), baseline = cv2.getTextSize(token, font, scale, thickness)
+    total_width = min(max_width, tw + 2 * pad)
+    left = start_x
+    top = max(0, center_y - th - pad)
+    right = left + total_width
+    bottom = center_y + pad
+    return scale, thickness, (left, top, right, bottom)
+
+
 def mask_subproof_in_parent(parent_img: np.ndarray, child_node: SubproofNode) -> np.ndarray:
     masked = parent_img.copy()
     x, y, _, h = child_node.box
@@ -249,14 +332,18 @@ def mask_subproof_in_parent(parent_img: np.ndarray, child_node: SubproofNode) ->
     cv2.rectangle(masked, (x, y), (img_w, y + h), (255, 255, 255), -1)
 
     token = f"<SUBPROOF_ID_{child_node.id}>"
-    cx, cy = x + 150, y + h // 2
     font = cv2.FONT_HERSHEY_SIMPLEX
-    scale = 1.0
-    thickness = 2
-    (tw, th), _ = cv2.getTextSize(token, font, scale, thickness)
-    pad = 10
-    cv2.rectangle(masked, (cx - pad, cy - th - pad), (cx + tw + pad, cy + pad), (0, 0, 255), 2)
-    cv2.putText(masked, token, (cx, cy), font, scale, (0, 0, 255), thickness)
+    start_x = min(max(8, x + 20), max(8, img_w - 40))
+    center_y = min(max(24, y + max(18, h // 2)), img_h - 12)
+    max_width = max(60, img_w - start_x - 8)
+    scale, thickness, (left, top, right, bottom) = _fit_token_layout(
+        token,
+        start_x=start_x,
+        center_y=center_y,
+        max_width=max_width,
+    )
+    cv2.rectangle(masked, (left, top), (right, bottom), (0, 0, 255), 2)
+    cv2.putText(masked, token, (left + 8, center_y), font, scale, (0, 0, 255), thickness)
     return masked
 
 
@@ -323,7 +410,7 @@ def process_node_recursive(
         current_img = crop_region(
             img,
             node.box,
-            bottom_padding=55 if node.children else 20,
+            bottom_padding=20,
         )
 
     for child in sorted(node.children, key=lambda c: c.box[1]):

@@ -60,6 +60,32 @@ class DebugModalProofOcrTests(unittest.TestCase):
         self.assertIn("Target conclusion: □□P", prompt)
         self.assertIn("Do not stop early just because a child subproof was masked", prompt)
 
+    def test_fit_token_layout_keeps_stamp_within_available_width(self) -> None:
+        scale, thickness, rect = debug_modal_proof_ocr._fit_token_layout(
+            "<SUBPROOF_ID_2>",
+            start_x=30,
+            center_y=40,
+            max_width=120,
+        )
+
+        left, top, right, bottom = rect
+        self.assertGreaterEqual(scale, 0.4)
+        self.assertEqual(left, 30)
+        self.assertLessEqual(right - left, 120)
+        self.assertGreater(bottom, top)
+
+    def test_refine_vertical_bar_box_prefers_rightmost_actual_bar(self) -> None:
+        img = np.full((120, 40, 3), 255, dtype=np.uint8)
+        img[10:80, 18:20] = 0
+        img[85:110, 8:9] = 0
+
+        refined = debug_modal_proof_ocr._refine_vertical_bar_box(img, (5, 0, 20, 120))
+
+        self.assertEqual(refined[0], 18)
+        self.assertEqual(refined[1], 10)
+        self.assertEqual(refined[2], 2)
+        self.assertEqual(refined[3], 70)
+
     def test_recursive_stitch_builds_nested_modal_structure(self) -> None:
         library = {
             "ROOT": [
