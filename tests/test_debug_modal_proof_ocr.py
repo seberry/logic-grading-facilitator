@@ -60,6 +60,8 @@ class DebugModalProofOcrTests(unittest.TestCase):
         self.assertIn("Modal system: S4", prompt)
         self.assertIn("Target conclusion: □□P", prompt)
         self.assertIn("Do not stop early just because a child subproof was masked", prompt)
+        self.assertIn("contradiction line may be written as ⊥, _|_, _ | _", prompt)
+        self.assertIn("return formula_text as ⊥", prompt)
 
     def test_fit_token_layout_keeps_stamp_within_available_width(self) -> None:
         scale, thickness, rect = debug_modal_proof_ocr._fit_token_layout(
@@ -148,6 +150,11 @@ class DebugModalProofOcrTests(unittest.TestCase):
         self.assertEqual(debug_modal_proof_ocr._normalize_formula_text("◇A", "derived_line"), "⋄A")
         self.assertEqual(debug_modal_proof_ocr._normalize_formula_text("◊A", "derived_line"), "⋄A")
         self.assertEqual(debug_modal_proof_ocr._normalize_formula_text("<>A", "derived_line"), "⋄A")
+
+    def test_normalize_formula_text_normalizes_bottom_variants(self) -> None:
+        self.assertEqual(debug_modal_proof_ocr._normalize_formula_text("_|_", "derived_line"), "⊥")
+        self.assertEqual(debug_modal_proof_ocr._normalize_formula_text("_ | _", "derived_line"), "⊥")
+        self.assertEqual(debug_modal_proof_ocr._normalize_formula_text("bottom", "derived_line"), "⊥")
 
     def test_should_verify_unary_formula_targets_modal_prefix_lines(self) -> None:
         self.assertTrue(

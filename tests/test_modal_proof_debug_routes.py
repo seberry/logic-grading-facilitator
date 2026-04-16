@@ -191,8 +191,10 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertIn("Unary Verifier Experiment", response.text)
         self.assertIn("¬□¬¬A", response.text)
         self.assertIn("verifier_line_1_4.jpg", response.text)
+        self.assertIn('class="crop-preview"', response.text)
         self.assertIn("Alternates", response.text)
         self.assertIn("verifier_line_1_4_band3.jpg", response.text)
+        self.assertIn('class="crop-thumb"', response.text)
         self.assertIn("Verifier Rewrites", response.text)
         self.assertIn("Original OCR JSON", response.text)
 

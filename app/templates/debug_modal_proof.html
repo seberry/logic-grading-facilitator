@@ -211,6 +211,24 @@
       margin-top: 1rem;
     }
 
+    .crop-preview {
+      display: block;
+      margin-top: 0.4rem;
+      max-width: 180px;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .crop-thumb {
+      display: block;
+      margin-top: 0.3rem;
+      max-width: 140px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      background: #fff;
+    }
+
     @media (max-width: 980px) {
       .top-grid,
       .output-grid,
@@ -472,10 +490,10 @@
               </tr>
             </thead>
             <tbody>
-              {% for item in unary_verifier_results %}
+                  {% for item in unary_verifier_results %}
                 <tr>
                   <td>{{ item.node_id or "" }}</td>
-                  <td>{{ item.line_label or "?" }}</td>
+                  <td>{{ item.line_number or item.line_label or "?" }}</td>
                   <td>{{ item.baseline_formula or "" }}</td>
                   <td>
                     {% if item.structured_formula %}
@@ -514,6 +532,7 @@
                       <div>
                         <a href="{{ item.line_crop_url }}">{{ item.line_crop_filename }}</a>
                       </div>
+                      <img src="{{ item.line_crop_url }}" alt="Chosen verifier crop {{ item.line_number or item.line_label or '?' }}" class="crop-preview" />
                     {% endif %}
                     {% if item.candidate_attempts %}
                       <details style="margin-top: 0.35rem;">
@@ -527,6 +546,7 @@
                               forced {{ attempt.forced_choice or "n/a" }}
                               {% if attempt.line_crop_filename %}
                                 <div><a href="{{ attempt.line_crop_url }}">{{ attempt.line_crop_filename }}</a></div>
+                                <img src="{{ attempt.line_crop_url }}" alt="Alternate verifier crop {{ attempt.band_index + 1 if attempt.band_index is not none else '?' }}" class="crop-thumb" />
                               {% endif %}
                             </div>
                           {% endfor %}

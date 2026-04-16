@@ -152,6 +152,8 @@ def build_prompt(config: Dict[str, Any]) -> str:
         "- Preserve the exact number of negation marks. Do not collapse ¬¬A into ¬A.",
         "- In handwritten work, double negation may appear as ¬¬A, ~~A, or mixed marks; if you see two negation strokes, transcribe two negations.",
         "- If a line cites DN, be especially careful to preserve doubled negation in the formula.",
+        "- A contradiction line may be written as ⊥, _|_, _ | _, or a short vertical stroke over a horizontal bar; transcribe any of these as ⊥.",
+        "- If a line's entire formula is just contradiction/absurdity, return formula_text as ⊥.",
         "- If you see a red token like <SUBPROOF_ID_2>, return it exactly as formula_text with scope_role subproof_token.",
         "- After a red subproof token, keep listing any further visible lines in the current crop. Do not stop early just because a child subproof was masked.",
         "- If a current crop contains both a masked child token and a later closing-result line such as □B or A → B, include both in order.",
@@ -1672,6 +1674,9 @@ def _normalize_formula_text(text: Any, scope_role: str) -> str:
     raw = str(text or "").strip()
     if scope_role == "strict_open":
         return "□"
+    collapsed = re.sub(r"\s+", "", raw)
+    if collapsed in {"⊥", "_|_", "bot", "bottom"}:
+        return "⊥"
 
     replacements = [
         ("<->", "↔"),
