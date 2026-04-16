@@ -171,6 +171,19 @@ class DebugModalProofOcrTests(unittest.TestCase):
 
         self.assertTrue(np.all(cropped[40:80, 35:140] == 255))
 
+    def test_verifier_node_crop_does_not_mutate_full_image_for_nested_nodes(self) -> None:
+        img = np.full((180, 220, 3), 255, dtype=np.uint8)
+        img[65:120, 90:205] = 0
+        parent = debug_modal_proof_ocr.SubproofNode("1", (60, 40, 2, 120))
+        child = debug_modal_proof_ocr.SubproofNode("2", (80, 70, 2, 55))
+        child.parent = parent
+        parent.children.append(child)
+        original = img.copy()
+
+        debug_modal_proof_ocr._verifier_node_crop_image(node=parent, full_img=img)
+
+        self.assertTrue(np.array_equal(img, original))
+
     def test_extract_single_line_crop_avoids_adjacent_lines(self) -> None:
         crop_img = np.full((140, 120, 3), 255, dtype=np.uint8)
         cv2.putText(crop_img, "A", (8, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
@@ -200,6 +213,24 @@ class DebugModalProofOcrTests(unittest.TestCase):
         self.assertIn("Count exactly how many negation marks", prompt)
         self.assertIn("Candidates: ¬□¬A ; ¬□¬¬A", prompt)
         self.assertIn('return "selected_formula": "uncertain"', prompt)
+
+    def test_entry_to_line_preserves_scope_role_for_verifier_filters(self) -> None:
+        line = debug_modal_proof_ocr._entry_to_line(
+            {
+                "formula_text": "□",
+                "justification_text": "Assum",
+                "scope_role": "strict_open",
+                "line_label": "1",
+            },
+            node_id="2",
+            entry_index=0,
+            line_order=0,
+        )
+
+        self.assertIsNotNone(line)
+        assert line is not None
+        self.assertEqual(line["scope_role"], "strict_open")
+        self.assertFalse(debug_modal_proof_ocr._should_verify_unary_formula(line))
 
     def test_best_verifier_attempt_prefers_expected_band_over_far_baseline_echo(self) -> None:
         best = debug_modal_proof_ocr._best_verifier_attempt(
@@ -316,6 +347,36 @@ class DebugModalProofOcrTests(unittest.TestCase):
         self.assertIsNone(records[0]["proposed_correction"])
         self.assertFalse(records[0]["would_auto_apply"])
 
+    def test_apply_unary_verifier_corrections_updates_matching_lines(self) -> None:
+        structure = [
+            {"line": 4, "line_label": "4", "wffstr": "¬□¬A", "jstr": "MC 3"},
+            {"line": 8, "line_label": "8", "wffstr": "□¬A", "jstr": "□I 5-7"},
+        ]
+
+        rewritten, rewrites = debug_modal_proof_ocr._apply_unary_verifier_corrections(
+            structure,
+            [
+                {
+                    "line_number": 4,
+                    "node_id": "1",
+                    "proposed_correction": "¬□¬¬A",
+                    "would_auto_apply": True,
+                },
+                {
+                    "line_number": 8,
+                    "node_id": "1",
+                    "proposed_correction": "□¬¬A",
+                    "would_auto_apply": True,
+                },
+            ],
+        )
+
+        self.assertEqual(rewritten[0]["wffstr"], "¬□¬¬A")
+        self.assertEqual(rewritten[1]["wffstr"], "□¬¬A")
+        self.assertEqual([item["line_number"] for item in rewrites], [4, 8])
+        self.assertEqual(rewrites[1]["original_formula"], "□¬A")
+        self.assertEqual(rewrites[1]["rewritten_formula"], "□¬¬A")
+
     def test_recursive_stitch_recovers_missing_child_token_before_box_intro(self) -> None:
         root = debug_modal_proof_ocr.SubproofNode("ROOT", (0, 0, 100, 100))
         parent = debug_modal_proof_ocr.SubproofNode("1", (10, 0, 80, 90))
@@ -413,7 +474,9 @@ class DebugModalProofOcrTests(unittest.TestCase):
 
     def test_transcribe_image_to_modal_debug_state_writes_state(self) -> None:
         image_path = self.tmp_dir / "sample.png"
-        cv2.imwrite(str(image_path), np.full((40, 40, 3), 255, dtype=np.uint8))
+        img = np.full((90, 140, 3), 255, dtype=np.uint8)
+        cv2.putText(img, "~[]~~P", (4, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 0), 2)
+        cv2.imwrite(str(image_path), img)
         output_dir = self.tmp_dir / "out"
 
         fake_client = FakeModalVisionClient(
@@ -428,6 +491,13 @@ class DebugModalProofOcrTests(unittest.TestCase):
         )
         fake_verifier_client = FakeModalVisionClient(
             responses=[
+                json.dumps(
+                    {
+                        "line_centers_rel": [250],
+                        "confidence": "low",
+                    },
+                    ensure_ascii=False,
+                ),
                 json.dumps(
                     {
                         "main_modal_operator": "box",
@@ -477,10 +547,15 @@ class DebugModalProofOcrTests(unittest.TestCase):
         self.assertEqual(state["vision_model"], "google/gemma-3-12b-it")
         self.assertEqual(state["verifier_vision_model"], "qwen/qwen3-vl-8b")
         self.assertEqual(state["source_image_name"], "sample.png")
-        self.assertIn("¬□¬P", state["proof_json_text"])
+        self.assertIn("¬□¬¬P", state["proof_json_text"])
+        self.assertIn("¬□¬P", state["original_proof_json_text"])
+        self.assertEqual(state["verifier_rewrite_summary"][0]["rewritten_formula"], "¬□¬¬P")
+        self.assertIn("verifier rewrote 1 line", state["run_summary"])
         self.assertTrue((output_dir / "state.json").exists())
+        self.assertTrue((output_dir / debug_modal_proof_ocr.BASELINE_FINAL_STRUCTURE_FILENAME).exists())
         self.assertTrue((output_dir / "final_structure.json").exists())
         self.assertTrue((output_dir / debug_modal_proof_ocr.UNARY_VERIFIER_FILENAME).exists())
+        self.assertTrue((output_dir / debug_modal_proof_ocr.VERIFIER_REWRITES_FILENAME).exists())
 
     def test_build_vlm_client_uses_explicit_overrides(self) -> None:
         client = debug_modal_proof_ocr.build_vlm_client(

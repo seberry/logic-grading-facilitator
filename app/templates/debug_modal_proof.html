@@ -343,6 +343,37 @@
           <p class="muted">
             Use the same proof shape as the modal autograde backend: a JSON list of lines or an object with a <code>lines</code> list. Nested subproofs are allowed. Each line may use <code>wffstr</code>/<code>jstr</code> or <code>sentence</code>/<code>citation</code>.
           </p>
+          {% if verifier_rewrite_summary %}
+            <div class="artifact">
+              <label>Verifier Rewrites</label>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Line</th>
+                    <th>Original</th>
+                    <th>Rewritten</th>
+                    <th>Citation</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for rewrite in verifier_rewrite_summary %}
+                    <tr>
+                      <td>{{ rewrite.line_number }}</td>
+                      <td>{{ rewrite.original_formula }}</td>
+                      <td>{{ rewrite.rewritten_formula }}</td>
+                      <td>{{ rewrite.citation }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% endif %}
+          {% if original_proof_json_text and original_proof_json_text != proof_json_text %}
+            <details class="panel-toggle">
+              <summary>Original OCR JSON</summary>
+              <textarea class="small-textarea" readonly style="margin-top: 0.75rem;">{{ original_proof_json_text }}</textarea>
+            </details>
+          {% endif %}
         </section>
       </div>
 

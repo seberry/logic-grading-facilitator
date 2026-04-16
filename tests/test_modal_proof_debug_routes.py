@@ -80,6 +80,10 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
             "verifier_vision_model": "qwen/qwen3-vl-8b",
             "source_image_name": "source_image.png",
             "proof_json_text": json.dumps({"lines": [{"wffstr": "□A", "jstr": "PR"}], "meta": {}}),
+            "original_proof_json_text": json.dumps({"lines": [{"wffstr": "A", "jstr": "PR"}], "meta": {}}),
+            "verifier_rewrite_summary": [
+                {"line_number": 1, "original_formula": "A", "rewritten_formula": "□A", "citation": "PR"}
+            ],
             "draft_comment": "",
             "draft_grade": "",
             "checker_request": {"system": "S5", "lines": []},
@@ -108,7 +112,7 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
                 files={"proof_image": ("proof.png", b"fakepng", "image/png")},
             )
 
-            saved = json.loads((self.debug_dir / "starter" / "state.json").read_text(encoding="utf-8"))
+        saved = json.loads((self.debug_dir / "starter" / "state.json").read_text(encoding="utf-8"))
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("OCR ran and updated the modal proof state.", response.text)
@@ -118,6 +122,9 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertEqual(saved["draft_grade"], "1")
         saved_lines = json.loads(saved["proof_json_text"])["lines"]
         self.assertEqual(saved_lines[0]["wffstr"], "□A")
+        original_lines = json.loads(saved["original_proof_json_text"])["lines"]
+        self.assertEqual(original_lines[0]["wffstr"], "A")
+        self.assertEqual(saved["verifier_rewrite_summary"][0]["rewritten_formula"], "□A")
 
     def test_modal_proof_debug_page_shows_unary_verifier_results_and_line_crops(self) -> None:
         example_dir = self.debug_dir / "sample"
@@ -129,6 +136,10 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
                     "include_derived_rules": False,
                     "conclusion": "",
                     "proof_json_text": json.dumps({"lines": [], "meta": {}}, ensure_ascii=False),
+                    "original_proof_json_text": json.dumps({"lines": [{"wffstr": "¬□¬A", "jstr": "MC 3"}], "meta": {}}, ensure_ascii=False),
+                    "verifier_rewrite_summary": [
+                        {"line_number": 4, "original_formula": "¬□¬A", "rewritten_formula": "¬□¬¬A", "citation": "MC 3"}
+                    ],
                     "run_summary": "ready",
                 },
                 ensure_ascii=False,
@@ -182,6 +193,8 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertIn("verifier_line_1_4.jpg", response.text)
         self.assertIn("Alternates", response.text)
         self.assertIn("verifier_line_1_4_band3.jpg", response.text)
+        self.assertIn("Verifier Rewrites", response.text)
+        self.assertIn("Original OCR JSON", response.text)
 
     def test_run_checker_renders_summary_and_payloads(self) -> None:
         result = AutoGradeResult(

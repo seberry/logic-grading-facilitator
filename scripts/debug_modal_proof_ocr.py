@@ -45,12 +45,14 @@ def default_unary_verifier_model() -> str:
 STATE_FILENAME = "state.json"
 PROMPT_FILENAME = "ocr_prompt.txt"
 FINAL_STRUCTURE_FILENAME = "final_structure.json"
+BASELINE_FINAL_STRUCTURE_FILENAME = "final_structure_baseline.json"
 CHECKER_REQUEST_FILENAME = "checker_request.json"
 CHECKER_RESPONSE_FILENAME = "checker_response.json"
 RAW_RESPONSE_TEMPLATE = "response_{node_id}.json"
 INTERMEDIATE_TEMPLATE = "intermediate_{node_id}.json"
 UNARY_RECHECK_FILENAME = "unary_rechecks.json"
 UNARY_VERIFIER_FILENAME = "unary_verifier.json"
+VERIFIER_REWRITES_FILENAME = "verifier_rewrites.json"
 SOURCE_IMAGE_FILENAME = "source_image"
 
 SUPPORTED_SYSTEMS = {"K", "T", "S4", "S5"}
@@ -518,7 +520,7 @@ def _verifier_node_crop_image(*, node: SubproofNode, full_img: np.ndarray) -> np
     if node.id == "ROOT":
         crop_img = full_img.copy()
     else:
-        crop_img = crop_region(full_img, node.box, bottom_padding=0)
+        crop_img = crop_region(full_img, node.box, bottom_padding=0).copy()
 
     if crop_img.size == 0:
         return crop_img
@@ -1751,6 +1753,7 @@ def _entry_to_line(
         "line_label": str(entry.get("line_label") or "").strip(),
         "wffstr": _normalize_formula_text(formula_text, scope_role),
         "jstr": jstr,
+        "scope_role": scope_role,
     }
     if node_id:
         line["_ocr_node_id"] = str(node_id)
@@ -2039,12 +2042,58 @@ def _strip_internal_ocr_metadata(proof_structure: List[Any]) -> None:
         item.pop("_ocr_node_id", None)
         item.pop("_ocr_entry_index", None)
         item.pop("_ocr_line_order", None)
+        item.pop("scope_role", None)
+
+
+def _apply_unary_verifier_corrections(
+    proof_structure: List[Any],
+    verifier_records: List[Dict[str, Any]],
+) -> tuple[List[Any], List[Dict[str, Any]]]:
+    updated = _clone_jsonish(proof_structure)
+    lines_by_number = {
+        int(line.get("line")): line
+        for line in _iter_proof_line_dicts(updated)
+        if isinstance(line, dict) and isinstance(line.get("line"), int)
+    }
+
+    rewrites: List[Dict[str, Any]] = []
+    for record in verifier_records:
+        if not isinstance(record, dict):
+            continue
+        if not record.get("would_auto_apply"):
+            continue
+        line_number = record.get("line_number")
+        proposed = str(record.get("proposed_correction") or "").strip()
+        if not isinstance(line_number, int) or not proposed:
+            continue
+        target_line = lines_by_number.get(line_number)
+        if not isinstance(target_line, dict):
+            continue
+        original_formula = str(target_line.get("wffstr") or "").strip()
+        if not original_formula or original_formula == proposed:
+            continue
+        target_line["wffstr"] = proposed
+        rewrites.append(
+            {
+                "line_number": line_number,
+                "line_label": str(target_line.get("line_label") or "").strip(),
+                "node_id": str(record.get("node_id") or "").strip(),
+                "citation": str(target_line.get("jstr") or "").strip(),
+                "original_formula": original_formula,
+                "rewritten_formula": proposed,
+            }
+        )
+
+    rewrites.sort(key=lambda item: (int(item.get("line_number") or 0), str(item.get("line_label") or "")))
+    return updated, rewrites
 
 
 def build_modal_state(
     *,
     config: Dict[str, Any],
     final_structure: List[Any],
+    original_final_structure: Optional[List[Any]] = None,
+    verifier_rewrite_summary: Optional[List[Dict[str, Any]]] = None,
     checker_request: Optional[Dict[str, Any]],
     checker_response: Optional[Dict[str, Any]],
     run_summary: str,
@@ -2063,6 +2112,12 @@ def build_modal_state(
         "verifier_vision_model": (verifier_vision_model or default_unary_verifier_model()).strip(),
         "source_image_name": source_image_name,
         "proof_json_text": json.dumps({"lines": final_structure, "meta": {}}, indent=2, ensure_ascii=False),
+        "original_proof_json_text": json.dumps(
+            {"lines": original_final_structure or final_structure, "meta": {}},
+            indent=2,
+            ensure_ascii=False,
+        ),
+        "verifier_rewrite_summary": verifier_rewrite_summary or [],
         "draft_comment": "",
         "draft_grade": "",
         "checker_request": checker_request,
@@ -2125,16 +2180,55 @@ def transcribe_image_to_modal_debug_state(
     repair_modal_subproof_boundary_lines(final_structure)
     renumber_lines(final_structure)
 
-    persisted_structure = _clone_jsonish(final_structure)
+    baseline_persisted_structure = _clone_jsonish(final_structure)
+    _strip_internal_ocr_metadata(baseline_persisted_structure)
+    (output_dir / BASELINE_FINAL_STRUCTURE_FILENAME).write_text(
+        json.dumps(baseline_persisted_structure, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    baseline_checker_response = None
+    try:
+        baseline_proof_json_text = json.dumps({"lines": baseline_persisted_structure, "meta": {}}, ensure_ascii=False)
+        baseline_checker_result = run_modal_proof_checker(
+            answer_text=baseline_proof_json_text,
+            autograde_config=_canonical_modal_config(modal_config),
+        )
+        baseline_checker_response = baseline_checker_result.response_payload
+    except Exception:
+        baseline_checker_response = None
+
+    verifier_records = _run_unary_verifier_experiment(
+        proof_structure=final_structure,
+        tree_root=tree_root,
+        full_img=img,
+        output_dir=output_dir,
+        verifier_client=verifier_client,
+        checker_response=baseline_checker_response,
+    )
+    rewritten_structure, verifier_rewrites = _apply_unary_verifier_corrections(final_structure, verifier_records)
+
+    persisted_structure = _clone_jsonish(rewritten_structure)
     _strip_internal_ocr_metadata(persisted_structure)
     (output_dir / FINAL_STRUCTURE_FILENAME).write_text(
         json.dumps(persisted_structure, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
+    (output_dir / VERIFIER_REWRITES_FILENAME).write_text(
+        json.dumps(verifier_rewrites, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
 
     checker_request = None
     checker_response = None
-    run_summary = "OCR produced a modal proof structure. Review it in /debug/modal-proof."
+    rewrite_count = len(verifier_rewrites)
+    if rewrite_count:
+        run_summary = (
+            f"OCR produced a modal proof structure, verifier rewrote {rewrite_count} line"
+            f"{'' if rewrite_count == 1 else 's'}, and the checker ran."
+        )
+    else:
+        run_summary = "OCR produced a modal proof structure and the checker ran."
 
     try:
         proof_json_text = json.dumps({"lines": persisted_structure, "meta": {}}, ensure_ascii=False)
@@ -2144,7 +2238,13 @@ def transcribe_image_to_modal_debug_state(
         )
         checker_request = checker_result.request_payload
         checker_response = checker_result.response_payload
-        run_summary = "OCR produced a modal proof structure and the checker ran."
+        if rewrite_count:
+            run_summary = (
+                f"OCR produced a modal proof structure, verifier rewrote {rewrite_count} line"
+                f"{'' if rewrite_count == 1 else 's'}, and the checker ran."
+            )
+        else:
+            run_summary = "OCR produced a modal proof structure and the checker ran."
         (output_dir / CHECKER_REQUEST_FILENAME).write_text(
             json.dumps(checker_request, indent=2, ensure_ascii=False),
             encoding="utf-8",
@@ -2154,20 +2254,19 @@ def transcribe_image_to_modal_debug_state(
             encoding="utf-8",
         )
     except Exception as exc:
-        run_summary = f"OCR produced a modal proof structure, but checker execution failed: {exc}"
-
-    _run_unary_verifier_experiment(
-        proof_structure=final_structure,
-        tree_root=tree_root,
-        full_img=img,
-        output_dir=output_dir,
-        verifier_client=verifier_client,
-        checker_response=checker_response,
-    )
+        if rewrite_count:
+            run_summary = (
+                f"OCR produced a modal proof structure and verifier rewrote {rewrite_count} line"
+                f"{'' if rewrite_count == 1 else 's'}, but checker execution failed: {exc}"
+            )
+        else:
+            run_summary = f"OCR produced a modal proof structure, but checker execution failed: {exc}"
 
     state = build_modal_state(
         config=modal_config,
         final_structure=persisted_structure,
+        original_final_structure=baseline_persisted_structure,
+        verifier_rewrite_summary=verifier_rewrites,
         checker_request=checker_request,
         checker_response=checker_response,
         run_summary=run_summary,
