@@ -98,6 +98,30 @@ class DebugModalProofOcrTests(unittest.TestCase):
 
         self.assertEqual(cropped.shape[0], 90)
 
+    def test_clear_output_dir_preserves_input_image_and_autograde_file(self) -> None:
+        output_dir = self.tmp_dir / "example"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        image_path = output_dir / "source_image.png"
+        autograde_path = output_dir / "state.json"
+        artifact_path = output_dir / "final_structure.json"
+        nested_dir = output_dir / "stale_artifacts"
+
+        image_path.write_bytes(b"png")
+        autograde_path.write_text('{"system":"K"}', encoding="utf-8")
+        artifact_path.write_text("old", encoding="utf-8")
+        nested_dir.mkdir()
+        (nested_dir / "extra.txt").write_text("stale", encoding="utf-8")
+
+        debug_modal_proof_ocr._clear_output_dir(
+            output_dir,
+            preserve_paths=[image_path, autograde_path],
+        )
+
+        self.assertTrue(image_path.exists())
+        self.assertTrue(autograde_path.exists())
+        self.assertFalse(artifact_path.exists())
+        self.assertFalse(nested_dir.exists())
+
     def test_recursive_stitch_builds_nested_modal_structure(self) -> None:
         library = {
             "ROOT": [

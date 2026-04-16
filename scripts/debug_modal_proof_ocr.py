@@ -2126,6 +2126,21 @@ def build_modal_state(
     }
 
 
+def _clear_output_dir(output_dir: Path, *, preserve_paths: List[Path] | None = None) -> None:
+    preserve = {path.resolve() for path in (preserve_paths or [])}
+    output_dir = output_dir.resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    for child in output_dir.iterdir():
+        child_resolved = child.resolve()
+        if child_resolved in preserve:
+            continue
+        if child.is_dir():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+
+
 def transcribe_image_to_modal_debug_state(
     *,
     image_path: Path,
@@ -2301,11 +2316,11 @@ def main() -> int:
         print(f"Error: image not found: {image_path}")
         return 1
 
-    if output_dir.exists():
-        shutil.rmtree(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
     modal_config = _canonical_modal_config(_load_modal_config(autograde_file))
+    preserve_paths = [image_path]
+    if autograde_file is not None:
+        preserve_paths.append(autograde_file)
+    _clear_output_dir(output_dir, preserve_paths=preserve_paths)
     print(f"[OCR] Image: {image_path}")
     print(f"[OCR] Output dir: {output_dir}")
     print(f"[OCR] Modal system: {modal_config['system']}")
