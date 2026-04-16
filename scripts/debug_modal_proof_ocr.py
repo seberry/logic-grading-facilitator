@@ -38,6 +38,10 @@ except ImportError as exc:  # pragma: no cover - fallback for standalone use
         return os.getenv("LMSTUDIO_MODEL_ID", "qwen/qwen3-vl-4b").strip() or "qwen/qwen3-vl-4b"
 
 
+def default_unary_verifier_model() -> str:
+    return os.getenv("LMSTUDIO_VERIFIER_MODEL_ID", "qwen/qwen3-vl-8b").strip() or "qwen/qwen3-vl-8b"
+
+
 STATE_FILENAME = "state.json"
 PROMPT_FILENAME = "ocr_prompt.txt"
 FINAL_STRUCTURE_FILENAME = "final_structure.json"
@@ -46,6 +50,7 @@ CHECKER_RESPONSE_FILENAME = "checker_response.json"
 RAW_RESPONSE_TEMPLATE = "response_{node_id}.json"
 INTERMEDIATE_TEMPLATE = "intermediate_{node_id}.json"
 UNARY_RECHECK_FILENAME = "unary_rechecks.json"
+UNARY_VERIFIER_FILENAME = "unary_verifier.json"
 SOURCE_IMAGE_FILENAME = "source_image"
 
 SUPPORTED_SYSTEMS = {"K", "T", "S4", "S5"}
@@ -423,6 +428,10 @@ def _should_recheck_unary_formula(entry: Dict[str, Any]) -> bool:
         return False
 
     prefix = _leading_unary_prefix(formula_text)
+    body = formula_text[len(prefix) :].strip()
+    if body and _has_top_level_binary_connective(body):
+        return False
+
     justification = _normalize_justification_text(entry.get("justification_text") or entry.get("jstr") or "")
     rule_head = justification.split(" ", 1)[0] if justification else ""
 
@@ -449,6 +458,565 @@ def _parse_unary_recheck_choice(raw: str) -> Dict[str, Any]:
     return parsed
 
 
+UNARY_VERIFIER_RULE_HEADS = {"MC", "DN", "Def⋄", "□I", "□E"}
+
+
+def _checker_payload_has_issues(payload: Any) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    return bool(payload.get("parse_errors") or payload.get("check_errors"))
+
+
+def _should_verify_unary_formula(entry: Dict[str, Any]) -> bool:
+    scope_role = str(entry.get("scope_role") or "derived_line").strip()
+    if scope_role in {"subproof_token", "strict_open"}:
+        return False
+
+    formula_text = _normalize_formula_text(entry.get("formula_text") or entry.get("wffstr") or "", scope_role)
+    if not formula_text:
+        return False
+
+    prefix = _leading_unary_prefix(formula_text)
+    body = formula_text[len(prefix) :].strip()
+    if body and _has_top_level_binary_connective(body):
+        return False
+
+    justification = _normalize_justification_text(entry.get("justification_text") or entry.get("jstr") or "")
+    rule_head = justification.split(" ", 1)[0] if justification else ""
+
+    if formula_text.startswith(tuple(UNARY_PREFIX_CHARS)):
+        return True
+    if "□" in formula_text or "⋄" in formula_text:
+        return True
+    if prefix.count("¬") >= 2:
+        return True
+    return rule_head in UNARY_VERIFIER_RULE_HEADS
+
+
+def _has_top_level_binary_connective(formula_text: str) -> bool:
+    depth = 0
+    for char in str(formula_text or ""):
+        if char == "(":
+            depth += 1
+            continue
+        if char == ")":
+            depth = max(0, depth - 1)
+            continue
+        if depth == 0 and char in {"∧", "∨", "→", "↔"}:
+            return True
+    return False
+
+
+def _build_node_lookup(node: SubproofNode) -> Dict[str, SubproofNode]:
+    lookup = {node.id: node}
+    for child in node.children:
+        lookup.update(_build_node_lookup(child))
+    return lookup
+
+
+def _verifier_node_crop_image(*, node: SubproofNode, full_img: np.ndarray) -> np.ndarray:
+    if node.id == "ROOT":
+        crop_img = full_img.copy()
+    else:
+        crop_img = crop_region(full_img, node.box, bottom_padding=0)
+
+    if crop_img.size == 0:
+        return crop_img
+
+    for child in sorted(node.children, key=lambda c: c.box[1]):
+        if node.id == "ROOT":
+            child_x, child_y, child_w, child_h = child.box
+        else:
+            parent_x, parent_y, _, _ = node.box
+            child_x = max(0, child.box[0] - parent_x + 10)
+            child_y = max(0, child.box[1] - parent_y + 10)
+            child_w = child.box[2]
+            child_h = child.box[3]
+        x1 = max(0, child_x)
+        y1 = max(0, child_y)
+        x2 = min(crop_img.shape[1], child_x + child_w)
+        y2 = min(crop_img.shape[0], child_y + child_h)
+        cv2.rectangle(crop_img, (x1, y1), (x2, y2), (255, 255, 255), -1)
+    return crop_img
+
+
+def _extract_single_line_crop(
+    *,
+    node_crop_img: np.ndarray,
+    line_order: int | None,
+) -> np.ndarray:
+    if line_order is None or node_crop_img.size == 0:
+        return node_crop_img
+
+    bands = _detect_text_row_bands(node_crop_img)
+    if not bands or line_order < 0 or line_order >= len(bands):
+        return node_crop_img
+
+    band_top, band_bottom = bands[line_order]
+    img_h, img_w = node_crop_img.shape[:2]
+    prev_boundary = 0 if line_order == 0 else int((bands[line_order - 1][1] + band_top) / 2)
+    next_boundary = img_h if line_order == len(bands) - 1 else int((band_bottom + bands[line_order + 1][0]) / 2)
+    y1 = max(0, prev_boundary - 4)
+    y2 = min(img_h, next_boundary + 4)
+    x2 = min(img_w, max(80, int(img_w * 0.68)))
+    line_crop = node_crop_img[y1:y2, 0:x2]
+    return line_crop if line_crop.size else node_crop_img
+
+
+def _extract_band_crop(
+    *,
+    node_crop_img: np.ndarray,
+    bands: List[Tuple[int, int]],
+    band_index: int,
+) -> np.ndarray:
+    if node_crop_img.size == 0 or not bands or band_index < 0 or band_index >= len(bands):
+        return node_crop_img
+
+    band_top, band_bottom = bands[band_index]
+    img_h, img_w = node_crop_img.shape[:2]
+    prev_boundary = 0 if band_index == 0 else int((bands[band_index - 1][1] + band_top) / 2)
+    next_boundary = img_h if band_index == len(bands) - 1 else int((band_bottom + bands[band_index + 1][0]) / 2)
+    y1 = max(0, prev_boundary - 4)
+    y2 = min(img_h, next_boundary + 4)
+    x2 = min(img_w, max(80, int(img_w * 0.68)))
+    band_crop = node_crop_img[y1:y2, 0:x2]
+    return band_crop if band_crop.size else node_crop_img
+
+
+def _candidate_band_indices(
+    *,
+    line_order: int | None,
+    band_count: int,
+) -> List[int]:
+    if band_count <= 0:
+        return []
+    if line_order is None:
+        return list(range(band_count))
+
+    indices: List[int] = []
+    for delta in range(0, min(3, band_count)):
+        for candidate in (line_order - delta, line_order + delta):
+            if candidate < 0 or candidate >= band_count or candidate in indices:
+                continue
+            indices.append(candidate)
+    if not indices:
+        fallback = min(max(0, line_order), band_count - 1)
+        indices.append(fallback)
+    return indices
+
+
+def _confidence_score(value: Any) -> float:
+    if isinstance(value, (int, float)):
+        return float(value)
+    text = str(value or "").strip().lower()
+    if text == "high":
+        return 0.95
+    if text == "medium":
+        return 0.7
+    if text == "low":
+        return 0.35
+    if text == "uncertain":
+        return 0.0
+    try:
+        return float(text)
+    except ValueError:
+        return 0.0
+
+
+def _unary_prefix_signature(formula_text: str) -> Tuple[str, int, int]:
+    prefix = _leading_unary_prefix(formula_text)
+    if "□" in prefix:
+        modal_symbol = "□"
+    elif "⋄" in prefix:
+        modal_symbol = "⋄"
+    else:
+        modal_symbol = ""
+
+    if modal_symbol:
+        before_modal = prefix.split(modal_symbol, 1)[0].count("¬")
+        before_atom = prefix.split(modal_symbol, 1)[1].count("¬")
+    else:
+        before_modal = 0
+        before_atom = prefix.count("¬")
+    return modal_symbol, before_modal, before_atom
+
+
+def _unary_prefix_distance(original: str, candidate: str | None) -> int:
+    if not candidate:
+        return 99
+    original_modal, original_before_modal, original_before_atom = _unary_prefix_signature(original)
+    candidate_modal, candidate_before_modal, candidate_before_atom = _unary_prefix_signature(candidate)
+    if original_modal != candidate_modal:
+        return 10
+    return abs(original_before_modal - candidate_before_modal) + abs(original_before_atom - candidate_before_atom)
+
+
+def _best_verifier_attempt(
+    *,
+    original_formula: str,
+    expected_line_order: int | None,
+    attempts: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    if not attempts:
+        return {}
+
+    def score(attempt: Dict[str, Any]) -> Tuple[int, int, int, int, int, float]:
+        forced_choice = str(attempt.get("forced_choice") or "").strip()
+        structured_formula = str(attempt.get("structured_formula") or "").strip()
+        candidate_formula = forced_choice if forced_choice and forced_choice != "uncertain" else structured_formula
+        prefix_distance = _unary_prefix_distance(original_formula, candidate_formula)
+        exact_original_agreement = forced_choice == original_formula and structured_formula == original_formula
+        band_index = attempt.get("band_index")
+        if isinstance(expected_line_order, int) and isinstance(band_index, int):
+            distance_score = -abs(band_index - expected_line_order)
+        else:
+            distance_score = 0
+        return (
+            1 if exact_original_agreement else 0,
+            1 if structured_formula == original_formula and prefix_distance == 0 else 0,
+            1 if attempt.get("proposed_correction") and prefix_distance <= 1 else 0,
+            1 if attempt.get("proposed_correction") else 0,
+            1 if forced_choice == original_formula else 0,
+            1 if structured_formula == original_formula else 0,
+            1 if _is_structurally_close_unary_formula(original_formula, candidate_formula) else 0,
+            -prefix_distance,
+            distance_score,
+            max(
+                _confidence_score(attempt.get("structured_counts", {}).get("confidence")),
+                _confidence_score(attempt.get("forced_confidence")),
+            ),
+        )
+
+    return max(attempts, key=score)
+
+
+def _upscale_for_verifier(crop_img: np.ndarray, scale: int = 4) -> np.ndarray:
+    if crop_img.size == 0:
+        return crop_img
+    return cv2.resize(crop_img, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+
+
+def _int_field(value: Any, default: int = 0, minimum: int = 0, maximum: int = 3) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(maximum, parsed))
+
+
+def _formula_components(formula_text: str) -> Tuple[str, str]:
+    prefix = _leading_unary_prefix(formula_text)
+    body = formula_text[len(prefix) :].strip()
+    return prefix, body
+
+
+def _compose_unary_formula(*, modal: str, before_modal: int, before_atom: int, body: str) -> str:
+    prefix = ("¬" * max(0, before_modal)) + modal + ("¬" * max(0, before_atom))
+    return f"{prefix}{body}".strip()
+
+
+def _build_structured_unary_verifier_prompt(entry: Dict[str, Any]) -> str:
+    scope_role = str(entry.get("scope_role") or "derived_line").strip()
+    formula_text = _normalize_formula_text(entry.get("formula_text") or entry.get("wffstr") or "", scope_role)
+    justification = _normalize_justification_text(entry.get("justification_text") or entry.get("jstr") or "")
+    lines = [
+        "This image shows one handwritten modal logic proof formula on a single line.",
+        'Return only JSON with keys: main_modal_operator, negations_before_modal, negations_before_final_atom, confidence.',
+        'Set main_modal_operator to "box", "diamond", or "none".',
+        "Count exactly how many negation marks (¬) appear immediately before the main modal operator, if any.",
+        "Count exactly how many negation marks (¬) appear immediately before the final propositional letter.",
+        "Do not guess from proof validity. Report only what the handwriting shows.",
+        f"Current OCR formula: {formula_text}",
+    ]
+    if justification:
+        lines.append(f"Current OCR justification: {justification}")
+    return "\n".join(lines)
+
+
+def _derive_formula_from_structured_counts(entry: Dict[str, Any], parsed: Dict[str, Any]) -> str | None:
+    scope_role = str(entry.get("scope_role") or "derived_line").strip()
+    original_formula = _normalize_formula_text(entry.get("formula_text") or entry.get("wffstr") or "", scope_role)
+    prefix, body = _formula_components(original_formula)
+    if not body:
+        return None
+
+    modal_value = str(parsed.get("main_modal_operator") or "").strip().lower()
+    if modal_value == "box":
+        modal_symbol = "□"
+    elif modal_value == "diamond":
+        modal_symbol = "⋄"
+    else:
+        modal_symbol = ""
+
+    before_modal = _int_field(parsed.get("negations_before_modal"), default=0)
+    before_atom = _int_field(parsed.get("negations_before_final_atom"), default=0)
+
+    if not modal_symbol:
+        return f"{'¬' * before_atom}{body}"
+    return _compose_unary_formula(
+        modal=modal_symbol,
+        before_modal=before_modal,
+        before_atom=before_atom,
+        body=body,
+    )
+
+
+def _nearby_verifier_candidates(original_formula: str, proposed_formula: str | None) -> List[str]:
+    prefix, body = _formula_components(original_formula)
+    if not prefix or not body:
+        return [original_formula]
+
+    original_modal = "□" if "□" in prefix else "⋄" if "⋄" in prefix else ""
+    original_before_modal = prefix.split(original_modal, 1)[0].count("¬") if original_modal else 0
+    original_before_atom = prefix.split(original_modal, 1)[1].count("¬") if original_modal else prefix.count("¬")
+
+    candidates: List[str] = [original_formula]
+    if proposed_formula:
+        candidates.append(proposed_formula)
+
+    count_options = {
+        max(0, original_before_atom - 1),
+        original_before_atom,
+        min(3, original_before_atom + 1),
+    }
+    modal_count_options = {
+        max(0, original_before_modal - 1),
+        original_before_modal,
+        min(3, original_before_modal + 1),
+    }
+    for before_modal in sorted(modal_count_options):
+        for before_atom in sorted(count_options):
+            if original_modal:
+                candidate = _compose_unary_formula(
+                    modal=original_modal,
+                    before_modal=before_modal,
+                    before_atom=before_atom,
+                    body=body,
+                )
+            else:
+                candidate = f"{'¬' * before_atom}{body}"
+            if candidate not in candidates:
+                candidates.append(candidate)
+            if len(candidates) >= 4:
+                return candidates
+    return candidates[:4]
+
+
+def _build_forced_choice_unary_verifier_prompt(entry: Dict[str, Any], candidates: List[str]) -> str:
+    scope_role = str(entry.get("scope_role") or "derived_line").strip()
+    formula_text = _normalize_formula_text(entry.get("formula_text") or entry.get("wffstr") or "", scope_role)
+    justification = _normalize_justification_text(entry.get("justification_text") or entry.get("jstr") or "")
+    candidate_text = " ; ".join(candidates)
+    has_box = any("□" in candidate for candidate in candidates)
+    has_diamond = any("⋄" in candidate for candidate in candidates)
+    if has_box and not has_diamond:
+        lines = [
+            "This image shows one handwritten modal logic formula on a single line.",
+            'Return only JSON with keys: selected_formula, confidence, negations_before_modal, negations_before_final_atom.',
+            "Count exactly how many negation marks (¬) appear immediately to the LEFT of the box symbol (□).",
+            "Count exactly how many negation marks (¬) appear immediately to the RIGHT of the box symbol before the final propositional letter.",
+            "Then choose the exact candidate that best matches the handwriting.",
+            "Do not invent a formula outside the candidate list.",
+            f"Current OCR formula: {formula_text}",
+        ]
+    elif has_diamond and not has_box:
+        lines = [
+            "This image shows one handwritten modal logic formula on a single line.",
+            'Return only JSON with keys: selected_formula, confidence, negations_before_modal, negations_before_final_atom.',
+            "Count exactly how many negation marks (¬) appear immediately to the LEFT of the diamond symbol (⋄).",
+            "Count exactly how many negation marks (¬) appear immediately to the RIGHT of the diamond symbol before the final propositional letter.",
+            "Then choose the exact candidate that best matches the handwriting.",
+            "Do not invent a formula outside the candidate list.",
+            f"Current OCR formula: {formula_text}",
+        ]
+    else:
+        lines = [
+            "This image shows one handwritten modal logic formula on a single line.",
+            'Return only JSON with keys: selected_formula, confidence, negations_before_final_atom.',
+            "Count exactly how many negation marks (¬) appear immediately before the final propositional letter.",
+            "Then choose the exact candidate that best matches the handwriting.",
+            "Do not invent a formula outside the candidate list.",
+            f"Current OCR formula: {formula_text}",
+        ]
+    if justification:
+        lines.append(f"Current OCR justification: {justification}")
+    lines.append(f"Candidates: {candidate_text}")
+    lines.append('If you cannot tell, return "selected_formula": "uncertain".')
+    return "\n".join(lines)
+
+
+def _normalize_selected_formula(value: Any, scope_role: str) -> str:
+    selected = str(value or "").strip()
+    if not selected or selected == "uncertain":
+        return "uncertain"
+    return _normalize_formula_text(selected, scope_role)
+
+
+def _same_modal_class(left: str, right: str) -> bool:
+    left_prefix = _leading_unary_prefix(left)
+    right_prefix = _leading_unary_prefix(right)
+    if "□" in left_prefix:
+        return "□" in right_prefix
+    if "⋄" in left_prefix:
+        return "⋄" in right_prefix
+    return "□" not in right_prefix and "⋄" not in right_prefix
+
+
+def _is_structurally_close_unary_formula(original: str, candidate: str | None) -> bool:
+    if not candidate:
+        return False
+    return _unary_formula_skeleton(original) == _unary_formula_skeleton(candidate) and _same_modal_class(original, candidate)
+
+
+def _run_unary_verifier_experiment(
+    *,
+    proof_structure: List[Any],
+    tree_root: SubproofNode,
+    full_img: np.ndarray,
+    output_dir: Path,
+    verifier_client: LMStudioQwenClient | None,
+    checker_response: Dict[str, Any] | None,
+) -> List[Dict[str, Any]]:
+    for path in output_dir.glob("verifier_line_*.jpg"):
+        path.unlink(missing_ok=True)
+    (output_dir / UNARY_VERIFIER_FILENAME).unlink(missing_ok=True)
+
+    if verifier_client is None or not _checker_payload_has_issues(checker_response):
+        return []
+
+    node_lookup = _build_node_lookup(tree_root)
+    records: List[Dict[str, Any]] = []
+    for entry in _iter_proof_line_dicts(proof_structure):
+        if not _should_verify_unary_formula(entry):
+            continue
+
+        node_id = str(entry.get("_ocr_node_id") or "").strip()
+        scope_role = str(entry.get("scope_role") or "derived_line").strip()
+        original_formula = _normalize_formula_text(entry.get("formula_text") or entry.get("wffstr") or "", scope_role)
+        node = node_lookup.get(node_id)
+        line_order = entry.get("_ocr_line_order")
+        attempt_records: List[Dict[str, Any]] = []
+        if node is not None and isinstance(line_order, int):
+            node_crop = _verifier_node_crop_image(node=node, full_img=full_img)
+            bands = _detect_text_row_bands(node_crop)
+            candidate_indices = _candidate_band_indices(line_order=line_order, band_count=len(bands))
+            for candidate_index in candidate_indices:
+                line_crop = _extract_band_crop(
+                    node_crop_img=node_crop,
+                    bands=bands,
+                    band_index=candidate_index,
+                )
+                line_crop = _upscale_for_verifier(line_crop)
+                suffix = f"{line_order + 1}"
+                if candidate_index != line_order:
+                    suffix = f"{suffix}_band{candidate_index + 1}"
+                verifier_path = output_dir / f"verifier_line_{node_id}_{suffix}.jpg"
+                cv2.imwrite(str(verifier_path), line_crop)
+
+                with verifier_path.open("rb") as handle:
+                    line_base64_image = base64.b64encode(handle.read()).decode("utf-8")
+
+                structured_raw = verifier_client.chat(
+                    [
+                        {"role": "system", "content": "You are a careful vision model. Follow the user's instructions exactly."},
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": _build_structured_unary_verifier_prompt(entry)},
+                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{line_base64_image}"}} ,
+                            ],
+                        },
+                    ]
+                )
+                structured_parsed = _parse_unary_recheck_choice(structured_raw)
+                structured_formula = _derive_formula_from_structured_counts(entry, structured_parsed)
+
+                forced_candidates = _nearby_verifier_candidates(original_formula, structured_formula)
+                forced_raw = verifier_client.chat(
+                    [
+                        {"role": "system", "content": "You are a careful vision model. Follow the user's instructions exactly."},
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": _build_forced_choice_unary_verifier_prompt(entry, forced_candidates)},
+                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{line_base64_image}"}} ,
+                            ],
+                        },
+                    ]
+                )
+                forced_parsed = _parse_unary_recheck_choice(forced_raw)
+                forced_choice = _normalize_selected_formula(forced_parsed.get("selected_formula"), scope_role)
+
+                proposed_correction = None
+                if (
+                    structured_formula
+                    and forced_choice == structured_formula
+                    and structured_formula != original_formula
+                    and _is_structurally_close_unary_formula(original_formula, structured_formula)
+                ):
+                    proposed_correction = structured_formula
+
+                attempt_records.append(
+                    {
+                        "band_index": candidate_index,
+                        "band_distance": abs(candidate_index - line_order),
+                        "line_crop_path": str(verifier_path),
+                        "structured_counts": structured_parsed,
+                        "structured_formula": structured_formula,
+                        "forced_choice_candidates": forced_candidates,
+                        "forced_choice": forced_choice,
+                        "forced_confidence": forced_parsed.get("confidence"),
+                        "proposed_correction": proposed_correction,
+                        "structured_raw_response": structured_raw,
+                        "forced_raw_response": forced_raw,
+                    }
+                )
+
+        if not attempt_records:
+            records.append(
+                {
+                    "node_id": node_id,
+                    "line_label": str(entry.get("line_label") or "").strip(),
+                    "baseline_formula": original_formula,
+                    "structured_error": "Could not isolate a single-line verifier crop.",
+                    "would_auto_apply": False,
+                }
+            )
+            continue
+
+        best_attempt = _best_verifier_attempt(
+            original_formula=original_formula,
+            expected_line_order=line_order if isinstance(line_order, int) else None,
+            attempts=attempt_records,
+        )
+
+        records.append(
+            {
+                "node_id": node_id,
+                "line_label": str(entry.get("line_label") or "").strip(),
+                "baseline_formula": original_formula,
+                "band_count": len(_detect_text_row_bands(_verifier_node_crop_image(node=node, full_img=full_img))) if node is not None else 0,
+                "structured_counts": best_attempt.get("structured_counts"),
+                "structured_formula": best_attempt.get("structured_formula"),
+                "forced_choice_candidates": best_attempt.get("forced_choice_candidates"),
+                "forced_choice": best_attempt.get("forced_choice"),
+                "proposed_correction": best_attempt.get("proposed_correction"),
+                "would_auto_apply": bool(best_attempt.get("proposed_correction")),
+                "line_crop_path": best_attempt.get("line_crop_path"),
+                "structured_raw_response": best_attempt.get("structured_raw_response"),
+                "forced_raw_response": best_attempt.get("forced_raw_response"),
+                "candidate_attempts": attempt_records,
+            }
+        )
+
+    if records:
+        (output_dir / UNARY_VERIFIER_FILENAME).write_text(
+            json.dumps(records, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    return records
+
+
 def _candidate_unary_prefixes(formula_text: str, justification: str) -> List[str]:
     prefix = _leading_unary_prefix(formula_text)
     rule_head = justification.split(" ", 1)[0] if justification else ""
@@ -461,16 +1029,16 @@ def _candidate_unary_prefixes(formula_text: str, justification: str) -> List[str
 
     candidates: List[str] = [prefix]
     if contains_diamond:
-        pool = ("¬", "¬¬", "¬¬¬", "⋄", "⋄¬", "¬⋄", "¬⋄¬")
+        pool = ("⋄", "⋄¬", "⋄¬¬", "¬⋄", "¬⋄¬", "¬⋄¬¬")
     elif contains_box or negation_count >= 2 or rule_head in UNARY_SENSITIVE_RULE_HEADS:
-        pool = ("¬", "¬¬", "¬¬¬", "□", "□¬", "¬□", "¬□¬")
+        pool = ("□", "□¬", "□¬¬", "¬□", "¬□¬", "¬□¬¬")
     else:
         pool = ("¬", "¬¬", "¬¬¬")
 
     for candidate in pool:
         if candidate not in candidates:
             candidates.append(candidate)
-    if prefix.endswith("¬") and prefix.count("¬") < 4:
+    if not contains_box and not contains_diamond and prefix.endswith("¬") and prefix.count("¬") < 4:
         extended_prefix = f"{prefix}¬"
         if extended_prefix not in candidates:
             candidates.append(extended_prefix)
@@ -578,8 +1146,24 @@ def _score_unary_formula_candidates(
 
 def _detect_text_row_bands(crop_img: np.ndarray) -> List[Tuple[int, int]]:
     gray = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
-    dark_mask = gray < 185
-    row_counts = dark_mask.sum(axis=1).astype(np.float32)
+    img_h, img_w = gray.shape[:2]
+    formula_w = min(img_w, max(80, int(img_w * 0.50)))
+    focused = gray[:, :formula_w]
+
+    dark_mask = (focused < 185).astype(np.uint8)
+    if dark_mask.size == 0:
+        return []
+
+    # Remove long proof bars and scope underlines so they do not merge adjacent rows.
+    horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (max(20, int(formula_w * 0.18)), 1))
+    horizontal_mask = cv2.morphologyEx(dark_mask, cv2.MORPH_OPEN, horizontal_kernel)
+    vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(20, int(img_h * 0.35))))
+    vertical_mask = cv2.morphologyEx(dark_mask, cv2.MORPH_OPEN, vertical_kernel)
+    text_mask = dark_mask.copy()
+    text_mask[horizontal_mask > 0] = 0
+    text_mask[vertical_mask > 0] = 0
+
+    row_counts = text_mask.sum(axis=1).astype(np.float32)
     if row_counts.size == 0:
         return []
 
@@ -609,7 +1193,64 @@ def _detect_text_row_bands(crop_img: np.ndarray) -> List[Tuple[int, int]]:
             merged[-1] = (merged[-1][0], band_end)
         else:
             merged.append((band_start, band_end))
-    return [(start, end) for start, end in merged if end - start >= 6]
+
+    split_bands: List[Tuple[int, int]] = []
+    valley_threshold = max(2.0, threshold * 0.45)
+    min_band_height = 6
+    min_gap_height = 4
+    for band_start, band_end in merged:
+        if band_end - band_start < 22:
+            split_bands.append((band_start, band_end))
+            continue
+
+        current_start = band_start
+        gap_start: int | None = None
+        gap_end: int | None = None
+        for row in range(band_start, band_end + 1):
+            if smoothed[row] < valley_threshold:
+                if gap_start is None:
+                    gap_start = row
+                gap_end = row
+                continue
+
+            if gap_start is not None and gap_end is not None:
+                gap_height = gap_end - gap_start + 1
+                left_height = gap_start - current_start
+                right_height = band_end - gap_end
+                if gap_height >= min_gap_height and left_height >= min_band_height and right_height >= min_band_height:
+                    split_bands.append((current_start, gap_start - 1))
+                    current_start = gap_end + 1
+                gap_start = None
+                gap_end = None
+
+        if band_end - current_start + 1 >= min_band_height:
+            split_bands.append((current_start, band_end))
+
+    normalized = [(start, end) for start, end in split_bands if end - start >= min_band_height]
+    if not normalized:
+        normalized = [(start, end) for start, end in merged if end - start >= 6]
+
+    component_bands: List[Tuple[int, int]] = []
+    num_labels, _, stats, _ = cv2.connectedComponentsWithStats(text_mask, 8)
+    raw_component_bands: List[Tuple[int, int]] = []
+    for label_index in range(1, num_labels):
+        area = int(stats[label_index, cv2.CC_STAT_AREA])
+        if area < 10:
+            continue
+        top = int(stats[label_index, cv2.CC_STAT_TOP])
+        height = int(stats[label_index, cv2.CC_STAT_HEIGHT])
+        raw_component_bands.append((top, top + height - 1))
+
+    for band_start, band_end in sorted(raw_component_bands):
+        if component_bands and band_start <= component_bands[-1][1] + 8:
+            component_bands[-1] = (component_bands[-1][0], max(component_bands[-1][1], band_end))
+        else:
+            component_bands.append((band_start, band_end))
+    component_bands = [(start, end) for start, end in component_bands if end - start >= 4]
+
+    if len(component_bands) > len(normalized):
+        return component_bands
+    return normalized
 
 
 def _focused_unary_line_crop_path(
@@ -651,20 +1292,43 @@ def _build_unary_formula_recheck_prompt(entry: Dict[str, Any], candidates: List[
         str(entry.get("scope_role") or "derived_line").strip(),
     )
     justification = _normalize_justification_text(entry.get("justification_text") or entry.get("jstr") or "")
-    lines = [
-        "This image shows one handwritten modal logic proof formula.",
-        'Return only a JSON object with keys: selected_formula, confidence, box_present, diamond_present, left_of_main_modal_negations, negations_before_final_atom.',
-        "Count the visible unary marks carefully before choosing.",
-        "A box is □, a diamond is ⋄, and a negation is ¬.",
-        "Choose the exact candidate that best matches the handwriting.",
-        "Do not invent a formula outside the candidate list.",
-        f"Current OCR formula: {formula_text}",
-    ]
+    candidate_text = " ; ".join(candidates)
+    has_box = any("□" in candidate for candidate in candidates)
+    has_diamond = any("⋄" in candidate for candidate in candidates)
+
+    if has_box and not has_diamond:
+        lines = [
+            "This image shows one handwritten modal logic formula.",
+            'Return only JSON with keys: box_present, left_of_box_negations, right_of_box_negations, selected_formula, confidence.',
+            "Count exactly how many negation marks (¬) appear immediately to the LEFT of the box symbol (□).",
+            "Count exactly how many negation marks (¬) appear immediately to the RIGHT of the box symbol before the final propositional letter.",
+            "Then choose the exact candidate that best matches the handwriting.",
+            "Do not invent a formula outside the candidate list.",
+            f"Current OCR formula: {formula_text}",
+        ]
+    elif has_diamond and not has_box:
+        lines = [
+            "This image shows one handwritten modal logic formula.",
+            'Return only JSON with keys: diamond_present, left_of_diamond_negations, right_of_diamond_negations, selected_formula, confidence.',
+            "Count exactly how many negation marks (¬) appear immediately to the LEFT of the diamond symbol (⋄).",
+            "Count exactly how many negation marks (¬) appear immediately to the RIGHT of the diamond symbol before the final propositional letter.",
+            "Then choose the exact candidate that best matches the handwriting.",
+            "Do not invent a formula outside the candidate list.",
+            f"Current OCR formula: {formula_text}",
+        ]
+    else:
+        lines = [
+            "This image shows one handwritten modal logic formula.",
+            'Return only JSON with keys: negations_before_final_atom, selected_formula, confidence.',
+            "Count exactly how many negation marks (¬) appear immediately before the final propositional letter.",
+            "Then choose the exact candidate that best matches the handwriting.",
+            "Do not invent a formula outside the candidate list.",
+            f"Current OCR formula: {formula_text}",
+        ]
+
     if justification:
         lines.append(f"Current OCR justification: {justification}")
-    lines.append("Candidates:")
-    for candidate in candidates:
-        lines.append(f"- {candidate}")
+    lines.append(f"Candidates: {candidate_text}")
     lines.append('If you cannot tell, return "selected_formula": "uncertain".')
     return "\n".join(lines)
 
@@ -1273,6 +1937,7 @@ def build_modal_state(
     run_summary: str,
     vision_base_url: str | None = None,
     vision_model: str | None = None,
+    verifier_vision_model: str | None = None,
     source_image_name: str = "",
 ) -> Dict[str, Any]:
     canonical = _canonical_modal_config(config)
@@ -1282,6 +1947,7 @@ def build_modal_state(
         "conclusion": canonical.get("conclusion") or "",
         "vision_base_url": (vision_base_url or default_lmstudio_base_url()).strip(),
         "vision_model": (vision_model or default_lmstudio_model()).strip(),
+        "verifier_vision_model": (verifier_vision_model or default_unary_verifier_model()).strip(),
         "source_image_name": source_image_name,
         "proof_json_text": json.dumps({"lines": final_structure, "meta": {}}, indent=2, ensure_ascii=False),
         "draft_comment": "",
@@ -1298,10 +1964,15 @@ def transcribe_image_to_modal_debug_state(
     output_dir: Path,
     modal_config: Dict[str, Any],
     client: LMStudioQwenClient | None = None,
+    verifier_client: LMStudioQwenClient | None = None,
     vision_base_url: str | None = None,
     vision_model: str | None = None,
+    verifier_vision_model: str | None = None,
 ) -> Dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
+    (output_dir / UNARY_VERIFIER_FILENAME).unlink(missing_ok=True)
+    for path in output_dir.glob("verifier_line_*.jpg"):
+        path.unlink(missing_ok=True)
     prompt = build_prompt(modal_config)
     (output_dir / PROMPT_FILENAME).write_text(prompt, encoding="utf-8")
 
@@ -1340,16 +2011,6 @@ def transcribe_image_to_modal_debug_state(
     rewrite_strict_subproof_local_citations(final_structure)
     repair_modal_subproof_boundary_lines(final_structure)
     renumber_lines(final_structure)
-    for crop_path in sorted(output_dir.glob("crop_*.jpg")):
-        crop_node_id = crop_path.stem.removeprefix("crop_")
-        _recheck_suspicious_unary_formulas(
-            proof_structure=final_structure,
-            crop_path=crop_path,
-            client=client,
-            output_dir=output_dir,
-            modal_config=modal_config,
-            node_id=crop_node_id,
-        )
 
     persisted_structure = _clone_jsonish(final_structure)
     _strip_internal_ocr_metadata(persisted_structure)
@@ -1382,6 +2043,15 @@ def transcribe_image_to_modal_debug_state(
     except Exception as exc:
         run_summary = f"OCR produced a modal proof structure, but checker execution failed: {exc}"
 
+    _run_unary_verifier_experiment(
+        proof_structure=final_structure,
+        tree_root=tree_root,
+        full_img=img,
+        output_dir=output_dir,
+        verifier_client=verifier_client,
+        checker_response=checker_response,
+    )
+
     state = build_modal_state(
         config=modal_config,
         final_structure=persisted_structure,
@@ -1390,6 +2060,7 @@ def transcribe_image_to_modal_debug_state(
         run_summary=run_summary,
         vision_base_url=vision_base_url or getattr(client, "base_url", None),
         vision_model=vision_model or getattr(client, "model", None),
+        verifier_vision_model=verifier_vision_model or getattr(verifier_client, "model", None),
         source_image_name=image_path.name,
     )
     (output_dir / STATE_FILENAME).write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -1403,6 +2074,11 @@ def main() -> int:
     parser.add_argument("--autograde-file", help="YAML/JSON file with modal checker config or saved state.json.")
     parser.add_argument("--lmstudio-base-url", default=default_lmstudio_base_url(), help="LM Studio OpenAI-compatible base URL.")
     parser.add_argument("--lmstudio-model", default=default_lmstudio_model(), help="LM Studio model identifier.")
+    parser.add_argument(
+        "--lmstudio-verifier-model",
+        default=default_unary_verifier_model(),
+        help="LM Studio model identifier for the unary verifier experiment.",
+    )
     args = parser.parse_args()
 
     image_path = Path(args.image)
@@ -1423,19 +2099,26 @@ def main() -> int:
     print(f"[OCR] Modal system: {modal_config['system']}")
     print(f"[OCR] VLM base URL: {args.lmstudio_base_url}")
     print(f"[OCR] VLM model: {args.lmstudio_model}")
+    print(f"[OCR] Unary verifier model: {args.lmstudio_verifier_model}")
 
     try:
         client = build_vlm_client(
             base_url=args.lmstudio_base_url,
             model=args.lmstudio_model,
         )
+        verifier_client = build_vlm_client(
+            base_url=args.lmstudio_base_url,
+            model=args.lmstudio_verifier_model,
+        )
         state = transcribe_image_to_modal_debug_state(
             image_path=image_path,
             output_dir=output_dir,
             modal_config=modal_config,
             client=client,
+            verifier_client=verifier_client,
             vision_base_url=args.lmstudio_base_url,
             vision_model=args.lmstudio_model,
+            verifier_vision_model=args.lmstudio_verifier_model,
         )
     except Exception as exc:
         (output_dir / "ocr_error.txt").write_text(str(exc), encoding="utf-8")

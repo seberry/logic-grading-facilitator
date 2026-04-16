@@ -14,7 +14,11 @@ from fastapi.templating import Jinja2Templates
 from app.autograde import AutoGradeResult, autograde_submission
 from app.storage import RAW_SCANS_DIR
 from app.storage import DEBUG_MODAL_PROOF_DIR
-from scripts.debug_modal_proof_ocr import build_vlm_client, transcribe_image_to_modal_debug_state
+from scripts.debug_modal_proof_ocr import (
+    build_vlm_client,
+    default_unary_verifier_model,
+    transcribe_image_to_modal_debug_state,
+)
 
 router = APIRouter()
 
@@ -32,6 +36,7 @@ OCR_TEXT_ARTIFACTS = (
     "response_1.json",
     "response_2.json",
     "final_structure.json",
+    "unary_verifier.json",
 )
 IMAGE_ARTIFACTS = ("source_image", "debug_bars.jpg", "crop_ROOT.jpg", "crop_1.jpg", "crop_2.jpg")
 SYSTEM_OPTIONS = ["K", "T", "S4", "S5"]
@@ -84,6 +89,7 @@ def _default_page_state() -> Dict[str, Any]:
         "conclusion": "A",
         "vision_base_url": "",
         "vision_model": "",
+        "verifier_vision_model": "",
         "source_image_name": "",
         "proof_json_text": DEFAULT_PROOF_JSON_TEXT,
         "draft_comment": "",
@@ -118,6 +124,7 @@ def _load_example_state(example_slug: Optional[str]) -> Dict[str, Any]:
         "proof_json_text",
         "vision_base_url",
         "vision_model",
+        "verifier_vision_model",
         "source_image_name",
         "draft_comment",
         "draft_grade",
@@ -141,6 +148,7 @@ def _save_example_state(example_slug: str, state: Dict[str, Any]) -> None:
                 "conclusion": state.get("conclusion", ""),
                 "vision_base_url": state.get("vision_base_url", ""),
                 "vision_model": state.get("vision_model", ""),
+                "verifier_vision_model": state.get("verifier_vision_model", ""),
                 "source_image_name": state.get("source_image_name", ""),
                 "proof_json_text": state.get("proof_json_text", DEFAULT_PROOF_JSON_TEXT),
                 "draft_comment": state.get("draft_comment", ""),
@@ -175,6 +183,19 @@ def _checker_request_lines(checker_request: Any) -> List[Dict[str, Any]]:
         return []
     lines = checker_request.get("lines")
     return lines if isinstance(lines, list) else []
+
+
+def _load_unary_verifier_results(example_slug: str) -> List[Dict[str, Any]]:
+    if not example_slug or example_slug == STARTER_EXAMPLE:
+        return []
+    path = DEBUG_MODAL_PROOF_DIR / example_slug / "unary_verifier.json"
+    if not path.exists():
+        return []
+    try:
+        parsed = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    return parsed if isinstance(parsed, list) else []
 
 
 def _render_checker_request_preview(checker_request: Any) -> str:
@@ -239,6 +260,16 @@ def _render_page(
                         "url": f"/debug_modal_proof_assets/{selected}/{quote(filename)}",
                     }
                 )
+        for path in sorted(example_dir.glob("verifier_line_*.jpg"), key=lambda p: p.name.lower()):
+            if path.name in seen:
+                continue
+            seen.add(path.name)
+            image_artifacts.append(
+                {
+                    "filename": path.name,
+                    "url": f"/debug_modal_proof_assets/{selected}/{quote(path.name)}",
+                }
+            )
 
     return templates.TemplateResponse(
         request,
@@ -253,6 +284,7 @@ def _render_page(
             "checker_request_preview": _render_checker_request_preview(state.get("checker_request")),
             "optional_artifacts": artifact_texts,
             "image_artifacts": image_artifacts,
+            "unary_verifier_results": _load_unary_verifier_results(selected),
             **state,
         },
     )
@@ -266,6 +298,7 @@ def _state_from_form(
     conclusion: str,
     vision_base_url: str,
     vision_model: str,
+    verifier_vision_model: str,
     proof_json_text: str,
     draft_comment: str,
     draft_grade: str,
@@ -279,6 +312,7 @@ def _state_from_form(
             "conclusion": str(conclusion or "").strip(),
             "vision_base_url": str(vision_base_url or "").strip(),
             "vision_model": str(vision_model or "").strip(),
+            "verifier_vision_model": str(verifier_vision_model or "").strip(),
             "proof_json_text": proof_json_text,
             "draft_comment": draft_comment,
             "draft_grade": draft_grade,
@@ -373,6 +407,7 @@ async def save_modal_proof_state(
     conclusion: str = Form(""),
     vision_base_url: str = Form(""),
     vision_model: str = Form(""),
+    verifier_vision_model: str = Form(""),
     proof_json_text: str = Form(...),
     draft_comment: str = Form(""),
     draft_grade: str = Form(""),
@@ -384,6 +419,7 @@ async def save_modal_proof_state(
         conclusion=conclusion,
         vision_base_url=vision_base_url,
         vision_model=vision_model,
+        verifier_vision_model=verifier_vision_model,
         proof_json_text=proof_json_text,
         draft_comment=draft_comment,
         draft_grade=draft_grade,
@@ -407,6 +443,7 @@ async def run_modal_proof_debug_checker(
     conclusion: str = Form(""),
     vision_base_url: str = Form(""),
     vision_model: str = Form(""),
+    verifier_vision_model: str = Form(""),
     proof_json_text: str = Form(...),
     draft_comment: str = Form(""),
     draft_grade: str = Form(""),
@@ -418,6 +455,7 @@ async def run_modal_proof_debug_checker(
         conclusion=conclusion,
         vision_base_url=vision_base_url,
         vision_model=vision_model,
+        verifier_vision_model=verifier_vision_model,
         proof_json_text=proof_json_text,
         draft_comment=draft_comment,
         draft_grade=draft_grade,
@@ -457,6 +495,7 @@ async def run_modal_proof_debug_ocr(
     conclusion: str = Form(""),
     vision_base_url: str = Form(""),
     vision_model: str = Form(""),
+    verifier_vision_model: str = Form(""),
     proof_json_text: str = Form(DEFAULT_PROOF_JSON_TEXT),
     draft_comment: str = Form(""),
     draft_grade: str = Form(""),
@@ -470,6 +509,7 @@ async def run_modal_proof_debug_ocr(
         conclusion=conclusion,
         vision_base_url=vision_base_url,
         vision_model=vision_model,
+        verifier_vision_model=verifier_vision_model,
         proof_json_text=proof_json_text,
         draft_comment=draft_comment,
         draft_grade=draft_grade,
@@ -490,13 +530,19 @@ async def run_modal_proof_debug_ocr(
             base_url=state.get("vision_base_url") or None,
             model=state.get("vision_model") or None,
         )
+        verifier_client = build_vlm_client(
+            base_url=state.get("vision_base_url") or None,
+            model=state.get("verifier_vision_model") or default_unary_verifier_model(),
+        )
         ocr_state = transcribe_image_to_modal_debug_state(
             image_path=source_image_path,
             output_dir=example_dir,
             modal_config=_build_autograde_config(state),
             client=client,
+            verifier_client=verifier_client,
             vision_base_url=state.get("vision_base_url") or None,
             vision_model=state.get("vision_model") or None,
+            verifier_vision_model=state.get("verifier_vision_model") or None,
         )
         ocr_state["draft_comment"] = draft_comment
         ocr_state["draft_grade"] = draft_grade

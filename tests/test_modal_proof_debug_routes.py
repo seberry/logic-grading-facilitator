@@ -36,6 +36,7 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertIn("Proof JSON", response.text)
         self.assertIn("Run checker", response.text)
         self.assertIn("starter", response.text)
+        self.assertIn("Unary Verifier Experiment", response.text)
 
     def test_save_modal_proof_state_persists_state_json(self) -> None:
         with patch.object(modal_proof_debug_routes, "DEBUG_MODAL_PROOF_DIR", self.debug_dir):
@@ -47,7 +48,8 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
                     "include_derived_rules": "true",
                     "conclusion": "A",
                     "vision_base_url": "http://127.0.0.1:1234/v1",
-                    "vision_model": "google/gemma-3-12b-it",
+                    "vision_model": "qwen/qwen3-vl-4b",
+                    "verifier_vision_model": "qwen/qwen3-vl-8b",
                     "proof_json_text": json.dumps([{"wffstr": "A", "jstr": "PR"}]),
                     "draft_comment": "saved comment",
                     "draft_grade": "2",
@@ -63,7 +65,8 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertEqual(saved["system"], "S4")
         self.assertTrue(saved["include_derived_rules"])
         self.assertEqual(saved["vision_base_url"], "http://127.0.0.1:1234/v1")
-        self.assertEqual(saved["vision_model"], "google/gemma-3-12b-it")
+        self.assertEqual(saved["vision_model"], "qwen/qwen3-vl-4b")
+        self.assertEqual(saved["verifier_vision_model"], "qwen/qwen3-vl-8b")
         self.assertEqual(saved["draft_comment"], "saved comment")
         self.assertEqual(saved["draft_grade"], "2")
 
@@ -73,7 +76,8 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
             "include_derived_rules": False,
             "conclusion": "□A",
             "vision_base_url": "http://127.0.0.1:1234/v1",
-            "vision_model": "google/gemma-3-12b-it",
+            "vision_model": "qwen/qwen3-vl-4b",
+            "verifier_vision_model": "qwen/qwen3-vl-8b",
             "source_image_name": "source_image.png",
             "proof_json_text": json.dumps({"lines": [{"wffstr": "□A", "jstr": "PR"}], "meta": {}}),
             "draft_comment": "",
@@ -95,7 +99,8 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
                     "system": "S5",
                     "conclusion": "□A",
                     "vision_base_url": "http://127.0.0.1:1234/v1",
-                    "vision_model": "google/gemma-3-12b-it",
+                    "vision_model": "qwen/qwen3-vl-4b",
+                    "verifier_vision_model": "qwen/qwen3-vl-8b",
                     "proof_json_text": json.dumps([{"wffstr": "A", "jstr": "PR"}]),
                     "draft_comment": "keep me",
                     "draft_grade": "1",
@@ -107,11 +112,56 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("OCR ran and updated the modal proof state.", response.text)
-        self.assertEqual(saved["vision_model"], "google/gemma-3-12b-it")
+        self.assertEqual(saved["vision_model"], "qwen/qwen3-vl-4b")
+        self.assertEqual(saved["verifier_vision_model"], "qwen/qwen3-vl-8b")
         self.assertEqual(saved["draft_comment"], "keep me")
         self.assertEqual(saved["draft_grade"], "1")
         saved_lines = json.loads(saved["proof_json_text"])["lines"]
         self.assertEqual(saved_lines[0]["wffstr"], "□A")
+
+    def test_modal_proof_debug_page_shows_unary_verifier_results_and_line_crops(self) -> None:
+        example_dir = self.debug_dir / "sample"
+        example_dir.mkdir(parents=True, exist_ok=True)
+        (example_dir / "state.json").write_text(
+            json.dumps(
+                {
+                    "system": "K",
+                    "include_derived_rules": False,
+                    "conclusion": "",
+                    "proof_json_text": json.dumps({"lines": [], "meta": {}}, ensure_ascii=False),
+                    "run_summary": "ready",
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        (example_dir / "unary_verifier.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "node_id": "1",
+                        "line_label": "4",
+                        "baseline_formula": "¬□¬A",
+                        "structured_formula": "¬□¬¬A",
+                        "forced_choice_candidates": ["¬□¬A", "¬□¬¬A"],
+                        "forced_choice": "¬□¬¬A",
+                        "proposed_correction": "¬□¬¬A",
+                        "would_auto_apply": True,
+                    }
+                ],
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        (example_dir / "verifier_line_1_4.jpg").write_bytes(b"fakejpg")
+
+        with patch.object(modal_proof_debug_routes, "DEBUG_MODAL_PROOF_DIR", self.debug_dir):
+            response = self.client.get("/debug/modal-proof?example=sample")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Unary Verifier Experiment", response.text)
+        self.assertIn("¬□¬¬A", response.text)
+        self.assertIn("verifier_line_1_4.jpg", response.text)
 
     def test_run_checker_renders_summary_and_payloads(self) -> None:
         result = AutoGradeResult(

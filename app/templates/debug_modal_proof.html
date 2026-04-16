@@ -282,9 +282,17 @@
               <input id="vision-base-url" name="vision_base_url" type="text" value="{{ vision_base_url }}" placeholder="http://127.0.0.1:1234/v1" />
             </div>
             <div>
-              <label for="vision-model">Vision model</label>
-              <input id="vision-model" name="vision_model" type="text" value="{{ vision_model }}" placeholder="google/gemma-3-12b-it" />
+              <label for="vision-model">Baseline OCR model</label>
+              <input id="vision-model" name="vision_model" type="text" value="{{ vision_model }}" placeholder="qwen/qwen3-vl-4b" />
             </div>
+          </div>
+
+          <div class="two-col" style="margin-top: 1rem;">
+            <div>
+              <label for="verifier-vision-model">Unary verifier model</label>
+              <input id="verifier-vision-model" name="verifier_vision_model" type="text" value="{{ verifier_vision_model }}" placeholder="qwen/qwen3-vl-8b" />
+            </div>
+            <div></div>
           </div>
 
           <div style="margin-top: 1rem;">
@@ -416,6 +424,67 @@
           {% endif %}
         </section>
       </div>
+
+      <section class="panel">
+        <label>Unary Verifier Experiment</label>
+        {% if unary_verifier_results %}
+          <table>
+            <thead>
+              <tr>
+                <th>Node</th>
+                <th>Line</th>
+                <th>Baseline</th>
+                <th>Structured 8b</th>
+                <th>Forced-choice 8b</th>
+                <th>Proposed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in unary_verifier_results %}
+                <tr>
+                  <td>{{ item.node_id or "" }}</td>
+                  <td>{{ item.line_label or "?" }}</td>
+                  <td>{{ item.baseline_formula or "" }}</td>
+                  <td>
+                    {% if item.structured_formula %}
+                      {{ item.structured_formula }}
+                      {% if item.structured_counts %}
+                        <div class="muted">
+                          modal={{ item.structured_counts.main_modal_operator or "?" }},
+                          before modal={{ item.structured_counts.negations_before_modal if item.structured_counts.negations_before_modal is not none else "?" }},
+                          before atom={{ item.structured_counts.negations_before_final_atom if item.structured_counts.negations_before_final_atom is not none else "?" }}
+                        </div>
+                      {% endif %}
+                    {% elif item.structured_error %}
+                      <span class="muted">{{ item.structured_error }}</span>
+                    {% elif item.improving_candidates %}
+                      {{ item.improving_candidates | join(" | ") }}
+                    {% else %}
+                      <span class="muted">n/a</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    {{ item.forced_choice or "n/a" }}
+                    {% if item.forced_choice_candidates %}
+                      <div class="muted">{{ item.forced_choice_candidates | join(" | ") }}</div>
+                    {% endif %}
+                  </td>
+                  <td>
+                    {{ item.proposed_correction or item.baseline_formula or "" }}
+                    {% if item.would_auto_apply %}
+                      <div class="muted">would auto-apply</div>
+                    {% else %}
+                      <div class="muted">debug only</div>
+                    {% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="muted">No unary verifier experiment results are available yet.</p>
+        {% endif %}
+      </section>
 
       <details class="panel panel-toggle">
         <summary>Raw checker payloads</summary>
