@@ -159,6 +159,18 @@ class DebugModalProofOcrTests(unittest.TestCase):
 
         self.assertTrue(np.all(cropped[35:85, 65:115] == 255))
 
+    def test_verifier_node_crop_masks_nested_child_to_right_edge(self) -> None:
+        img = np.full((180, 220, 3), 255, dtype=np.uint8)
+        img[65:120, 90:205] = 0
+        parent = debug_modal_proof_ocr.SubproofNode("1", (60, 40, 2, 120))
+        child = debug_modal_proof_ocr.SubproofNode("2", (80, 70, 2, 55))
+        child.parent = parent
+        parent.children.append(child)
+
+        cropped = debug_modal_proof_ocr._verifier_node_crop_image(node=parent, full_img=img)
+
+        self.assertTrue(np.all(cropped[40:80, 35:140] == 255))
+
     def test_extract_single_line_crop_avoids_adjacent_lines(self) -> None:
         crop_img = np.full((140, 120, 3), 255, dtype=np.uint8)
         cv2.putText(crop_img, "A", (8, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
@@ -188,6 +200,33 @@ class DebugModalProofOcrTests(unittest.TestCase):
         self.assertIn("Count exactly how many negation marks", prompt)
         self.assertIn("Candidates: ¬□¬A ; ¬□¬¬A", prompt)
         self.assertIn('return "selected_formula": "uncertain"', prompt)
+
+    def test_best_verifier_attempt_prefers_expected_band_over_far_baseline_echo(self) -> None:
+        best = debug_modal_proof_ocr._best_verifier_attempt(
+            original_formula="□¬A",
+            expected_line_order=4,
+            attempts=[
+                {
+                    "band_index": 0,
+                    "structured_formula": "□¬A",
+                    "forced_choice": "□¬A",
+                    "forced_confidence": 0.95,
+                    "structured_counts": {"confidence": 0.95},
+                    "line_crop_path": "far.jpg",
+                },
+                {
+                    "band_index": 4,
+                    "structured_formula": "□¬¬A",
+                    "forced_choice": "□¬¬A",
+                    "proposed_correction": "□¬¬A",
+                    "forced_confidence": 0.98,
+                    "structured_counts": {"confidence": 0.98},
+                    "line_crop_path": "expected.jpg",
+                },
+            ],
+        )
+
+        self.assertEqual(best["line_crop_path"], "expected.jpg")
 
     def test_run_unary_verifier_experiment_records_proposed_correction(self) -> None:
         img = np.full((90, 120, 3), 255, dtype=np.uint8)

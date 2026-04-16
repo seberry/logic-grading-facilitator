@@ -525,16 +525,15 @@ def _verifier_node_crop_image(*, node: SubproofNode, full_img: np.ndarray) -> np
 
     for child in sorted(node.children, key=lambda c: c.box[1]):
         if node.id == "ROOT":
-            child_x, child_y, child_w, child_h = child.box
+            child_x, child_y, _, child_h = child.box
         else:
             parent_x, parent_y, _, _ = node.box
             child_x = max(0, child.box[0] - parent_x + 10)
             child_y = max(0, child.box[1] - parent_y + 10)
-            child_w = child.box[2]
             child_h = child.box[3]
         x1 = max(0, child_x)
         y1 = max(0, child_y)
-        x2 = min(crop_img.shape[1], child_x + child_w)
+        x2 = crop_img.shape[1]
         y2 = min(crop_img.shape[0], child_y + child_h)
         cv2.rectangle(crop_img, (x1, y1), (x2, y2), (255, 255, 255), -1)
     return crop_img
@@ -587,9 +586,24 @@ def _candidate_band_indices(
     *,
     line_order: int | None,
     band_count: int,
+    bands: List[Tuple[int, int]] | None = None,
+    projected_y: float | None = None,
 ) -> List[int]:
     if band_count <= 0:
         return []
+
+    if line_order is None and projected_y is not None and bands:
+        ranked = sorted(
+            range(band_count),
+            key=lambda idx: (
+                0 if bands[idx][0] <= projected_y <= bands[idx][1] else 1,
+                abs(((bands[idx][0] + bands[idx][1]) / 2.0) - projected_y),
+                abs(idx - line_order) if isinstance(line_order, int) else 0,
+                idx,
+            ),
+        )
+        return ranked[: min(5, band_count)]
+
     if line_order is None:
         return list(range(band_count))
 
@@ -668,10 +682,17 @@ def _best_verifier_attempt(
         exact_original_agreement = forced_choice == original_formula and structured_formula == original_formula
         band_index = attempt.get("band_index")
         if isinstance(expected_line_order, int) and isinstance(band_index, int):
-            distance_score = -abs(band_index - expected_line_order)
+            band_distance = abs(band_index - expected_line_order)
+            exact_band_match = band_distance == 0
+            nearby_band_match = band_distance <= 1
+            distance_score = -band_distance
         else:
+            exact_band_match = False
+            nearby_band_match = False
             distance_score = 0
         return (
+            1 if exact_band_match else 0,
+            1 if nearby_band_match else 0,
             1 if exact_original_agreement else 0,
             1 if structured_formula == original_formula and prefix_distance == 0 else 0,
             1 if attempt.get("proposed_correction") and prefix_distance <= 1 else 0,
@@ -688,6 +709,69 @@ def _best_verifier_attempt(
         )
 
     return max(attempts, key=score)
+
+
+def _build_full_image_line_anchor_prompt(total_lines: int) -> str:
+    return "\n".join(
+        [
+            "This image shows a whole handwritten modal logic proof.",
+            'Return only JSON with keys: line_centers_rel, confidence.',
+            "line_centers_rel must be a list of approximate vertical centers for the proof lines in reading order from top to bottom.",
+            "Use a 0-1000 scale, where 0 is the top of the image and 1000 is the bottom.",
+            f"Return exactly {total_lines} numbers, one for each visible proof line in order.",
+            "Do not return bounding boxes. Do not explain.",
+        ]
+    )
+
+
+def _parse_full_image_line_anchors(raw: str, total_lines: int) -> Dict[int, float]:
+    parsed = _parse_unary_recheck_choice(raw)
+    values = parsed.get("line_centers_rel")
+    if not isinstance(values, list):
+        return {}
+
+    anchors: Dict[int, float] = {}
+    for index, value in enumerate(values[:total_lines], start=1):
+        try:
+            y_rel = float(value)
+        except (TypeError, ValueError):
+            continue
+        anchors[index] = max(0.0, min(1000.0, y_rel))
+    return anchors
+
+
+def _request_full_image_line_anchors(
+    *,
+    full_img: np.ndarray,
+    verifier_client: LMStudioQwenClient,
+    total_lines: int,
+) -> Dict[int, float]:
+    if total_lines <= 0:
+        return {}
+    ok, encoded = cv2.imencode(".jpg", full_img)
+    if not ok:
+        return {}
+    image_base64 = base64.b64encode(encoded.tobytes()).decode("utf-8")
+    raw = verifier_client.chat(
+        [
+            {"role": "system", "content": "You are a careful vision model. Follow the user's instructions exactly."},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": _build_full_image_line_anchor_prompt(total_lines)},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}} ,
+                ],
+            },
+        ]
+    )
+    return _parse_full_image_line_anchors(raw, total_lines)
+
+
+def _node_crop_origin(node: SubproofNode) -> Tuple[int, int]:
+    if node.id == "ROOT":
+        return (0, 0)
+    x, y, _, _ = node.box
+    return (max(0, x - 10), max(0, y - 10))
 
 
 def _upscale_for_verifier(crop_img: np.ndarray, scale: int = 4) -> np.ndarray:
@@ -885,8 +969,18 @@ def _run_unary_verifier_experiment(
         return []
 
     node_lookup = _build_node_lookup(tree_root)
+    all_lines = _iter_proof_line_dicts(proof_structure)
+    max_line_number = max(
+        (int(line.get("line")) for line in all_lines if isinstance(line.get("line"), int)),
+        default=0,
+    )
+    full_image_line_anchors = _request_full_image_line_anchors(
+        full_img=full_img,
+        verifier_client=verifier_client,
+        total_lines=max_line_number,
+    )
     records: List[Dict[str, Any]] = []
-    for entry in _iter_proof_line_dicts(proof_structure):
+    for entry in all_lines:
         if not _should_verify_unary_formula(entry):
             continue
 
@@ -895,11 +989,23 @@ def _run_unary_verifier_experiment(
         original_formula = _normalize_formula_text(entry.get("formula_text") or entry.get("wffstr") or "", scope_role)
         node = node_lookup.get(node_id)
         line_order = entry.get("_ocr_line_order")
+        line_number = entry.get("line")
         attempt_records: List[Dict[str, Any]] = []
         if node is not None and isinstance(line_order, int):
             node_crop = _verifier_node_crop_image(node=node, full_img=full_img)
             bands = _detect_text_row_bands(node_crop)
-            candidate_indices = _candidate_band_indices(line_order=line_order, band_count=len(bands))
+            _, node_origin_y = _node_crop_origin(node)
+            anchor_rel = full_image_line_anchors.get(int(line_number)) if isinstance(line_number, int) else None
+            projected_crop_y = None
+            if anchor_rel is not None and full_img.shape[0] > 0:
+                global_y = (anchor_rel / 1000.0) * float(full_img.shape[0])
+                projected_crop_y = global_y - float(node_origin_y)
+            candidate_indices = _candidate_band_indices(
+                line_order=line_order,
+                band_count=len(bands),
+                bands=bands,
+                projected_y=projected_crop_y,
+            )
             for candidate_index in candidate_indices:
                 line_crop = _extract_band_crop(
                     node_crop_img=node_crop,
@@ -960,6 +1066,9 @@ def _run_unary_verifier_experiment(
                     {
                         "band_index": candidate_index,
                         "band_distance": abs(candidate_index - line_order),
+                        "anchor_rel": anchor_rel,
+                        "projected_crop_y": projected_crop_y,
+                        "band_mid_y": (bands[candidate_index][0] + bands[candidate_index][1]) / 2.0,
                         "line_crop_path": str(verifier_path),
                         "structured_counts": structured_parsed,
                         "structured_formula": structured_formula,
@@ -977,6 +1086,7 @@ def _run_unary_verifier_experiment(
                 {
                     "node_id": node_id,
                     "line_label": str(entry.get("line_label") or "").strip(),
+                    "line_number": line_number,
                     "baseline_formula": original_formula,
                     "structured_error": "Could not isolate a single-line verifier crop.",
                     "would_auto_apply": False,
@@ -994,8 +1104,11 @@ def _run_unary_verifier_experiment(
             {
                 "node_id": node_id,
                 "line_label": str(entry.get("line_label") or "").strip(),
+                "line_number": line_number,
                 "baseline_formula": original_formula,
                 "band_count": len(_detect_text_row_bands(_verifier_node_crop_image(node=node, full_img=full_img))) if node is not None else 0,
+                "anchor_rel": best_attempt.get("anchor_rel"),
+                "projected_crop_y": best_attempt.get("projected_crop_y"),
                 "structured_counts": best_attempt.get("structured_counts"),
                 "structured_formula": best_attempt.get("structured_formula"),
                 "forced_choice_candidates": best_attempt.get("forced_choice_candidates"),
