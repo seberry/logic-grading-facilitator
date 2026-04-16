@@ -86,6 +86,17 @@ class DebugModalProofOcrTests(unittest.TestCase):
         self.assertEqual(refined[2], 2)
         self.assertEqual(refined[3], 70)
 
+    def test_crop_region_can_avoid_bottom_padding_for_child_crop(self) -> None:
+        img = np.zeros((200, 50, 3), dtype=np.uint8)
+
+        cropped = debug_modal_proof_ocr.crop_region(
+            img,
+            (10, 40, 2, 80),
+            bottom_padding=0,
+        )
+
+        self.assertEqual(cropped.shape[0], 90)
+
     def test_recursive_stitch_builds_nested_modal_structure(self) -> None:
         library = {
             "ROOT": [
@@ -112,6 +123,59 @@ class DebugModalProofOcrTests(unittest.TestCase):
         self.assertEqual(debug_modal_proof_ocr._normalize_formula_text("◇A", "derived_line"), "⋄A")
         self.assertEqual(debug_modal_proof_ocr._normalize_formula_text("◊A", "derived_line"), "⋄A")
         self.assertEqual(debug_modal_proof_ocr._normalize_formula_text("<>A", "derived_line"), "⋄A")
+
+    def test_should_recheck_unary_formula_targets_modal_prefix_lines(self) -> None:
+        self.assertTrue(
+            debug_modal_proof_ocr._should_recheck_unary_formula(
+                {
+                    "formula_text": "¬□¬A",
+                    "justification_text": "MC 3",
+                    "scope_role": "derived_line",
+                    "line_label": "4",
+                }
+            )
+        )
+        self.assertFalse(
+            debug_modal_proof_ocr._should_recheck_unary_formula(
+                {
+                    "formula_text": "A ∧ B",
+                    "justification_text": "∧I 1 2",
+                    "scope_role": "derived_line",
+                    "line_label": "5",
+                }
+            )
+        )
+
+    def test_recheck_suspicious_unary_formulas_accepts_extra_visible_negation(self) -> None:
+        crop_path = self.tmp_dir / "crop_1.jpg"
+        cv2.imwrite(str(crop_path), np.full((40, 40, 3), 255, dtype=np.uint8))
+        entries = [
+            {
+                "formula_text": "¬□¬A",
+                "justification_text": "MC 3",
+                "scope_role": "derived_line",
+                "line_label": "4",
+            }
+        ]
+        fake_client = FakeModalVisionClient(
+            responses=[
+                json.dumps({"line_label": "4", "formula_text": "¬□¬¬A"}, ensure_ascii=False),
+            ]
+        )
+
+        records = debug_modal_proof_ocr._recheck_suspicious_unary_formulas(
+            entries=entries,
+            crop_path=crop_path,
+            client=fake_client,
+            output_dir=self.tmp_dir,
+            node_id="1",
+        )
+
+        self.assertEqual(entries[0]["formula_text"], "¬□¬¬A")
+        self.assertEqual(records[0]["before"], "¬□¬A")
+        self.assertEqual(records[0]["after"], "¬□¬¬A")
+        self.assertTrue(records[0]["accepted"])
+        self.assertTrue((self.tmp_dir / debug_modal_proof_ocr.UNARY_RECHECK_FILENAME).exists())
 
     def test_recursive_stitch_recovers_missing_child_token_before_box_intro(self) -> None:
         root = debug_modal_proof_ocr.SubproofNode("ROOT", (0, 0, 100, 100))
@@ -226,10 +290,12 @@ class DebugModalProofOcrTests(unittest.TestCase):
                     [
                         {"formula_text": "□P", "scope_role": "premise", "line_label": "1"},
                         {"formula_text": "<SUBPROOF_ID_1>", "scope_role": "subproof_token"},
-                        {"formula_text": "□□P", "justification_text": "□I 2-3", "scope_role": "derived_line"},
+                        {"formula_text": "¬□¬P", "justification_text": "MC 1", "scope_role": "derived_line", "line_label": "4"},
+                        {"formula_text": "□□P", "justification_text": "□I 2-3", "scope_role": "derived_line", "line_label": "5"},
                     ],
                     ensure_ascii=False,
                 ),
+                json.dumps({"line_label": "4", "formula_text": "¬□¬¬P"}, ensure_ascii=False),
             ]
         )
 
@@ -261,9 +327,11 @@ class DebugModalProofOcrTests(unittest.TestCase):
         self.assertEqual(state["system"], "S4")
         self.assertEqual(state["vision_model"], "google/gemma-3-12b-it")
         self.assertEqual(state["source_image_name"], "sample.png")
+        self.assertIn("¬□¬¬P", state["proof_json_text"])
         self.assertIn("□□P", state["proof_json_text"])
         self.assertTrue((output_dir / "state.json").exists())
         self.assertTrue((output_dir / "final_structure.json").exists())
+        self.assertTrue((output_dir / debug_modal_proof_ocr.UNARY_RECHECK_FILENAME).exists())
 
     def test_build_vlm_client_uses_explicit_overrides(self) -> None:
         client = debug_modal_proof_ocr.build_vlm_client(

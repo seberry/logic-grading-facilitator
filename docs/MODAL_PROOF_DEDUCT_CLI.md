@@ -83,6 +83,8 @@ Current repair heuristics now include:
 - tree-aware fallback stitching when a parent crop omits a `<SUBPROOF_ID_X>`
   token even though the child crop was OCRed successfully
 - strict-subproof boundary repair for nearby `□I` result lines
+- a conservative unary-prefix crop recheck for suspicious formulas such as
+  `¬□...`, with accepted corrections recorded in `unary_rechecks.json`
 - checker-side look-alike retries for modal OCR confusions such as `D` / `O`
   / `0` in place of `□` in formulas
 - checker-side look-alike retries for rule heads such as `OE` / `OI` in place

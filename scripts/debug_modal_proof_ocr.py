@@ -45,6 +45,7 @@ CHECKER_REQUEST_FILENAME = "checker_request.json"
 CHECKER_RESPONSE_FILENAME = "checker_response.json"
 RAW_RESPONSE_TEMPLATE = "response_{node_id}.json"
 INTERMEDIATE_TEMPLATE = "intermediate_{node_id}.json"
+UNARY_RECHECK_FILENAME = "unary_rechecks.json"
 SOURCE_IMAGE_FILENAME = "source_image"
 
 SUPPORTED_SYSTEMS = {"K", "T", "S4", "S5"}
@@ -141,6 +142,9 @@ def build_prompt(config: Dict[str, Any]) -> str:
         "- For justifications, prefer forms like R 1, ∧I 4 5, ∧E 1, →I 2-3, □E 1, □I 3-6, R4 1, RT 1, MC 1, Def⋄ 1.",
         "- Copy the printed line labels exactly as they appear in the image. Do not renumber lines within a crop.",
         "- If a line starts a strict modal subproof, use scope_role strict_open and formula_text □.",
+        "- Preserve the exact number of negation marks. Do not collapse ¬¬A into ¬A.",
+        "- In handwritten work, double negation may appear as ¬¬A, ~~A, or mixed marks; if you see two negation strokes, transcribe two negations.",
+        "- If a line cites DN, be especially careful to preserve doubled negation in the formula.",
         "- If you see a red token like <SUBPROOF_ID_2>, return it exactly as formula_text with scope_role subproof_token.",
         "- After a red subproof token, keep listing any further visible lines in the current crop. Do not stop early just because a child subproof was masked.",
         "- If a current crop contains both a masked child token and a later closing-result line such as □B or A → B, include both in order.",
@@ -395,6 +399,155 @@ def call_vlm(image_path: Path, prompt: str, client: LMStudioQwenClient | None) -
     return raw, _parse_intermediate_response(raw)
 
 
+UNARY_PREFIX_CHARS = {"¬", "□", "⋄"}
+UNARY_SENSITIVE_RULE_HEADS = {"MC", "DN", "Def⋄"}
+
+
+def _leading_unary_prefix(formula_text: str) -> str:
+    prefix_chars: List[str] = []
+    for char in formula_text:
+        if char not in UNARY_PREFIX_CHARS:
+            break
+        prefix_chars.append(char)
+    return "".join(prefix_chars)
+
+
+def _should_recheck_unary_formula(entry: Dict[str, Any]) -> bool:
+    scope_role = str(entry.get("scope_role") or "derived_line").strip()
+    if scope_role in {"subproof_token", "strict_open"}:
+        return False
+
+    formula_text = _normalize_formula_text(entry.get("formula_text") or entry.get("wffstr") or "", scope_role)
+    if not formula_text:
+        return False
+
+    prefix = _leading_unary_prefix(formula_text)
+    justification = _normalize_justification_text(entry.get("justification_text") or entry.get("jstr") or "")
+    rule_head = justification.split(" ", 1)[0] if justification else ""
+
+    if "¬□¬" in formula_text or "¬⋄¬" in formula_text:
+        return True
+    if len(prefix) >= 2 and any(marker in prefix for marker in ("¬□", "¬⋄", "□¬", "⋄¬")):
+        return True
+    if rule_head in UNARY_SENSITIVE_RULE_HEADS and any(char in formula_text for char in UNARY_PREFIX_CHARS):
+        return True
+    return False
+
+
+def _unary_formula_skeleton(formula_text: str) -> str:
+    return re.sub(r"[¬□⋄()\s]", "", str(formula_text or ""))
+
+
+def _unary_operator_count(formula_text: str) -> int:
+    return sum(1 for char in str(formula_text or "") if char in UNARY_PREFIX_CHARS)
+
+
+def _accept_unary_recheck_formula(original_formula: str, revised_formula: str) -> bool:
+    if not revised_formula or revised_formula == original_formula:
+        return False
+    if _unary_formula_skeleton(original_formula) != _unary_formula_skeleton(revised_formula):
+        return False
+    if abs(_unary_operator_count(original_formula) - _unary_operator_count(revised_formula)) > 2:
+        return False
+    return True
+
+
+def _parse_rechecked_formula(raw: str) -> Dict[str, Any]:
+    cleaned = _strip_fences(raw)
+    parsed = json.loads(cleaned)
+    if isinstance(parsed, list):
+        parsed = parsed[0] if parsed else {}
+    if not isinstance(parsed, dict):
+        raise ValueError("Unary recheck response must be a JSON object")
+    return parsed
+
+
+def _build_unary_formula_recheck_prompt(entry: Dict[str, Any]) -> str:
+    line_label = str(entry.get("line_label") or "").strip()
+    formula_text = str(entry.get("formula_text") or entry.get("wffstr") or "").strip()
+    justification = _normalize_justification_text(entry.get("justification_text") or entry.get("jstr") or "")
+    lines = [
+        "Focus on one handwritten proof line in this crop.",
+        'Return only a JSON object: {"line_label":"...", "formula_text":"..."}',
+        f"Read only the line labeled {line_label}.",
+        "Preserve every unary operator exactly, especially ¬, □, and ⋄.",
+        "Do not collapse doubled negation. If the handwriting shows ¬¬, return ¬¬.",
+        "Do not rewrite the formula to make the proof valid; copy the visible marks exactly.",
+        f"Current OCR formula for that line: {formula_text}",
+    ]
+    if justification:
+        lines.append(f"Current OCR justification for that line: {justification}")
+    lines.append("Return the same line_label and the exact formula_text for that one line only.")
+    return "\n".join(lines)
+
+
+def _recheck_suspicious_unary_formulas(
+    *,
+    entries: List[Dict[str, Any]],
+    crop_path: Path,
+    client: LMStudioQwenClient | None,
+    output_dir: Path,
+    node_id: str,
+) -> List[Dict[str, Any]]:
+    if client is None:
+        return []
+
+    with crop_path.open("rb") as handle:
+        base64_image = base64.b64encode(handle.read()).decode("utf-8")
+
+    recheck_records: List[Dict[str, Any]] = []
+    for entry in entries:
+        if not _should_recheck_unary_formula(entry):
+            continue
+
+        scope_role = str(entry.get("scope_role") or "derived_line").strip()
+        line_label = str(entry.get("line_label") or "").strip()
+        original_formula = _normalize_formula_text(entry.get("formula_text") or entry.get("wffstr") or "", scope_role)
+        raw_response = client.chat(
+            [
+                {"role": "system", "content": "You are a careful vision model. Follow the user's instructions exactly."},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": _build_unary_formula_recheck_prompt(entry)},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}},
+                    ],
+                },
+            ]
+        )
+        parsed = _parse_rechecked_formula(raw_response)
+        revised_formula = _normalize_formula_text(parsed.get("formula_text") or "", scope_role)
+        accepted = _accept_unary_recheck_formula(original_formula, revised_formula)
+        if accepted:
+            entry["formula_text"] = revised_formula
+
+        recheck_records.append(
+            {
+                "node_id": node_id,
+                "line_label": line_label,
+                "before": original_formula,
+                "after": revised_formula or original_formula,
+                "accepted": accepted,
+                "raw_response": raw_response,
+            }
+        )
+
+    if recheck_records:
+        artifact_path = output_dir / UNARY_RECHECK_FILENAME
+        existing_records: List[Dict[str, Any]] = []
+        if artifact_path.exists():
+            try:
+                existing_records = json.loads(artifact_path.read_text(encoding="utf-8"))
+            except Exception:
+                existing_records = []
+        artifact_path.write_text(
+            json.dumps(existing_records + recheck_records, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+
+    return recheck_records
+
+
 def process_node_recursive(
     node: SubproofNode,
     img: np.ndarray,
@@ -410,7 +563,7 @@ def process_node_recursive(
         current_img = crop_region(
             img,
             node.box,
-            bottom_padding=20,
+            bottom_padding=0,
         )
 
     for child in sorted(node.children, key=lambda c: c.box[1]):
@@ -428,6 +581,13 @@ def process_node_recursive(
 
     raw_response, parsed_entries = call_vlm(save_path, prompt, client)
     (output_dir / RAW_RESPONSE_TEMPLATE.format(node_id=node.id)).write_text(raw_response, encoding="utf-8")
+    _recheck_suspicious_unary_formulas(
+        entries=parsed_entries,
+        crop_path=save_path,
+        client=client,
+        output_dir=output_dir,
+        node_id=node.id,
+    )
     (output_dir / INTERMEDIATE_TEMPLATE.format(node_id=node.id)).write_text(
         json.dumps(parsed_entries, indent=2, ensure_ascii=False),
         encoding="utf-8",
