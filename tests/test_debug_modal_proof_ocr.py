@@ -31,6 +31,15 @@ class DebugModalProofOcrTests(unittest.TestCase):
     def tearDown(self) -> None:
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
+    def test_normalize_formula_text_repairs_box_lookalike_d_and_preserves_plain_letters(self) -> None:
+        self.assertEqual(debug_modal_proof_ocr._normalize_formula_text("D(P→Q)", "derived_line"), "□(P→Q)")
+        self.assertEqual(debug_modal_proof_ocr._normalize_formula_text("DP", "derived_line"), "□P")
+        self.assertEqual(debug_modal_proof_ocr._normalize_formula_text("AD", "derived_line"), "AD")
+
+    def test_normalize_justification_text_repairs_box_rule_lookalikes(self) -> None:
+        self.assertEqual(debug_modal_proof_ocr._normalize_justification_text("DE1"), "□E 1")
+        self.assertEqual(debug_modal_proof_ocr._normalize_justification_text("OI 3-6"), "□I 3-6")
+
     def test_load_modal_config_accepts_saved_state_shape(self) -> None:
         path = self.tmp_dir / "state.json"
         path.write_text(
@@ -240,6 +249,76 @@ class DebugModalProofOcrTests(unittest.TestCase):
         self.assertEqual(line_crop.shape[0], 34)
         self.assertGreaterEqual(line_crop.shape[1], 80)
 
+    def test_suppress_left_scope_bar_whitens_prominent_left_bar(self) -> None:
+        crop_img = np.full((120, 120, 3), 255, dtype=np.uint8)
+        crop_img[:, 5:8] = 0
+        crop_img[18:34, 18:34] = 0
+
+        cleaned = debug_modal_proof_ocr._suppress_left_scope_bar(crop_img)
+
+        self.assertTrue(np.all(cleaned[:, :10] == 255))
+        self.assertFalse(np.all(cleaned[18:34, 18:34] == 255))
+
+    def test_build_subproof_opener_prompt_requests_forced_choice(self) -> None:
+        prompt = debug_modal_proof_ocr._build_subproof_opener_prompt()
+
+        self.assertIn('"strict_open", "ordinary_assumption", "uncertain"', prompt)
+        self.assertIn('If kind is "strict_open", set formula_text to "□"', prompt)
+        self.assertIn("Ignore the vertical scope bar", prompt)
+
+    def test_normalize_subproof_opener_formula_probe_maps_box_lookalikes(self) -> None:
+        self.assertEqual(debug_modal_proof_ocr._normalize_subproof_opener_formula_probe("D"), "□")
+        self.assertEqual(debug_modal_proof_ocr._normalize_subproof_opener_formula_probe("[]"), "□")
+        self.assertEqual(debug_modal_proof_ocr._normalize_subproof_opener_formula_probe("P"), "P")
+
+    def test_classify_subproof_opener_uses_formula_probe_fallback_for_box_lookalike(self) -> None:
+        crop_img = np.full((60, 100, 3), 255, dtype=np.uint8)
+        fake_client = FakeModalVisionClient(
+            [
+                json.dumps({"kind": "uncertain", "formula_text": "", "confidence": "low"}, ensure_ascii=False),
+                json.dumps({"formula_text": "D"}, ensure_ascii=False),
+            ]
+        )
+
+        result = debug_modal_proof_ocr._classify_subproof_opener(
+            node_crop_img=crop_img,
+            output_dir=self.tmp_dir,
+            node_id="2",
+            client=fake_client,
+        )
+
+        assert result is not None
+        self.assertEqual(result["kind"], "strict_open")
+        self.assertEqual(result["formula_text"], "□")
+        artifact_text = (self.tmp_dir / "strict_opener_2.json").read_text(encoding="utf-8")
+        self.assertIn('"resolved_from_probe": true', artifact_text.lower())
+
+    def test_prepend_synthetic_strict_open_if_needed_infers_prior_numeric_label(self) -> None:
+        repaired = debug_modal_proof_ocr._prepend_synthetic_strict_open_if_needed(
+            [
+                {"formula_text": "P", "scope_role": "derived_line", "line_label": "4"},
+                {"formula_text": "P→Q", "scope_role": "derived_line", "line_label": "5"},
+            ],
+            {"kind": "strict_open", "confidence": "high"},
+        )
+
+        self.assertEqual(repaired[0]["scope_role"], "strict_open")
+        self.assertEqual(repaired[0]["formula_text"], "□")
+        self.assertEqual(repaired[0]["line_label"], "3")
+
+    def test_prepend_synthetic_strict_open_if_needed_leaves_existing_opener_alone(self) -> None:
+        entries = [
+            {"formula_text": "□", "scope_role": "strict_open", "line_label": "3"},
+            {"formula_text": "P", "scope_role": "derived_line", "line_label": "4"},
+        ]
+
+        repaired = debug_modal_proof_ocr._prepend_synthetic_strict_open_if_needed(
+            entries,
+            {"kind": "strict_open", "confidence": "high"},
+        )
+
+        self.assertEqual(repaired, entries)
+
     def test_build_structured_unary_verifier_prompt_mentions_exact_counts(self) -> None:
         prompt = debug_modal_proof_ocr._build_structured_unary_verifier_prompt(
             {"formula_text": "¬□¬A", "justification_text": "MC 3", "scope_role": "derived_line"}
@@ -309,6 +388,16 @@ class DebugModalProofOcrTests(unittest.TestCase):
 
         self.assertEqual(bounds, [(5, 35), (35, 70), (70, 110)])
 
+    def test_margin_anchor_strip_bounds_regularize_oversized_tail_gap(self) -> None:
+        bounds = debug_modal_proof_ocr._margin_anchor_strip_bounds(
+            [20.0, 50.0, 90.0, 190.0],
+            220,
+            anchor_heights=[12.0, 12.0, 12.0, 16.0],
+        )
+
+        self.assertEqual(bounds[:-1], [(5, 35), (35, 70), (70, 140)])
+        self.assertEqual(bounds[-1], (161, 219))
+
     def test_merge_margin_candidate_boxes_merges_stacked_digit_fragments(self) -> None:
         merged = debug_modal_proof_ocr._merge_margin_candidate_boxes(
             [
@@ -354,6 +443,35 @@ class DebugModalProofOcrTests(unittest.TestCase):
                     "proposed_correction": "¬□¬¬A",
                     "forced_confidence": 0.95,
                     "structured_counts": {"confidence": 0.95},
+                    "line_crop_path": "anchor.jpg",
+                },
+            ],
+        )
+
+        self.assertEqual(best["line_crop_path"], "anchor.jpg")
+
+    def test_best_verifier_attempt_prefers_regularized_tail_anchor_over_uncertain_local_band(self) -> None:
+        best = debug_modal_proof_ocr._best_verifier_attempt(
+            original_formula="¬(□A ∧ ⋄¬A)",
+            expected_line_order=0,
+            attempts=[
+                {
+                    "attempt_kind": "local_band",
+                    "band_index": 0,
+                    "structured_formula": "¬□(□A ∧ ⋄¬A)",
+                    "forced_choice": "uncertain",
+                    "forced_confidence": 0.0,
+                    "structured_counts": {"confidence": 0.98},
+                    "line_crop_path": "local.jpg",
+                },
+                {
+                    "attempt_kind": "margin_anchor",
+                    "band_index": None,
+                    "structured_formula": "¬□¬¬(□A ∧ ⋄¬A)",
+                    "forced_choice": "¬(□A ∧ ⋄¬A)",
+                    "forced_confidence": 1.0,
+                    "structured_counts": {"confidence": 1.0},
+                    "tail_regularized": True,
                     "line_crop_path": "anchor.jpg",
                 },
             ],
@@ -550,6 +668,40 @@ class DebugModalProofOcrTests(unittest.TestCase):
         debug_modal_proof_ocr.rewrite_strict_subproof_local_citations(structure)
 
         self.assertEqual(structure[2][3]["jstr"], "∧I 4 5")
+
+    def test_process_node_recursive_prepends_strict_open_when_opener_classifier_flags_it(self) -> None:
+        img = np.full((120, 120, 3), 255, dtype=np.uint8)
+        node = debug_modal_proof_ocr.SubproofNode("1", (10, 10, 2, 70))
+        library: dict[str, list[dict[str, str]]] = {}
+
+        with (
+            patch.object(
+                debug_modal_proof_ocr,
+                "_classify_subproof_opener",
+                return_value={"kind": "strict_open", "formula_text": "□", "confidence": "high"},
+            ),
+            patch.object(
+                debug_modal_proof_ocr,
+                "call_vlm",
+                return_value=(
+                    '[{"formula_text":"P","scope_role":"derived_line","line_label":"4"}]',
+                    [{"formula_text": "P", "scope_role": "derived_line", "line_label": "4"}],
+                ),
+            ),
+        ):
+            debug_modal_proof_ocr.process_node_recursive(
+                node,
+                img,
+                self.tmp_dir,
+                library,
+                prompt="prompt",
+                client=FakeModalVisionClient([]),
+                opener_client=FakeModalVisionClient([]),
+            )
+
+        self.assertEqual(library["1"][0]["scope_role"], "strict_open")
+        self.assertEqual(library["1"][0]["formula_text"], "□")
+        self.assertEqual(library["1"][0]["line_label"], "3")
 
     def test_repair_modal_subproof_boundary_lines_fills_box_intro_and_dedupes(self) -> None:
         structure = [

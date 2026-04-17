@@ -1022,6 +1022,30 @@
               </div>
             </div>
           {% endif %}
+          {% if strict_opener_stages %}
+            <div class="artifact">
+              <label>Subproof opener classifier</label>
+              <div class="muted">These cards show the focused first-line pass used to decide whether a subproof begins with a strict opener `□` or an ordinary assumption. If it predicts `strict_open`, the OCR pipeline prepends a synthetic opener only when the main crop OCR missed it.</div>
+              <div class="stage-grid">
+                {% for stage in strict_opener_stages %}
+                  <div class="stage-card">
+                    <h3>{{ stage.title }}</h3>
+                    {% if stage.image_url %}
+                      <a href="{{ stage.image_url }}">
+                        <img src="{{ stage.image_url }}" alt="{{ stage.image_filename }}" />
+                      </a>
+                    {% else %}
+                      <div class="muted">No saved opener crop.</div>
+                    {% endif %}
+                    {% if stage.response_text %}
+                      <label>{{ stage.response_name }}</label>
+                      <textarea class="small-textarea" readonly>{{ stage.response_text }}</textarea>
+                    {% endif %}
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
           {% if optional_artifacts.get("final_structure_baseline.json") %}
             <details class="panel-toggle">
               <summary>Baseline OCR combined structure</summary>

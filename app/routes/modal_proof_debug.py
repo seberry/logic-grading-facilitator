@@ -32,6 +32,8 @@ OCR_TEXT_ARTIFACTS = (
     "intermediate_ROOT.json",
     "intermediate_1.json",
     "intermediate_2.json",
+    "strict_opener_1.json",
+    "strict_opener_2.json",
     "response_ROOT.json",
     "response_1.json",
     "response_2.json",
@@ -46,6 +48,8 @@ IMAGE_ARTIFACTS = (
     "crop_ROOT.jpg",
     "crop_1.jpg",
     "crop_2.jpg",
+    "strict_opener_line_1.jpg",
+    "strict_opener_line_2.jpg",
     "margin_anchor_margin_base.jpg",
     "margin_anchor_margin_upscaled_4x.jpg",
     "margin_anchor_binary.png",
@@ -56,6 +60,10 @@ BASELINE_OCR_STAGE_SPECS = (
     ("ROOT", "Whole proof crop", "crop_ROOT.jpg", "intermediate_ROOT.json", "response_ROOT.json"),
     ("1", "Subproof crop 1", "crop_1.jpg", "intermediate_1.json", "response_1.json"),
     ("2", "Subproof crop 2", "crop_2.jpg", "intermediate_2.json", "response_2.json"),
+)
+STRICT_OPENER_STAGE_SPECS = (
+    ("1", "Subproof opener 1", "strict_opener_line_1.jpg", "strict_opener_1.json"),
+    ("2", "Subproof opener 2", "strict_opener_line_2.jpg", "strict_opener_2.json"),
 )
 LINE_NUMBER_DEBUG_IMAGE_NAMES = {
     "margin_anchor_margin_base.jpg",
@@ -659,6 +667,7 @@ def _render_page(
     image_artifacts: List[Dict[str, str]] = []
     primary_image_artifact: Optional[Dict[str, str]] = None
     baseline_ocr_stages: List[Dict[str, Any]] = []
+    strict_opener_stages: List[Dict[str, Any]] = []
     line_number_debug_artifacts: List[Dict[str, str]] = []
     auxiliary_image_artifacts: List[Dict[str, str]] = []
     unary_verifier_results: List[Dict[str, Any]] = []
@@ -717,6 +726,22 @@ def _render_page(
                     "image_url": _artifact_url(selected, image_name) if image_path.exists() else "",
                     "intermediate_name": intermediate_name,
                     "intermediate_text": intermediate_text,
+                    "response_name": response_name,
+                    "response_text": response_text,
+                }
+            )
+
+        for stage_id, title, image_name, response_name in STRICT_OPENER_STAGE_SPECS:
+            image_path = example_dir / image_name
+            response_text = artifact_texts.get(response_name, "")
+            if not image_path.exists() and not response_text.strip():
+                continue
+            strict_opener_stages.append(
+                {
+                    "stage_id": stage_id,
+                    "title": title,
+                    "image_filename": image_name if image_path.exists() else "",
+                    "image_url": _artifact_url(selected, image_name) if image_path.exists() else "",
                     "response_name": response_name,
                     "response_text": response_text,
                 }
@@ -810,6 +835,7 @@ def _render_page(
             "image_artifacts": image_artifacts,
             "primary_image_artifact": primary_image_artifact,
             "baseline_ocr_stages": baseline_ocr_stages,
+            "strict_opener_stages": strict_opener_stages,
             "line_number_debug_artifacts": line_number_debug_artifacts,
             "auxiliary_image_artifacts": auxiliary_image_artifacts,
             "unary_verifier_results": unary_verifier_results,
