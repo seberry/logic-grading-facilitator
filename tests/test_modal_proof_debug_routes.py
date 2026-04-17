@@ -201,6 +201,11 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         (example_dir / "crop_ROOT.jpg").write_bytes(b"fakejpg")
         (example_dir / "response_ROOT.json").write_text('{"lines":[{"wffstr":"A"}]}', encoding="utf-8")
         (example_dir / "intermediate_ROOT.json").write_text('{"stage":"root"}', encoding="utf-8")
+        (example_dir / "node_rows_ROOT.json").write_text('[{"kind":"line","row_order":1}]', encoding="utf-8")
+        (example_dir / "node_entries_ROOT.json").write_text('[{"formula_text":"A","scope_role":"premise"}]', encoding="utf-8")
+        (example_dir / "node_rows_overlay_ROOT.jpg").write_bytes(b"fakejpg")
+        (example_dir / "node_line_ROOT_1.jpg").write_bytes(b"fakejpg")
+        (example_dir / "node_line_ROOT_1.json").write_text('{"resolved":{"formula_text":"A"}}', encoding="utf-8")
         (example_dir / "margin_anchor_margin_upscaled_4x.jpg").write_bytes(b"fakejpg")
         (example_dir / "unary_verifier.json").write_text(
             json.dumps(
@@ -259,6 +264,8 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertIn("OCR review details", response.text)
         self.assertIn("Baseline OCR crop / read pairs", response.text)
         self.assertIn("Whole proof crop", response.text)
+        self.assertIn("Node row segmentation", response.text)
+        self.assertIn("Per-line OCR inside nodes", response.text)
         self.assertIn("Line-numbering debug artifacts", response.text)
         self.assertIn("Flagged OCR lines: 1", response.text)
         self.assertIn("Flagged lines:", response.text)

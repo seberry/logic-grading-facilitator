@@ -52,6 +52,12 @@ RAW_RESPONSE_TEMPLATE = "response_{node_id}.json"
 INTERMEDIATE_TEMPLATE = "intermediate_{node_id}.json"
 STRICT_OPENER_LINE_TEMPLATE = "strict_opener_line_{node_id}.jpg"
 STRICT_OPENER_RESPONSE_TEMPLATE = "strict_opener_{node_id}.json"
+NODE_ROWS_TEMPLATE = "node_rows_{node_id}.json"
+NODE_ROWS_OVERLAY_TEMPLATE = "node_rows_overlay_{node_id}.jpg"
+NODE_ENTRIES_TEMPLATE = "node_entries_{node_id}.json"
+NODE_LINE_CROP_TEMPLATE = "node_line_{node_id}_{row_order}.jpg"
+NODE_LINE_RESPONSE_TEMPLATE = "node_line_{node_id}_{row_order}.json"
+NODE_LINE_RETRY_CROP_TEMPLATE = "node_line_{node_id}_{row_order}_up4.jpg"
 UNARY_RECHECK_FILENAME = "unary_rechecks.json"
 UNARY_VERIFIER_FILENAME = "unary_verifier.json"
 VERIFIER_REWRITES_FILENAME = "verifier_rewrites.json"
@@ -59,6 +65,39 @@ SOURCE_IMAGE_FILENAME = "source_image"
 
 SUPPORTED_SYSTEMS = {"K", "T", "S4", "S5"}
 TOKEN_PATTERN = re.compile(r"<SUBPROOF_ID_([A-Za-z0-9_]+)>")
+JUSTIFICATION_HEAD_OPTIONS = (
+    "PR",
+    "R",
+    "∧I",
+    "∧E",
+    "∨I",
+    "∨E",
+    "→I",
+    "→E",
+    "↔I",
+    "↔E",
+    "¬I",
+    "¬E",
+    "IP",
+    "DN",
+    "MC",
+    "□I",
+    "□E",
+    "R4",
+    "RT",
+    "Def⋄",
+    "",
+    "other",
+)
+JUSTIFICATION_HEAD_OPTION_SET = set(JUSTIFICATION_HEAD_OPTIONS)
+LINE_SCOPE_ROLE_OPTIONS = (
+    "premise",
+    "ordinary_assumption",
+    "derived_line",
+    "strict_open",
+    "subproof_token",
+)
+LINE_SCOPE_ROLE_OPTION_SET = set(LINE_SCOPE_ROLE_OPTIONS)
 
 
 @dataclass
@@ -166,6 +205,32 @@ def build_prompt(config: Dict[str, Any]) -> str:
     ]
     if conclusion:
         lines.append(f"Target conclusion: {conclusion}")
+    return "\n".join(lines)
+
+
+def build_line_ocr_prompt(config: Dict[str, Any]) -> str:
+    clean = _canonical_modal_config(config)
+    justification_heads = ", ".join([head if head else "<blank>" for head in JUSTIFICATION_HEAD_OPTIONS])
+    lines = [
+        "You are transcribing one handwritten modal Fitch proof line from an image crop.",
+        "Return only JSON. Do not include markdown fences or explanation.",
+        'Return one JSON object with keys: formula_text, justification_head, justification_tail, line_label, scope_role, confidence.',
+        f"justification_head must be one of: {justification_heads}.",
+        f"scope_role must be one of: {', '.join(LINE_SCOPE_ROLE_OPTIONS)}.",
+        "Read exactly one proof line from this crop. Do not split one line into multiple lines.",
+        "formula_text is the symbolic formula on the line.",
+        "justification_head is the rule head only, such as PR, →E, □I, or blank.",
+        "justification_tail is only the citation tail, such as 1, 4 5, or 3-6, and should be blank when there is no tail.",
+        "If the justification is unreadable or outside the allowed head list, set justification_head to other and keep the remaining readable text in justification_tail.",
+        "Copy the printed line label if visible; otherwise return an empty string.",
+        "Prefer Unicode operators: ¬, ∧, ∨, →, ↔, □, ⋄.",
+        "Preserve doubled negation exactly.",
+        "Use confidence values high, medium, low, or uncertain.",
+        f"Modal system: {clean['system']}",
+        f"Include derived rules: {'yes' if clean['include_derived_rules'] else 'no'}",
+    ]
+    if clean.get("conclusion"):
+        lines.append(f"Target conclusion: {clean['conclusion']}")
     return "\n".join(lines)
 
 
@@ -410,6 +475,35 @@ def call_vlm(image_path: Path, prompt: str, client: LMStudioQwenClient | None) -
     return raw, _parse_intermediate_response(raw)
 
 
+def _call_vlm_json_object(
+    *,
+    image_path: Path,
+    prompt: str,
+    client: LMStudioQwenClient | None,
+    user_text: str,
+) -> Tuple[str, Dict[str, Any]]:
+    if client is None:
+        raise RuntimeError("VLM client is not available")
+
+    with image_path.open("rb") as handle:
+        base64_image = base64.b64encode(handle.read()).decode("utf-8")
+
+    raw = client.chat(
+        [
+            {"role": "system", "content": "You are a careful vision model. Follow the user's instructions exactly."},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "text", "text": user_text},
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}} ,
+                ],
+            },
+        ]
+    )
+    return raw, _parse_unary_recheck_choice(raw)
+
+
 def _build_subproof_opener_prompt() -> str:
     lines = [
         "You are classifying the first visible line of a handwritten Fitch subproof.",
@@ -538,6 +632,682 @@ def _classify_subproof_opener(
         encoding="utf-8",
     )
     return result
+
+
+def _normalize_line_scope_role(
+    raw_scope_role: Any,
+    *,
+    is_root_node: bool,
+    is_first_visible_row_of_nonroot: bool,
+    justification_head: str,
+) -> str:
+    raw = str(raw_scope_role or "").strip().lower()
+    mapping = {
+        "premise": "premise",
+        "pr": "premise",
+        "ordinary_assumption": "ordinary_assumption",
+        "assumption": "ordinary_assumption",
+        "assum": "ordinary_assumption",
+        "subproof": "ordinary_assumption",
+        "derived_line": "derived_line",
+        "derived": "derived_line",
+        "line": "derived_line",
+        "strict_open": "strict_open",
+        "strict": "strict_open",
+        "subproof_token": "subproof_token",
+        "token": "subproof_token",
+    }
+    normalized = mapping.get(raw, "")
+
+    if is_first_visible_row_of_nonroot and normalized not in {"strict_open", "subproof_token"}:
+        return "ordinary_assumption"
+    if normalized in LINE_SCOPE_ROLE_OPTION_SET:
+        return normalized
+    if is_root_node and justification_head in {"", "PR"}:
+        return "premise"
+    return "derived_line"
+
+
+def _normalize_justification_head(raw_head: Any) -> str:
+    raw = str(raw_head or "").strip()
+    lowered = raw.lower()
+    if lowered in {"", "blank", "none", "null"}:
+        return ""
+    shorthand = {
+        "pr": "PR",
+        "premise": "PR",
+        "assumption": "PR",
+        "assum": "PR",
+        "r": "R",
+        "andi": "∧I",
+        "ande": "∧E",
+        "ori": "∨I",
+        "ore": "∨E",
+        "impi": "→I",
+        "impe": "→E",
+        "bici": "↔I",
+        "bice": "↔E",
+        "noti": "¬I",
+        "note": "¬E",
+        "ip": "IP",
+        "dn": "DN",
+        "mc": "MC",
+        "boxi": "□I",
+        "boxe": "□E",
+        "r4": "R4",
+        "rt": "RT",
+        "defdiamond": "Def⋄",
+        "def⋄": "Def⋄",
+        "other": "other",
+    }
+    if lowered in shorthand:
+        return shorthand[lowered]
+
+    normalized = _normalize_justification_text(raw)
+    head = normalized.split(" ", 1)[0] if normalized else ""
+    if head in JUSTIFICATION_HEAD_OPTION_SET:
+        return head
+    return "other"
+
+
+def _normalize_justification_tail(raw_tail: Any) -> str:
+    tail = str(raw_tail or "").strip()
+    tail = tail.replace(",", " ")
+    tail = tail.replace("–", "-")
+    tail = tail.replace("—", "-")
+    tail = re.sub(r"\s+", " ", tail).strip()
+    return tail
+
+
+def _compose_line_justification_text(*, head: str, tail: str, raw_head: Any = None) -> str:
+    if head == "":
+        return ""
+    if head == "other":
+        raw = str(raw_head or "").strip()
+        if tail and raw:
+            return f"{raw} {tail}".strip()
+        return tail or raw or "other"
+    return f"{head} {tail}".strip() if tail else head
+
+
+def _line_result_is_suspicious(result: Dict[str, Any]) -> bool:
+    confidence = _confidence_score(result.get("confidence"))
+    if confidence < 0.65:
+        return True
+    if str(result.get("justification_head") or "") == "other":
+        return True
+    tail = str(result.get("justification_tail") or "").strip()
+    if tail and re.search(r"[A-Za-z□⋄¬∧∨→↔]", tail):
+        return True
+    if not str(result.get("formula_text") or "").strip():
+        return True
+    return False
+
+
+def _build_modal_line_prompt_for_row(
+    base_prompt: str,
+    *,
+    is_root_node: bool,
+    is_first_visible_row_of_nonroot: bool,
+) -> str:
+    lines = [base_prompt]
+    if is_first_visible_row_of_nonroot:
+        lines.extend(
+            [
+                "",
+                "Context: this is the first visible line of a non-root subproof and it is not a strict opener.",
+                'Prefer scope_role "ordinary_assumption" unless the crop clearly contradicts that.',
+            ]
+        )
+    elif is_root_node:
+        lines.extend(
+            [
+                "",
+                "Context: this is a top-level line from the main proof.",
+                'If it has no real justification beyond being given, prefer scope_role "premise".',
+            ]
+        )
+    return "\n".join(lines)
+
+
+def _save_node_row_overlay(
+    *,
+    node_crop_img: np.ndarray,
+    output_dir: Path,
+    node_id: str,
+    row_records: List[Dict[str, Any]],
+) -> None:
+    overlay = node_crop_img.copy()
+    img_h, img_w = overlay.shape[:2]
+    for index, record in enumerate(row_records, start=1):
+        y1 = int(record.get("y1", 0))
+        y2 = int(record.get("y2", 0))
+        kind = str(record.get("kind") or "line")
+        color = (0, 165, 255) if kind == "subproof_token" else (0, 180, 0)
+        cv2.rectangle(overlay, (0, max(0, y1)), (max(1, img_w - 1), max(y1 + 1, min(img_h - 1, y2))), color, 2)
+        cv2.putText(
+            overlay,
+            f"{index}:{'tok' if kind == 'subproof_token' else 'row'}",
+            (8, max(20, y1 + 18)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            color,
+            2,
+            cv2.LINE_AA,
+        )
+    cv2.imwrite(str(output_dir / NODE_ROWS_OVERLAY_TEMPLATE.format(node_id=node_id)), overlay)
+
+
+def _relative_child_box(node: SubproofNode, child: SubproofNode) -> Tuple[int, int, int, int]:
+    if node.id == "ROOT":
+        return child.box
+    px, py, _, _ = node.box
+    return (child.box[0] - px + 10, child.box[1] - py + 10, child.box[2], child.box[3])
+
+
+def _token_center_y_for_child(node: SubproofNode, child: SubproofNode, img_h: int) -> int:
+    _, y, _, h = _relative_child_box(node, child)
+    return int(min(max(24, y + max(18, h // 2)), max(24, img_h - 12)))
+
+
+def _token_rect_for_child(
+    *,
+    node: SubproofNode,
+    child: SubproofNode,
+    img_shape: Tuple[int, int, int] | Tuple[int, int],
+) -> Tuple[int, int, int, int]:
+    img_h, img_w = img_shape[:2]
+    x, y, _, h = _relative_child_box(node, child)
+    token = f"<SUBPROOF_ID_{child.id}>"
+    start_x = min(max(8, x + 20), max(8, img_w - 40))
+    center_y = int(min(max(24, y + max(18, h // 2)), img_h - 12))
+    max_width = max(60, img_w - start_x - 8)
+    _, _, rect = _fit_token_layout(
+        token,
+        start_x=start_x,
+        center_y=center_y,
+        max_width=max_width,
+    )
+    return rect
+
+
+def _band_height(band: Tuple[int, int]) -> int:
+    return max(0, int(band[1]) - int(band[0]) + 1)
+
+
+def _adaptive_band_padding(*, band: Tuple[int, int], img_h: int) -> int:
+    height = _band_height(band)
+    if height <= 10:
+        return min(24, max(16, img_h // 12))
+    if height <= 14:
+        return min(20, max(14, img_h // 14))
+    if height <= 20:
+        return min(16, max(12, img_h // 16))
+    return 12
+
+
+def _band_gap(upper: Tuple[int, int], lower: Tuple[int, int]) -> int:
+    return int(lower[0]) - int(upper[1]) - 1
+
+
+def _merge_fragment_bands(bands: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
+    if not bands:
+        return []
+
+    merged = [tuple(map(int, band)) for band in sorted(bands)]
+    changed = True
+    while changed and len(merged) > 1:
+        changed = False
+        for idx, band in enumerate(list(merged)):
+            height = _band_height(band)
+            if height > 12:
+                continue
+
+            prev_gap = _band_gap(merged[idx - 1], band) if idx > 0 else None
+            next_gap = _band_gap(band, merged[idx + 1]) if idx + 1 < len(merged) else None
+            candidate_idx: int | None = None
+            candidate_gap: int | None = None
+
+            if prev_gap is not None and prev_gap <= 18:
+                candidate_idx = idx - 1
+                candidate_gap = prev_gap
+            if next_gap is not None and next_gap <= 18 and (candidate_gap is None or next_gap < candidate_gap):
+                candidate_idx = idx + 1
+                candidate_gap = next_gap
+            if candidate_idx is None:
+                continue
+
+            other = merged[candidate_idx]
+            new_band = (min(band[0], other[0]), max(band[1], other[1]))
+            low_idx = min(idx, candidate_idx)
+            high_idx = max(idx, candidate_idx)
+            merged[low_idx] = new_band
+            del merged[high_idx]
+            changed = True
+            break
+    return merged
+
+
+def _band_has_text_outside_vertical_window(
+    node_crop_img: np.ndarray,
+    band: Tuple[int, int],
+    *,
+    window_y1: int,
+    window_y2: int,
+) -> bool:
+    if node_crop_img.size == 0:
+        return False
+
+    img_h, img_w = node_crop_img.shape[:2]
+    pad_y = _adaptive_band_padding(band=band, img_h=img_h)
+    top = max(0, int(band[0]) - pad_y)
+    bottom = min(img_h, int(band[1]) + pad_y)
+    if bottom <= top:
+        return False
+
+    crop = _suppress_left_scope_bar(node_crop_img[top:bottom, :img_w])
+    if crop.size == 0:
+        return False
+
+    local_window_y1 = max(0, min(crop.shape[0], int(window_y1) - top))
+    local_window_y2 = max(0, min(crop.shape[0], int(window_y2) - top))
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    left_ignore = min(20, max(12, gray.shape[1] // 8))
+    right_limit = min(gray.shape[1], max(80, int(gray.shape[1] * 0.68)))
+    if right_limit <= left_ignore:
+        return False
+
+    focused = gray[:, left_ignore:right_limit]
+    mask = np.ones(focused.shape[:2], dtype=np.uint8)
+    if local_window_y2 > local_window_y1:
+        mask[local_window_y1:local_window_y2, :] = 0
+
+    dark = ((focused < 185) & (mask > 0)).astype(np.uint8)
+    return int(dark.sum()) >= 14
+
+
+def _filter_bands_near_child_tokens(
+    *,
+    bands: List[Tuple[int, int]],
+    node: SubproofNode,
+    node_crop_img: np.ndarray,
+) -> List[Tuple[int, int]]:
+    if not bands or not node.children:
+        return bands
+
+    token_windows = []
+    for child in sorted(node.children, key=lambda c: c.box[1]):
+        _, top, _, bottom = _token_rect_for_child(node=node, child=child, img_shape=node_crop_img.shape)
+        token_windows.append((max(0, top), min(node_crop_img.shape[0] - 1, bottom)))
+
+    filtered: List[Tuple[int, int]] = []
+    for band in bands:
+        keep = True
+        band_height = _band_height(band)
+        for token_y1, token_y2 in token_windows:
+            overlap_top = max(int(band[0]), token_y1)
+            overlap_bottom = min(int(band[1]), token_y2)
+            overlap = overlap_bottom - overlap_top + 1
+            if overlap <= 0:
+                continue
+            overlap_ratio = overlap / max(1, band_height)
+            if overlap_ratio < 0.55:
+                continue
+            if not _band_has_text_outside_vertical_window(
+                node_crop_img,
+                band,
+                window_y1=token_y1,
+                window_y2=token_y2 + 1,
+            ):
+                keep = False
+                break
+        if keep:
+            filtered.append(band)
+    return filtered
+
+
+def _row_overlaps_child_token(
+    *,
+    node: SubproofNode,
+    row_record: Dict[str, Any],
+    node_crop_img: np.ndarray,
+) -> bool:
+    band = (int(row_record.get("y1", 0)), int(row_record.get("y2", 0)))
+    band_height = _band_height(band)
+    if band_height <= 0:
+        return False
+
+    for child in node.children:
+        _, top, _, bottom = _token_rect_for_child(node=node, child=child, img_shape=node_crop_img.shape)
+        overlap_top = max(band[0], int(top))
+        overlap_bottom = min(band[1], int(bottom))
+        overlap = overlap_bottom - overlap_top + 1
+        if overlap > 0 and overlap / band_height >= 0.55:
+            return True
+    return False
+
+
+def _band_has_textlike_ink(node_crop_img: np.ndarray, band: Tuple[int, int]) -> bool:
+    band_crop = _extract_band_crop(node_crop_img=node_crop_img, bands=[band], band_index=0)
+    if band_crop.size == 0:
+        return False
+    gray = cv2.cvtColor(band_crop, cv2.COLOR_BGR2GRAY)
+    left_ignore = min(20, max(12, gray.shape[1] // 8))
+    focused = gray[:, left_ignore : min(gray.shape[1], max(80, int(gray.shape[1] * 0.60)))]
+    dark = (focused < 185).astype(np.uint8)
+    if dark.size == 0:
+        return False
+    horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (max(18, int(focused.shape[1] * 0.2)), 1))
+    horizontal_mask = cv2.morphologyEx(dark, cv2.MORPH_OPEN, horizontal_kernel)
+    vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(16, int(focused.shape[0] * 0.75))))
+    vertical_mask = cv2.morphologyEx(dark, cv2.MORPH_OPEN, vertical_kernel)
+    text_mask = dark.copy()
+    text_mask[horizontal_mask > 0] = 0
+    text_mask[vertical_mask > 0] = 0
+    num_labels, _, stats, _ = cv2.connectedComponentsWithStats(text_mask, 8)
+    tall_components = 0
+    total_area = 0
+    for label_index in range(1, num_labels):
+        area = int(stats[label_index, cv2.CC_STAT_AREA])
+        width = int(stats[label_index, cv2.CC_STAT_WIDTH])
+        height = int(stats[label_index, cv2.CC_STAT_HEIGHT])
+        if area < 8:
+            continue
+        total_area += area
+        if height >= 6 and width >= 2:
+            tall_components += 1
+    band_height = int(band[1] - band[0] + 1)
+    if band_height < 12 and total_area < 36:
+        return False
+    return tall_components >= 1 and total_area >= 18
+
+
+def segment_node_rows(
+    *,
+    node: SubproofNode,
+    node_crop_img: np.ndarray,
+    output_dir: Path,
+) -> List[Dict[str, Any]]:
+    cleaned = _suppress_left_scope_bar(node_crop_img)
+    bands = [band for band in _detect_text_row_bands(cleaned) if _band_has_textlike_ink(cleaned, band)]
+    bands = _merge_fragment_bands(bands)
+    bands = _filter_bands_near_child_tokens(bands=bands, node=node, node_crop_img=cleaned)
+    row_records: List[Dict[str, Any]] = []
+    for band_index, (y1, y2) in enumerate(bands):
+        row_records.append(
+            {
+                "kind": "line",
+                "band_index": band_index,
+                "y1": int(y1),
+                "y2": int(y2),
+                "center_y": float((y1 + y2) / 2.0),
+            }
+        )
+    img_h = node_crop_img.shape[0]
+    for child in sorted(node.children, key=lambda c: c.box[1]):
+        _, token_top, _, token_bottom = _token_rect_for_child(node=node, child=child, img_shape=node_crop_img.shape)
+        center_y = float((token_top + token_bottom) / 2.0)
+        row_records.append(
+            {
+                "kind": "subproof_token",
+                "child_id": child.id,
+                "y1": int(max(0, token_top)),
+                "y2": int(min(img_h - 1, token_bottom)),
+                "center_y": center_y,
+            }
+        )
+
+    row_records.sort(
+        key=lambda record: (
+            float(record.get("center_y", 0.0)),
+            0 if str(record.get("kind") or "line") == "line" else 1,
+            int(record.get("band_index", 0)),
+        )
+    )
+    for row_order, record in enumerate(row_records, start=1):
+        record["row_order"] = row_order
+
+    (output_dir / NODE_ROWS_TEMPLATE.format(node_id=node.id)).write_text(
+        json.dumps(row_records, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    _save_node_row_overlay(node_crop_img=node_crop_img, output_dir=output_dir, node_id=node.id, row_records=row_records)
+    return row_records
+
+
+def _extract_line_row_crop(
+    *,
+    node_crop_img: np.ndarray,
+    y1: int,
+    y2: int,
+) -> np.ndarray:
+    if node_crop_img.size == 0:
+        return node_crop_img
+    img_h, img_w = node_crop_img.shape[:2]
+    pad_y = _adaptive_band_padding(band=(int(y1), int(y2)), img_h=img_h)
+    top = max(0, int(y1) - pad_y)
+    bottom = min(img_h, int(y2) + pad_y)
+    crop = node_crop_img[top:bottom, :img_w]
+    if crop.size == 0:
+        return node_crop_img
+    return _suppress_left_scope_bar(crop)
+
+
+def _normalize_line_ocr_result(
+    parsed: Dict[str, Any],
+    *,
+    is_root_node: bool,
+    is_first_visible_row_of_nonroot: bool,
+) -> Dict[str, Any]:
+    justification_head = _normalize_justification_head(parsed.get("justification_head"))
+    justification_tail = _normalize_justification_tail(parsed.get("justification_tail"))
+    scope_role = _normalize_line_scope_role(
+        parsed.get("scope_role"),
+        is_root_node=is_root_node,
+        is_first_visible_row_of_nonroot=is_first_visible_row_of_nonroot,
+        justification_head=justification_head,
+    )
+    line_label = str(parsed.get("line_label") or "").strip()
+    formula_text = str(parsed.get("formula_text") or "").strip()
+    return {
+        "formula_text": formula_text,
+        "justification_head": justification_head,
+        "justification_tail": justification_tail,
+        "justification_text": _compose_line_justification_text(
+            head=justification_head,
+            tail=justification_tail,
+            raw_head=parsed.get("justification_head"),
+        ),
+        "line_label": line_label,
+        "scope_role": scope_role,
+        "confidence": str(parsed.get("confidence") or "").strip(),
+    }
+
+
+def ocr_node_row(
+    *,
+    node: SubproofNode,
+    node_crop_img: np.ndarray,
+    row_record: Dict[str, Any],
+    output_dir: Path,
+    base_prompt: str,
+    client: LMStudioQwenClient | None,
+    verifier_client: LMStudioQwenClient | None = None,
+    is_first_visible_row_of_nonroot: bool = False,
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    row_order = int(row_record.get("row_order") or 0)
+    crop_img = _extract_line_row_crop(
+        node_crop_img=node_crop_img,
+        y1=int(row_record.get("y1", 0)),
+        y2=int(row_record.get("y2", 0)),
+    )
+    crop_path = output_dir / NODE_LINE_CROP_TEMPLATE.format(node_id=node.id, row_order=row_order)
+    cv2.imwrite(str(crop_path), crop_img)
+
+    prompt = _build_modal_line_prompt_for_row(
+        base_prompt,
+        is_root_node=node.id == "ROOT",
+        is_first_visible_row_of_nonroot=is_first_visible_row_of_nonroot,
+    )
+    raw, parsed = _call_vlm_json_object(
+        image_path=crop_path,
+        prompt=prompt,
+        client=client,
+        user_text="Return the JSON transcription for this single proof line.",
+    )
+    normalized = _normalize_line_ocr_result(
+        parsed,
+        is_root_node=node.id == "ROOT",
+        is_first_visible_row_of_nonroot=is_first_visible_row_of_nonroot,
+    )
+
+    artifact_payload: Dict[str, Any] = {
+        "node_id": node.id,
+        "row_order": row_order,
+        "band_index": row_record.get("band_index"),
+        "y1": row_record.get("y1"),
+        "y2": row_record.get("y2"),
+        "initial_raw": raw,
+        "initial_parsed": parsed,
+        "resolved": normalized,
+        "retry_used": False,
+    }
+
+    if verifier_client is not None and _line_result_is_suspicious(normalized):
+        retry_img = _upscale_for_verifier(crop_img)
+        retry_crop_path = output_dir / NODE_LINE_RETRY_CROP_TEMPLATE.format(node_id=node.id, row_order=row_order)
+        cv2.imwrite(str(retry_crop_path), retry_img)
+        retry_raw, retry_parsed = _call_vlm_json_object(
+            image_path=retry_crop_path,
+            prompt=prompt,
+            client=verifier_client,
+            user_text="Return the JSON transcription for this single proof line.",
+        )
+        retry_normalized = _normalize_line_ocr_result(
+            retry_parsed,
+            is_root_node=node.id == "ROOT",
+            is_first_visible_row_of_nonroot=is_first_visible_row_of_nonroot,
+        )
+        artifact_payload["retry_used"] = True
+        artifact_payload["retry_crop_filename"] = retry_crop_path.name
+        artifact_payload["retry_raw"] = retry_raw
+        artifact_payload["retry_parsed"] = retry_parsed
+        artifact_payload["retry_resolved"] = retry_normalized
+        if not _line_result_is_suspicious(retry_normalized):
+            normalized = retry_normalized
+            artifact_payload["resolved"] = retry_normalized
+
+    (output_dir / NODE_LINE_RESPONSE_TEMPLATE.format(node_id=node.id, row_order=row_order)).write_text(
+        json.dumps(artifact_payload, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    entry = {
+        "formula_text": normalized["formula_text"],
+        "justification_text": normalized["justification_text"],
+        "scope_role": normalized["scope_role"],
+        "line_label": normalized["line_label"],
+    }
+    return entry, artifact_payload
+
+
+def assemble_node_entries_from_rows(
+    *,
+    node: SubproofNode,
+    node_crop_img: np.ndarray,
+    output_dir: Path,
+    base_prompt: str,
+    client: LMStudioQwenClient | None,
+    opener_client: LMStudioQwenClient | None = None,
+    verifier_client: LMStudioQwenClient | None = None,
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    row_records = segment_node_rows(node=node, node_crop_img=node_crop_img, output_dir=output_dir)
+    opener_result = None
+    consumed_first_line_row_order: int | None = None
+    if node.id != "ROOT":
+        opener_result = _classify_subproof_opener(
+            node_crop_img=node_crop_img,
+            output_dir=output_dir,
+            node_id=node.id,
+            client=opener_client or verifier_client or client,
+        )
+        if opener_result and opener_result.get("kind") == "strict_open":
+            first_line = next((record for record in row_records if str(record.get("kind") or "line") == "line"), None)
+            if first_line is not None:
+                consumed_first_line_row_order = int(first_line.get("row_order") or 0)
+
+    entries: List[Dict[str, Any]] = []
+    line_artifacts: List[Dict[str, Any]] = []
+    visible_line_index = 0
+    for row_record in row_records:
+        kind = str(row_record.get("kind") or "line")
+        if kind == "subproof_token":
+            child_id = str(row_record.get("child_id") or "").strip()
+            if child_id:
+                entries.append(
+                    {
+                        "formula_text": f"<SUBPROOF_ID_{child_id}>",
+                        "scope_role": "subproof_token",
+                        "line_label": "",
+                    }
+                )
+            line_artifacts.append(
+                {
+                    "kind": "subproof_token",
+                    "row_order": row_record.get("row_order"),
+                    "child_id": child_id,
+                    "center_y": row_record.get("center_y"),
+                }
+            )
+            continue
+
+        row_order = int(row_record.get("row_order") or 0)
+        if consumed_first_line_row_order is not None and row_order == consumed_first_line_row_order:
+            line_artifacts.append(
+                {
+                    "kind": "strict_open_consumed",
+                    "row_order": row_order,
+                    "resolved_from": opener_result,
+                }
+            )
+            continue
+
+        entry, artifact = ocr_node_row(
+            node=node,
+            node_crop_img=node_crop_img,
+            row_record=row_record,
+            output_dir=output_dir,
+            base_prompt=base_prompt,
+            client=client,
+            verifier_client=verifier_client,
+            is_first_visible_row_of_nonroot=(node.id != "ROOT" and visible_line_index == 0 and consumed_first_line_row_order is None),
+        )
+        if (
+            str(entry.get("scope_role") or "").strip() == "subproof_token"
+            and _row_overlaps_child_token(node=node, row_record=row_record, node_crop_img=node_crop_img)
+        ):
+            artifact["kind"] = "token_overlap_skipped"
+            artifact["skipped_reason"] = "row_overlaps_child_token"
+            line_artifacts.append(artifact)
+            continue
+        entries.append(entry)
+        line_artifacts.append(artifact)
+        visible_line_index += 1
+
+    if opener_result and opener_result.get("kind") == "strict_open":
+        entries = _prepend_synthetic_strict_open_if_needed(entries, opener_result)
+
+    (output_dir / NODE_ENTRIES_TEMPLATE.format(node_id=node.id)).write_text(
+        json.dumps(entries, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    node_response = {
+        "node_id": node.id,
+        "row_records": row_records,
+        "line_artifacts": line_artifacts,
+        "opener_result": opener_result,
+        "entries": entries,
+    }
+    return entries, node_response
 
 
 UNARY_PREFIX_CHARS = {"¬", "□", "⋄"}
@@ -701,7 +1471,7 @@ def _extract_band_crop(
 
     band_top, band_bottom = bands[band_index]
     img_h, img_w = node_crop_img.shape[:2]
-    pad_y = 12
+    pad_y = _adaptive_band_padding(band=(band_top, band_bottom), img_h=img_h)
     y1 = max(0, band_top - pad_y)
     y2 = min(img_h, band_bottom + pad_y)
     x2 = min(img_w, max(80, int(img_w * 0.68)))
@@ -721,10 +1491,34 @@ def _suppress_left_scope_bar(node_crop_img: np.ndarray) -> np.ndarray:
     img_h, img_w = cleaned.shape[:2]
     leftmost = min(bars, key=lambda box: box[0])
     x, _, w, h = leftmost
-    if x > max(24, int(img_w * 0.18)) or h < max(40, int(img_h * 0.45)):
+    if x <= max(24, int(img_w * 0.18)) and h >= max(20, int(img_h * 0.45)):
+        erase_right = min(img_w, x + w + 6)
+        cv2.rectangle(cleaned, (0, 0), (erase_right, img_h), (255, 255, 255), -1)
         return cleaned
 
-    erase_right = min(img_w, x + w + 6)
+    gray = cv2.cvtColor(cleaned, cv2.COLOR_BGR2GRAY)
+    dark_mask = gray < 170
+    left_limit = min(img_w, max(12, int(img_w * 0.18)))
+    if left_limit <= 0:
+        return cleaned
+    col_counts = dark_mask[:, :left_limit].sum(axis=0)
+    threshold = max(8, int(img_h * 0.55))
+    active_cols = [idx for idx, count in enumerate(col_counts) if int(count) >= threshold]
+    if not active_cols:
+        return cleaned
+    groups: List[Tuple[int, int]] = []
+    start = active_cols[0]
+    prev = active_cols[0]
+    for idx in active_cols[1:]:
+        if idx == prev + 1:
+            prev = idx
+            continue
+        groups.append((start, prev))
+        start = idx
+        prev = idx
+    groups.append((start, prev))
+    left, right = max(groups, key=lambda group: (group[1], group[1] - group[0]))
+    erase_right = min(img_w, right + 5)
     cv2.rectangle(cleaned, (0, 0), (erase_right, img_h), (255, 255, 255), -1)
     return cleaned
 
@@ -2212,9 +3006,10 @@ def process_node_recursive(
     output_dir: Path,
     library: Dict[str, List[Dict[str, Any]]],
     *,
-    prompt: str,
+    base_prompt: str,
     client: LMStudioQwenClient | None,
     opener_client: LMStudioQwenClient | None = None,
+    verifier_client: LMStudioQwenClient | None = None,
 ) -> None:
     if node.id == "ROOT":
         current_img = img.copy()
@@ -2231,9 +3026,10 @@ def process_node_recursive(
             img,
             output_dir,
             library,
-            prompt=prompt,
+            base_prompt=base_prompt,
             client=client,
             opener_client=opener_client,
+            verifier_client=verifier_client,
         )
         if node.id == "ROOT":
             current_img = mask_subproof_in_parent(current_img, child)
@@ -2246,18 +3042,19 @@ def process_node_recursive(
     cv2.imwrite(str(save_path), current_img)
     print(f"Processing Node {node.id} (Depth {node.depth})... Saved to {save_path.name}")
 
-    opener_result = None
-    if node.id != "ROOT":
-        opener_result = _classify_subproof_opener(
-            node_crop_img=current_img,
-            output_dir=output_dir,
-            node_id=node.id,
-            client=opener_client or client,
-        )
-
-    raw_response, parsed_entries = call_vlm(save_path, prompt, client)
-    parsed_entries = _prepend_synthetic_strict_open_if_needed(parsed_entries, opener_result)
-    (output_dir / RAW_RESPONSE_TEMPLATE.format(node_id=node.id)).write_text(raw_response, encoding="utf-8")
+    parsed_entries, node_response = assemble_node_entries_from_rows(
+        node=node,
+        node_crop_img=current_img,
+        output_dir=output_dir,
+        base_prompt=base_prompt,
+        client=client,
+        opener_client=opener_client,
+        verifier_client=verifier_client,
+    )
+    (output_dir / RAW_RESPONSE_TEMPLATE.format(node_id=node.id)).write_text(
+        json.dumps(node_response, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
     (output_dir / INTERMEDIATE_TEMPLATE.format(node_id=node.id)).write_text(
         json.dumps(parsed_entries, indent=2, ensure_ascii=False),
         encoding="utf-8",
@@ -2797,8 +3594,19 @@ def transcribe_image_to_modal_debug_state(
     (output_dir / UNARY_VERIFIER_FILENAME).unlink(missing_ok=True)
     for path in output_dir.glob("verifier_line_*.jpg"):
         path.unlink(missing_ok=True)
-    prompt = build_prompt(modal_config)
-    (output_dir / PROMPT_FILENAME).write_text(prompt, encoding="utf-8")
+    for pattern in ("node_line_*.jpg", "node_line_*.json", "node_rows_*.json", "node_rows_overlay_*.jpg", "node_entries_*.json"):
+        for path in output_dir.glob(pattern):
+            path.unlink(missing_ok=True)
+    base_prompt = build_line_ocr_prompt(modal_config)
+    prompt_artifact = "\n\n".join(
+        [
+            "=== PER-LINE MODAL OCR PROMPT ===",
+            base_prompt,
+            "=== STRICT OPENER CLASSIFIER PROMPT ===",
+            _build_subproof_opener_prompt(),
+        ]
+    )
+    (output_dir / PROMPT_FILENAME).write_text(prompt_artifact, encoding="utf-8")
 
     if client is None:
         client = vlm_client
@@ -2823,9 +3631,10 @@ def transcribe_image_to_modal_debug_state(
         img,
         output_dir,
         library,
-        prompt=prompt,
+        base_prompt=base_prompt,
         client=client,
         opener_client=verifier_client or client,
+        verifier_client=verifier_client,
     )
 
     root_entries = library.get("ROOT", [])

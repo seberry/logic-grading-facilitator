@@ -1046,6 +1046,174 @@
               </div>
             </div>
           {% endif %}
+          {% if node_row_stages %}
+            <div class="artifact">
+              <label>Node row segmentation</label>
+              <div class="muted">Assembly flow inside each node is: detect row bands, insert child-token placeholders, drop rows that collapse into a token overlap, then keep the surviving entries for the final stitched proof.</div>
+              <div class="stage-grid">
+                {% for stage in node_row_stages %}
+                  <div class="stage-card">
+                    <h3>{{ stage.title }}</h3>
+                    {% set assembly_summary = stage.get("assembly_summary") or {} %}
+                    <div class="summary-box" style="margin-bottom: 0.6rem;">
+                      <strong>Assembly summary</strong><br />
+                      <span class="muted">
+                        {{ assembly_summary.get("row_count", 0) }} total rows,
+                        {{ assembly_summary.get("line_row_count", 0) }} OCR line rows,
+                        {{ assembly_summary.get("token_row_count", 0) }} token rows,
+                        {{ assembly_summary.get("entry_count", 0) }} surviving node entries
+                      </span>
+                      {% if assembly_summary.get("skipped_count") %}
+                        <br /><span class="muted">Skipped after OCR: row {{ assembly_summary.get("skipped_rows") | join(", ") }}</span>
+                      {% endif %}
+                      {% if assembly_summary.get("opener_kind") %}
+                        <br /><span class="muted">Subproof opener decision: {{ assembly_summary.get("opener_kind") }}</span>
+                      {% endif %}
+                    </div>
+                    {% if stage.overlay_url %}
+                      <a href="{{ stage.overlay_url }}">
+                        <img src="{{ stage.overlay_url }}" alt="{{ stage.overlay_filename }}" />
+                      </a>
+                    {% else %}
+                      <div class="muted">No saved overlay image.</div>
+                    {% endif %}
+                    {% if stage.rows_text %}
+                      <label>{{ stage.rows_name }}</label>
+                      <textarea class="small-textarea" readonly>{{ stage.rows_text }}</textarea>
+                    {% endif %}
+                    {% if stage.entries_text %}
+                      <label>{{ stage.entries_name }}</label>
+                      <textarea class="small-textarea" readonly>{{ stage.entries_text }}</textarea>
+                    {% endif %}
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
+          {% if line_ocr_stages %}
+            <details class="panel-toggle">
+              <summary>Per-line OCR inside nodes</summary>
+              <div class="context-grid" style="margin-top: 0.75rem;">
+                <div>
+                  {% if primary_image_artifact %}
+                    <a href="{{ primary_image_artifact.url }}">
+                      <img src="{{ primary_image_artifact.url }}" alt="{{ primary_image_artifact.filename }}" class="context-thumb" />
+                    </a>
+                  {% endif %}
+                </div>
+                <div class="muted">
+                  Each card below shows one row crop handed to the local model, plus the line it maps to in the <strong>final stitched proof</strong> when that mapping can be recovered. Use this section to compare:
+                  the whole proof image,
+                  the intended stitched line number and current sentence/citation,
+                  whether the row survived assembly or was dropped,
+                  the exact row crop the model saw,
+                  and the model's initial/retry JSON outputs.
+                </div>
+              </div>
+              <div class="stage-grid" style="margin-top: 0.75rem;">
+                {% for stage in line_ocr_stages %}
+                  <div class="stage-card">
+                    <h3>{{ stage.title }}</h3>
+                    <div class="muted" style="margin-bottom: 0.45rem;">
+                      node {{ stage.get("node_id") }}
+                      {% set visible_line_order = stage.get("visible_line_order") %}
+                      {% if visible_line_order is not none %}
+                        | node line slot {{ visible_line_order + 1 }}
+                      {% endif %}
+                      {% set stitched_line_number = stage.get("stitched_line_number") %}
+                      {% if stitched_line_number %}
+                        | stitched line {{ stitched_line_number }}
+                      {% else %}
+                        | stitched line unknown
+                      {% endif %}
+                    </div>
+                    {% set assembly_status = stage.get("assembly_status") %}
+                    {% if assembly_status == "stitched" %}
+                      <div class="summary-box" style="margin-bottom: 0.6rem;">
+                        <strong>Assembly outcome</strong><br />
+                        <span class="muted">This OCR row survived assembly and maps into the final stitched proof.</span>
+                      </div>
+                    {% elif assembly_status == "skipped" %}
+                      <div class="summary-box" style="margin-bottom: 0.6rem;">
+                        <strong>Assembly outcome</strong><br />
+                        <span class="muted">This OCR row was dropped before stitching.</span>
+                        {% if stage.get("skipped_reason") %}
+                          <br /><code>{{ stage.get("skipped_reason") }}</code>
+                        {% endif %}
+                      </div>
+                    {% elif assembly_status == "node_only" %}
+                      <div class="summary-box" style="margin-bottom: 0.6rem;">
+                        <strong>Assembly outcome</strong><br />
+                        <span class="muted">This row survived node assembly but could not be mapped back to a final stitched line.</span>
+                      </div>
+                    {% endif %}
+                    {% if stage.get("stitched_line_text") %}
+                      <div class="summary-box" style="margin-bottom: 0.6rem;">
+                        <strong>Current stitched proof line {{ stitched_line_number }}</strong><br />
+                        {% if stage.get("stitched_depth") is not none %}
+                          <span class="muted">depth {{ stage.get("stitched_depth") }}</span><br />
+                        {% endif %}
+                        <code>{{ stage.get("stitched_line_text") }}</code>
+                      </div>
+                    {% elif stitched_line_number %}
+                      <div class="summary-box" style="margin-bottom: 0.6rem;">
+                        <strong>Intended stitched proof line {{ stitched_line_number }}</strong><br />
+                        {% if stage.get("stitched_depth") is not none %}
+                          <span class="muted">depth {{ stage.get("stitched_depth") }}</span><br />
+                        {% endif %}
+                        <div>
+                          {% if stage.get("stitched_formula") %}
+                            <code>{{ stage.get("stitched_formula") }}</code>
+                          {% else %}
+                            <span class="muted">No stitched formula recovered.</span>
+                          {% endif %}
+                          {% if stage.get("stitched_citation") %}
+                            <span class="muted">with citation</span> <code>{{ stage.get("stitched_citation") }}</code>
+                          {% endif %}
+                        </div>
+                      </div>
+                    {% endif %}
+                    <a href="{{ stage.image_url }}">
+                      <img src="{{ stage.image_url }}" alt="{{ stage.image_filename }}" />
+                    </a>
+                    {% set parsed_response = stage.get("parsed_response") %}
+                    {% if parsed_response %}
+                      {% set band_index = parsed_response.get("band_index") %}
+                      {% set band_y1 = parsed_response.get("y1") %}
+                      {% set band_y2 = parsed_response.get("y2") %}
+                      <label>Model saw</label>
+                      <div class="muted">band {{ band_index + 1 if band_index is not none else "?" }}, y {{ band_y1 if band_y1 is not none else "?" }}-{{ band_y2 if band_y2 is not none else "?" }}</div>
+
+                      {% if parsed_response.get("initial_parsed") %}
+                        <label style="margin-top: 0.6rem;">Initial parsed answer</label>
+                        <textarea class="small-textarea" readonly>{{ parsed_response.get("initial_parsed") | tojson(indent=2) }}</textarea>
+                      {% endif %}
+
+                      {% if parsed_response.get("resolved") %}
+                        <label>Resolved line used downstream</label>
+                        <textarea class="small-textarea" readonly>{{ parsed_response.get("resolved") | tojson(indent=2) }}</textarea>
+                      {% endif %}
+
+                      {% if parsed_response.get("retry_used") %}
+                        <label>Retry parsed answer</label>
+                        <textarea class="small-textarea" readonly>{{ parsed_response.get("retry_parsed") | tojson(indent=2) }}</textarea>
+                        {% if parsed_response.get("retry_resolved") %}
+                          <label>Retry resolved line</label>
+                          <textarea class="small-textarea" readonly>{{ parsed_response.get("retry_resolved") | tojson(indent=2) }}</textarea>
+                        {% endif %}
+                      {% endif %}
+                    {% endif %}
+                    {% if stage.response_text %}
+                      <details style="margin-top: 0.6rem;">
+                        <summary>{{ stage.response_name }}</summary>
+                        <textarea class="small-textarea" readonly style="margin-top: 0.5rem;">{{ stage.response_text }}</textarea>
+                      </details>
+                    {% endif %}
+                  </div>
+                {% endfor %}
+              </div>
+            </details>
+          {% endif %}
           {% if optional_artifacts.get("final_structure_baseline.json") %}
             <details class="panel-toggle">
               <summary>Baseline OCR combined structure</summary>

@@ -246,8 +246,103 @@ class DebugModalProofOcrTests(unittest.TestCase):
             band_index=1,
         )
 
-        self.assertEqual(line_crop.shape[0], 34)
+        self.assertEqual(line_crop.shape[0], 38)
         self.assertGreaterEqual(line_crop.shape[1], 80)
+
+    def test_extract_band_crop_adds_extra_padding_for_unusually_narrow_bands(self) -> None:
+        crop_img = np.full((200, 120, 3), 255, dtype=np.uint8)
+        bands = [(100, 108)]
+
+        line_crop = debug_modal_proof_ocr._extract_band_crop(
+            node_crop_img=crop_img,
+            bands=bands,
+            band_index=0,
+        )
+
+        self.assertGreater(line_crop.shape[0], 34)
+        self.assertGreaterEqual(line_crop.shape[1], 80)
+
+    def test_merge_fragment_bands_absorbs_tiny_nearby_fragment(self) -> None:
+        merged = debug_modal_proof_ocr._merge_fragment_bands(
+            [(7, 29), (42, 67), (84, 94), (151, 167), (235, 261)]
+        )
+
+        self.assertEqual(merged, [(7, 29), (42, 94), (151, 167), (235, 261)])
+
+    def test_segment_node_rows_suppresses_band_consumed_by_child_token(self) -> None:
+        crop_img = np.full((220, 180, 3), 255, dtype=np.uint8)
+        parent = debug_modal_proof_ocr.SubproofNode("1", (0, 0, 180, 220))
+        child = debug_modal_proof_ocr.SubproofNode("2", (50, 85, 40, 60))
+        child.parent = parent
+        parent.children.append(child)
+
+        original_detect = debug_modal_proof_ocr._detect_text_row_bands
+        original_textlike = debug_modal_proof_ocr._band_has_textlike_ink
+        original_outside = debug_modal_proof_ocr._band_has_text_outside_vertical_window
+        try:
+            debug_modal_proof_ocr._detect_text_row_bands = lambda _img: [(20, 34), (108, 120)]
+            debug_modal_proof_ocr._band_has_textlike_ink = lambda _img, _band: True
+            debug_modal_proof_ocr._band_has_text_outside_vertical_window = lambda *_args, **_kwargs: False
+
+            rows = debug_modal_proof_ocr.segment_node_rows(
+                node=parent,
+                node_crop_img=crop_img,
+                output_dir=self.tmp_dir,
+            )
+        finally:
+            debug_modal_proof_ocr._detect_text_row_bands = original_detect
+            debug_modal_proof_ocr._band_has_textlike_ink = original_textlike
+            debug_modal_proof_ocr._band_has_text_outside_vertical_window = original_outside
+
+        line_rows = [row for row in rows if row.get("kind") == "line"]
+        token_rows = [row for row in rows if row.get("kind") == "subproof_token"]
+        self.assertEqual(len(line_rows), 1)
+        self.assertEqual((line_rows[0]["y1"], line_rows[0]["y2"]), (20, 34))
+        self.assertEqual(len(token_rows), 1)
+        self.assertEqual(token_rows[0]["child_id"], "2")
+
+    def test_assemble_node_entries_from_rows_skips_ocr_row_that_is_really_child_token(self) -> None:
+        crop_img = np.full((220, 180, 3), 255, dtype=np.uint8)
+        parent = debug_modal_proof_ocr.SubproofNode("1", (0, 0, 180, 220))
+        child = debug_modal_proof_ocr.SubproofNode("2", (50, 85, 40, 60))
+        child.parent = parent
+        parent.children.append(child)
+
+        fake_rows = [
+            {"kind": "subproof_token", "child_id": "2", "y1": 146, "y2": 171, "center_y": 158.5, "row_order": 1},
+            {"kind": "line", "band_index": 0, "y1": 151, "y2": 167, "center_y": 159.0, "row_order": 2},
+        ]
+
+        with (
+            patch.object(debug_modal_proof_ocr, "segment_node_rows", return_value=fake_rows),
+            patch.object(debug_modal_proof_ocr, "_classify_subproof_opener", return_value=None),
+            patch.object(debug_modal_proof_ocr, "_row_overlaps_child_token", return_value=True),
+            patch.object(
+                debug_modal_proof_ocr,
+                "ocr_node_row",
+                return_value=(
+                    {
+                        "formula_text": "",
+                        "justification_text": "other <SUBPROOF_ID_2>",
+                        "scope_role": "subproof_token",
+                        "line_label": "",
+                    },
+                    {"node_id": "1", "row_order": 2},
+                ),
+            ),
+        ):
+            entries, node_response = debug_modal_proof_ocr.assemble_node_entries_from_rows(
+                node=parent,
+                node_crop_img=crop_img,
+                output_dir=self.tmp_dir,
+                base_prompt="prompt",
+                client=FakeModalVisionClient([]),
+            )
+
+        self.assertEqual(entries, [{"formula_text": "<SUBPROOF_ID_2>", "scope_role": "subproof_token", "line_label": ""}])
+        skipped = [item for item in node_response["line_artifacts"] if item.get("kind") == "token_overlap_skipped"]
+        self.assertEqual(len(skipped), 1)
+        self.assertEqual(skipped[0]["skipped_reason"], "row_overlaps_child_token")
 
     def test_suppress_left_scope_bar_whitens_prominent_left_bar(self) -> None:
         crop_img = np.full((120, 120, 3), 255, dtype=np.uint8)
@@ -677,15 +772,10 @@ class DebugModalProofOcrTests(unittest.TestCase):
         with (
             patch.object(
                 debug_modal_proof_ocr,
-                "_classify_subproof_opener",
-                return_value={"kind": "strict_open", "formula_text": "□", "confidence": "high"},
-            ),
-            patch.object(
-                debug_modal_proof_ocr,
-                "call_vlm",
+                "assemble_node_entries_from_rows",
                 return_value=(
-                    '[{"formula_text":"P","scope_role":"derived_line","line_label":"4"}]',
-                    [{"formula_text": "P", "scope_role": "derived_line", "line_label": "4"}],
+                    [{"formula_text": "□", "scope_role": "strict_open", "line_label": "3"}],
+                    {"entries": [{"formula_text": "□", "scope_role": "strict_open", "line_label": "3"}]},
                 ),
             ),
         ):
@@ -694,7 +784,7 @@ class DebugModalProofOcrTests(unittest.TestCase):
                 img,
                 self.tmp_dir,
                 library,
-                prompt="prompt",
+                base_prompt="prompt",
                 client=FakeModalVisionClient([]),
                 opener_client=FakeModalVisionClient([]),
             )
@@ -736,9 +826,14 @@ class DebugModalProofOcrTests(unittest.TestCase):
         fake_client = FakeModalVisionClient(
             responses=[
                 json.dumps(
-                    [
-                        {"formula_text": "¬□¬P", "justification_text": "MC 1", "scope_role": "derived_line", "line_label": "4"},
-                    ],
+                    {
+                        "formula_text": "¬□¬P",
+                        "justification_head": "MC",
+                        "justification_tail": "1",
+                        "scope_role": "derived_line",
+                        "line_label": "4",
+                        "confidence": "high",
+                    },
                     ensure_ascii=False,
                 ),
             ]

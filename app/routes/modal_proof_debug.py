@@ -17,6 +17,8 @@ from app.storage import DEBUG_MODAL_PROOF_DIR
 from scripts.debug_modal_proof_ocr import (
     build_vlm_client,
     default_unary_verifier_model,
+    recursive_stitch,
+    renumber_lines,
     transcribe_image_to_modal_debug_state,
 )
 
@@ -32,6 +34,12 @@ OCR_TEXT_ARTIFACTS = (
     "intermediate_ROOT.json",
     "intermediate_1.json",
     "intermediate_2.json",
+    "node_rows_ROOT.json",
+    "node_rows_1.json",
+    "node_rows_2.json",
+    "node_entries_ROOT.json",
+    "node_entries_1.json",
+    "node_entries_2.json",
     "strict_opener_1.json",
     "strict_opener_2.json",
     "response_ROOT.json",
@@ -48,6 +56,9 @@ IMAGE_ARTIFACTS = (
     "crop_ROOT.jpg",
     "crop_1.jpg",
     "crop_2.jpg",
+    "node_rows_overlay_ROOT.jpg",
+    "node_rows_overlay_1.jpg",
+    "node_rows_overlay_2.jpg",
     "strict_opener_line_1.jpg",
     "strict_opener_line_2.jpg",
     "margin_anchor_margin_base.jpg",
@@ -394,6 +405,131 @@ def _checker_issues_by_line(checker_response: Any) -> Dict[int, List[Dict[str, s
     return issues_by_line
 
 
+def _read_json_artifact(path: Path) -> Any:
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _load_node_entry_library(example_dir: Path) -> Dict[str, List[Dict[str, Any]]]:
+    library: Dict[str, List[Dict[str, Any]]] = {}
+    preferred_paths = sorted(example_dir.glob("node_entries_*.json"), key=lambda p: p.name.lower())
+    fallback_paths = sorted(example_dir.glob("intermediate_*.json"), key=lambda p: p.name.lower())
+    source_paths = preferred_paths or fallback_paths
+    prefix = "node_entries_" if preferred_paths else "intermediate_"
+    for path in source_paths:
+        node_id = path.stem.removeprefix(prefix)
+        parsed = _read_json_artifact(path)
+        if isinstance(parsed, list):
+            library[node_id] = [item for item in parsed if isinstance(item, dict)]
+    return library
+
+
+def _flatten_stitched_lines(structure: Any) -> List[Dict[str, Any]]:
+    flattened: List[Dict[str, Any]] = []
+
+    def visit(node: Any) -> None:
+        if isinstance(node, list):
+            for child in node:
+                visit(child)
+            return
+        if isinstance(node, dict):
+            flattened.append(node)
+
+    visit(structure)
+    return flattened
+
+
+def _build_stitched_line_lookup(example_dir: Path) -> Dict[Tuple[str, int], Dict[str, Any]]:
+    library = _load_node_entry_library(example_dir)
+    if not library:
+        return {}
+
+    root_entries = library.get("ROOT", [])
+    root_has_content = any(str(item.get("formula_text") or item.get("wffstr") or "").strip() for item in root_entries)
+    top_level_entries = library.get("1", []) if not root_has_content and "1" in library else root_entries
+    if not top_level_entries:
+        return {}
+
+    stitched = recursive_stitch(top_level_entries, library)
+    while isinstance(stitched, list) and len(stitched) == 1 and isinstance(stitched[0], list):
+        stitched = stitched[0]
+    renumber_lines(stitched)
+
+    lookup: Dict[Tuple[str, int], Dict[str, Any]] = {}
+    for line in _flatten_stitched_lines(stitched):
+        node_id = str(line.get("_ocr_node_id") or "").strip()
+        line_order = line.get("_ocr_line_order")
+        if not node_id or not isinstance(line_order, int):
+            continue
+        lookup[(node_id, line_order)] = {
+            "line_number": int(line.get("line") or 0),
+            "formula": str(line.get("wffstr") or "").strip(),
+            "citation": str(line.get("jstr") or "").strip(),
+            "scope_role": str(line.get("scope_role") or "").strip(),
+        }
+    return lookup
+
+
+def _load_node_response(example_dir: Path, node_id: str) -> Dict[str, Any]:
+    parsed = _read_json_artifact(example_dir / f"response_{node_id}.json")
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _find_line_artifact(node_response: Dict[str, Any], row_order: int) -> Optional[Dict[str, Any]]:
+    for item in node_response.get("line_artifacts") or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("row_order") == row_order:
+            return item
+    return None
+
+
+def _node_response_summary(node_response: Dict[str, Any]) -> Dict[str, Any]:
+    summary = {
+        "row_count": 0,
+        "line_row_count": 0,
+        "token_row_count": 0,
+        "skipped_count": 0,
+        "entry_count": 0,
+        "opener_kind": "",
+        "skipped_rows": [],
+    }
+    row_records = [item for item in (node_response.get("row_records") or []) if isinstance(item, dict)]
+    summary["row_count"] = len(row_records)
+    summary["line_row_count"] = sum(1 for item in row_records if str(item.get("kind") or "line") == "line")
+    summary["token_row_count"] = sum(1 for item in row_records if str(item.get("kind") or "") == "subproof_token")
+    line_artifacts = [item for item in (node_response.get("line_artifacts") or []) if isinstance(item, dict)]
+    skipped = [
+        item for item in line_artifacts if str(item.get("kind") or "").strip() in {"token_overlap_skipped", "strict_open_consumed"}
+    ]
+    summary["skipped_count"] = len(skipped)
+    summary["skipped_rows"] = [int(item.get("row_order") or 0) for item in skipped if isinstance(item.get("row_order"), int)]
+    summary["entry_count"] = len([item for item in (node_response.get("entries") or []) if isinstance(item, dict)])
+    opener = node_response.get("opener_result")
+    if isinstance(opener, dict):
+        summary["opener_kind"] = str(opener.get("kind") or "").strip()
+    return summary
+
+
+def _row_order_to_visible_line_order(node_response: Dict[str, Any], row_order: int) -> Optional[int]:
+    visible_line_order = 0
+    for item in node_response.get("line_artifacts") or []:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("kind") or "").strip()
+        if kind in {"subproof_token", "strict_open_consumed", "token_overlap_skipped"}:
+            continue
+        candidate = item.get("row_order")
+        if isinstance(candidate, int) and candidate == row_order:
+            return visible_line_order
+        visible_line_order += 1
+    return None
+
+
 def _attempt_source_label(attempt: Dict[str, Any], result_kind: str) -> str:
     attempt_kind = str(attempt.get("attempt_kind") or "local_band").strip()
     if attempt_kind == "margin_anchor":
@@ -668,6 +804,8 @@ def _render_page(
     primary_image_artifact: Optional[Dict[str, str]] = None
     baseline_ocr_stages: List[Dict[str, Any]] = []
     strict_opener_stages: List[Dict[str, Any]] = []
+    node_row_stages: List[Dict[str, Any]] = []
+    line_ocr_stages: List[Dict[str, Any]] = []
     line_number_debug_artifacts: List[Dict[str, str]] = []
     auxiliary_image_artifacts: List[Dict[str, str]] = []
     unary_verifier_results: List[Dict[str, Any]] = []
@@ -747,6 +885,48 @@ def _render_page(
                 }
             )
 
+        for rows_path in sorted(example_dir.glob("node_rows_*.json"), key=lambda p: p.name.lower()):
+            node_suffix = rows_path.stem.removeprefix("node_rows_")
+            overlay_name = f"node_rows_overlay_{node_suffix}.jpg"
+            entries_name = f"node_entries_{node_suffix}.json"
+            overlay_path = example_dir / overlay_name
+            entries_text = _artifact_text(selected, entries_name)
+            node_response = _load_node_response(example_dir, node_suffix)
+            node_row_stages.append(
+                {
+                    "node_id": node_suffix,
+                    "title": f"Node {node_suffix} row segmentation",
+                    "overlay_filename": overlay_name if overlay_path.exists() else "",
+                    "overlay_url": _artifact_url(selected, overlay_name) if overlay_path.exists() else "",
+                    "rows_name": rows_path.name,
+                    "rows_text": rows_path.read_text(encoding="utf-8"),
+                    "entries_name": entries_name,
+                    "entries_text": entries_text,
+                    "assembly_summary": _node_response_summary(node_response),
+                }
+            )
+
+        line_pattern = re.compile(r"node_line_(?P<node_id>[^_]+)_(?P<row_order>\d+)\.jpg$")
+        for image_path in sorted(example_dir.glob("node_line_*.jpg"), key=lambda p: p.name.lower()):
+            match = line_pattern.match(image_path.name)
+            if not match:
+                continue
+            node_id = match.group("node_id")
+            row_order = int(match.group("row_order"))
+            response_name = f"node_line_{node_id}_{row_order}.json"
+            response_text = _artifact_text(selected, response_name)
+            line_ocr_stages.append(
+                {
+                    "node_id": node_id,
+                    "row_order": row_order,
+                    "title": f"Node {node_id} row {row_order}",
+                    "image_filename": image_path.name,
+                    "image_url": _artifact_url(selected, image_path.name),
+                    "response_name": response_name,
+                    "response_text": response_text,
+                }
+            )
+
         for artifact in image_artifacts:
             filename = artifact["filename"]
             if primary_image_artifact and filename == primary_image_artifact["filename"]:
@@ -818,6 +998,55 @@ def _render_page(
             }
         )
     checker_ascii_records = _build_ascii_proof_records(checker_ascii_source)
+    checker_line_lookup = {int(line.get("line_number") or 0): line for line in checker_ascii_base}
+
+    if selected and selected != STARTER_EXAMPLE:
+        example_dir = DEBUG_MODAL_PROOF_DIR / selected
+        stitched_lookup = _build_stitched_line_lookup(example_dir)
+        for stage in line_ocr_stages:
+            node_id = str(stage.get("node_id") or "").strip()
+            row_order = stage.get("row_order")
+            if not node_id or not isinstance(row_order, int):
+                continue
+            parsed_response = _read_json_artifact(example_dir / stage["response_name"])
+            if isinstance(parsed_response, dict):
+                stage["parsed_response"] = parsed_response
+            node_response = _load_node_response(example_dir, node_id)
+            artifact_record = _find_line_artifact(node_response, row_order)
+            if artifact_record:
+                artifact_kind = str(artifact_record.get("kind") or "").strip()
+                if artifact_kind:
+                    stage["artifact_kind"] = artifact_kind
+                if artifact_record.get("skipped_reason"):
+                    stage["skipped_reason"] = str(artifact_record.get("skipped_reason") or "").strip()
+                resolved = artifact_record.get("resolved")
+                if isinstance(resolved, dict):
+                    stage["resolved_scope_role"] = str(resolved.get("scope_role") or "").strip()
+            visible_line_order = _row_order_to_visible_line_order(node_response, row_order)
+            if visible_line_order is not None:
+                stage["visible_line_order"] = visible_line_order
+                stitched_line = stitched_lookup.get((node_id, visible_line_order))
+                if stitched_line:
+                    stage["stitched_line_number"] = stitched_line["line_number"]
+                    stage["stitched_formula"] = stitched_line["formula"]
+                    stage["stitched_citation"] = stitched_line["citation"]
+                    stage["stitched_scope_role"] = stitched_line["scope_role"]
+                    checker_line = checker_line_lookup.get(stitched_line["line_number"])
+                    if checker_line:
+                        stage["stitched_depth"] = checker_line.get("depth", 0)
+                        sentence = str(checker_line.get("sentence") or stitched_line["formula"]).strip()
+                        citation = str(checker_line.get("citation") or stitched_line["citation"]).strip()
+                        stage["stitched_line_text"] = f"{sentence}{'    ' + citation if citation else ''}"
+            else:
+                stage["assembly_status"] = "skipped"
+            if not stage.get("assembly_status"):
+                artifact_kind = str(stage.get("artifact_kind") or "").strip()
+                if artifact_kind == "token_overlap_skipped":
+                    stage["assembly_status"] = "skipped"
+                elif stage.get("stitched_line_number"):
+                    stage["assembly_status"] = "stitched"
+                else:
+                    stage["assembly_status"] = "node_only"
 
     return templates.TemplateResponse(
         request,
@@ -836,6 +1065,8 @@ def _render_page(
             "primary_image_artifact": primary_image_artifact,
             "baseline_ocr_stages": baseline_ocr_stages,
             "strict_opener_stages": strict_opener_stages,
+            "node_row_stages": node_row_stages,
+            "line_ocr_stages": line_ocr_stages,
             "line_number_debug_artifacts": line_number_debug_artifacts,
             "auxiliary_image_artifacts": auxiliary_image_artifacts,
             "unary_verifier_results": unary_verifier_results,
