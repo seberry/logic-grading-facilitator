@@ -179,7 +179,7 @@
             <input type="file" id="gradebook_csv" name="gradebook_csv" accept=".csv">
             <label for="gradebook_roster_name">Roster name (required)</label>
             <input type="text" id="gradebook_roster_name" name="roster_name" placeholder="e.g., Logic101_Fall2025.csv" required>
-            <p class="muted">Uses <code>Student</code> and <code>SIS Login ID</code> columns to build <code>data/roster.csv</code>.</p>
+            <p class="muted">Uses <code>Student</code> and <code>SIS Login ID</code> columns to build <code>{{ data_dir }}/roster.csv</code>.</p>
             <button type="submit">Build roster from gradebook</button>
           </form>
         </div>
@@ -193,7 +193,7 @@
 
             <label for="pdf_file">Or upload a single PDF</label>
             <input type="file" id="pdf_file" name="pdf_file" accept="application/pdf">
-            <p class="muted">PDF pages will be converted to images and placed in <code>data/raw_scans/</code>.</p>
+            <p class="muted">PDF pages will be converted to images and placed in <code>{{ data_dir }}/raw_scans/</code>.</p>
 
             <label for="zip_file">Or upload a ZIP (images and/or PDFs)</label>
             <input type="file" id="zip_file" name="zip_file" accept=".zip,application/zip">
@@ -224,6 +224,7 @@
               {% endfor %}
             </select>
             <p class="muted">Selecting a rubric replaces the current YAML and quiz id in this form.</p>
+            <p class="muted">Manually created rubrics appear here when the file is saved in <code>{{ rubrics_dir }}</code> with a <code>.yaml</code> or <code>.yml</code> extension, then this page is reloaded.</p>
             <button type="submit" class="secondary">Load rubric</button>
           </form>
           <hr style="border: none; border-top: 1px solid #e5e7eb;">
@@ -290,7 +291,8 @@ If a page has two problem banks with overlapping numbers, distinguish them using
           <form method="post" action="/setup/save_rubric">
             <label for="rubric_text">Edit rubric YAML</label>
             <textarea id="rubric_text" name="yaml_text">{{ rubric_text }}</textarea>
-            <p class="muted">The YAML must parse into the <code>GradingKey</code> model. File will be saved as <code>{{ quiz_id }}.yaml</code> in <code>data/rubric/</code>.</p>
+            <p class="muted">The YAML must parse into the <code>GradingKey</code> model. File will be saved as <code>{{ quiz_id }}.yaml</code> in <code>{{ rubrics_dir }}</code>.</p>
+            <p class="muted">If you create a rubric by hand outside this form, put it in <code>{{ rubrics_dir }}</code> to make it available in the "Load existing rubric" dropdown on this page.</p>
             <p class="muted">Tip: each problem <code>label</code> is used as a natural-language hint when the model locates that answer region in strip view. Match the wording on the exam if possible.</p>
             <p class="muted">For exams with multiple sections that restart numbering, add <code>section</code> and <code>problem_number</code>. The strip finder will use those too.</p>
             <button type="submit">Save rubric</button>

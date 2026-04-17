@@ -2,8 +2,8 @@
 
 ## 0. Prerequisites
 * **LM Studio** is running with the `qwen/qwen3-vl-4b` model loaded.
-* `data/raw_scans/` contains your image files.
-* `data/roster.csv` is present.
+* `DATA_DIR/raw_scans/` contains your image files.
+* `DATA_DIR/roster.csv` is present.
 
 ## Data location (FERPA-safe)
 All `data/...` paths below are relative to `DATA_DIR` (defaults to `data/samples`).
@@ -38,17 +38,17 @@ Archive & Reset: If you see a warning about an existing session, use the Archive
 
 
 
-Roster: Choose an existing roster from data/rosters/ or upload a new CSV.
-Roster (Canvas shortcut): Upload the full Canvas gradebook CSV; the wizard extracts `Student` and `SIS Login ID` into `data/roster.csv`.
+Roster: Choose an existing roster from `DATA_DIR/rosters/` or upload a new CSV.
+Roster (Canvas shortcut): Upload the full Canvas gradebook CSV; the wizard extracts `Student` and `SIS Login ID` into `DATA_DIR/roster.csv`.
 Roster (Canvas shortcut): Provide a roster name so the extracted roster is saved under `DATA_DIR/rosters/` and can be reused later.
 
 
 
-Scans: Upload scans (JPG/PNG) or a PDF (auto-splits into data/raw_scans/).
+Scans: Upload scans (JPG/PNG) or a PDF (auto-splits into `DATA_DIR/raw_scans/`).
 
 
 
-Rubric: Edit/save the rubric YAML (writes to data/rubric/<quiz_id>.yaml). The per-problem `label` is also used as the natural-language hint when the model locates each answer region in strip view, so match the wording on the exam if possible.
+Rubric: Edit/save the rubric YAML (writes to `DATA_DIR/rubric/<quiz_id>.yaml`). If you make a rubric manually outside the app, put that file in `DATA_DIR/rubric/` with a `.yaml` or `.yml` extension and reload `/setup`; it will then appear in the rubric chooser. In production this is usually an external live folder such as `C:\grading-data\live\rubric\`, not the repo’s `data/rubric/`. The per-problem `label` is also used as the natural-language hint when the model locates each answer region in strip view, so match the wording on the exam if possible.
 
 
 
@@ -109,7 +109,7 @@ This step uses the VLM to read names and group pages. Replace quiz1 with your ac
 
 PowerShell
 
-python -m scripts.auto_group_scans --quiz-id quiz1 --raw-scans-dir "data/raw_scans" --out-dir "data/auto_grouped/quiz1" --roster "data/roster.csv"
+python -m scripts.auto_group_scans --quiz-id quiz1 --raw-scans-dir "DATA_DIR/raw_scans" --out-dir "DATA_DIR/auto_grouped/quiz1" --roster "DATA_DIR/roster.csv"
 3. Start the Server
 Keep this terminal window open.
 
@@ -163,19 +163,19 @@ Action: Enter an archive label (e.g., quiz1_final) and submit.
 
 
 
-Result: This archives current data to `data_archive/` and clears `data/raw_scans/` plus live `data/grades/` files (`session.json`, `segments_*.json`).
+Result: This archives current data to `DATA_ARCHIVE_DIR/` and clears `DATA_DIR/raw_scans/` plus live `DATA_DIR/grades/` files (`session.json`, `segments_*.json`).
 ⭐ QUICK REFERENCE 
 
 
 | UI/Page                                 | Route                               | Core Code                 | Primary Data / Cache Files                                     |
 
 > |----------------------------------------|--------------------------------------|---------------------------|----------------------------------------------------------------|
-> | Name recognition review                | `GET /name_review`                  | `LMStudioQwenClient`, `classify_page`, `name_review_cache_path` | `data/raw_scans/`, `data/roster.csv`, `data/name_review_cache/<quiz>__<subdir>.json` |
-> | Finalize name assignments + create session | `POST /name_review`             | name_review_submit        | Writes `data/grades/session.json`, copies scans into `data/raw_scans/`, optional ZIP; cache-only for Save & Auto-Fill |
-> | Work-unit grading (per student)        | `GET/POST /grade/{unit_id}/page`    | `grade_page`, `grade_page_submit` | `data/grades/session.json` (`Session`), `data/raw_scans/`             |
-> | Per-problem strip view                 | `GET/POST /problem/{id}/strips`     | `get_problem_strips`, `post_problem_strips`, `segment_page_for_problem` | `session.json`, `data/grades/segments_{id}.json`, `data/raw_scans/` (cache is validated before reuse)   |
-> | Export renamed scans (simple ZIP)      | `GET /export_renamed_scans`         | `export_renamed_scans`    | Reads `session.json`, `data/raw_scans/` → returns in-memory ZIP       |
+> | Name recognition review                | `GET /name_review`                  | `LMStudioQwenClient`, `classify_page`, `name_review_cache_path` | `DATA_DIR/raw_scans/`, `DATA_DIR/roster.csv`, `DATA_DIR/name_review_cache/<quiz>__<subdir>.json` |
+> | Finalize name assignments + create session | `POST /name_review`             | name_review_submit        | Writes `DATA_DIR/grades/session.json`, copies scans into `DATA_DIR/raw_scans/`, optional ZIP; cache-only for Save & Auto-Fill |
+> | Work-unit grading (per student)        | `GET/POST /grade/{unit_id}/page`    | `grade_page`, `grade_page_submit` | `DATA_DIR/grades/session.json` (`Session`), `DATA_DIR/raw_scans/`             |
+> | Per-problem strip view                 | `GET/POST /problem/{id}/strips`     | `get_problem_strips`, `post_problem_strips`, `segment_page_for_problem` | `DATA_DIR/grades/session.json`, `DATA_DIR/grades/segments_{id}.json`, `DATA_DIR/raw_scans/` (cache is validated before reuse)   |
+> | Export renamed scans (simple ZIP)      | `GET /export_renamed_scans`         | `export_renamed_scans`    | Reads `DATA_DIR/grades/session.json`, `DATA_DIR/raw_scans/` → returns in-memory ZIP       |
 > | Export Canvas reupload feedback ZIP    | `GET /export_canvas_reupload_feedback_zip` | `export_canvas_reupload_feedback_zip` | Reads latest ZIP in `data/canvas_reupload/original_zips/`; preserves original filenames and writes feedback pages/images |
 > | Gradebook merge tool                   | `GET /gradebook_merge`, `POST /gradebook_merge/analyze`, `POST /gradebook_merge/merge` | gradebook merge routes | Upload Canvas gradebook CSV, select assignment column, merge by student ID with non-empty-cell safety checks |
 > | Export scores for Canvas               | `GET /export`                       | `export_scores`           | `session.json` → `student_id,<quiz>_score` CSV                         |
-> | Archive + reset                        | `POST /finalize`                    | `archive_current_data`, `finalize_assignment` | Copies full `data/` → `data_archive/<timestamp>_<label>/`, then clears live `data/raw_scans/` and `data/grades/` files |
+> | Archive + reset                        | `POST /finalize`                    | `archive_current_data`, `finalize_assignment` | Copies full `DATA_DIR/` → `DATA_ARCHIVE_DIR/<timestamp>_<label>/`, then clears live `DATA_DIR/raw_scans/` and `DATA_DIR/grades/` files |

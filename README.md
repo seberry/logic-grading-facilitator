@@ -102,10 +102,12 @@ Documentation reminder for future work:
 Run the server (`python -m uvicorn app.server:app --reload --port 5000`), then open `http://127.0.0.1:5000/setup` to configure a fresh assignment without touching the CLI. The wizard lets you:
 
 - Archive any existing session before starting (protects against accidental data loss).
-- Pick an existing roster CSV from `data/rosters/` **or** upload a new one; the selected file is copied into `data/roster.csv`.
-- Or upload a full Canvas gradebook CSV; the wizard extracts `Student` + `SIS Login ID` into `data/roster.csv`.
-- Upload scans as individual JPG/PNG files **or** as a PDF (auto-splits into per-page JPEGs under `data/raw_scans/`).
-- Edit and save the grading rubric YAML; it writes to `data/rubric/<quiz_id>.yaml` and pre-fills the quiz_id for downstream routes. The per-problem `label` is also used as a natural-language hint when the model tries to locate each answer region in strip view, so match the wording on the exam if possible.
+- Pick an existing roster CSV from `DATA_DIR/rosters/` **or** upload a new one; the selected file is copied into `DATA_DIR/roster.csv`.
+- Or upload a full Canvas gradebook CSV; the wizard extracts `Student` + `SIS Login ID` into `DATA_DIR/roster.csv`.
+- Upload scans as individual JPG/PNG files **or** as a PDF (auto-splits into per-page JPEGs under `DATA_DIR/raw_scans/`).
+- Edit and save the grading rubric YAML; it writes to `DATA_DIR/rubric/<quiz_id>.yaml` and pre-fills the quiz_id for downstream routes. Any rubric you create manually should also be placed in `DATA_DIR/rubric/` with a `.yaml` or `.yml` extension so it appears in the `/setup` rubric dropdown after a page reload.
+- In production, `DATA_DIR` is often an external live folder such as `C:\grading-data\live`, so the real rubric location is typically something like `C:\grading-data\live\rubric\`, not the repo’s `data/rubric/`.
+- The per-problem `label` is also used as a natural-language hint when the model tries to locate each answer region in strip view, so match the wording on the exam if possible.
 - Kick off auto-grouping/name recognition; the wizard writes the name review cache and redirects you straight to `/name_review` for confirmation.
 
 ## Flashcards Dataset Builder (new)
@@ -294,16 +296,16 @@ Write a small metadata.json file into the snapshot
 
 Clear live grading state:
 
-data/raw_scans/
+DATA_DIR/raw_scans/
 
-data/grades/ (including session.json and segments_*.json caches)
+DATA_DIR/grades/ (including session.json and segments_*.json caches)
 
-Leave data/roster.csv and data/rubric/ intact
+Leave DATA_DIR/roster.csv and DATA_DIR/rubric/ intact
 
 Start a new assignment:
 
 - **Recommended:** Use the `/setup` wizard to archive the previous session (if any), choose or upload a roster, upload scans (images or PDF), edit/save the rubric YAML, and run auto-grouping. The wizard redirects straight to `/name_review` so you can confirm groups and start grading.
-- **Manual fallback:** Place new scans into `data/raw_scans/`, update the YAML rubric if needed, run `python -m scripts.init_session`, then hit `/work_units/create` once to create the first WorkUnit. Continue grading as usual (Save & Next auto-creates subsequent units).
+- **Manual fallback:** Place new scans into `DATA_DIR/raw_scans/`, update the YAML rubric in `DATA_DIR/rubric/` if needed, run `python -m scripts.init_session`, then hit `/work_units/create` once to create the first WorkUnit. Continue grading as usual (Save & Next auto-creates subsequent units).
 
 ---
 
@@ -339,10 +341,10 @@ python scripts/generate_fake_data.py
 Current working pieces:
 
 - **Session management**:
-  - `scripts/init_session.py` builds `data/grades/session.json` from:
-    - `data/roster.csv` (trimmed Canvas export)
-    - `data/rubric/quiz1.yaml` (grading key)
-    - `data/raw_scans/` (JPG/PNG files)
+  - `scripts/init_session.py` builds `DATA_DIR/grades/session.json` from:
+    - `DATA_DIR/roster.csv` (trimmed Canvas export)
+    - `DATA_DIR/rubric/quiz1.yaml` (grading key)
+    - `DATA_DIR/raw_scans/` (JPG/PNG files)
 - **Backend API** (FastAPI, see `/docs` when server is running):
   - `POST /work_units/create` — create a new WorkUnit from the next unclaimed page.
   - `POST /work_units/{unit_id}/append_next_scan` — attach another page.
