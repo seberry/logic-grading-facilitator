@@ -10,6 +10,7 @@ from PIL import Image
 
 from app import server
 from app.models import GradingKey, ProblemSpec, RosterEntry, Session, WorkUnit
+from app.routes import modal_proof_debug as modal_proof_debug_routes
 from app.routes import problem_strips as problem_strips_routes
 from app.storage import load_grading_key
 
@@ -171,7 +172,84 @@ class ProblemStripsRoutesTests(unittest.TestCase):
             response = self.client.get("/problem/Q1/strips")
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("OCR Modal Proof", response.text)
+        self.assertIn("Open Proof Editor", response.text)
+
+    def test_problem_strips_renders_modal_ocr_preview_with_disagreement_and_checker_flags(self) -> None:
+        session = _build_session()
+        session.problem_types["Q1"] = "modal_proof"
+        segments = [
+            {
+                "unit_id": 1,
+                "page_filename": "quiz1_berry_sharon_p01.jpg",
+                "page_index": 0,
+                "bbox": [0.1, 0.2, 0.8, 0.9],
+                "present": True,
+                "comment": "found",
+                "confidence": 0.9,
+            }
+        ]
+
+        debug_dir = self.tmp_dir / "debug_modal_proof"
+        example_dir = debug_dir / "q1_1_quiz1_berry_sharon_p01"
+        example_dir.mkdir(parents=True, exist_ok=True)
+        state = modal_proof_debug_routes._default_page_state()
+        state["proof_json_text"] = json.dumps(
+            {
+                "lines": [
+                    {"line": 1, "wffstr": "A", "jstr": "PR"},
+                    {"line": 2, "wffstr": "¬□¬A", "jstr": "1"},
+                ],
+                "meta": {},
+            },
+            indent=2,
+            ensure_ascii=False,
+        )
+        state["original_proof_json_text"] = state["proof_json_text"]
+        state["checker_response"] = {
+            "parse_errors": [],
+            "check_errors": [
+                {"line": 2, "code": "bad_rule", "message": "Derived line does not follow."}
+            ],
+            "normalized_lines": [],
+        }
+        (example_dir / "state.json").write_text(
+            json.dumps(state, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        (example_dir / "unary_verifier.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "line_number": 2,
+                        "baseline_formula": "¬□¬A",
+                        "structured_formula": "¬□¬¬A",
+                        "forced_choice": "¬□¬A",
+                        "attempt_kind": "margin_anchor",
+                    }
+                ],
+                indent=2,
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        with (
+            patch.object(problem_strips_routes, "get_session", return_value=session),
+            patch.object(problem_strips_routes, "ensure_segments_cached", return_value=segments),
+            patch.object(problem_strips_routes, "DEBUG_MODAL_PROOF_DIR", debug_dir),
+            patch.object(modal_proof_debug_routes, "DEBUG_MODAL_PROOF_DIR", debug_dir),
+        ):
+            response = self.client.get("/problem/Q1/strips")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Proposed OCR", response.text)
+        self.assertIn("Open debug panel", response.text)
+        self.assertIn("OCR disagree 1", response.text)
+        self.assertIn("Checker 1", response.text)
+        self.assertIn("ascii-proof-row is-both", response.text)
+        self.assertIn("structured / forced disagree", response.text)
+        self.assertIn("Derived line does not follow.", response.text)
+        self.assertIn("checker: Derived line does not follow.", response.text)
 
     def test_fitch_strip_route_crops_scan_and_redirects_to_debug_page(self) -> None:
         session = _build_session()

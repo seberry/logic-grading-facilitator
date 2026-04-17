@@ -229,10 +229,515 @@
       background: #fff;
     }
 
+    button.text-btn {
+      background: transparent;
+      color: #dc2626;
+      padding: 0.25rem 0.35rem;
+      box-shadow: none;
+    }
+
+    button.text-btn:hover:not(:disabled) {
+      color: #b91c1c;
+      background: transparent;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .workspace-panel {
+      margin-bottom: 1rem;
+    }
+
+    .workspace-grid {
+      display: grid;
+      grid-template-columns: minmax(320px, 0.95fr) minmax(420px, 1.05fr);
+      gap: 1rem;
+    }
+
+    .proof-image-frame {
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      background: #0f172a;
+      padding: 0.75rem;
+      min-height: 420px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: auto;
+    }
+
+    .proof-image-frame img {
+      max-width: 100%;
+      max-height: 78vh;
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 10px 28px rgba(15, 23, 42, 0.38);
+    }
+
+    .proof-image-caption {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      margin-top: 0.75rem;
+      font-size: 0.92rem;
+    }
+
+    .proof-image-caption a {
+      color: #1d4ed8;
+      font-weight: 600;
+      text-decoration: none;
+    }
+
+    .proof-image-caption a:hover {
+      text-decoration: underline;
+    }
+
+    .artifact-gallery {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 0.75rem;
+      margin-top: 0.75rem;
+    }
+
+    .artifact-card {
+      border: 1px solid #dbe4f0;
+      border-radius: 8px;
+      background: #fff;
+      padding: 0.55rem;
+    }
+
+    .artifact-card img {
+      width: 100%;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      background: #fff;
+      margin-top: 0.45rem;
+    }
+
+    .editor-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    .editor-header .muted {
+      max-width: 62ch;
+    }
+
+    .editor-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+      margin: 0.75rem 0;
+    }
+
+    .editor-palette {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      flex-wrap: wrap;
+      padding: 0.35rem 0.5rem;
+      background: #f8fafc;
+      border: 1px solid #e5e7eb;
+      border-radius: 0.5rem;
+    }
+
+    .palette-label {
+      font-weight: 600;
+      color: #334155;
+      font-size: 0.9rem;
+    }
+
+    .palette-btn {
+      background: #e2e8f0;
+      color: #0f172a;
+      padding: 0.35rem 0.55rem;
+      border-radius: 0.4rem;
+      border: 1px solid #cbd5e1;
+      box-shadow: none;
+      min-width: 2rem;
+      text-align: center;
+    }
+
+    .palette-btn:hover:not(:disabled) {
+      background: #dbeafe;
+      color: #1d4ed8;
+      transform: none;
+      box-shadow: none;
+    }
+
+    .toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    .toggle input {
+      accent-color: #2563eb;
+      width: 1rem;
+      height: 1rem;
+    }
+
+    .table-wrapper {
+      border: 1px solid #e5e7eb;
+      border-radius: 0.65rem;
+      overflow: hidden;
+      background: #fff;
+      max-height: 540px;
+      overflow-y: auto;
+    }
+
+    .depth-cell {
+      width: 140px;
+    }
+
+    .depth-visual {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .depth-bars {
+      width: 64px;
+      height: 14px;
+      border-radius: 999px;
+      background-image:
+        repeating-linear-gradient(
+          to right,
+          #cbd5e1 0 2px,
+          transparent 2px 8px
+        ),
+        linear-gradient(#64748b, #64748b);
+      background-size:
+        calc(var(--depth, 0) * 8px) 100%,
+        calc(var(--cap-depth, 0) * 8px) 2px;
+      background-position:
+        0 0,
+        0 calc(100% - 2px);
+      background-repeat: no-repeat, no-repeat;
+      background-color: #e5e7eb;
+      border: 1px solid #cbd5e1;
+    }
+
+    .line-number {
+      font-variant-numeric: tabular-nums;
+      width: 34px;
+      display: inline-block;
+      color: #334155;
+      font-weight: 700;
+    }
+
+    .inline-warning {
+      color: #dc2626;
+      font-size: 0.85rem;
+      margin-bottom: 0.3rem;
+    }
+
+    .raw-json {
+      min-height: 320px;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .editor-note {
+      font-size: 0.85rem;
+      color: #475569;
+    }
+
+    .editor-status {
+      color: #475569;
+      font-size: 0.9rem;
+      min-height: 1.3rem;
+    }
+
+    .review-summary {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+
+    .review-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.35rem 0.65rem;
+      border-radius: 999px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      background: #eef2ff;
+      color: #3730a3;
+    }
+
+    .review-warning {
+      border: 1px solid #f59e0b;
+      background: #fffbeb;
+      color: #92400e;
+      border-radius: 8px;
+      padding: 0.85rem 1rem;
+      margin-bottom: 1rem;
+      font-weight: 600;
+    }
+
+    .review-info {
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      color: #334155;
+      border-radius: 8px;
+      padding: 0.85rem 1rem;
+      margin-bottom: 1rem;
+      font-weight: 600;
+    }
+
+    .review-grid {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+
+    .review-item {
+      border: 1px solid #dbe4f0;
+      border-radius: 10px;
+      padding: 1rem;
+      background: #fbfdff;
+    }
+
+    .review-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 1rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .review-title {
+      font-size: 1rem;
+      font-weight: 700;
+    }
+
+    .review-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+    }
+
+    .review-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.2rem 0.5rem;
+      border-radius: 999px;
+      background: #e0f2fe;
+      color: #075985;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .review-meta {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+
+    .review-meta-card {
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      background: #fff;
+      padding: 0.7rem 0.8rem;
+    }
+
+    .review-meta-card strong {
+      display: block;
+      margin-bottom: 0.3rem;
+    }
+
+    .review-issues {
+      margin: 0 0 1rem 0;
+      padding-left: 1.1rem;
+      color: #991b1b;
+    }
+
+    .review-issues li + li {
+      margin-top: 0.25rem;
+    }
+
+    .review-candidates {
+      display: grid;
+      gap: 0.75rem;
+    }
+
+    .review-candidate {
+      border: 1px solid #dbe4f0;
+      border-radius: 8px;
+      padding: 0.75rem 0.8rem;
+      background: #fff;
+    }
+
+    .review-choice-btn {
+      width: auto;
+      background: #e5e7eb;
+      color: #111827;
+      margin-bottom: 0.45rem;
+    }
+
+    .review-choice-btn.selected {
+      background: #2563eb;
+      color: #fff;
+    }
+
+    .review-choice-btn.recommended {
+      border: 2px solid #10b981;
+      background: #ecfdf5;
+      color: #065f46;
+    }
+
+    .review-choice-btn.selected.recommended {
+      background: #059669;
+      color: #fff;
+      border-color: #059669;
+    }
+
+    .review-source-list {
+      margin: 0;
+      padding-left: 1rem;
+      color: #475569;
+      font-size: 0.9rem;
+    }
+
+    .review-source-list li + li {
+      margin-top: 0.2rem;
+    }
+
+    .manual-entry {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-top: 0.5rem;
+    }
+
+    .manual-entry input[type="text"] {
+      flex: 1 1 260px;
+    }
+
+    .review-status-line {
+      margin-top: 0.75rem;
+      font-size: 0.9rem;
+      color: #475569;
+      font-weight: 600;
+    }
+
+    .review-apply-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }
+
+    .proof-depth-cell {
+      width: 110px;
+      white-space: nowrap;
+    }
+
+    .proof-depth-visual {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+    }
+
+    .proof-depth-bars {
+      width: 64px;
+      height: 14px;
+      border-radius: 999px;
+      background-image: repeating-linear-gradient(
+        to right,
+        #cbd5e1 0 2px,
+        transparent 2px 8px
+      );
+      background-size: calc(var(--depth, 0) * 8px) 100%;
+      background-repeat: no-repeat;
+      background-color: #e5e7eb;
+      border: 1px solid #cbd5e1;
+    }
+
+    .proof-depth-label {
+      font-variant-numeric: tabular-nums;
+      color: #475569;
+      font-weight: 600;
+    }
+
+    .ascii-proof {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      font-family: Consolas, "SFMono-Regular", Menlo, Monaco, monospace;
+      font-size: 0.88rem;
+    }
+
+    .ascii-proof-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(220px, 0.95fr);
+      gap: 0.9rem;
+      align-items: start;
+      border: 1px solid #e5e7eb;
+      border-left-width: 4px;
+      border-radius: 8px;
+      padding: 0.45rem 0.55rem;
+      background: #fff;
+    }
+
+    .ascii-proof-row.is-ok {
+      border-left-color: #cbd5e1;
+    }
+
+    .ascii-proof-row.is-disagreement {
+      border-left-color: #f59e0b;
+      background: #fffaf0;
+    }
+
+    .ascii-proof-row.is-checker {
+      border-left-color: #dc2626;
+      background: #fff5f5;
+    }
+
+    .ascii-proof-row.is-both {
+      border-left-color: #7c2d12;
+      background: #fff7ed;
+    }
+
+    .ascii-proof-line {
+      white-space: pre-wrap;
+      color: #0f172a;
+      line-height: 1.35;
+    }
+
+    .ascii-proof-note {
+      white-space: pre-wrap;
+      color: #475569;
+      font-size: 0.8rem;
+      line-height: 1.35;
+    }
+
     @media (max-width: 980px) {
+      .workspace-grid,
       .top-grid,
       .output-grid,
-      .two-col {
+      .two-col,
+      .review-grid,
+      .review-meta {
         grid-template-columns: 1fr;
       }
     }
@@ -242,7 +747,7 @@
   <div class="page">
     <h1>Modal Proof Debugger</h1>
     <p class="lede">
-      Backend-focused debug page for the separate Rust <code>deduct</code> checker. You can still edit proof JSON directly, but this page can now also run the modal OCR scaffold against a saved proof image and drop the result into the same checker workflow.
+      Start with the proof image and the structured editor. OCR guesses, unary-verifier crops, and checker payloads are still available, but they are secondary to a clear human correction workflow over the same proof structure.
     </p>
 
     {% if message %}
@@ -253,6 +758,103 @@
     {% endif %}
 
     <form method="post" action="/debug/modal-proof/run_checker" enctype="multipart/form-data">
+      <input id="review-decisions-json" type="hidden" name="review_decisions_json" value="{}" />
+
+      <section class="panel workspace-panel">
+        <div class="workspace-grid">
+          <div>
+            <label>Proof image</label>
+            {% if image_artifacts %}
+              {% set primary_artifact = image_artifacts[0] %}
+              <div class="proof-image-frame">
+                <img src="{{ primary_artifact.url }}" alt="{{ primary_artifact.filename }}" />
+              </div>
+              <div class="proof-image-caption">
+                <span>{{ primary_artifact.filename }}</span>
+                <a href="{{ primary_artifact.url }}">Open image file</a>
+              </div>
+              {% if image_artifacts|length > 1 %}
+                <details class="panel-toggle" style="margin-top: 0.9rem;">
+                  <summary>Other image artifacts</summary>
+                  <div class="artifact-gallery">
+                    {% for artifact in image_artifacts[1:] %}
+                      <div class="artifact-card">
+                        <div class="muted">{{ artifact.filename }}</div>
+                        <a href="{{ artifact.url }}">
+                          <img src="{{ artifact.url }}" alt="{{ artifact.filename }}" />
+                        </a>
+                      </div>
+                    {% endfor %}
+                  </div>
+                </details>
+              {% endif %}
+            {% else %}
+              <div class="proof-image-frame">
+                <div class="muted">No saved proof image is available yet. Import a strip crop or upload a proof image below.</div>
+              </div>
+            {% endif %}
+          </div>
+
+          <div>
+            <div class="editor-header">
+              <div>
+                <label>Proof editor</label>
+                <div class="muted">Human correction happens here. The grid keeps line order and subproof depth visible so the edited proof matches the image structure line by line.</div>
+              </div>
+              {% if review_panel.flagged_count %}
+                <div class="review-pill">Flagged OCR lines: {{ review_panel.flagged_count }}</div>
+              {% endif %}
+            </div>
+
+            <div class="editor-toolbar">
+              <button type="button" class="secondary" id="add-row-btn">Add line</button>
+              <div class="editor-palette" id="modal-wff-palette" aria-label="Modal logic symbol palette">
+                <span class="palette-label">Insert:</span>
+                <button type="button" class="palette-btn" data-symbol="¬">¬</button>
+                <button type="button" class="palette-btn" data-symbol="∨">∨</button>
+                <button type="button" class="palette-btn" data-symbol="∧">∧</button>
+                <button type="button" class="palette-btn" data-symbol="→">→</button>
+                <button type="button" class="palette-btn" data-symbol="↔">↔</button>
+                <button type="button" class="palette-btn" data-symbol="□">□</button>
+                <button type="button" class="palette-btn" data-symbol="◇">◇</button>
+                <button type="button" class="palette-btn" data-symbol="⊥">⊥</button>
+              </div>
+              <span class="editor-note">Line numbers are automatic; change depth, formula, and citation directly in the grid.</span>
+              <label class="toggle">
+                <input type="checkbox" id="raw-toggle">
+                Raw JSON
+              </label>
+            </div>
+
+            <div id="table-editor">
+              <div class="table-wrapper">
+                <table aria-label="Modal proof editor">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Depth</th>
+                      <th>Formula</th>
+                      <th>Citation</th>
+                      <th>Warnings</th>
+                    </tr>
+                  </thead>
+                  <tbody id="proof-table-body"></tbody>
+                </table>
+              </div>
+              <div class="editor-note">Increase depth to nest a subproof. The bars visualize indentation and where subproofs close.</div>
+            </div>
+
+            <div id="raw-editor" class="hidden">
+              <label for="proof-json-text">Proof JSON</label>
+              <textarea id="proof-json-text" name="proof_json_text" class="raw-json" spellcheck="false">{{ proof_json_text }}</textarea>
+              <div class="editor-note">Raw JSON fallback for edge cases. It must stay a JSON list or an object with a <code>lines</code> list.</div>
+            </div>
+
+            <div id="editor-status" class="editor-status"></div>
+          </div>
+        </div>
+      </section>
+
       <div class="top-grid">
         <section class="panel">
           <label for="example-picker">Saved example</label>
@@ -340,26 +942,12 @@
             </div>
           {% endfor %}
 
-          {% if image_artifacts %}
-            <div class="artifact">
-              <label>Image artifacts</label>
-              <div class="two-col">
-                {% for artifact in image_artifacts %}
-                  <div>
-                    <div class="muted" style="margin-bottom: 0.35rem;">{{ artifact.filename }}</div>
-                    <img src="{{ artifact.url }}" alt="{{ artifact.filename }}" style="width: 100%; border: 1px solid #d1d5db; border-radius: 8px;" />
-                  </div>
-                {% endfor %}
-              </div>
-            </div>
-          {% endif %}
         </section>
 
         <section class="panel">
-          <label for="proof-json-text">Proof JSON</label>
-          <textarea id="proof-json-text" name="proof_json_text">{{ proof_json_text }}</textarea>
+          <label>OCR snapshot</label>
           <p class="muted">
-            Use the same proof shape as the modal autograde backend: a JSON list of lines or an object with a <code>lines</code> list. Nested subproofs are allowed. Each line may use <code>wffstr</code>/<code>jstr</code> or <code>sentence</code>/<code>citation</code>.
+            The editor above is now the primary correction path. OCR guesses and rewrite summaries stay here as secondary reference.
           </p>
           {% if verifier_rewrite_summary %}
             <div class="artifact">
@@ -420,31 +1008,52 @@
         </section>
 
         <section class="panel">
-          <label>Normalized lines</label>
-          {% if normalized_lines %}
-            <table>
-              <thead>
-                <tr>
-                  <th>Depth</th>
-                  <th>Sentence</th>
-                  <th>Citation</th>
-                </tr>
-              </thead>
-              <tbody>
-                {% for line in normalized_lines %}
-                  <tr>
-                    <td>{{ line.depth }}</td>
-                    <td>{{ line.sentence }}</td>
-                    <td>{{ line.citation }}</td>
-                  </tr>
-                {% endfor %}
-              </tbody>
-            </table>
+          <label>ASCII Proof View</label>
+          {% if checker_ascii_records %}
+            <div class="ascii-proof">
+              {% for record in checker_ascii_records %}
+                <div class="ascii-proof-row is-{{ record.status }}">
+                  <div class="ascii-proof-line">{{ record.line_text }}</div>
+                  <div class="ascii-proof-note">{{ record.note_text or " " }}</div>
+                </div>
+              {% endfor %}
+            </div>
           {% else %}
-            <p class="muted">No normalized lines are available yet.</p>
+            <p class="muted">Run the checker to populate an ASCII proof view with OCR/checker annotations.</p>
           {% endif %}
         </section>
       </div>
+
+      <section class="panel">
+        <label>Normalized lines</label>
+        {% if normalized_lines %}
+          <table>
+            <thead>
+              <tr>
+                <th>Depth</th>
+                <th>Sentence</th>
+                <th>Citation</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for line in normalized_lines %}
+                <tr>
+                  <td class="proof-depth-cell">
+                    <div class="proof-depth-visual">
+                      <span class="proof-depth-bars" style="--depth: {{ line.depth }}"></span>
+                      <span class="proof-depth-label">{{ line.depth }}</span>
+                    </div>
+                  </td>
+                  <td>{{ line.sentence }}</td>
+                  <td>{{ line.citation }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="muted">No normalized lines are available yet.</p>
+        {% endif %}
+      </section>
 
       <div class="output-grid">
         <section class="panel">
@@ -473,6 +1082,194 @@
           {% endif %}
         </section>
       </div>
+
+      <details class="panel panel-toggle">
+        <summary>OCR review details{% if review_panel.flagged_count %} ({{ review_panel.flagged_count }} flagged){% endif %}</summary>
+        <div style="margin-top: 1rem;">
+          {% if review_panel.flagged_count %}
+            <div class="review-summary">
+              <span class="review-pill">Flagged lines: <span id="review-flagged-count">{{ review_panel.flagged_count }}</span></span>
+              <span class="review-pill">Resolved: <span id="review-resolved-count">{{ review_panel.resolved_count }}</span></span>
+              <span class="review-pill">Unresolved: <span id="review-unresolved-count">{{ review_panel.unresolved_count }}</span></span>
+            </div>
+            <div id="review-warning-box" class="{% if review_panel.unresolved_count %}review-warning{% else %}review-info{% endif %}">
+              {% if review_panel.unresolved_count %}
+                Review is optional now. Use these choices only if they help, then apply them into the structured editor.
+              {% else %}
+                All currently flagged lines have a saved review choice. You can still apply those choices into the structured editor explicitly.
+              {% endif %}
+            </div>
+            {% for item in review_panel["items"] %}
+              <div
+                class="review-item"
+                data-review-item
+                data-line-number="{{ item.line_number }}"
+                data-current-formula="{{ item.current_formula }}"
+                {% if item.selected_decision %}
+                  data-selected-mode="{{ item.selected_decision.mode }}"
+                  data-selected-source-key="{{ item.selected_decision.source_key }}"
+                  data-selected-formula="{{ item.selected_decision.formula }}"
+                {% endif %}
+              >
+                <div class="review-header">
+                  <div>
+                    <div class="review-title">Line {{ item.line_number }}</div>
+                    {% if item.citation %}
+                      <div class="muted">{{ item.citation }}</div>
+                    {% endif %}
+                  </div>
+                  <div class="review-badges">
+                    {% for reason in item.flag_reasons %}
+                      <span class="review-badge">{{ reason }}</span>
+                    {% endfor %}
+                  </div>
+                </div>
+
+                <div class="review-meta">
+                  <div class="review-meta-card">
+                    <strong>Current Proof JSON</strong>
+                    <div>{{ item.current_formula or "n/a" }}</div>
+                  </div>
+                  <div class="review-meta-card">
+                    <strong>Original OCR</strong>
+                    <div>{{ item.original_formula or item.baseline_formula or "n/a" }}</div>
+                  </div>
+                  <div class="review-meta-card">
+                    <strong>Structured 8b</strong>
+                    <div>{{ item.structured_formula or "n/a" }}</div>
+                  </div>
+                  <div class="review-meta-card">
+                    <strong>Forced-choice 8b</strong>
+                    <div>{{ item.forced_choice or "n/a" }}</div>
+                  </div>
+                </div>
+
+                {% if item.issues %}
+                  <ul class="review-issues">
+                    {% for issue in item.issues %}
+                      <li>{{ issue.kind }}{% if issue.code %} ({{ issue.code }}){% endif %}: {{ issue.message }}</li>
+                    {% endfor %}
+                  </ul>
+                {% endif %}
+
+                <div class="review-grid">
+                  <div>
+                    <div class="review-candidates">
+                      <div class="review-candidate">
+                        <button
+                          type="button"
+                          class="review-choice-btn"
+                          data-choice-btn
+                          data-mode="keep_current"
+                          data-line-number="{{ item.line_number }}"
+                          data-formula="{{ item.current_formula }}"
+                        >
+                          Keep current: {{ item.current_formula or "n/a" }}
+                        </button>
+                        <ul class="review-source-list">
+                          <li>Current proof JSON</li>
+                        </ul>
+                      </div>
+
+                      {% for candidate in item.candidates %}
+                        {% if candidate.formula != item.current_formula %}
+                          <div class="review-candidate">
+                            <button
+                              type="button"
+                              class="review-choice-btn{% if item.recommended_source_key and candidate.source_key == item.recommended_source_key %} recommended{% endif %}"
+                              data-choice-btn
+                              data-mode="candidate"
+                              data-line-number="{{ item.line_number }}"
+                              data-formula="{{ candidate.formula }}"
+                              data-source-key="{{ candidate.source_key }}"
+                            >
+                              Use {{ candidate.formula }}
+                              {% if item.recommended_source_key and candidate.source_key == item.recommended_source_key %}
+                                (recommended)
+                              {% endif %}
+                            </button>
+                            <ul class="review-source-list">
+                              {% for source in candidate.sources %}
+                                <li>{{ source }}</li>
+                              {% endfor %}
+                            </ul>
+                          </div>
+                        {% endif %}
+                      {% endfor %}
+
+                      <div class="review-candidate">
+                        <div class="muted" style="margin-bottom: 0.45rem; font-weight: 600;">Manual formula</div>
+                        <div class="manual-entry">
+                          <input
+                            type="text"
+                            data-manual-input
+                            data-line-number="{{ item.line_number }}"
+                            value="{% if item.selected_decision and item.selected_decision.mode == 'manual' %}{{ item.selected_decision.formula }}{% endif %}"
+                            placeholder="Type corrected formula"
+                          />
+                          <button type="button" class="secondary" data-manual-apply data-line-number="{{ item.line_number }}">Use manual</button>
+                          <button type="button" class="secondary" data-clear-choice data-line-number="{{ item.line_number }}">Clear</button>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="review-status-line" data-review-status-line data-line-number="{{ item.line_number }}">No review choice saved yet.</div>
+                  </div>
+
+                  <div>
+                    <strong>Crop Evidence</strong>
+                    {% if item.line_crop_filename %}
+                      <div style="margin-top: 0.4rem;">
+                        <a href="{{ item.line_crop_url }}">{{ item.line_crop_filename }}</a>
+                      </div>
+                      {% if item.attempt_kind %}
+                        <div class="muted">chosen strategy: {{ item.attempt_kind | replace("_", " ") }}</div>
+                      {% endif %}
+                      {% if item.strip_y1 is not none and item.strip_y2 is not none %}
+                        <div class="muted">y {{ item.strip_y1 }}-{{ item.strip_y2 }}</div>
+                      {% endif %}
+                      <img src="{{ item.line_crop_url }}" alt="Review crop {{ item.line_number }}" class="crop-preview" />
+                    {% else %}
+                      <p class="muted">No chosen crop artifact is available.</p>
+                    {% endif %}
+
+                    {% if item.candidate_attempts %}
+                      <details style="margin-top: 0.6rem;">
+                        <summary>Alternate attempts</summary>
+                        <div class="muted" style="margin-top: 0.35rem;">
+                          {% for attempt in item.candidate_attempts %}
+                            <div style="margin-bottom: 0.5rem;">
+                              {% if attempt.attempt_kind == "margin_anchor" %}
+                                margin anchor,
+                                y {{ attempt.strip_y1 if attempt.strip_y1 is not none else "?" }}-{{ attempt.strip_y2 if attempt.strip_y2 is not none else "?" }},
+                              {% else %}
+                                band {{ attempt.band_index + 1 if attempt.band_index is not none else "?" }},
+                                dist {{ attempt.band_distance if attempt.band_distance is not none else "?" }},
+                              {% endif %}
+                              structured {{ attempt.structured_formula or "n/a" }},
+                              forced {{ attempt.forced_choice or "n/a" }}
+                              {% if attempt.line_crop_filename %}
+                                <div><a href="{{ attempt.line_crop_url }}">{{ attempt.line_crop_filename }}</a></div>
+                                <img src="{{ attempt.line_crop_url }}" alt="Alternate verifier crop {{ attempt.band_index + 1 if attempt.band_index is not none else '?' }}" class="crop-thumb" />
+                              {% endif %}
+                            </div>
+                          {% endfor %}
+                        </div>
+                      </details>
+                    {% endif %}
+                  </div>
+                </div>
+              </div>
+            {% endfor %}
+
+            <div class="review-apply-bar">
+              <button type="button" id="apply-review-choices">Apply review choices to Proof JSON</button>
+              <div id="review-apply-status" class="muted">No review changes have been applied to Proof JSON yet.</div>
+            </div>
+          {% else %}
+            <p class="muted">No flagged OCR review items are available yet. Run OCR and inspect verifier results if you want guess-by-guess evidence.</p>
+          {% endif %}
+        </div>
+      </details>
 
       <section class="panel">
         <label>Unary Verifier Experiment</label>
@@ -593,7 +1390,739 @@
           </section>
         </div>
       </details>
+
+      {% if image_artifacts %}
+        <details class="panel panel-toggle">
+          <summary>Image artifacts</summary>
+          <div class="two-col" style="margin-top: 1rem;">
+            {% for artifact in image_artifacts %}
+              <div>
+                <div class="muted" style="margin-bottom: 0.35rem;">{{ artifact.filename }}</div>
+                <img src="{{ artifact.url }}" alt="{{ artifact.filename }}" style="width: 100%; border: 1px solid #d1d5db; border-radius: 8px;" />
+              </div>
+            {% endfor %}
+          </div>
+        </details>
+      {% endif %}
     </form>
   </div>
+  <script>
+    (function () {
+      const form = document.querySelector('form[action="/debug/modal-proof/run_checker"]');
+      const hiddenField = document.getElementById("review-decisions-json");
+      const proofTextarea = document.getElementById("proof-json-text");
+      const tableEditor = document.getElementById("table-editor");
+      const rawEditorBlock = document.getElementById("raw-editor");
+      const rawToggle = document.getElementById("raw-toggle");
+      const addRowBtn = document.getElementById("add-row-btn");
+      const proofTableBody = document.getElementById("proof-table-body");
+      const editorStatus = document.getElementById("editor-status");
+      const palette = document.getElementById("modal-wff-palette");
+      const applyButton = document.getElementById("apply-review-choices");
+      const applyStatus = document.getElementById("review-apply-status");
+      const warningBox = document.getElementById("review-warning-box");
+      const flaggedCountNode = document.getElementById("review-flagged-count");
+      const resolvedCountNode = document.getElementById("review-resolved-count");
+      const unresolvedCountNode = document.getElementById("review-unresolved-count");
+      const reviewItems = Array.from(document.querySelectorAll("[data-review-item]"));
+      const decisions = {};
+      const FORMULA_ASCII_REPLACEMENTS = [
+        { ascii: "<->", symbol: "↔" },
+        { ascii: "->", symbol: "→" },
+        { ascii: "[]", symbol: "□" },
+        { ascii: "<>", symbol: "◇" },
+        { ascii: "\\/", symbol: "∨" },
+        { ascii: "/\\", symbol: "∧" },
+        { ascii: "~", symbol: "¬" },
+      ];
+      let lastFocusedFormulaInput = null;
+      let proofRows = [];
+      let proofWrapperMode = "object";
+      let proofCollectionKey = "lines";
+      let proofWrapperExtras = {};
+
+      function setEditorStatus(message, isError = false) {
+        if (!editorStatus) return;
+        editorStatus.textContent = message || "";
+        editorStatus.style.color = isError ? "#dc2626" : "#475569";
+      }
+
+      function safeParseJSON(text) {
+        try {
+          return { data: JSON.parse(text), error: null };
+        } catch (error) {
+          return {
+            data: null,
+            error: error instanceof Error ? error.message : "Unknown JSON parse error",
+          };
+        }
+      }
+
+      function normalizeDepth(value) {
+        const num = Number(value);
+        if (!Number.isFinite(num)) {
+          return 0;
+        }
+        return Math.max(0, Math.trunc(num));
+      }
+
+      function closingCapDepth(rows, idx) {
+        const currentDepth = normalizeDepth(rows[idx]?.depth);
+        const nextDepth = idx + 1 < rows.length ? normalizeDepth(rows[idx + 1]?.depth) : 0;
+        if (currentDepth <= nextDepth) {
+          return 0;
+        }
+        return currentDepth;
+      }
+
+      function computeRowWarnings(rows) {
+        const warnings = rows.map(() => []);
+        let previousDepth = 0;
+        rows.forEach((row, idx) => {
+          const rawDepth = Number(row.depth);
+          const depth = normalizeDepth(row.depth);
+          if (!Number.isFinite(rawDepth)) {
+            warnings[idx].push("Depth must be a number.");
+          }
+          if (Number.isFinite(rawDepth) && rawDepth < 0) {
+            warnings[idx].push("Depth cannot be negative.");
+          }
+          if (idx === 0 && depth !== 0) {
+            warnings[idx].push("First line should start at depth 0.");
+          }
+          if (idx > 0 && depth - previousDepth > 1) {
+            warnings[idx].push("Indent by +1 only when opening a subproof.");
+          }
+          previousDepth = depth;
+        });
+        return warnings;
+      }
+
+      function refreshDepthBarCaps() {
+        document.querySelectorAll("[data-depth-bar-index]").forEach((node) => {
+          const idx = Number(node.getAttribute("data-depth-bar-index"));
+          node.style.setProperty("--cap-depth", closingCapDepth(proofRows, idx));
+        });
+      }
+
+      function refreshWarnings(existingWarnings = null) {
+        const warnings = existingWarnings || computeRowWarnings(proofRows);
+        document.querySelectorAll("[data-warning-index]").forEach((node) => {
+          const idx = Number(node.getAttribute("data-warning-index"));
+          node.textContent = warnings[idx] ? warnings[idx].join(" ") : "";
+        });
+        return warnings;
+      }
+
+      function replaceRecentSequence(input, replacements) {
+        const start = input.selectionStart ?? input.value.length;
+        const end = input.selectionEnd ?? start;
+        let cursorStart = start;
+        let cursorEnd = end;
+        let currentValue = input.value;
+
+        for (const { ascii, symbol } of replacements) {
+          const lookStart = cursorStart - ascii.length;
+          if (lookStart < 0) continue;
+          if (currentValue.slice(lookStart, cursorStart) !== ascii) continue;
+          const followingChar = currentValue[cursorStart] || "";
+          if (followingChar && !/\s/.test(followingChar)) {
+            continue;
+          }
+          currentValue = `${currentValue.slice(0, lookStart)}${symbol}${currentValue.slice(cursorStart)}`;
+          const delta = symbol.length - ascii.length;
+          cursorStart += delta;
+          cursorEnd += delta;
+          input.value = currentValue;
+          input.setSelectionRange(cursorStart, cursorEnd);
+          return true;
+        }
+
+        return false;
+      }
+
+      function structureToRows(structure, depth = 0, rows = []) {
+        if (!Array.isArray(structure)) {
+          return rows;
+        }
+        structure.forEach((item) => {
+          if (Array.isArray(item)) {
+            structureToRows(item, depth + 1, rows);
+          } else if (item && typeof item === "object") {
+            rows.push({
+              depth,
+              formula: item.wffstr || item.sentence || "",
+              citation: item.jstr || item.citation || "",
+            });
+          }
+        });
+        return rows;
+      }
+
+      function rowsToStructure(rows) {
+        const rowWarnings = computeRowWarnings(rows);
+        const normalizedRows = rows.map((row) => ({
+          depth: normalizeDepth(row.depth),
+          formula: row.formula || "",
+          citation: row.citation || "",
+        }));
+
+        const root = [];
+        const stack = [root];
+        let lineCounter = 1;
+
+        normalizedRows.forEach((row) => {
+          while (row.depth < stack.length - 1) {
+            stack.pop();
+          }
+          while (row.depth > stack.length - 1) {
+            const child = [];
+            stack[stack.length - 1].push(child);
+            stack.push(child);
+          }
+          stack[stack.length - 1].push({
+            line: lineCounter++,
+            wffstr: row.formula,
+            jstr: row.citation,
+          });
+        });
+
+        return { structure: root, rowWarnings };
+      }
+
+      function normalizeProofPayload(parsed) {
+        if (Array.isArray(parsed)) {
+          return {
+            structure: parsed,
+            mode: "array",
+            collectionKey: "lines",
+            extras: {},
+          };
+        }
+
+        if (parsed && typeof parsed === "object") {
+          let structure = null;
+          let collectionKey = "lines";
+          if (Array.isArray(parsed.lines)) {
+            structure = parsed.lines;
+            collectionKey = "lines";
+          } else if (Array.isArray(parsed.structure)) {
+            structure = parsed.structure;
+            collectionKey = "structure";
+          }
+          if (!structure) {
+            throw new Error("Proof JSON must be a list or an object with a lines list.");
+          }
+          const extras = {};
+          Object.entries(parsed).forEach(([key, value]) => {
+            if (key !== "lines" && key !== "structure") {
+              extras[key] = value;
+            }
+          });
+          return {
+            structure,
+            mode: "object",
+            collectionKey,
+            extras,
+          };
+        }
+
+        throw new Error("Proof JSON must be a list or an object with a lines list.");
+      }
+
+      function renderTable(precomputedWarnings = null) {
+        if (!proofTableBody) return;
+        proofTableBody.innerHTML = "";
+        const warnings = precomputedWarnings || computeRowWarnings(proofRows);
+        lastFocusedFormulaInput = null;
+
+        proofRows.forEach((row, idx) => {
+          const tr = document.createElement("tr");
+
+          const lineTd = document.createElement("td");
+          const lineSpan = document.createElement("span");
+          lineSpan.className = "line-number";
+          lineSpan.textContent = String(idx + 1);
+          lineTd.appendChild(lineSpan);
+          tr.appendChild(lineTd);
+
+          const depthTd = document.createElement("td");
+          depthTd.className = "depth-cell";
+          const depthWrap = document.createElement("div");
+          depthWrap.className = "depth-visual";
+          const bars = document.createElement("div");
+          bars.className = "depth-bars";
+          bars.setAttribute("data-depth-bar-index", String(idx));
+          bars.style.setProperty("--depth", normalizeDepth(row.depth));
+          bars.style.setProperty("--cap-depth", closingCapDepth(proofRows, idx));
+          const depthInput = document.createElement("input");
+          depthInput.type = "number";
+          depthInput.min = "0";
+          depthInput.value = String(normalizeDepth(row.depth));
+          depthInput.addEventListener("input", (event) => {
+            proofRows[idx].depth = event.target.value;
+            bars.style.setProperty("--depth", normalizeDepth(event.target.value));
+            bars.style.setProperty("--cap-depth", closingCapDepth(proofRows, idx));
+            refreshWarnings();
+            refreshDepthBarCaps();
+          });
+          depthWrap.appendChild(bars);
+          depthWrap.appendChild(depthInput);
+          depthTd.appendChild(depthWrap);
+          tr.appendChild(depthTd);
+
+          const formulaTd = document.createElement("td");
+          const formulaInput = document.createElement("input");
+          formulaInput.value = row.formula || "";
+          formulaInput.placeholder = "Formula";
+          const updateFormula = () => {
+            replaceRecentSequence(formulaInput, FORMULA_ASCII_REPLACEMENTS);
+            proofRows[idx].formula = formulaInput.value;
+          };
+          formulaInput.addEventListener("input", updateFormula);
+          formulaInput.addEventListener("keydown", () => {
+            setTimeout(updateFormula, 0);
+          });
+          formulaInput.addEventListener("focus", (event) => {
+            lastFocusedFormulaInput = { input: event.target, idx };
+          });
+          formulaTd.appendChild(formulaInput);
+          tr.appendChild(formulaTd);
+
+          const citationTd = document.createElement("td");
+          const citationInput = document.createElement("input");
+          citationInput.value = row.citation || "";
+          citationInput.placeholder = "Citation";
+          citationInput.addEventListener("input", () => {
+            proofRows[idx].citation = citationInput.value;
+          });
+          citationTd.appendChild(citationInput);
+          tr.appendChild(citationTd);
+
+          const warningTd = document.createElement("td");
+          const warningText = document.createElement("div");
+          warningText.className = "inline-warning";
+          warningText.setAttribute("data-warning-index", String(idx));
+          warningText.textContent = warnings[idx] ? warnings[idx].join(" ") : "";
+          warningTd.appendChild(warningText);
+
+          const removeBtn = document.createElement("button");
+          removeBtn.type = "button";
+          removeBtn.className = "text-btn";
+          removeBtn.textContent = "Remove";
+          removeBtn.addEventListener("click", () => {
+            proofRows.splice(idx, 1);
+            renderTable();
+          });
+          warningTd.appendChild(removeBtn);
+
+          tr.appendChild(warningTd);
+          proofTableBody.appendChild(tr);
+        });
+
+        refreshDepthBarCaps();
+      }
+
+      function loadProofText(text) {
+        if (!proofTextarea) return;
+        proofTextarea.value = text || "";
+        const { data, error } = safeParseJSON(text || "[]");
+        if (error) {
+          proofRows = [];
+          renderTable();
+          setEditorStatus(`Could not parse proof JSON: ${error}`, true);
+          return;
+        }
+
+        try {
+          const payload = normalizeProofPayload(data);
+          proofRows = structureToRows(payload.structure);
+          proofWrapperMode = payload.mode;
+          proofCollectionKey = payload.collectionKey;
+          proofWrapperExtras = payload.extras;
+          renderTable();
+          setEditorStatus("");
+        } catch (error) {
+          proofRows = [];
+          renderTable();
+          setEditorStatus(error instanceof Error ? error.message : "Could not read proof JSON.", true);
+        }
+      }
+
+      function syncRowsFromRaw() {
+        if (!proofTextarea) return false;
+        const { data, error } = safeParseJSON(proofTextarea.value || "[]");
+        if (error) {
+          setEditorStatus(`Cannot parse raw JSON: ${error}`, true);
+          return false;
+        }
+        try {
+          const payload = normalizeProofPayload(data);
+          proofRows = structureToRows(payload.structure);
+          proofWrapperMode = payload.mode;
+          proofCollectionKey = payload.collectionKey;
+          proofWrapperExtras = payload.extras;
+          renderTable();
+          setEditorStatus("");
+          return true;
+        } catch (error) {
+          setEditorStatus(error instanceof Error ? error.message : "Could not read raw proof JSON.", true);
+          return false;
+        }
+      }
+
+      function syncTextFromRows() {
+        if (!proofTextarea) return false;
+        if (rawToggle && rawToggle.checked) {
+          return true;
+        }
+        const { structure, rowWarnings } = rowsToStructure(proofRows);
+        const flattenedWarnings = (rowWarnings || []).flat().filter(Boolean);
+        refreshWarnings(rowWarnings);
+        if (flattenedWarnings.length) {
+          setEditorStatus("Fix indentation warnings before continuing.", true);
+          return false;
+        }
+        if (proofWrapperMode === "array") {
+          proofTextarea.value = JSON.stringify(structure, null, 2);
+        } else {
+          proofTextarea.value = JSON.stringify(
+            {
+              ...proofWrapperExtras,
+              [proofCollectionKey]: structure,
+            },
+            null,
+            2,
+          );
+        }
+        setEditorStatus("");
+        return true;
+      }
+
+      function serializeDecisions() {
+        if (!hiddenField) return;
+        hiddenField.value = JSON.stringify(decisions);
+      }
+
+      function getItemNodes(lineNumber) {
+        const root = document.querySelector(`[data-review-item][data-line-number="${lineNumber}"]`);
+        if (!root) return null;
+        return {
+          root,
+          buttons: Array.from(root.querySelectorAll("[data-choice-btn]")),
+          manualInput: root.querySelector("[data-manual-input]"),
+          statusLine: root.querySelector("[data-review-status-line]"),
+        };
+      }
+
+      function setDecision(lineNumber, nextDecision) {
+        if (!lineNumber) return;
+        if (!nextDecision) {
+          delete decisions[lineNumber];
+        } else {
+          decisions[lineNumber] = nextDecision;
+        }
+        serializeDecisions();
+        refreshReviewUI();
+      }
+
+      function refreshReviewUI() {
+        let resolvedCount = 0;
+        reviewItems.forEach((item) => {
+          const lineNumber = item.getAttribute("data-line-number") || "";
+          const currentFormula = item.getAttribute("data-current-formula") || "";
+          const nodes = getItemNodes(lineNumber);
+          const decision = decisions[lineNumber];
+          if (!nodes) return;
+
+          nodes.buttons.forEach((button) => {
+            const mode = button.getAttribute("data-mode") || "";
+            const sourceKey = button.getAttribute("data-source-key") || "";
+            let selected = false;
+            if (decision) {
+              if (decision.mode === "keep_current" && mode === "keep_current") {
+                selected = true;
+              } else if (decision.mode === "candidate" && mode === "candidate" && decision.source_key === sourceKey) {
+                selected = true;
+              }
+            }
+            button.classList.toggle("selected", selected);
+          });
+
+          if (nodes.manualInput) {
+            if (decision && decision.mode === "manual") {
+              if (nodes.manualInput.value !== decision.formula) {
+                nodes.manualInput.value = decision.formula || "";
+              }
+              nodes.manualInput.style.borderColor = "#2563eb";
+            } else {
+              nodes.manualInput.style.borderColor = "#cbd5e1";
+            }
+          }
+
+          if (decision) {
+            resolvedCount += 1;
+            if (nodes.statusLine) {
+              if (decision.mode === "keep_current") {
+                nodes.statusLine.textContent = `Saved choice: keep current formula (${currentFormula || "n/a"}).`;
+              } else if (decision.mode === "candidate") {
+                nodes.statusLine.textContent = `Saved choice: ${decision.formula || "n/a"}.`;
+              } else {
+                nodes.statusLine.textContent = `Saved manual choice: ${decision.formula || "n/a"}.`;
+              }
+            }
+          } else if (nodes.statusLine) {
+            nodes.statusLine.textContent = "No review choice saved yet.";
+          }
+        });
+
+        const flaggedCount = reviewItems.length;
+        const unresolvedCount = Math.max(0, flaggedCount - resolvedCount);
+        if (flaggedCountNode) flaggedCountNode.textContent = String(flaggedCount);
+        if (resolvedCountNode) resolvedCountNode.textContent = String(resolvedCount);
+        if (unresolvedCountNode) unresolvedCountNode.textContent = String(unresolvedCount);
+
+        if (warningBox) {
+          if (unresolvedCount > 0) {
+            warningBox.className = "review-warning";
+            warningBox.textContent = "Review is optional now. Use these choices only if they help, then apply them into the structured editor.";
+          } else {
+            warningBox.className = "review-info";
+            warningBox.textContent = "All currently flagged lines have a saved review choice. You can still apply those choices into the structured editor explicitly.";
+          }
+        }
+      }
+
+      function initializeDecisionsFromDOM() {
+        reviewItems.forEach((item) => {
+          const lineNumber = item.getAttribute("data-line-number") || "";
+          const mode = item.getAttribute("data-selected-mode") || "";
+          const formula = item.getAttribute("data-selected-formula") || "";
+          const sourceKey = item.getAttribute("data-selected-source-key") || "";
+          if (!lineNumber || !mode) return;
+          decisions[lineNumber] = {
+            mode,
+            formula,
+            source_key: sourceKey,
+          };
+        });
+        serializeDecisions();
+        refreshReviewUI();
+      }
+
+      function parseProofJSON() {
+        if (!proofTextarea) {
+          throw new Error("Proof JSON textarea not found.");
+        }
+        if (!syncTextFromRows()) {
+          throw new Error("Fix indentation warnings before applying OCR review choices.");
+        }
+        const raw = proofTextarea.value || "";
+        return JSON.parse(raw);
+      }
+
+      function applyFormulaRewrites(parsed) {
+        let structure = parsed;
+        let wrapObject = false;
+        if (Array.isArray(parsed)) {
+          structure = parsed;
+        } else if (parsed && typeof parsed === "object") {
+          if (Array.isArray(parsed.lines)) {
+            structure = parsed.lines;
+            wrapObject = true;
+          } else if (Array.isArray(parsed.structure)) {
+            structure = parsed.structure;
+            wrapObject = true;
+          } else {
+            throw new Error("Proof JSON must be a list or an object with lines.");
+          }
+        } else {
+          throw new Error("Proof JSON must be a list or an object with lines.");
+        }
+
+        let autoLineNumber = 1;
+        let appliedCount = 0;
+
+        function visit(node) {
+          if (Array.isArray(node)) {
+            node.forEach(visit);
+            return;
+          }
+          if (!node || typeof node !== "object") {
+            return;
+          }
+          const lineNumber = Number.isInteger(node.line) ? node.line : autoLineNumber;
+          autoLineNumber = Math.max(autoLineNumber + 1, lineNumber + 1);
+          const decision = decisions[String(lineNumber)];
+          if (!decision || !decision.formula) {
+            return;
+          }
+          const existingFormula = String(node.wffstr ?? node.sentence ?? "");
+          if (existingFormula === decision.formula) {
+            return;
+          }
+          if (Object.prototype.hasOwnProperty.call(node, "wffstr") || !Object.prototype.hasOwnProperty.call(node, "sentence")) {
+            node.wffstr = decision.formula;
+          } else {
+            node.sentence = decision.formula;
+          }
+          appliedCount += 1;
+        }
+
+        visit(structure);
+        return {
+          payload: wrapObject ? parsed : structure,
+          appliedCount,
+        };
+      }
+
+      document.querySelectorAll("[data-choice-btn]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const lineNumber = button.getAttribute("data-line-number") || "";
+          const mode = button.getAttribute("data-mode") || "";
+          const formula = button.getAttribute("data-formula") || "";
+          const sourceKey = button.getAttribute("data-source-key") || "";
+          setDecision(lineNumber, {
+            mode,
+            formula,
+            source_key: sourceKey,
+          });
+        });
+      });
+
+      document.querySelectorAll("[data-manual-apply]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const lineNumber = button.getAttribute("data-line-number") || "";
+          const nodes = getItemNodes(lineNumber);
+          const formula = nodes && nodes.manualInput ? nodes.manualInput.value.trim() : "";
+          if (!formula) {
+            setDecision(lineNumber, null);
+            return;
+          }
+          setDecision(lineNumber, {
+            mode: "manual",
+            formula,
+            source_key: "",
+          });
+        });
+      });
+
+      document.querySelectorAll("[data-clear-choice]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const lineNumber = button.getAttribute("data-line-number") || "";
+          const nodes = getItemNodes(lineNumber);
+          if (nodes && nodes.manualInput) {
+            nodes.manualInput.value = "";
+          }
+          setDecision(lineNumber, null);
+        });
+      });
+
+      document.querySelectorAll("[data-manual-input]").forEach((input) => {
+        input.addEventListener("input", () => {
+          const lineNumber = input.getAttribute("data-line-number") || "";
+          const decision = decisions[lineNumber];
+          if (decision && decision.mode === "manual") {
+            decision.formula = input.value.trim();
+            if (!decision.formula) {
+              delete decisions[lineNumber];
+            }
+            serializeDecisions();
+            refreshReviewUI();
+          }
+        });
+      });
+
+      if (applyButton) {
+        applyButton.addEventListener("click", () => {
+          try {
+            const parsed = parseProofJSON();
+            const result = applyFormulaRewrites(parsed);
+            if (!proofTextarea) return;
+            proofTextarea.value = JSON.stringify(result.payload, null, 2);
+            if (!rawToggle || !rawToggle.checked) {
+              loadProofText(proofTextarea.value);
+            }
+            if (applyStatus) {
+              if (result.appliedCount > 0) {
+                applyStatus.textContent = `Applied ${result.appliedCount} review choice${result.appliedCount === 1 ? "" : "s"} to Proof JSON.`;
+              } else {
+                applyStatus.textContent = "No Proof JSON formulas changed; selected formulas already matched the current text.";
+              }
+            }
+          } catch (error) {
+            if (applyStatus) {
+              applyStatus.textContent = error instanceof Error ? error.message : "Could not apply review choices to Proof JSON.";
+            }
+          }
+        });
+      }
+
+      if (addRowBtn) {
+        addRowBtn.addEventListener("click", () => {
+          const lastDepth = proofRows.length ? normalizeDepth(proofRows[proofRows.length - 1].depth) : 0;
+          proofRows.push({ depth: lastDepth, formula: "", citation: "" });
+          renderTable();
+          setEditorStatus("");
+        });
+      }
+
+      if (rawToggle && tableEditor && rawEditorBlock) {
+        rawToggle.addEventListener("change", () => {
+          if (rawToggle.checked) {
+            if (!syncTextFromRows()) {
+              rawToggle.checked = false;
+              return;
+            }
+            tableEditor.classList.add("hidden");
+            rawEditorBlock.classList.remove("hidden");
+          } else {
+            const ok = syncRowsFromRaw();
+            if (!ok) {
+              rawToggle.checked = true;
+              return;
+            }
+            tableEditor.classList.remove("hidden");
+            rawEditorBlock.classList.add("hidden");
+          }
+        });
+      }
+
+      if (palette) {
+        palette.addEventListener("click", (event) => {
+          const target = event.target instanceof HTMLElement ? event.target.closest("button[data-symbol]") : null;
+          if (!(target instanceof HTMLButtonElement)) return;
+          if (!lastFocusedFormulaInput || !document.body.contains(lastFocusedFormulaInput.input)) {
+            return;
+          }
+          const symbol = target.getAttribute("data-symbol") || "";
+          const { input, idx } = lastFocusedFormulaInput;
+          if (idx === undefined || idx === null || idx < 0 || idx >= proofRows.length) {
+            return;
+          }
+          const start = input.selectionStart ?? input.value.length;
+          const end = input.selectionEnd ?? input.value.length;
+          const updated = `${input.value.slice(0, start)}${symbol}${input.value.slice(end)}`;
+          input.value = updated;
+          proofRows[idx].formula = updated;
+          const caret = start + symbol.length;
+          input.focus();
+          input.setSelectionRange(caret, caret);
+        });
+      }
+
+      if (form) {
+        form.addEventListener("submit", (event) => {
+          serializeDecisions();
+          if (!syncTextFromRows()) {
+            event.preventDefault();
+          }
+        });
+      }
+
+      loadProofText(proofTextarea ? proofTextarea.value : "");
+      initializeDecisionsFromDOM();
+    })();
+  </script>
 </body>
 </html>

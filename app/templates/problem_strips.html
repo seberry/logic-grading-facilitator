@@ -132,6 +132,119 @@
     .student-name { font-weight: 600; font-size: 1.1rem; display: block; }
     .unit-id { font-size: 0.85rem; color: #888; margin-top: 0.2rem; }
 
+    .modal-preview {
+      border: 1px solid #dbe4f0;
+      border-radius: 8px;
+      background: linear-gradient(180deg, #f8fbff 0%, #fdfefe 100%);
+      padding: 0.85rem 0.9rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .modal-preview.is-empty {
+      background: #f8fafc;
+    }
+    .modal-preview-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.75rem;
+      align-items: flex-start;
+    }
+    .modal-preview-title {
+      font-weight: 700;
+      font-size: 0.95rem;
+      margin-bottom: 0.2rem;
+    }
+    .modal-preview-link {
+      color: #1d4ed8;
+      font-weight: 600;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+    .modal-preview-link:hover {
+      text-decoration: underline;
+    }
+    .modal-preview-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+    }
+    .modal-preview-pill {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 0.2rem 0.55rem;
+      font-size: 0.74rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      background: #e2e8f0;
+      color: #334155;
+    }
+    .modal-preview-pill.disagreement {
+      background: #ffedd5;
+      color: #9a3412;
+    }
+    .modal-preview-pill.checker {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    .modal-preview-pill.unresolved {
+      background: #ede9fe;
+      color: #5b21b6;
+    }
+    .modal-preview-lines {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      max-height: 23rem;
+      overflow: auto;
+      padding-right: 0.15rem;
+    }
+    .ascii-proof {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+      font-family: Consolas, "SFMono-Regular", Menlo, Monaco, monospace;
+      font-size: 0.85rem;
+    }
+    .ascii-proof-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(180px, 0.9fr);
+      gap: 0.8rem;
+      align-items: start;
+      border: 1px solid #e5e7eb;
+      border-left-width: 4px;
+      border-radius: 6px;
+      padding: 0.4rem 0.5rem;
+      background: #fff;
+    }
+    .ascii-proof-row.is-ok {
+      border-left-color: #cbd5e1;
+    }
+    .ascii-proof-row.is-disagreement {
+      border-left-color: #f59e0b;
+      background: #fffaf0;
+    }
+    .ascii-proof-row.is-checker {
+      border-left-color: #dc2626;
+      background: #fff5f5;
+    }
+    .ascii-proof-row.is-both {
+      border-left-color: #7c2d12;
+      background: #fff7ed;
+    }
+    .ascii-proof-line {
+      white-space: pre-wrap;
+      color: #0f172a;
+      line-height: 1.35;
+    }
+    .ascii-proof-note {
+      color: #475569;
+      line-height: 1.35;
+      font-size: 0.79rem;
+      white-space: pre-wrap;
+    }
+
       .btn-row {
         display: flex;
         gap: 0.5rem;
@@ -476,6 +589,46 @@
           </div>
         </div>
 
+        {% if problem_type == "modal_proof" %}
+          {% set modal_preview = item.modal_preview %}
+          <section class="modal-preview{% if not modal_preview or not modal_preview.has_preview %} is-empty{% endif %}">
+            <div class="modal-preview-header">
+              <div>
+                <div class="modal-preview-title">Proposed OCR</div>
+                <div class="muted">Orange marks OCR disagreement. Red marks checker issues.</div>
+              </div>
+              {% if modal_preview and modal_preview.has_state %}
+                <a class="modal-preview-link" href="{{ modal_preview.debug_url }}">Open debug panel</a>
+              {% endif %}
+            </div>
+
+            {% if modal_preview and modal_preview.has_preview %}
+              <div class="modal-preview-pills">
+                <span class="modal-preview-pill">Flagged {{ modal_preview.flagged_count }}</span>
+                <span class="modal-preview-pill disagreement">OCR disagree {{ modal_preview.disagreement_count }}</span>
+                <span class="modal-preview-pill checker">Checker {{ modal_preview.checker_issue_count }}</span>
+                {% if modal_preview.unresolved_count %}
+                  <span class="modal-preview-pill unresolved">Unresolved {{ modal_preview.unresolved_count }}</span>
+                {% endif %}
+              </div>
+              <div class="modal-preview-lines">
+                <div class="ascii-proof">
+                  {% for record in modal_preview.ascii_records %}
+                    <div class="ascii-proof-row is-{{ record.status }}">
+                      <div class="ascii-proof-line">{{ record.line_text }}</div>
+                      <div class="ascii-proof-note">{{ record.note_text or " " }}</div>
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
+            {% elif modal_preview %}
+              <div class="muted">{{ modal_preview.message }}</div>
+            {% else %}
+              <div class="muted">No modal OCR preview is available for this strip yet.</div>
+            {% endif %}
+          </section>
+        {% endif %}
+
           <div class="btn-row">
       {% if item.display_url %}
       <button class="btn btn-crop"
@@ -508,7 +661,7 @@
               data-unit-id="{{ wu.unit_id }}"
               onclick="sendToModalProofDebug(this)"
               {% if problem_type != "modal_proof" %}hidden{% endif %}
-              tabindex="-1"> OCR Modal Proof
+              tabindex="-1">{% if item.modal_preview and item.modal_preview.has_state %}Refresh Proof Crop{% else %}Open Proof Editor{% endif %}
       </button>
       {% endif %}
       

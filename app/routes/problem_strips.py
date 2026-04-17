@@ -16,6 +16,7 @@ from PIL import Image
 from app.helpers import _build_page_options, _is_image_filename, _select_display_filename
 from app.models import Session
 from app.segmentation_core import QuestionSegment, segment_page_for_problem
+from app.routes import modal_proof_debug as modal_proof_debug_routes
 from app.session_state import _segmentation_lock, _session_lock, get_session, persist_session
 from app.storage import DEBUG_FITCH_DIR, DEBUG_MODAL_PROOF_DIR, GRADES_DIR, RAW_SCANS_DIR
 from app.vlm_client import LMStudioQwenClient
@@ -185,6 +186,157 @@ def _clean_modal_debug_slug(raw: str) -> str:
     return text.strip("_") or "modal_debug"
 
 
+def _modal_debug_slug_for_strip(problem_id: str, unit_id: int, page_filename: str) -> str:
+    return _clean_modal_debug_slug(f"{problem_id}_{unit_id}_{Path(page_filename).stem}")
+
+
+def _modal_debug_url(slug: str) -> str:
+    return f"/debug/modal-proof?example={quote(slug)}"
+
+
+def _has_meaningful_modal_preview(state: Dict[str, Any], unary_results: List[Dict[str, Any]]) -> bool:
+    if unary_results:
+        return True
+    if state.get("checker_response"):
+        return True
+    proof_json_text = str(state.get("proof_json_text") or "")
+    original_proof_json_text = str(state.get("original_proof_json_text") or "")
+    if proof_json_text != modal_proof_debug_routes.DEFAULT_PROOF_JSON_TEXT:
+        return True
+    if original_proof_json_text != modal_proof_debug_routes.DEFAULT_PROOF_JSON_TEXT:
+        return True
+    return False
+
+
+def _load_modal_strip_preview(
+    *,
+    problem_id: str,
+    unit_id: int,
+    page_filename: Optional[str],
+) -> Optional[Dict[str, Any]]:
+    if not page_filename:
+        return None
+
+    slug = _modal_debug_slug_for_strip(problem_id, unit_id, page_filename)
+    state_path = DEBUG_MODAL_PROOF_DIR / slug / modal_proof_debug_routes.STATE_FILENAME
+    preview: Dict[str, Any] = {
+        "slug": slug,
+        "debug_url": _modal_debug_url(slug),
+        "has_state": state_path.exists(),
+        "has_preview": False,
+        "lines": [],
+        "flagged_count": 0,
+        "unresolved_count": 0,
+        "disagreement_count": 0,
+        "checker_issue_count": 0,
+        "message": "No saved modal proof state yet. Use Open Proof Editor to create one.",
+    }
+    if not state_path.exists():
+        return preview
+
+    state = modal_proof_debug_routes._load_example_state(slug)
+    unary_results = modal_proof_debug_routes._load_unary_verifier_results(slug)
+    if not _has_meaningful_modal_preview(state, unary_results):
+        preview["message"] = "A modal debug example exists, but no OCR/checker output has been saved yet."
+        return preview
+
+    review_panel = modal_proof_debug_routes._build_review_panel(
+        state=state,
+        unary_verifier_results=unary_results,
+    )
+    review_by_line: Dict[int, Dict[str, Any]] = {}
+    for item in review_panel.get("items") or []:
+        if not isinstance(item, dict):
+            continue
+        line_number = item.get("line_number")
+        if isinstance(line_number, int):
+            review_by_line[line_number] = item
+
+    proof_lines = modal_proof_debug_routes._proof_lines_from_text(str(state.get("proof_json_text") or ""))
+    checker_issues_by_line = modal_proof_debug_routes._checker_issues_by_line(state.get("checker_response"))
+    line_numbers = sorted(set(proof_lines.keys()) | set(review_by_line.keys()) | set(checker_issues_by_line.keys()))
+
+    lines: List[Dict[str, Any]] = []
+    disagreement_count = 0
+    checker_issue_count = 0
+    for line_number in line_numbers:
+        line = proof_lines.get(line_number, {})
+        review_item = review_by_line.get(line_number, {})
+        flag_reasons = [
+            str(reason).strip()
+            for reason in (review_item.get("flag_reasons") or [])
+            if str(reason).strip()
+        ]
+        has_checker_issue = any(reason == "checker issue" for reason in flag_reasons) or bool(
+            checker_issues_by_line.get(line_number)
+        )
+        has_disagreement = any(reason != "checker issue" for reason in flag_reasons)
+
+        if has_disagreement:
+            disagreement_count += 1
+        if has_checker_issue:
+            checker_issue_count += 1
+
+        if has_checker_issue and has_disagreement:
+            status = "both"
+        elif has_checker_issue:
+            status = "checker"
+        elif has_disagreement:
+            status = "disagreement"
+        else:
+            status = "ok"
+
+        lines.append(
+            {
+                "line_number": line_number,
+                "formula": str(line.get("formula") or review_item.get("current_formula") or "").strip(),
+                "citation": str(line.get("citation") or "").strip(),
+                "depth": max(0, int(line.get("depth") or 0)),
+                "status": status,
+                "ocr_reasons": [reason for reason in flag_reasons if reason != "checker issue"],
+                "checker_issues": checker_issues_by_line.get(line_number, []),
+            }
+        )
+
+    for index, line in enumerate(lines):
+        next_depth = 0
+        if index + 1 < len(lines):
+            next_depth = max(0, int(lines[index + 1].get("depth") or 0))
+        current_depth = max(0, int(line.get("depth") or 0))
+        line["closes_subproof"] = current_depth > next_depth
+
+    preview.update(
+        {
+            "has_preview": bool(lines),
+            "lines": lines,
+            "ascii_records": modal_proof_debug_routes._build_ascii_proof_records(
+                [
+                    {
+                        "line_number": line["line_number"],
+                        "depth": line["depth"],
+                        "sentence": line["formula"],
+                        "citation": line["citation"],
+                        "note_text": " | ".join(
+                            ([f"checker: {'; '.join(str(issue.get('message') or '').strip() for issue in line['checker_issues'] if str(issue.get('message') or '').strip())}"] if line["checker_issues"] else [])
+                            + ([f"ocr: {', '.join(line['ocr_reasons'])}"] if line["ocr_reasons"] else [])
+                        ),
+                        "status": line["status"],
+                    }
+                    for line in lines
+                ]
+            ),
+            "flagged_count": int(review_panel.get("flagged_count") or 0),
+            "unresolved_count": int(review_panel.get("unresolved_count") or 0),
+            "disagreement_count": disagreement_count,
+            "checker_issue_count": checker_issue_count,
+            "message": "",
+        }
+    )
+    if not lines:
+        preview["message"] = "Modal OCR state exists, but the saved proof JSON did not produce any preview lines."
+    return preview
+
+
 def _bbox_for_strip(seg_data: Optional[Dict[str, Any]], bbox_override_raw: str) -> Optional[List[float]]:
     if bbox_override_raw and bbox_override_raw.strip():
         try:
@@ -296,6 +448,7 @@ def get_problem_strips(
 
     segments_map = {d["unit_id"]: d for d in segments_data}
     strips = []
+    effective_problem_type = _effective_problem_type(session, problem_id, spec)
 
     def lookup_student_name(student_id):
         if not student_id:
@@ -326,6 +479,14 @@ def get_problem_strips(
         )
         display_url = f"/scans/{quote(display_filename)}" if display_filename else None
 
+        modal_preview = None
+        if effective_problem_type == "modal_proof":
+            modal_preview = _load_modal_strip_preview(
+                problem_id=problem_id,
+                unit_id=wu.unit_id,
+                page_filename=display_filename,
+            )
+
         strips.append(
             {
                 "work_unit": wu,
@@ -334,6 +495,7 @@ def get_problem_strips(
                 "display_filename": display_filename,
                 "display_url": display_url,
                 "page_options": page_options,
+                "modal_preview": modal_preview,
             }
         )
 
@@ -364,7 +526,7 @@ def get_problem_strips(
             "strips": strips,
             "max_points": spec.points,
             "problem_note": session.problem_notes.get(problem_id, ""),
-            "problem_type": _effective_problem_type(session, problem_id, spec),
+            "problem_type": effective_problem_type,
             "problem_type_options": PROBLEM_TYPE_OPTIONS,
             "next_problem_id": next_problem_id,
         },

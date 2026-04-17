@@ -31,11 +31,13 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("Modal Proof Debugger", response.text)
-        self.assertIn("deduct", response.text)
+        self.assertIn("Proof image", response.text)
+        self.assertIn("Proof editor", response.text)
         self.assertIn("Run OCR", response.text)
         self.assertIn("Proof JSON", response.text)
         self.assertIn("Run checker", response.text)
         self.assertIn("starter", response.text)
+        self.assertIn("OCR review details", response.text)
         self.assertIn("Unary Verifier Experiment", response.text)
 
     def test_save_modal_proof_state_persists_state_json(self) -> None:
@@ -70,6 +72,37 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertEqual(saved["draft_comment"], "saved comment")
         self.assertEqual(saved["draft_grade"], "2")
 
+    def test_save_modal_proof_state_persists_review_decisions(self) -> None:
+        review_decisions = {
+            "4": {
+                "mode": "candidate",
+                "formula": "¬□¬¬A",
+                "source_key": "formula::¬□¬¬A",
+            }
+        }
+
+        with patch.object(modal_proof_debug_routes, "DEBUG_MODAL_PROOF_DIR", self.debug_dir):
+            self.client.post(
+                "/debug/modal-proof/save",
+                data={
+                    "example": "starter",
+                    "system": "K",
+                    "conclusion": "",
+                    "vision_base_url": "",
+                    "vision_model": "qwen/qwen3-vl-4b",
+                    "verifier_vision_model": "qwen/qwen3-vl-8b",
+                    "proof_json_text": json.dumps({"lines": [{"line": 4, "wffstr": "¬□¬A", "jstr": "MC 3"}], "meta": {}}, ensure_ascii=False),
+                    "review_decisions_json": json.dumps(review_decisions, ensure_ascii=False),
+                    "draft_comment": "",
+                    "draft_grade": "",
+                },
+                follow_redirects=False,
+            )
+
+        saved = json.loads((self.debug_dir / "starter" / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(saved["review_decisions"]["4"]["mode"], "candidate")
+        self.assertEqual(saved["review_decisions"]["4"]["formula"], "¬□¬¬A")
+
     def test_run_ocr_updates_state_from_uploaded_image(self) -> None:
         ocr_state = {
             "system": "S5",
@@ -89,6 +122,7 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
             "checker_request": {"system": "S5", "lines": []},
             "checker_response": {"ok": True, "parse_errors": [], "check_errors": []},
             "run_summary": "OCR produced a modal proof structure and the checker ran.",
+            "review_decisions": {"4": {"mode": "manual", "formula": "□A", "source_key": ""}},
         }
 
         with (
@@ -125,8 +159,9 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         original_lines = json.loads(saved["original_proof_json_text"])["lines"]
         self.assertEqual(original_lines[0]["wffstr"], "A")
         self.assertEqual(saved["verifier_rewrite_summary"][0]["rewritten_formula"], "□A")
+        self.assertEqual(saved["review_decisions"], {})
 
-    def test_modal_proof_debug_page_shows_unary_verifier_results_and_line_crops(self) -> None:
+    def test_modal_proof_debug_page_shows_review_panel_and_unary_verifier_results(self) -> None:
         example_dir = self.debug_dir / "sample"
         example_dir.mkdir(parents=True, exist_ok=True)
         (example_dir / "state.json").write_text(
@@ -135,17 +170,23 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
                     "system": "K",
                     "include_derived_rules": False,
                     "conclusion": "",
-                    "proof_json_text": json.dumps({"lines": [], "meta": {}}, ensure_ascii=False),
+                    "source_image_name": "sample_source.png",
+                    "proof_json_text": json.dumps({"lines": [{"line": 4, "wffstr": "¬□¬A", "jstr": "MC 3"}], "meta": {}}, ensure_ascii=False),
                     "original_proof_json_text": json.dumps({"lines": [{"wffstr": "¬□¬A", "jstr": "MC 3"}], "meta": {}}, ensure_ascii=False),
                     "verifier_rewrite_summary": [
                         {"line_number": 4, "original_formula": "¬□¬A", "rewritten_formula": "¬□¬¬A", "citation": "MC 3"}
                     ],
+                    "checker_response": {
+                        "parse_errors": [],
+                        "check_errors": [{"line": 4, "code": "BadUsage", "message": "cited a rule that was used incorrectly"}],
+                    },
                     "run_summary": "ready",
                 },
                 ensure_ascii=False,
             ),
             encoding="utf-8",
         )
+        (example_dir / "sample_source.png").write_bytes(b"fakepng")
         (example_dir / "unary_verifier.json").write_text(
             json.dumps(
                 [
@@ -196,6 +237,19 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
             response = self.client.get("/debug/modal-proof?example=sample")
 
         self.assertEqual(response.status_code, 200)
+        self.assertIn("Proof image", response.text)
+        self.assertIn("Proof editor", response.text)
+        self.assertIn("Open image file", response.text)
+        self.assertIn("ASCII Proof View", response.text)
+        self.assertIn("OCR review details", response.text)
+        self.assertIn("Flagged OCR lines: 1", response.text)
+        self.assertIn("Flagged lines:", response.text)
+        self.assertIn("Use ¬□¬¬A", response.text)
+        self.assertIn("Use manual", response.text)
+        self.assertIn("checker issue", response.text)
+        self.assertIn("checker: cited a rule that was used incorrectly", response.text)
+        self.assertIn("ocr: proposed correction, multiple candidate formulas", response.text)
+        self.assertIn("Apply review choices to Proof JSON", response.text)
         self.assertIn("Unary Verifier Experiment", response.text)
         self.assertIn("¬□¬¬A", response.text)
         self.assertIn("verifier_line_1_4.jpg", response.text)
@@ -208,6 +262,104 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertIn("y 120-148", response.text)
         self.assertIn("Verifier Rewrites", response.text)
         self.assertIn("Original OCR JSON", response.text)
+
+    def test_build_review_panel_dedupes_candidates_and_flags_checker_only_lines(self) -> None:
+        state = {
+            "proof_json_text": json.dumps(
+                {
+                    "lines": [
+                        {"line": 4, "wffstr": "¬□¬A", "jstr": "MC 3"},
+                        {"line": 9, "wffstr": "⊥", "jstr": "¬E 4 8"},
+                    ],
+                    "meta": {},
+                },
+                ensure_ascii=False,
+            ),
+            "original_proof_json_text": json.dumps(
+                {
+                    "lines": [
+                        {"line": 4, "wffstr": "¬□¬A", "jstr": "MC 3"},
+                        {"line": 9, "wffstr": "⊥", "jstr": "¬E 4 8"},
+                    ],
+                    "meta": {},
+                },
+                ensure_ascii=False,
+            ),
+            "checker_response": {
+                "parse_errors": [],
+                "check_errors": [{"line": 9, "code": "BadUsage", "message": "cited a rule that was used incorrectly"}],
+            },
+            "review_decisions": {},
+        }
+        unary_results = [
+            {
+                "line_number": 4,
+                "baseline_formula": "¬□¬A",
+                "structured_formula": "¬□¬¬A",
+                "forced_choice": "¬□¬¬A",
+                "proposed_correction": "¬□¬¬A",
+                "attempt_kind": "margin_anchor",
+                "candidate_attempts": [
+                    {"attempt_kind": "margin_anchor", "structured_formula": "¬□¬¬A", "forced_choice": "¬□¬¬A"},
+                    {"attempt_kind": "local_band", "structured_formula": "¬□¬¬A", "forced_choice": "¬□¬A"},
+                ],
+            }
+        ]
+
+        panel = modal_proof_debug_routes._build_review_panel(
+            state=state,
+            unary_verifier_results=unary_results,
+        )
+
+        self.assertEqual(panel["flagged_count"], 2)
+        line4 = next(item for item in panel["items"] if item["line_number"] == 4)
+        formulas = [candidate["formula"] for candidate in line4["candidates"]]
+        self.assertEqual(formulas.count("¬□¬¬A"), 1)
+        self.assertIn("multiple candidate formulas", line4["flag_reasons"])
+
+        line9 = next(item for item in panel["items"] if item["line_number"] == 9)
+        self.assertEqual(line9["issues"][0]["kind"], "rule")
+        self.assertEqual(line9["current_formula"], "⊥")
+
+    def test_build_review_panel_ignores_stale_saved_decisions(self) -> None:
+        state = {
+            "proof_json_text": json.dumps(
+                {"lines": [{"line": 4, "wffstr": "¬□¬A", "jstr": "MC 3"}], "meta": {}},
+                ensure_ascii=False,
+            ),
+            "original_proof_json_text": json.dumps(
+                {"lines": [{"line": 4, "wffstr": "¬□¬A", "jstr": "MC 3"}], "meta": {}},
+                ensure_ascii=False,
+            ),
+            "checker_response": {"parse_errors": [], "check_errors": []},
+            "review_decisions": {
+                "4": {
+                    "mode": "candidate",
+                    "formula": "¬□¬¬A",
+                    "source_key": "formula::stale",
+                }
+            },
+        }
+        unary_results = [
+            {
+                "line_number": 4,
+                "baseline_formula": "¬□¬A",
+                "structured_formula": "¬□¬¬A",
+                "forced_choice": "uncertain",
+                "proposed_correction": "",
+                "attempt_kind": "local_band",
+                "candidate_attempts": [],
+            }
+        ]
+
+        panel = modal_proof_debug_routes._build_review_panel(
+            state=state,
+            unary_verifier_results=unary_results,
+        )
+
+        self.assertEqual(panel["flagged_count"], 1)
+        self.assertIsNone(panel["items"][0]["selected_decision"])
+        self.assertEqual(panel["unresolved_count"], 1)
 
     def test_run_checker_renders_summary_and_payloads(self) -> None:
         result = AutoGradeResult(
@@ -253,6 +405,7 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertIn("Checker ran successfully through the shared autograde layer.", response.text)
         self.assertIn("Modal proof checked under system K; conclusion reached.", response.text)
         self.assertIn("Checker input", response.text)
+        self.assertIn("ASCII Proof View", response.text)
         self.assertIn("1. A    PR", response.text)
         self.assertIn('"sentence": "A"', response.text)
         self.assertIn("No parse errors reported.", response.text)
