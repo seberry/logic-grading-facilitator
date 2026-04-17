@@ -1,0 +1,2 @@
+"""Modal proof OCR package."""
+

@@ -7,17 +7,79 @@ import os
 import re
 import shutil
 import sys
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
-import yaml
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
 sys.path.append(project_root)
+
+from modal_ocr.artifacts import (
+    BASELINE_FINAL_STRUCTURE_FILENAME,
+    CHECKER_REQUEST_FILENAME,
+    CHECKER_RESPONSE_FILENAME,
+    FINAL_STRUCTURE_FILENAME,
+    INTERMEDIATE_TEMPLATE,
+    NODE_ENTRIES_TEMPLATE,
+    NODE_LINE_CROP_TEMPLATE,
+    NODE_LINE_FORMULA_CROP_TEMPLATE,
+    NODE_LINE_FORMULA_REREAD_CROP_TEMPLATE,
+    NODE_LINE_FORMULA_RETRY_CROP_TEMPLATE,
+    NODE_LINE_JUSTIFICATION_CROP_TEMPLATE,
+    NODE_LINE_JUSTIFICATION_RETRY_CROP_TEMPLATE,
+    NODE_LINE_RESPONSE_TEMPLATE,
+    NODE_LINE_RETRY_CROP_TEMPLATE,
+    NODE_ROWS_OVERLAY_TEMPLATE,
+    NODE_ROWS_TEMPLATE,
+    PROMPT_FILENAME,
+    RAW_RESPONSE_TEMPLATE,
+    SOURCE_IMAGE_FILENAME,
+    STATE_FILENAME,
+    STRICT_OPENER_LINE_TEMPLATE,
+    STRICT_OPENER_RESPONSE_TEMPLATE,
+    UNARY_RECHECK_FILENAME,
+    UNARY_VERIFIER_FILENAME,
+    VERIFIER_REWRITES_FILENAME,
+)
+from modal_ocr.prompts import (
+    build_formula_ocr_prompt,
+    build_justification_ocr_prompt,
+    build_line_ocr_prompt,
+    build_prompt,
+)
+from modal_ocr.shared import (
+    JUSTIFICATION_HEAD_OPTIONS,
+    JUSTIFICATION_HEAD_OPTION_SET,
+    LINE_SCOPE_ROLE_OPTIONS,
+    LINE_SCOPE_ROLE_OPTION_SET,
+    SUPPORTED_SYSTEMS,
+    TOKEN_PATTERN,
+    SubproofNode,
+    canonical_modal_config as _canonical_modal_config,
+    load_modal_config as _load_modal_config,
+)
+from modal_ocr.verifier import (
+    SHORT_FORMULA_REREAD_RULE_HEADS,
+    UNARY_PREFIX_CHARS,
+    UNARY_SENSITIVE_RULE_HEADS,
+    apply_unary_verifier_corrections as _apply_unary_verifier_corrections_impl,
+    best_verifier_attempt as _best_verifier_attempt_impl,
+    build_forced_choice_unary_verifier_prompt as _build_forced_choice_unary_verifier_prompt_impl,
+    build_node_lookup as _build_node_lookup_impl,
+    build_structured_unary_verifier_prompt as _build_structured_unary_verifier_prompt_impl,
+    candidate_band_indices as _candidate_band_indices_impl,
+    confidence_score as _confidence_score_impl,
+    leading_unary_prefix as _leading_unary_prefix_impl,
+    margin_anchor_strip_bounds as _margin_anchor_strip_bounds_impl,
+    merge_margin_candidate_boxes as _merge_margin_candidate_boxes_impl,
+    run_unary_verifier_experiment as _run_unary_verifier_experiment_impl,
+    run_unary_postprocess,
+    should_verify_unary_formula as _should_verify_unary_formula_impl,
+    verifier_node_crop_image as _verifier_node_crop_image_impl,
+)
 
 try:
     from app.modal_proof_deduct import build_modal_proof_request, run_modal_proof_checker
@@ -40,198 +102,6 @@ except ImportError as exc:  # pragma: no cover - fallback for standalone use
 
 def default_unary_verifier_model() -> str:
     return os.getenv("LMSTUDIO_VERIFIER_MODEL_ID", "qwen/qwen3-vl-8b").strip() or "qwen/qwen3-vl-8b"
-
-
-STATE_FILENAME = "state.json"
-PROMPT_FILENAME = "ocr_prompt.txt"
-FINAL_STRUCTURE_FILENAME = "final_structure.json"
-BASELINE_FINAL_STRUCTURE_FILENAME = "final_structure_baseline.json"
-CHECKER_REQUEST_FILENAME = "checker_request.json"
-CHECKER_RESPONSE_FILENAME = "checker_response.json"
-RAW_RESPONSE_TEMPLATE = "response_{node_id}.json"
-INTERMEDIATE_TEMPLATE = "intermediate_{node_id}.json"
-STRICT_OPENER_LINE_TEMPLATE = "strict_opener_line_{node_id}.jpg"
-STRICT_OPENER_RESPONSE_TEMPLATE = "strict_opener_{node_id}.json"
-NODE_ROWS_TEMPLATE = "node_rows_{node_id}.json"
-NODE_ROWS_OVERLAY_TEMPLATE = "node_rows_overlay_{node_id}.jpg"
-NODE_ENTRIES_TEMPLATE = "node_entries_{node_id}.json"
-NODE_LINE_CROP_TEMPLATE = "node_line_{node_id}_{row_order}.jpg"
-NODE_LINE_RESPONSE_TEMPLATE = "node_line_{node_id}_{row_order}.json"
-NODE_LINE_RETRY_CROP_TEMPLATE = "node_line_{node_id}_{row_order}_up4.jpg"
-UNARY_RECHECK_FILENAME = "unary_rechecks.json"
-UNARY_VERIFIER_FILENAME = "unary_verifier.json"
-VERIFIER_REWRITES_FILENAME = "verifier_rewrites.json"
-SOURCE_IMAGE_FILENAME = "source_image"
-
-SUPPORTED_SYSTEMS = {"K", "T", "S4", "S5"}
-TOKEN_PATTERN = re.compile(r"<SUBPROOF_ID_([A-Za-z0-9_]+)>")
-JUSTIFICATION_HEAD_OPTIONS = (
-    "PR",
-    "R",
-    "∧I",
-    "∧E",
-    "∨I",
-    "∨E",
-    "→I",
-    "→E",
-    "↔I",
-    "↔E",
-    "¬I",
-    "¬E",
-    "IP",
-    "DN",
-    "MC",
-    "□I",
-    "□E",
-    "R4",
-    "RT",
-    "Def⋄",
-    "",
-    "other",
-)
-JUSTIFICATION_HEAD_OPTION_SET = set(JUSTIFICATION_HEAD_OPTIONS)
-LINE_SCOPE_ROLE_OPTIONS = (
-    "premise",
-    "ordinary_assumption",
-    "derived_line",
-    "strict_open",
-    "subproof_token",
-)
-LINE_SCOPE_ROLE_OPTION_SET = set(LINE_SCOPE_ROLE_OPTIONS)
-
-
-@dataclass
-class SubproofNode:
-    id: str
-    box: Tuple[int, int, int, int]
-    children: List["SubproofNode"]
-    parent: Optional["SubproofNode"] = None
-
-    def __init__(self, box_id: str, box: Tuple[int, int, int, int]) -> None:
-        self.id = box_id
-        self.box = box
-        self.children = []
-        self.parent = None
-
-    @property
-    def depth(self) -> int:
-        depth = 0
-        current = self.parent
-        while current:
-            depth += 1
-            current = current.parent
-        return depth
-
-
-def _load_modal_config(path: Path | None) -> Dict[str, Any]:
-    if path is None or not path.exists():
-        return {}
-
-    raw_text = path.read_text(encoding="utf-8")
-    parsed = yaml.safe_load(raw_text) or {}
-    if not isinstance(parsed, dict):
-        raise ValueError("modal autograde file must parse to an object/map")
-
-    if "proof_json_text" in parsed or "system" in parsed:
-        return {
-            "system": str(parsed.get("system") or "").strip() or "K",
-            "include_derived_rules": bool(parsed.get("include_derived_rules", False)),
-            "conclusion": str(parsed.get("conclusion") or "").strip() or None,
-        }
-
-    nested_setup = parsed.get("problem_setup_text")
-    if isinstance(nested_setup, str) and nested_setup.strip():
-        nested = yaml.safe_load(nested_setup) or {}
-        if not isinstance(nested, dict):
-            raise ValueError("problem_setup_text must parse to an object/map")
-        parsed = nested
-
-    return {
-        "system": str(parsed.get("system") or "").strip() or "K",
-        "include_derived_rules": bool(parsed.get("include_derived_rules", False)),
-        "conclusion": str(parsed.get("conclusion") or "").strip() or None,
-    }
-
-
-def _canonical_modal_config(config: Dict[str, Any]) -> Dict[str, Any]:
-    system = str(config.get("system") or "K").strip() or "K"
-    if system not in SUPPORTED_SYSTEMS:
-        system = "K"
-    conclusion = config.get("conclusion")
-    conclusion_text = str(conclusion).strip() if conclusion is not None else ""
-    return {
-        "system": system,
-        "include_derived_rules": bool(config.get("include_derived_rules", False)),
-        "conclusion": conclusion_text or None,
-    }
-
-
-def build_prompt(config: Dict[str, Any]) -> str:
-    clean = _canonical_modal_config(config)
-    conclusion = clean.get("conclusion")
-    lines = [
-        "You are transcribing a modal Fitch-style proof from an image.",
-        "Return only JSON. Do not include markdown fences or explanation.",
-        "",
-        "Return a JSON array. Each item must be one of:",
-        '1. A proof line object: {"formula_text": "...", "justification_text": "...", "scope_role": "...", "line_label": "..."}',
-        '2. A masked child token object: {"formula_text": "<SUBPROOF_ID_X>", "scope_role": "subproof_token"}',
-        "",
-        "Allowed scope_role values:",
-        '- "premise" for top-level premises',
-        '- "ordinary_assumption" for the first line of a normal subproof',
-        '- "strict_open" for a strict modal subproof opener; the formula_text should be just □',
-        '- "derived_line" for any ordinary derived line',
-        '- "subproof_token" for a red masked token placeholder',
-        "",
-        "Transcription rules:",
-        "- Keep formulas concise and symbolic.",
-        "- Prefer Unicode operators: ¬, ∧, ∨, →, ↔, □, ⋄.",
-        "- For justifications, prefer forms like R 1, ∧I 4 5, ∧E 1, →I 2-3, □E 1, □I 3-6, R4 1, RT 1, MC 1, Def⋄ 1.",
-        "- Copy the printed line labels exactly as they appear in the image. Do not renumber lines within a crop.",
-        "- If a line starts a strict modal subproof, use scope_role strict_open and formula_text □.",
-        "- Preserve the exact number of negation marks. Do not collapse ¬¬A into ¬A.",
-        "- In handwritten work, double negation may appear as ¬¬A, ~~A, or mixed marks; if you see two negation strokes, transcribe two negations.",
-        "- If a line cites DN, be especially careful to preserve doubled negation in the formula.",
-        "- A contradiction line may be written as ⊥, _|_, _ | _, or a short vertical stroke over a horizontal bar; transcribe any of these as ⊥.",
-        "- If a line's entire formula is just contradiction/absurdity, return formula_text as ⊥.",
-        "- If you see a red token like <SUBPROOF_ID_2>, return it exactly as formula_text with scope_role subproof_token.",
-        "- After a red subproof token, keep listing any further visible lines in the current crop. Do not stop early just because a child subproof was masked.",
-        "- If a current crop contains both a masked child token and a later closing-result line such as □B or A → B, include both in order.",
-        "- Do not invent nested JSON structure yourself; just list the visible lines in order for the current crop.",
-        "",
-        f"Modal system: {clean['system']}",
-        f"Include derived rules: {'yes' if clean['include_derived_rules'] else 'no'}",
-    ]
-    if conclusion:
-        lines.append(f"Target conclusion: {conclusion}")
-    return "\n".join(lines)
-
-
-def build_line_ocr_prompt(config: Dict[str, Any]) -> str:
-    clean = _canonical_modal_config(config)
-    justification_heads = ", ".join([head if head else "<blank>" for head in JUSTIFICATION_HEAD_OPTIONS])
-    lines = [
-        "You are transcribing one handwritten modal Fitch proof line from an image crop.",
-        "Return only JSON. Do not include markdown fences or explanation.",
-        'Return one JSON object with keys: formula_text, justification_head, justification_tail, line_label, scope_role, confidence.',
-        f"justification_head must be one of: {justification_heads}.",
-        f"scope_role must be one of: {', '.join(LINE_SCOPE_ROLE_OPTIONS)}.",
-        "Read exactly one proof line from this crop. Do not split one line into multiple lines.",
-        "formula_text is the symbolic formula on the line.",
-        "justification_head is the rule head only, such as PR, →E, □I, or blank.",
-        "justification_tail is only the citation tail, such as 1, 4 5, or 3-6, and should be blank when there is no tail.",
-        "If the justification is unreadable or outside the allowed head list, set justification_head to other and keep the remaining readable text in justification_tail.",
-        "Copy the printed line label if visible; otherwise return an empty string.",
-        "Prefer Unicode operators: ¬, ∧, ∨, →, ↔, □, ⋄.",
-        "Preserve doubled negation exactly.",
-        "Use confidence values high, medium, low, or uncertain.",
-        f"Modal system: {clean['system']}",
-        f"Include derived rules: {'yes' if clean['include_derived_rules'] else 'no'}",
-    ]
-    if clean.get("conclusion"):
-        lines.append(f"Target conclusion: {clean['conclusion']}")
-    return "\n".join(lines)
 
 
 def build_vlm_client(
@@ -671,7 +541,7 @@ def _normalize_line_scope_role(
 def _normalize_justification_head(raw_head: Any) -> str:
     raw = str(raw_head or "").strip()
     lowered = raw.lower()
-    if lowered in {"", "blank", "none", "null"}:
+    if lowered in {"", "blank", "<blank>", "none", "null"}:
         return ""
     shorthand = {
         "pr": "PR",
@@ -926,6 +796,40 @@ def _band_has_text_outside_vertical_window(
     return int(dark.sum()) >= 14
 
 
+def _band_matches_child_token_artifact(
+    *,
+    band: Tuple[int, int],
+    node: SubproofNode,
+    node_crop_img: np.ndarray,
+    center_tolerance: int = 2,
+    overlap_ratio_threshold: float = 0.45,
+) -> bool:
+    band_height = _band_height(band)
+    if band_height <= 0 or not node.children:
+        return False
+
+    band_center = (int(band[0]) + int(band[1])) / 2.0
+    for child in node.children:
+        _, token_top, _, token_bottom = _token_rect_for_child(node=node, child=child, img_shape=node_crop_img.shape)
+        overlap_top = max(int(band[0]), int(token_top))
+        overlap_bottom = min(int(band[1]), int(token_bottom))
+        overlap = overlap_bottom - overlap_top + 1
+        overlap_ratio = (overlap / band_height) if overlap > 0 else 0.0
+        center_inside = (int(token_top) - center_tolerance) <= band_center <= (int(token_bottom) + center_tolerance)
+        if center_inside:
+            return True
+        if overlap_ratio < overlap_ratio_threshold:
+            continue
+        if not _band_has_text_outside_vertical_window(
+            node_crop_img,
+            band,
+            window_y1=int(token_top),
+            window_y2=int(token_bottom) + 1,
+        ):
+            return True
+    return False
+
+
 def _filter_bands_near_child_tokens(
     *,
     bands: List[Tuple[int, int]],
@@ -935,33 +839,13 @@ def _filter_bands_near_child_tokens(
     if not bands or not node.children:
         return bands
 
-    token_windows = []
-    for child in sorted(node.children, key=lambda c: c.box[1]):
-        _, top, _, bottom = _token_rect_for_child(node=node, child=child, img_shape=node_crop_img.shape)
-        token_windows.append((max(0, top), min(node_crop_img.shape[0] - 1, bottom)))
-
     filtered: List[Tuple[int, int]] = []
     for band in bands:
-        keep = True
-        band_height = _band_height(band)
-        for token_y1, token_y2 in token_windows:
-            overlap_top = max(int(band[0]), token_y1)
-            overlap_bottom = min(int(band[1]), token_y2)
-            overlap = overlap_bottom - overlap_top + 1
-            if overlap <= 0:
-                continue
-            overlap_ratio = overlap / max(1, band_height)
-            if overlap_ratio < 0.55:
-                continue
-            if not _band_has_text_outside_vertical_window(
-                node_crop_img,
-                band,
-                window_y1=token_y1,
-                window_y2=token_y2 + 1,
-            ):
-                keep = False
-                break
-        if keep:
+        if not _band_matches_child_token_artifact(
+            band=band,
+            node=node,
+            node_crop_img=node_crop_img,
+        ):
             filtered.append(band)
     return filtered
 
@@ -973,18 +857,11 @@ def _row_overlaps_child_token(
     node_crop_img: np.ndarray,
 ) -> bool:
     band = (int(row_record.get("y1", 0)), int(row_record.get("y2", 0)))
-    band_height = _band_height(band)
-    if band_height <= 0:
-        return False
-
-    for child in node.children:
-        _, top, _, bottom = _token_rect_for_child(node=node, child=child, img_shape=node_crop_img.shape)
-        overlap_top = max(band[0], int(top))
-        overlap_bottom = min(band[1], int(bottom))
-        overlap = overlap_bottom - overlap_top + 1
-        if overlap > 0 and overlap / band_height >= 0.55:
-            return True
-    return False
+    return _band_matches_child_token_artifact(
+        band=band,
+        node=node,
+        node_crop_img=node_crop_img,
+    )
 
 
 def _band_has_textlike_ink(node_crop_img: np.ndarray, band: Tuple[int, int]) -> bool:
@@ -1093,6 +970,192 @@ def _extract_line_row_crop(
     return _suppress_left_scope_bar(crop)
 
 
+def _score_to_confidence_label(score: float) -> str:
+    if score >= 0.85:
+        return "high"
+    if score >= 0.55:
+        return "medium"
+    if score > 0.0:
+        return "low"
+    return "uncertain"
+
+
+def _choose_line_zone_split_x(crop_img: np.ndarray) -> int:
+    if crop_img.size == 0:
+        return 0
+
+    gray = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
+    dark = (gray < 185).astype(np.uint8)
+    if dark.size == 0:
+        return max(0, int(crop_img.shape[1] * 0.6))
+
+    col_counts = dark.sum(axis=0).astype(np.float32)
+    if col_counts.size == 0:
+        return max(0, int(crop_img.shape[1] * 0.6))
+
+    kernel_width = max(9, min(31, int(crop_img.shape[1] * 0.06)))
+    if kernel_width % 2 == 0:
+        kernel_width += 1
+    kernel = np.ones(kernel_width, dtype=np.float32) / float(kernel_width)
+    smoothed = np.convolve(col_counts, kernel, mode="same")
+
+    total_ink = float(col_counts.sum())
+    img_w = int(crop_img.shape[1])
+    search_start = max(12, int(img_w * 0.18))
+    search_end = min(img_w - 12, int(img_w * 0.72))
+    preferred = float(img_w * 0.42)
+
+    prefix = np.cumsum(col_counts)
+    best_x = max(search_start, min(search_end, int(preferred)))
+    best_score = float("inf")
+
+    for split_x in range(search_start, max(search_start + 1, search_end)):
+        left_ink = float(prefix[split_x - 1]) if split_x > 0 else 0.0
+        right_ink = total_ink - left_ink
+        if left_ink < 10.0 or right_ink < 10.0:
+            continue
+        score = float(smoothed[split_x]) + (abs(float(split_x) - preferred) * 0.03)
+        if score < best_score:
+            best_score = score
+            best_x = split_x
+
+    min_split = max(18, int(img_w * 0.22))
+    max_split = max(min_split + 1, int(img_w * 0.62))
+    return max(min_split, min(max_split, best_x))
+
+
+def _extract_line_zone_crops(crop_img: np.ndarray) -> Tuple[np.ndarray, np.ndarray, Dict[str, Any]]:
+    if crop_img.size == 0:
+        empty = crop_img.copy()
+        return empty, empty, {"split_x": 0, "formula_x1": 0, "formula_x2": 0, "justification_x1": 0, "justification_x2": 0}
+
+    img_h, img_w = crop_img.shape[:2]
+    split_x = _choose_line_zone_split_x(crop_img)
+    overlap = max(10, int(img_w * 0.02))
+
+    formula_x1 = 0
+    formula_x2 = max(1, min(img_w, split_x + overlap))
+    justification_x1 = max(0, min(img_w - 1, split_x - overlap))
+    justification_x2 = img_w
+
+    formula_crop = crop_img[:, formula_x1:formula_x2]
+    justification_crop = crop_img[:, justification_x1:justification_x2]
+    if formula_crop.size == 0:
+        formula_crop = crop_img.copy()
+    if justification_crop.size == 0:
+        justification_crop = crop_img.copy()
+
+    return formula_crop, justification_crop, {
+        "split_x": int(split_x),
+        "formula_x1": int(formula_x1),
+        "formula_x2": int(formula_x2),
+        "justification_x1": int(justification_x1),
+        "justification_x2": int(justification_x2),
+        "width": int(img_w),
+        "height": int(img_h),
+    }
+
+
+def _normalize_formula_zone_result(parsed: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "formula_text": str(parsed.get("formula_text") or "").strip(),
+        "line_label": str(parsed.get("line_label") or "").strip(),
+        "confidence": str(parsed.get("confidence") or "").strip(),
+    }
+
+
+def _normalize_justification_zone_result(parsed: Dict[str, Any]) -> Dict[str, Any]:
+    raw_text = str(
+        parsed.get("justification_text")
+        or parsed.get("jstr")
+        or _compose_line_justification_text(
+            head=parsed.get("justification_head") or "",
+            tail=parsed.get("justification_tail") or "",
+            raw_head=parsed.get("justification_head"),
+        )
+        or ""
+    ).strip()
+    normalized_text = _normalize_justification_text(raw_text)
+    parts = normalized_text.split(" ", 1) if normalized_text else []
+    head = _normalize_justification_head(parts[0] if parts else "")
+    tail = _normalize_justification_tail(parts[1] if len(parts) > 1 else "")
+    if head == "":
+        tail = ""
+    return {
+        "justification_head": head,
+        "justification_tail": tail,
+        "raw_justification_text": raw_text,
+        "confidence": str(parsed.get("confidence") or "").strip(),
+    }
+
+
+def _normalize_visible_line_label(raw_value: Any) -> str:
+    raw = str(raw_value or "").strip()
+    if not raw:
+        return ""
+    compact = re.sub(r"\s+", "", raw)
+    return raw if re.fullmatch(r"\d+[.)]?", compact) else ""
+
+
+def _recover_justification_from_formula_label(raw_value: Any) -> Tuple[str, str]:
+    raw = str(raw_value or "").strip()
+    if not raw:
+        return "", ""
+    normalized = _normalize_justification_text(raw)
+    if not normalized:
+        return "", ""
+    head = _normalize_justification_head(normalized)
+    if head == "other":
+        return "", ""
+    parts = normalized.split(" ", 1)
+    return head, _normalize_justification_tail(parts[1] if len(parts) > 1 else "")
+
+
+def _merge_line_zone_results(
+    *,
+    formula_result: Dict[str, Any],
+    justification_result: Dict[str, Any],
+    is_root_node: bool,
+    is_first_visible_row_of_nonroot: bool,
+) -> Dict[str, Any]:
+    justification_head = str(justification_result.get("justification_head") or "").strip()
+    justification_tail = str(justification_result.get("justification_tail") or "").strip()
+    raw_justification_text = str(justification_result.get("raw_justification_text") or "").strip()
+    raw_line_label = str(formula_result.get("line_label") or "").strip()
+    line_label = _normalize_visible_line_label(raw_line_label)
+    fallback_head = ""
+    fallback_tail = ""
+    if raw_line_label and not line_label:
+        fallback_head, fallback_tail = _recover_justification_from_formula_label(raw_line_label)
+        if fallback_head and justification_head in {"", "other"}:
+            justification_head = fallback_head
+            combined_tail_parts = [part for part in (fallback_tail, justification_tail) if part]
+            justification_tail = _normalize_justification_tail(" ".join(combined_tail_parts))
+    formula_conf = _confidence_score(formula_result.get("confidence"))
+    justification_conf = _confidence_score(justification_result.get("confidence"))
+    overall_conf = formula_conf
+    if justification_head or justification_tail:
+        overall_conf = min(formula_conf, justification_conf) if formula_conf > 0.0 and justification_conf > 0.0 else max(formula_conf, justification_conf)
+    return {
+        "formula_text": str(formula_result.get("formula_text") or "").strip(),
+        "justification_head": justification_head,
+        "justification_tail": justification_tail,
+        "justification_text": _compose_line_justification_text(
+            head=justification_head,
+            tail=justification_tail,
+            raw_head=raw_justification_text or justification_head,
+        ),
+        "line_label": line_label,
+        "scope_role": _normalize_line_scope_role(
+            "",
+            is_root_node=is_root_node,
+            is_first_visible_row_of_nonroot=is_first_visible_row_of_nonroot,
+            justification_head=justification_head,
+        ),
+        "confidence": _score_to_confidence_label(overall_conf),
+    }
+
+
 def _normalize_line_ocr_result(
     parsed: Dict[str, Any],
     *,
@@ -1130,7 +1193,8 @@ def ocr_node_row(
     node_crop_img: np.ndarray,
     row_record: Dict[str, Any],
     output_dir: Path,
-    base_prompt: str,
+    formula_prompt: str,
+    justification_prompt: str,
     client: LMStudioQwenClient | None,
     verifier_client: LMStudioQwenClient | None = None,
     is_first_visible_row_of_nonroot: bool = False,
@@ -1143,20 +1207,72 @@ def ocr_node_row(
     )
     crop_path = output_dir / NODE_LINE_CROP_TEMPLATE.format(node_id=node.id, row_order=row_order)
     cv2.imwrite(str(crop_path), crop_img)
+    formula_crop, justification_crop, zone_geometry = _extract_line_zone_crops(crop_img)
+    formula_crop_path = output_dir / NODE_LINE_FORMULA_CROP_TEMPLATE.format(node_id=node.id, row_order=row_order)
+    justification_crop_path = output_dir / NODE_LINE_JUSTIFICATION_CROP_TEMPLATE.format(node_id=node.id, row_order=row_order)
+    cv2.imwrite(str(formula_crop_path), formula_crop)
+    cv2.imwrite(str(justification_crop_path), justification_crop)
 
-    prompt = _build_modal_line_prompt_for_row(
-        base_prompt,
-        is_root_node=node.id == "ROOT",
-        is_first_visible_row_of_nonroot=is_first_visible_row_of_nonroot,
-    )
-    raw, parsed = _call_vlm_json_object(
-        image_path=crop_path,
-        prompt=prompt,
+    formula_raw, formula_parsed = _call_vlm_json_object(
+        image_path=formula_crop_path,
+        prompt=formula_prompt,
         client=client,
-        user_text="Return the JSON transcription for this single proof line.",
+        user_text="Return the JSON transcription for this formula zone.",
     )
-    normalized = _normalize_line_ocr_result(
-        parsed,
+    justification_raw, justification_parsed = _call_vlm_json_object(
+        image_path=justification_crop_path,
+        prompt=justification_prompt,
+        client=client,
+        user_text="Return the JSON transcription for this justification zone.",
+    )
+    formula_result = _normalize_formula_zone_result(formula_parsed)
+    justification_result = _normalize_justification_zone_result(justification_parsed)
+    initial_formula_result = dict(formula_result)
+    initial_justification_result = dict(justification_result)
+    justification_text = _compose_line_justification_text(
+        head=str(justification_result.get("justification_head") or "").strip(),
+        tail=str(justification_result.get("justification_tail") or "").strip(),
+        raw_head=justification_result.get("raw_justification_text"),
+    )
+    formula_reread_artifact: Dict[str, Any] | None = None
+    if verifier_client is not None and _should_reread_short_formula(
+        formula_text=str(formula_result.get("formula_text") or ""),
+        justification_text=justification_text,
+    ):
+        reread_img = _upscale_for_verifier(formula_crop)
+        reread_crop_path = output_dir / NODE_LINE_FORMULA_REREAD_CROP_TEMPLATE.format(node_id=node.id, row_order=row_order)
+        cv2.imwrite(str(reread_crop_path), reread_img)
+        reread_prompt = _build_short_formula_reread_prompt(
+            current_formula=str(formula_result.get("formula_text") or "").strip(),
+            justification_text=justification_text,
+        )
+        reread_raw, reread_parsed = _call_vlm_json_object(
+            image_path=reread_crop_path,
+            prompt=reread_prompt,
+            client=verifier_client,
+            user_text="Return the JSON transcription for this single formula.",
+        )
+        reread_result = _normalize_formula_probe_result(reread_parsed)
+        reread_applied = _should_accept_short_formula_reread(
+            original_formula=str(formula_result.get("formula_text") or ""),
+            candidate_formula=str(reread_result.get("formula_text") or ""),
+            justification_text=justification_text,
+            confidence=str(reread_result.get("confidence") or ""),
+        )
+        formula_reread_artifact = {
+            "crop_filename": reread_crop_path.name,
+            "prompt": reread_prompt,
+            "raw": reread_raw,
+            "parsed": reread_parsed,
+            "resolved": reread_result,
+            "applied": reread_applied,
+        }
+        if reread_applied:
+            formula_result["formula_text"] = str(reread_result.get("formula_text") or "").strip()
+            formula_result["confidence"] = str(reread_result.get("confidence") or formula_result.get("confidence") or "").strip()
+    normalized = _merge_line_zone_results(
+        formula_result=formula_result,
+        justification_result=justification_result,
         is_root_node=node.id == "ROOT",
         is_first_visible_row_of_nonroot=is_first_visible_row_of_nonroot,
     )
@@ -1167,31 +1283,70 @@ def ocr_node_row(
         "band_index": row_record.get("band_index"),
         "y1": row_record.get("y1"),
         "y2": row_record.get("y2"),
-        "initial_raw": raw,
-        "initial_parsed": parsed,
+        "zone_geometry": zone_geometry,
+        "formula_crop_filename": formula_crop_path.name,
+        "justification_crop_filename": justification_crop_path.name,
+        "initial_raw": {
+            "formula": formula_raw,
+            "justification": justification_raw,
+        },
+        "initial_parsed": {
+            "formula": formula_parsed,
+            "justification": justification_parsed,
+        },
+        "initial_resolved_zones": {
+            "formula": initial_formula_result,
+            "justification": initial_justification_result,
+        },
         "resolved": normalized,
         "retry_used": False,
     }
+    if formula_reread_artifact is not None:
+        artifact_payload["formula_reread"] = formula_reread_artifact
 
     if verifier_client is not None and _line_result_is_suspicious(normalized):
-        retry_img = _upscale_for_verifier(crop_img)
-        retry_crop_path = output_dir / NODE_LINE_RETRY_CROP_TEMPLATE.format(node_id=node.id, row_order=row_order)
-        cv2.imwrite(str(retry_crop_path), retry_img)
-        retry_raw, retry_parsed = _call_vlm_json_object(
-            image_path=retry_crop_path,
-            prompt=prompt,
+        retry_formula_img = _upscale_for_verifier(formula_crop)
+        retry_justification_img = _upscale_for_verifier(justification_crop)
+        retry_formula_crop_path = output_dir / NODE_LINE_FORMULA_RETRY_CROP_TEMPLATE.format(node_id=node.id, row_order=row_order)
+        retry_justification_crop_path = output_dir / NODE_LINE_JUSTIFICATION_RETRY_CROP_TEMPLATE.format(node_id=node.id, row_order=row_order)
+        cv2.imwrite(str(retry_formula_crop_path), retry_formula_img)
+        cv2.imwrite(str(retry_justification_crop_path), retry_justification_img)
+        retry_formula_raw, retry_formula_parsed = _call_vlm_json_object(
+            image_path=retry_formula_crop_path,
+            prompt=formula_prompt,
             client=verifier_client,
-            user_text="Return the JSON transcription for this single proof line.",
+            user_text="Return the JSON transcription for this formula zone.",
         )
-        retry_normalized = _normalize_line_ocr_result(
-            retry_parsed,
+        retry_justification_raw, retry_justification_parsed = _call_vlm_json_object(
+            image_path=retry_justification_crop_path,
+            prompt=justification_prompt,
+            client=verifier_client,
+            user_text="Return the JSON transcription for this justification zone.",
+        )
+        retry_formula_result = _normalize_formula_zone_result(retry_formula_parsed)
+        retry_justification_result = _normalize_justification_zone_result(retry_justification_parsed)
+        retry_normalized = _merge_line_zone_results(
+            formula_result=retry_formula_result,
+            justification_result=retry_justification_result,
             is_root_node=node.id == "ROOT",
             is_first_visible_row_of_nonroot=is_first_visible_row_of_nonroot,
         )
         artifact_payload["retry_used"] = True
-        artifact_payload["retry_crop_filename"] = retry_crop_path.name
-        artifact_payload["retry_raw"] = retry_raw
-        artifact_payload["retry_parsed"] = retry_parsed
+        artifact_payload["retry_crop_filename"] = NODE_LINE_RETRY_CROP_TEMPLATE.format(node_id=node.id, row_order=row_order)
+        artifact_payload["retry_formula_crop_filename"] = retry_formula_crop_path.name
+        artifact_payload["retry_justification_crop_filename"] = retry_justification_crop_path.name
+        artifact_payload["retry_raw"] = {
+            "formula": retry_formula_raw,
+            "justification": retry_justification_raw,
+        }
+        artifact_payload["retry_parsed"] = {
+            "formula": retry_formula_parsed,
+            "justification": retry_justification_parsed,
+        }
+        artifact_payload["retry_resolved_zones"] = {
+            "formula": retry_formula_result,
+            "justification": retry_justification_result,
+        }
         artifact_payload["retry_resolved"] = retry_normalized
         if not _line_result_is_suspicious(retry_normalized):
             normalized = retry_normalized
@@ -1215,11 +1370,17 @@ def assemble_node_entries_from_rows(
     node: SubproofNode,
     node_crop_img: np.ndarray,
     output_dir: Path,
-    base_prompt: str,
+    formula_prompt: str | None = None,
+    justification_prompt: str | None = None,
     client: LMStudioQwenClient | None,
     opener_client: LMStudioQwenClient | None = None,
     verifier_client: LMStudioQwenClient | None = None,
+    base_prompt: str | None = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    if formula_prompt is None:
+        formula_prompt = base_prompt or ""
+    if justification_prompt is None:
+        justification_prompt = base_prompt or ""
     row_records = segment_node_rows(node=node, node_crop_img=node_crop_img, output_dir=output_dir)
     opener_result = None
     consumed_first_line_row_order: int | None = None
@@ -1270,13 +1431,26 @@ def assemble_node_entries_from_rows(
                 }
             )
             continue
+        if _row_overlaps_child_token(node=node, row_record=row_record, node_crop_img=node_crop_img):
+            line_artifacts.append(
+                {
+                    "kind": "token_overlap_skipped",
+                    "row_order": row_order,
+                    "band_index": row_record.get("band_index"),
+                    "y1": row_record.get("y1"),
+                    "y2": row_record.get("y2"),
+                    "skipped_reason": "row_overlaps_child_token_pre_ocr",
+                }
+            )
+            continue
 
         entry, artifact = ocr_node_row(
             node=node,
             node_crop_img=node_crop_img,
             row_record=row_record,
             output_dir=output_dir,
-            base_prompt=base_prompt,
+            formula_prompt=formula_prompt,
+            justification_prompt=justification_prompt,
             client=client,
             verifier_client=verifier_client,
             is_first_visible_row_of_nonroot=(node.id != "ROOT" and visible_line_index == 0 and consumed_first_line_row_order is None),
@@ -1309,19 +1483,8 @@ def assemble_node_entries_from_rows(
     }
     return entries, node_response
 
-
-UNARY_PREFIX_CHARS = {"¬", "□", "⋄"}
-UNARY_SENSITIVE_RULE_HEADS = {"MC", "DN", "Def⋄"}
-UNARY_CANDIDATE_PREFIXES = ("¬", "¬¬", "¬¬¬", "□", "□¬", "¬□", "¬□¬", "⋄", "⋄¬", "¬⋄", "¬⋄¬")
-
-
 def _leading_unary_prefix(formula_text: str) -> str:
-    prefix_chars: List[str] = []
-    for char in formula_text:
-        if char not in UNARY_PREFIX_CHARS:
-            break
-        prefix_chars.append(char)
-    return "".join(prefix_chars)
+    return _leading_unary_prefix_impl(formula_text)
 
 
 def _should_recheck_unary_formula(entry: Dict[str, Any]) -> bool:
@@ -1363,10 +1526,6 @@ def _parse_unary_recheck_choice(raw: str) -> Dict[str, Any]:
         raise ValueError("Unary recheck response must be a JSON object")
     return parsed
 
-
-UNARY_VERIFIER_RULE_HEADS = {"MC", "DN", "Def⋄", "□I", "□E"}
-
-
 def _checker_payload_has_issues(payload: Any) -> bool:
     if not isinstance(payload, dict):
         return False
@@ -1374,29 +1533,11 @@ def _checker_payload_has_issues(payload: Any) -> bool:
 
 
 def _should_verify_unary_formula(entry: Dict[str, Any]) -> bool:
-    scope_role = str(entry.get("scope_role") or "derived_line").strip()
-    if scope_role in {"subproof_token", "strict_open"}:
-        return False
-
-    formula_text = _normalize_formula_text(entry.get("formula_text") or entry.get("wffstr") or "", scope_role)
-    if not formula_text:
-        return False
-
-    prefix = _leading_unary_prefix(formula_text)
-    body = formula_text[len(prefix) :].strip()
-    if body and _has_top_level_binary_connective(body):
-        return False
-
-    justification = _normalize_justification_text(entry.get("justification_text") or entry.get("jstr") or "")
-    rule_head = justification.split(" ", 1)[0] if justification else ""
-
-    if formula_text.startswith(tuple(UNARY_PREFIX_CHARS)):
-        return True
-    if "□" in formula_text or "⋄" in formula_text:
-        return True
-    if prefix.count("¬") >= 2:
-        return True
-    return rule_head in UNARY_VERIFIER_RULE_HEADS
+    return _should_verify_unary_formula_impl(
+        entry,
+        normalize_formula_text=_normalize_formula_text,
+        normalize_justification_text=_normalize_justification_text,
+    )
 
 
 def _has_top_level_binary_connective(formula_text: str) -> bool:
@@ -1414,35 +1555,15 @@ def _has_top_level_binary_connective(formula_text: str) -> bool:
 
 
 def _build_node_lookup(node: SubproofNode) -> Dict[str, SubproofNode]:
-    lookup = {node.id: node}
-    for child in node.children:
-        lookup.update(_build_node_lookup(child))
-    return lookup
+    return _build_node_lookup_impl(node)
 
 
 def _verifier_node_crop_image(*, node: SubproofNode, full_img: np.ndarray) -> np.ndarray:
-    if node.id == "ROOT":
-        crop_img = full_img.copy()
-    else:
-        crop_img = crop_region(full_img, node.box, bottom_padding=0).copy()
-
-    if crop_img.size == 0:
-        return crop_img
-
-    for child in sorted(node.children, key=lambda c: c.box[1]):
-        if node.id == "ROOT":
-            child_x, child_y, _, child_h = child.box
-        else:
-            parent_x, parent_y, _, _ = node.box
-            child_x = max(0, child.box[0] - parent_x + 10)
-            child_y = max(0, child.box[1] - parent_y + 10)
-            child_h = child.box[3]
-        x1 = max(0, child_x)
-        y1 = max(0, child_y)
-        x2 = crop_img.shape[1]
-        y2 = min(crop_img.shape[0], child_y + child_h)
-        cv2.rectangle(crop_img, (x1, y1), (x2, y2), (255, 255, 255), -1)
-    return crop_img
+    return _verifier_node_crop_image_impl(
+        node=node,
+        full_img=full_img,
+        crop_region=crop_region,
+    )
 
 
 def _extract_single_line_crop(
@@ -1530,80 +1651,16 @@ def _candidate_band_indices(
     bands: List[Tuple[int, int]] | None = None,
     projected_y: float | None = None,
 ) -> List[int]:
-    if band_count <= 0:
-        return []
-
-    if line_order is None and projected_y is not None and bands:
-        ranked = sorted(
-            range(band_count),
-            key=lambda idx: (
-                0 if bands[idx][0] <= projected_y <= bands[idx][1] else 1,
-                abs(((bands[idx][0] + bands[idx][1]) / 2.0) - projected_y),
-                abs(idx - line_order) if isinstance(line_order, int) else 0,
-                idx,
-            ),
-        )
-        return ranked[: min(5, band_count)]
-
-    if line_order is None:
-        return list(range(band_count))
-
-    indices: List[int] = []
-    for delta in range(0, min(3, band_count)):
-        for candidate in (line_order - delta, line_order + delta):
-            if candidate < 0 or candidate >= band_count or candidate in indices:
-                continue
-            indices.append(candidate)
-    if not indices:
-        fallback = min(max(0, line_order), band_count - 1)
-        indices.append(fallback)
-    return indices
+    return _candidate_band_indices_impl(
+        line_order=line_order,
+        band_count=band_count,
+        bands=bands,
+        projected_y=projected_y,
+    )
 
 
 def _confidence_score(value: Any) -> float:
-    if isinstance(value, (int, float)):
-        return float(value)
-    text = str(value or "").strip().lower()
-    if text == "high":
-        return 0.95
-    if text == "medium":
-        return 0.7
-    if text == "low":
-        return 0.35
-    if text == "uncertain":
-        return 0.0
-    try:
-        return float(text)
-    except ValueError:
-        return 0.0
-
-
-def _unary_prefix_signature(formula_text: str) -> Tuple[str, int, int]:
-    prefix = _leading_unary_prefix(formula_text)
-    if "□" in prefix:
-        modal_symbol = "□"
-    elif "⋄" in prefix:
-        modal_symbol = "⋄"
-    else:
-        modal_symbol = ""
-
-    if modal_symbol:
-        before_modal = prefix.split(modal_symbol, 1)[0].count("¬")
-        before_atom = prefix.split(modal_symbol, 1)[1].count("¬")
-    else:
-        before_modal = 0
-        before_atom = prefix.count("¬")
-    return modal_symbol, before_modal, before_atom
-
-
-def _unary_prefix_distance(original: str, candidate: str | None) -> int:
-    if not candidate:
-        return 99
-    original_modal, original_before_modal, original_before_atom = _unary_prefix_signature(original)
-    candidate_modal, candidate_before_modal, candidate_before_atom = _unary_prefix_signature(candidate)
-    if original_modal != candidate_modal:
-        return 10
-    return abs(original_before_modal - candidate_before_modal) + abs(original_before_atom - candidate_before_atom)
+    return _confidence_score_impl(value)
 
 
 def _best_verifier_attempt(
@@ -1612,273 +1669,16 @@ def _best_verifier_attempt(
     expected_line_order: int | None,
     attempts: List[Dict[str, Any]],
 ) -> Dict[str, Any]:
-    if not attempts:
-        return {}
-
-    def score(attempt: Dict[str, Any]) -> Tuple[int, int, int, int, int, float]:
-        forced_choice = str(attempt.get("forced_choice") or "").strip()
-        structured_formula = str(attempt.get("structured_formula") or "").strip()
-        candidate_formula = forced_choice if forced_choice and forced_choice != "uncertain" else structured_formula
-        prefix_distance = _unary_prefix_distance(original_formula, candidate_formula)
-        exact_original_agreement = forced_choice == original_formula and structured_formula == original_formula
-        attempt_kind = str(attempt.get("attempt_kind") or "local_band").strip()
-        margin_anchor_with_correction = attempt_kind == "margin_anchor" and bool(attempt.get("proposed_correction"))
-        margin_anchor_tail_exact_match = (
-            attempt_kind == "margin_anchor"
-            and bool(attempt.get("tail_regularized"))
-            and forced_choice == original_formula
-            and prefix_distance <= 1
-        )
-        band_index = attempt.get("band_index")
-        if isinstance(expected_line_order, int) and isinstance(band_index, int):
-            band_distance = abs(band_index - expected_line_order)
-            exact_band_match = band_distance == 0
-            nearby_band_match = band_distance <= 1
-            distance_score = -band_distance
-        else:
-            exact_band_match = False
-            nearby_band_match = False
-            distance_score = 0
-        return (
-            1 if margin_anchor_with_correction else 0,
-            1 if margin_anchor_tail_exact_match else 0,
-            1 if exact_band_match else 0,
-            1 if nearby_band_match else 0,
-            1 if exact_original_agreement else 0,
-            1 if structured_formula == original_formula and prefix_distance == 0 else 0,
-            1 if attempt.get("proposed_correction") and prefix_distance <= 1 else 0,
-            1 if attempt.get("proposed_correction") else 0,
-            1 if forced_choice == original_formula else 0,
-            1 if structured_formula == original_formula else 0,
-            1 if _is_structurally_close_unary_formula(original_formula, candidate_formula) else 0,
-            -prefix_distance,
-            distance_score,
-            max(
-                _confidence_score(attempt.get("structured_counts", {}).get("confidence")),
-                _confidence_score(attempt.get("forced_confidence")),
-            ),
-        )
-
-    return max(attempts, key=score)
-
-
-def _build_full_image_line_anchor_prompt(total_lines: int) -> str:
-    return "\n".join(
-        [
-            "This image shows a whole handwritten modal logic proof.",
-            'Return only JSON with keys: line_centers_rel, confidence.',
-            "line_centers_rel must be a list of approximate vertical centers for the proof lines in reading order from top to bottom.",
-            "Use a 0-1000 scale, where 0 is the top of the image and 1000 is the bottom.",
-            f"Return exactly {total_lines} numbers, one for each visible proof line in order.",
-            "Do not return bounding boxes. Do not explain.",
-        ]
+    return _best_verifier_attempt_impl(
+        original_formula=original_formula,
+        expected_line_order=expected_line_order,
+        attempts=attempts,
+        unary_formula_skeleton=_unary_formula_skeleton,
     )
-
-
-def _parse_full_image_line_anchors(raw: str, total_lines: int) -> Dict[int, float]:
-    parsed = _parse_unary_recheck_choice(raw)
-    values = parsed.get("line_centers_rel")
-    if not isinstance(values, list):
-        return {}
-
-    anchors: Dict[int, float] = {}
-    for index, value in enumerate(values[:total_lines], start=1):
-        try:
-            y_rel = float(value)
-        except (TypeError, ValueError):
-            continue
-        anchors[index] = max(0.0, min(1000.0, y_rel))
-    return anchors
-
-
-def _request_full_image_line_anchors(
-    *,
-    full_img: np.ndarray,
-    verifier_client: LMStudioQwenClient,
-    total_lines: int,
-) -> Dict[int, float]:
-    if total_lines <= 0:
-        return {}
-    ok, encoded = cv2.imencode(".jpg", full_img)
-    if not ok:
-        return {}
-    image_base64 = base64.b64encode(encoded.tobytes()).decode("utf-8")
-    raw = verifier_client.chat(
-        [
-            {"role": "system", "content": "You are a careful vision model. Follow the user's instructions exactly."},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": _build_full_image_line_anchor_prompt(total_lines)},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}} ,
-                ],
-            },
-        ]
-    )
-    return _parse_full_image_line_anchors(raw, total_lines)
-
-
-def _node_crop_origin(node: SubproofNode) -> Tuple[int, int]:
-    if node.id == "ROOT":
-        return (0, 0)
-    x, y, _, _ = node.box
-    return (max(0, x - 10), max(0, y - 10))
-
-
-def _extract_left_margin_strip(full_img: np.ndarray, right_fraction: float = 1.0) -> Tuple[np.ndarray, int]:
-    if full_img.size == 0:
-        return full_img, 0
-    bars = detect_vertical_bars(full_img)
-    first_bar_x = bars[0][0] if bars else max(1, full_img.shape[1] // 8)
-    scaled_right = int(first_bar_x * max(0.2, min(1.0, right_fraction)))
-    if first_bar_x >= 30:
-        scaled_right = max(24, scaled_right)
-    margin_right = max(1, min(full_img.shape[1], scaled_right))
-    return full_img[:, :margin_right].copy(), margin_right
-
-
-def _candidate_box_iou(left: Tuple[int, int, int, int], right: Tuple[int, int, int, int]) -> float:
-    lx, ly, lw, lh = left
-    rx, ry, rw, rh = right
-    inter_x1 = max(lx, rx)
-    inter_y1 = max(ly, ry)
-    inter_x2 = min(lx + lw, rx + rw)
-    inter_y2 = min(ly + lh, ry + rh)
-    if inter_x2 <= inter_x1 or inter_y2 <= inter_y1:
-        return 0.0
-    intersection = float((inter_x2 - inter_x1) * (inter_y2 - inter_y1))
-    union = float(lw * lh + rw * rh) - intersection
-    if union <= 0.0:
-        return 0.0
-    return intersection / union
 
 
 def _merge_margin_candidate_boxes(boxes: List[Tuple[int, int, int, int]]) -> List[Tuple[int, int, int, int]]:
-    if not boxes:
-        return []
-
-    merged = sorted(boxes, key=lambda box: (box[1], box[0]))
-    changed = True
-    while changed:
-        changed = False
-        next_boxes: List[Tuple[int, int, int, int]] = []
-        while merged:
-            curr_x, curr_y, curr_w, curr_h = merged.pop(0)
-            curr_x2 = curr_x + curr_w
-            curr_y2 = curr_y + curr_h
-            keep_searching = True
-            while keep_searching:
-                keep_searching = False
-                for index, (nx, ny, nw, nh) in enumerate(merged):
-                    nx2 = nx + nw
-                    ny2 = ny + nh
-                    vertical_overlap = max(0, min(curr_y2, ny2) - max(curr_y, ny))
-                    min_height = max(1, min(curr_h, nh))
-                    horizontal_overlap = max(0, min(curr_x2, nx2) - max(curr_x, nx))
-                    min_width = max(1, min(curr_w, nw))
-                    horizontal_gap = max(0, max(curr_x, nx) - min(curr_x2, nx2))
-                    vertical_gap = max(0, max(curr_y, ny) - min(curr_y2, ny2))
-                    same_row_merge = vertical_overlap >= int(0.5 * min_height) and horizontal_gap <= 24
-                    stacked_fragment_merge = horizontal_overlap >= int(0.45 * min_width) and vertical_gap <= 18
-                    if same_row_merge or stacked_fragment_merge:
-                        curr_x = min(curr_x, nx)
-                        curr_y = min(curr_y, ny)
-                        curr_x2 = max(curr_x2, nx2)
-                        curr_y2 = max(curr_y2, ny2)
-                        curr_w = curr_x2 - curr_x
-                        curr_h = curr_y2 - curr_y
-                        merged.pop(index)
-                        changed = True
-                        keep_searching = True
-                        break
-            next_boxes.append((curr_x, curr_y, curr_w, curr_h))
-        merged = sorted(next_boxes, key=lambda box: (box[1], box[0]))
-
-    pruned: List[Tuple[int, int, int, int]] = []
-    for box in sorted(merged, key=lambda item: item[2] * item[3], reverse=True):
-        if any(_candidate_box_iou(box, existing) >= 0.6 for existing in pruned):
-            continue
-        pruned.append(box)
-    return sorted(pruned, key=lambda box: (box[1], box[0]))
-
-
-def _detect_margin_number_candidate_boxes(
-    margin_upscaled_img: np.ndarray,
-) -> Tuple[List[Tuple[int, int, int, int]], np.ndarray]:
-    if margin_upscaled_img.size == 0:
-        return [], np.zeros((0, 0), dtype=np.uint8)
-
-    gray = cv2.cvtColor(margin_upscaled_img, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.medianBlur(gray, 3)
-    binary = cv2.adaptiveThreshold(
-        blurred,
-        255,
-        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY_INV,
-        31,
-        11,
-    )
-
-    horizontal_len = max(12, gray.shape[1] // 2)
-    horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (horizontal_len, 1))
-    horizontal_mask = cv2.morphologyEx(binary, cv2.MORPH_OPEN, horizontal_kernel)
-    cleaned = cv2.subtract(binary, horizontal_mask)
-    cleaned = cv2.morphologyEx(
-        cleaned,
-        cv2.MORPH_CLOSE,
-        cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)),
-    )
-
-    num_labels, _, stats, _ = cv2.connectedComponentsWithStats(cleaned, connectivity=8)
-    boxes: List[Tuple[int, int, int, int]] = []
-    max_h = gray.shape[0]
-    max_w = gray.shape[1]
-    for label in range(1, num_labels):
-        x, y, w, h, area = stats[label]
-        if area < 90:
-            continue
-        if h < 24 or h > int(max_h * 0.22):
-            continue
-        if w < 6 or w > max_w:
-            continue
-        if x > int(max_w * 0.85):
-            continue
-        boxes.append((int(x), int(y), int(w), int(h)))
-
-    return _merge_margin_candidate_boxes(boxes), cleaned
-
-
-def _score_margin_candidate_boxes(
-    boxes: List[Tuple[int, int, int, int]],
-    *,
-    expected_count: int,
-    strip_width: int,
-) -> Tuple[int, int, int, int, int, int]:
-    if not boxes:
-        return (0, -expected_count, -9999, -9999, -9999, -9999)
-
-    heights = [h for _, _, _, h in boxes]
-    median_height = float(np.median(np.array(heights, dtype=np.float32))) if heights else 0.0
-    tall_skinny_noise = sum(
-        1
-        for x, _, w, h in boxes
-        if h > max(72.0, median_height * 2.4) and w < max(18.0, median_height * 0.55) and x > int(strip_width * 0.7)
-    )
-    far_right_noise = sum(
-        1
-        for x, _, w, _ in boxes
-        if x > int(strip_width * 0.7) and w < int(strip_width * 0.28)
-    )
-    count_distance = abs(len(boxes) - expected_count)
-    total_height_penalty = int(sum(max(0.0, h - max(72.0, median_height * 2.1)) for h in heights))
-    return (
-        1 if len(boxes) == expected_count else 0,
-        -count_distance,
-        -tall_skinny_noise,
-        -far_right_noise,
-        -total_height_penalty,
-        -strip_width,
-    )
+    return _merge_margin_candidate_boxes_impl(boxes)
 
 
 def _margin_anchor_strip_bounds(
@@ -1886,190 +1686,7 @@ def _margin_anchor_strip_bounds(
     image_height: int,
     anchor_heights: List[float] | None = None,
 ) -> List[Tuple[int, int]]:
-    if not anchor_centers or image_height <= 0:
-        return []
-    height_values = anchor_heights if anchor_heights and len(anchor_heights) == len(anchor_centers) else None
-    if len(anchor_centers) == 1:
-        center = anchor_centers[0]
-        half_span = 24.0
-        if height_values:
-            half_span = max(half_span, float(height_values[0]) * 1.8)
-        return [(max(0, int(round(center - half_span))), min(image_height, int(round(center + half_span))))]
-
-    boundaries: List[float] = []
-    first_gap = max(24.0, anchor_centers[1] - anchor_centers[0])
-    boundaries.append(max(0.0, anchor_centers[0] - (first_gap / 2.0)))
-    for left, right in zip(anchor_centers, anchor_centers[1:]):
-        boundaries.append((left + right) / 2.0)
-    last_gap = max(24.0, anchor_centers[-1] - anchor_centers[-2])
-    boundaries.append(min(float(image_height), anchor_centers[-1] + (last_gap / 2.0)))
-
-    bounds: List[Tuple[int, int]] = []
-    for index in range(len(anchor_centers)):
-        y1 = max(0, min(image_height - 1, int(round(boundaries[index]))))
-        y2 = max(y1 + 1, min(image_height, int(round(boundaries[index + 1]))))
-        bounds.append((y1, y2))
-
-    gap_values = [right - left for left, right in zip(anchor_centers, anchor_centers[1:])]
-    typical_gap = float(np.median(np.array(gap_values, dtype=np.float32))) if gap_values else 40.0
-    typical_half_span = max(18.0, typical_gap * 0.55)
-    if height_values:
-        median_height = float(np.median(np.array(height_values, dtype=np.float32)))
-        typical_half_span = max(typical_half_span, median_height * 1.5)
-        tail_half_span = max(typical_half_span, float(height_values[-1]) * 1.8)
-    else:
-        tail_half_span = typical_half_span
-
-    last_gap = max(24.0, anchor_centers[-1] - anchor_centers[-2])
-    if last_gap > max(32.0, typical_gap * 1.25):
-        tail_half_span = min(last_gap / 2.0, tail_half_span)
-        tail_center = anchor_centers[-1]
-        tail_y1 = max(0, min(image_height - 1, int(round(tail_center - tail_half_span))))
-        tail_y2 = max(tail_y1 + 1, min(image_height, int(round(tail_center + tail_half_span))))
-        bounds[-1] = (tail_y1, tail_y2)
-    return bounds
-
-
-def _build_margin_anchor_geometry(
-    *,
-    full_img: np.ndarray,
-    total_lines: int,
-    output_dir: Path,
-) -> Dict[str, Any]:
-    geometry: Dict[str, Any] = {
-        "usable": False,
-        "expected_lines": total_lines,
-        "candidate_count": 0,
-        "anchors": [],
-        "strips": [],
-    }
-    if full_img.size == 0 or total_lines <= 0:
-        return geometry
-
-    margin_base_path = output_dir / "margin_anchor_margin_base.jpg"
-    margin_upscaled_path = output_dir / "margin_anchor_margin_upscaled_4x.jpg"
-    margin_binary_path = output_dir / "margin_anchor_binary.png"
-    candidate_boxes_path = output_dir / "margin_anchor_candidate_boxes.jpg"
-    strip_overlay_path = output_dir / "margin_anchor_strip_overlay.jpg"
-    geometry_path = output_dir / "margin_anchor_geometry.json"
-
-    candidate_variants: List[Tuple[Tuple[int, int, int, int, int, int], float, np.ndarray, int, np.ndarray, List[Tuple[int, int, int, int]], np.ndarray]] = []
-    for right_fraction in (0.6, 0.65, 0.75, 0.85, 1.0):
-        margin_img, margin_right = _extract_left_margin_strip(full_img, right_fraction=right_fraction)
-        if margin_img.size == 0:
-            continue
-        margin_upscaled = _upscale_for_verifier(margin_img)
-        candidate_boxes_upscaled, binary = _detect_margin_number_candidate_boxes(margin_upscaled)
-        score = _score_margin_candidate_boxes(
-            candidate_boxes_upscaled,
-            expected_count=total_lines,
-            strip_width=margin_upscaled.shape[1],
-        )
-        candidate_variants.append((score, right_fraction, margin_img, margin_right, margin_upscaled, candidate_boxes_upscaled, binary))
-
-    if not candidate_variants:
-        return geometry
-
-    _, selected_fraction, margin_img, margin_right, margin_upscaled, candidate_boxes_upscaled, binary = max(
-        candidate_variants,
-        key=lambda item: item[0],
-    )
-    geometry["margin_right"] = margin_right
-    geometry["selected_right_fraction"] = selected_fraction
-    cv2.imwrite(str(margin_base_path), margin_img)
-    cv2.imwrite(str(margin_upscaled_path), margin_upscaled)
-    cv2.imwrite(str(margin_binary_path), binary)
-
-    candidate_overlay = margin_upscaled.copy()
-    scale = 4.0
-    anchors: List[Dict[str, Any]] = []
-    for index, (x, y, w, h) in enumerate(sorted(candidate_boxes_upscaled, key=lambda box: (box[1], box[0])), start=1):
-        cv2.rectangle(candidate_overlay, (x, y), (x + w, y + h), (40, 160, 60), 2)
-        cv2.putText(
-            candidate_overlay,
-            str(index),
-            (x, max(18, y - 6)),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (0, 0, 220),
-            2,
-            cv2.LINE_AA,
-        )
-        anchors.append(
-            {
-                "assigned_line_number": index,
-                "bbox_upscaled": [int(x), int(y), int(w), int(h)],
-                "bbox_original": [round(x / scale, 1), round(y / scale, 1), round(w / scale, 1), round(h / scale, 1)],
-                "center_y_original": round((y + (h / 2.0)) / scale, 1),
-                "height_original": round(h / scale, 1),
-            }
-        )
-    cv2.imwrite(str(candidate_boxes_path), candidate_overlay)
-
-    geometry["candidate_count"] = len(anchors)
-    geometry["anchors"] = anchors
-
-    if len(anchors) == total_lines:
-        anchor_centers = [float(anchor["center_y_original"]) for anchor in anchors]
-        anchor_heights = [float(anchor["height_original"]) for anchor in anchors]
-        strip_bounds = _margin_anchor_strip_bounds(anchor_centers, full_img.shape[0], anchor_heights=anchor_heights)
-        gap_values = [right - left for left, right in zip(anchor_centers, anchor_centers[1:])]
-        typical_gap = float(np.median(np.array(gap_values, dtype=np.float32))) if gap_values else 0.0
-        tail_regularized = bool(
-            gap_values
-            and typical_gap > 0.0
-            and gap_values[-1] > max(32.0, typical_gap * 1.25)
-        )
-        strips: List[Dict[str, Any]] = []
-        overlay = full_img.copy()
-        for index, (anchor, (y1, y2)) in enumerate(zip(anchors, strip_bounds)):
-            record = {
-                "line_number": anchor["assigned_line_number"],
-                "center_y_original": anchor["center_y_original"],
-                "y1": int(y1),
-                "y2": int(y2),
-                "bbox_original": anchor["bbox_original"],
-                "tail_regularized": bool(index == len(anchors) - 1 and tail_regularized),
-            }
-            strips.append(record)
-            cv2.rectangle(overlay, (0, y1), (max(1, full_img.shape[1] - 1), max(y1 + 1, y2 - 1)), (0, 165, 255), 2)
-            cv2.putText(
-                overlay,
-                f"L{anchor['assigned_line_number']}",
-                (10, max(20, y1 + 18)),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.6,
-                (220, 40, 40),
-                2,
-                cv2.LINE_AA,
-            )
-        cv2.imwrite(str(strip_overlay_path), overlay)
-        geometry["usable"] = True
-        geometry["strips"] = strips
-
-    geometry["artifacts"] = {
-        "margin_base": str(margin_base_path),
-        "margin_upscaled": str(margin_upscaled_path),
-        "binary": str(margin_binary_path),
-        "candidate_boxes": str(candidate_boxes_path),
-        "strip_overlay": str(strip_overlay_path),
-    }
-    geometry_path.write_text(json.dumps(geometry, indent=2, ensure_ascii=False), encoding="utf-8")
-    return geometry
-
-
-def _extract_margin_anchor_strip(full_img: np.ndarray, anchor_record: Dict[str, Any]) -> np.ndarray:
-    if full_img.size == 0:
-        return full_img
-    try:
-        y1 = int(anchor_record.get("y1"))
-        y2 = int(anchor_record.get("y2"))
-    except (TypeError, ValueError):
-        return full_img
-    y1 = max(0, min(full_img.shape[0] - 1, y1))
-    y2 = max(y1 + 1, min(full_img.shape[0], y2))
-    strip = full_img[y1:y2, :]
-    return strip.copy() if strip.size else full_img
+    return _margin_anchor_strip_bounds_impl(anchor_centers, image_height, anchor_heights)
 
 
 def _upscale_for_verifier(crop_img: np.ndarray, scale: int = 4) -> np.ndarray:
@@ -2092,235 +1709,105 @@ def _formula_components(formula_text: str) -> Tuple[str, str]:
     return prefix, body
 
 
+def _justification_rule_head(justification_text: Any) -> str:
+    normalized = _normalize_justification_text(justification_text)
+    return normalized.split(" ", 1)[0] if normalized else ""
+
+
 def _compose_unary_formula(*, modal: str, before_modal: int, before_atom: int, body: str) -> str:
     prefix = ("¬" * max(0, before_modal)) + modal + ("¬" * max(0, before_atom))
     return f"{prefix}{body}".strip()
 
 
-def _build_structured_unary_verifier_prompt(entry: Dict[str, Any]) -> str:
-    scope_role = str(entry.get("scope_role") or "derived_line").strip()
-    formula_text = _normalize_formula_text(entry.get("formula_text") or entry.get("wffstr") or "", scope_role)
-    justification = _normalize_justification_text(entry.get("justification_text") or entry.get("jstr") or "")
+def _build_short_formula_reread_prompt(*, current_formula: str, justification_text: str) -> str:
     lines = [
-        "This image shows one handwritten modal logic proof formula on a single line.",
-        'Return only JSON with keys: main_modal_operator, negations_before_modal, negations_before_final_atom, confidence.',
-        'Set main_modal_operator to "box", "diamond", or "none".',
-        "Count exactly how many negation marks (¬) appear immediately before the main modal operator, if any.",
-        "Count exactly how many negation marks (¬) appear immediately before the final propositional letter.",
-        "Do not guess from proof validity. Report only what the handwriting shows.",
-        f"Current OCR formula: {formula_text}",
+        "This image shows one handwritten modal logic formula from a single proof line.",
+        'Return only JSON with keys: formula_text and confidence.',
+        "Copy exactly the formula or symbol you see.",
+        "Preserve unary operators exactly: ¬, □, ⋄.",
+        "Short formulas such as Q, □Q, ¬Q, ¬□¬A, or □ are common.",
+        "Do not include justification text, line numbers, or explanation.",
+        f"Current OCR formula: {current_formula}",
     ]
-    if justification:
-        lines.append(f"Current OCR justification: {justification}")
+    if justification_text:
+        lines.append(f"Current OCR justification: {justification_text}")
+    lines.append('If you cannot tell, return {"formula_text":"","confidence":"uncertain"}.')
     return "\n".join(lines)
 
 
-def _derive_formula_from_structured_counts(entry: Dict[str, Any], parsed: Dict[str, Any]) -> str | None:
-    scope_role = str(entry.get("scope_role") or "derived_line").strip()
-    original_formula = _normalize_formula_text(entry.get("formula_text") or entry.get("wffstr") or "", scope_role)
-    prefix, body = _formula_components(original_formula)
-    if not body:
-        return None
+def _normalize_formula_probe_result(parsed: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "formula_text": _normalize_formula_text(parsed.get("formula_text") or "", "derived_line"),
+        "confidence": str(parsed.get("confidence") or "").strip(),
+    }
 
-    modal_value = str(parsed.get("main_modal_operator") or "").strip().lower()
-    if modal_value == "box":
-        modal_symbol = "□"
-    elif modal_value == "diamond":
-        modal_symbol = "⋄"
-    else:
-        modal_symbol = ""
 
-    before_modal = _int_field(parsed.get("negations_before_modal"), default=0)
-    before_atom = _int_field(parsed.get("negations_before_final_atom"), default=0)
+def _should_reread_short_formula(*, formula_text: str, justification_text: str) -> bool:
+    normalized = _normalize_formula_text(formula_text, "derived_line")
+    if not normalized or TOKEN_PATTERN.search(normalized):
+        return False
+    prefix, body = _formula_components(normalized)
+    if body and _has_top_level_binary_connective(body):
+        return False
+    rule_head = _justification_rule_head(justification_text)
+    if prefix:
+        return True
+    if normalized in {"□", "⋄", "¬", "¬¬"}:
+        return True
+    return rule_head in SHORT_FORMULA_REREAD_RULE_HEADS
 
-    if not modal_symbol:
-        return f"{'¬' * before_atom}{body}"
-    return _compose_unary_formula(
-        modal=modal_symbol,
-        before_modal=before_modal,
-        before_atom=before_atom,
-        body=body,
+
+def _should_accept_short_formula_reread(
+    *,
+    original_formula: str,
+    candidate_formula: str,
+    justification_text: str,
+    confidence: str,
+) -> bool:
+    original = _normalize_formula_text(original_formula, "derived_line")
+    candidate = _normalize_formula_text(candidate_formula, "derived_line")
+    if not candidate or candidate == original or candidate == "uncertain":
+        return False
+    if _confidence_score(confidence) < 0.55:
+        return False
+    if TOKEN_PATTERN.search(candidate):
+        return False
+
+    _, candidate_body = _formula_components(candidate)
+    if candidate_body and _has_top_level_binary_connective(candidate_body):
+        return False
+
+    original_skeleton = _unary_formula_skeleton(original)
+    candidate_skeleton = _unary_formula_skeleton(candidate)
+    rule_head = _justification_rule_head(justification_text)
+
+    if original_skeleton and candidate_skeleton and original_skeleton == candidate_skeleton:
+        return True
+    if (
+        not original_skeleton
+        and candidate_skeleton
+        and len(candidate_skeleton) <= 2
+        and rule_head in SHORT_FORMULA_REREAD_RULE_HEADS
+    ):
+        return True
+    return False
+
+
+def _build_structured_unary_verifier_prompt(entry: Dict[str, Any]) -> str:
+    return _build_structured_unary_verifier_prompt_impl(
+        entry,
+        normalize_formula_text=_normalize_formula_text,
+        normalize_justification_text=_normalize_justification_text,
     )
-
-
-def _nearby_verifier_candidates(original_formula: str, proposed_formula: str | None) -> List[str]:
-    prefix, body = _formula_components(original_formula)
-    if not prefix or not body:
-        return [original_formula]
-
-    original_modal = "□" if "□" in prefix else "⋄" if "⋄" in prefix else ""
-    original_before_modal = prefix.split(original_modal, 1)[0].count("¬") if original_modal else 0
-    original_before_atom = prefix.split(original_modal, 1)[1].count("¬") if original_modal else prefix.count("¬")
-
-    candidates: List[str] = [original_formula]
-    if proposed_formula:
-        candidates.append(proposed_formula)
-
-    count_options = {
-        max(0, original_before_atom - 1),
-        original_before_atom,
-        min(3, original_before_atom + 1),
-    }
-    modal_count_options = {
-        max(0, original_before_modal - 1),
-        original_before_modal,
-        min(3, original_before_modal + 1),
-    }
-    for before_modal in sorted(modal_count_options):
-        for before_atom in sorted(count_options):
-            if original_modal:
-                candidate = _compose_unary_formula(
-                    modal=original_modal,
-                    before_modal=before_modal,
-                    before_atom=before_atom,
-                    body=body,
-                )
-            else:
-                candidate = f"{'¬' * before_atom}{body}"
-            if candidate not in candidates:
-                candidates.append(candidate)
-            if len(candidates) >= 4:
-                return candidates
-    return candidates[:4]
 
 
 def _build_forced_choice_unary_verifier_prompt(entry: Dict[str, Any], candidates: List[str]) -> str:
-    scope_role = str(entry.get("scope_role") or "derived_line").strip()
-    formula_text = _normalize_formula_text(entry.get("formula_text") or entry.get("wffstr") or "", scope_role)
-    justification = _normalize_justification_text(entry.get("justification_text") or entry.get("jstr") or "")
-    candidate_text = " ; ".join(candidates)
-    has_box = any("□" in candidate for candidate in candidates)
-    has_diamond = any("⋄" in candidate for candidate in candidates)
-    if has_box and not has_diamond:
-        lines = [
-            "This image shows one handwritten modal logic formula on a single line.",
-            'Return only JSON with keys: selected_formula, confidence, negations_before_modal, negations_before_final_atom.',
-            "Count exactly how many negation marks (¬) appear immediately to the LEFT of the box symbol (□).",
-            "Count exactly how many negation marks (¬) appear immediately to the RIGHT of the box symbol before the final propositional letter.",
-            "Then choose the exact candidate that best matches the handwriting.",
-            "Do not invent a formula outside the candidate list.",
-            f"Current OCR formula: {formula_text}",
-        ]
-    elif has_diamond and not has_box:
-        lines = [
-            "This image shows one handwritten modal logic formula on a single line.",
-            'Return only JSON with keys: selected_formula, confidence, negations_before_modal, negations_before_final_atom.',
-            "Count exactly how many negation marks (¬) appear immediately to the LEFT of the diamond symbol (⋄).",
-            "Count exactly how many negation marks (¬) appear immediately to the RIGHT of the diamond symbol before the final propositional letter.",
-            "Then choose the exact candidate that best matches the handwriting.",
-            "Do not invent a formula outside the candidate list.",
-            f"Current OCR formula: {formula_text}",
-        ]
-    else:
-        lines = [
-            "This image shows one handwritten modal logic formula on a single line.",
-            'Return only JSON with keys: selected_formula, confidence, negations_before_final_atom.',
-            "Count exactly how many negation marks (¬) appear immediately before the final propositional letter.",
-            "Then choose the exact candidate that best matches the handwriting.",
-            "Do not invent a formula outside the candidate list.",
-            f"Current OCR formula: {formula_text}",
-        ]
-    if justification:
-        lines.append(f"Current OCR justification: {justification}")
-    lines.append(f"Candidates: {candidate_text}")
-    lines.append('If you cannot tell, return "selected_formula": "uncertain".')
-    return "\n".join(lines)
-
-
-def _normalize_selected_formula(value: Any, scope_role: str) -> str:
-    selected = str(value or "").strip()
-    if not selected or selected == "uncertain":
-        return "uncertain"
-    return _normalize_formula_text(selected, scope_role)
-
-
-def _same_modal_class(left: str, right: str) -> bool:
-    left_prefix = _leading_unary_prefix(left)
-    right_prefix = _leading_unary_prefix(right)
-    if "□" in left_prefix:
-        return "□" in right_prefix
-    if "⋄" in left_prefix:
-        return "⋄" in right_prefix
-    return "□" not in right_prefix and "⋄" not in right_prefix
-
-
-def _is_structurally_close_unary_formula(original: str, candidate: str | None) -> bool:
-    if not candidate:
-        return False
-    return _unary_formula_skeleton(original) == _unary_formula_skeleton(candidate) and _same_modal_class(original, candidate)
-
-
-def _run_unary_verifier_attempt(
-    *,
-    entry: Dict[str, Any],
-    original_formula: str,
-    verifier_client: LMStudioQwenClient,
-    crop_img: np.ndarray,
-    verifier_path: Path,
-    attempt_metadata: Dict[str, Any],
-) -> Dict[str, Any] | None:
-    if crop_img.size == 0:
-        return None
-
-    line_crop = _upscale_for_verifier(crop_img)
-    cv2.imwrite(str(verifier_path), line_crop)
-
-    with verifier_path.open("rb") as handle:
-        line_base64_image = base64.b64encode(handle.read()).decode("utf-8")
-
-    structured_raw = verifier_client.chat(
-        [
-            {"role": "system", "content": "You are a careful vision model. Follow the user's instructions exactly."},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": _build_structured_unary_verifier_prompt(entry)},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{line_base64_image}"}} ,
-                ],
-            },
-        ]
+    return _build_forced_choice_unary_verifier_prompt_impl(
+        entry,
+        candidates,
+        normalize_formula_text=_normalize_formula_text,
+        normalize_justification_text=_normalize_justification_text,
     )
-    structured_parsed = _parse_unary_recheck_choice(structured_raw)
-    structured_formula = _derive_formula_from_structured_counts(entry, structured_parsed)
-
-    scope_role = str(entry.get("scope_role") or "derived_line").strip()
-    forced_candidates = _nearby_verifier_candidates(original_formula, structured_formula)
-    forced_raw = verifier_client.chat(
-        [
-            {"role": "system", "content": "You are a careful vision model. Follow the user's instructions exactly."},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": _build_forced_choice_unary_verifier_prompt(entry, forced_candidates)},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{line_base64_image}"}} ,
-                ],
-            },
-        ]
-    )
-    forced_parsed = _parse_unary_recheck_choice(forced_raw)
-    forced_choice = _normalize_selected_formula(forced_parsed.get("selected_formula"), scope_role)
-
-    proposed_correction = None
-    if (
-        structured_formula
-        and forced_choice == structured_formula
-        and structured_formula != original_formula
-        and _is_structurally_close_unary_formula(original_formula, structured_formula)
-    ):
-        proposed_correction = structured_formula
-
-    return {
-        **attempt_metadata,
-        "line_crop_path": str(verifier_path),
-        "structured_counts": structured_parsed,
-        "structured_formula": structured_formula,
-        "forced_choice_candidates": forced_candidates,
-        "forced_choice": forced_choice,
-        "forced_confidence": forced_parsed.get("confidence"),
-        "proposed_correction": proposed_correction,
-        "structured_raw_response": structured_raw,
-        "forced_raw_response": forced_raw,
-    }
 
 
 def _run_unary_verifier_experiment(
@@ -2332,176 +1819,26 @@ def _run_unary_verifier_experiment(
     verifier_client: LMStudioQwenClient | None,
     checker_response: Dict[str, Any] | None,
 ) -> List[Dict[str, Any]]:
-    for path in output_dir.glob("verifier_line_*.jpg"):
-        path.unlink(missing_ok=True)
-    for path in output_dir.glob("margin_anchor_*"):
-        path.unlink(missing_ok=True)
-    (output_dir / UNARY_VERIFIER_FILENAME).unlink(missing_ok=True)
-
-    if verifier_client is None or not _checker_payload_has_issues(checker_response):
-        return []
-
-    node_lookup = _build_node_lookup(tree_root)
-    all_lines = _iter_proof_line_dicts(proof_structure)
-    max_line_number = max(
-        (int(line.get("line")) for line in all_lines if isinstance(line.get("line"), int)),
-        default=0,
-    )
-    margin_anchor_geometry = _build_margin_anchor_geometry(
+    return _run_unary_verifier_experiment_impl(
+        proof_structure=proof_structure,
+        tree_root=tree_root,
         full_img=full_img,
-        total_lines=max_line_number,
         output_dir=output_dir,
+        verifier_client=verifier_client,
+        checker_response=checker_response,
+        normalize_formula_text=_normalize_formula_text,
+        normalize_justification_text=_normalize_justification_text,
+        parse_unary_recheck_choice=_parse_unary_recheck_choice,
+        unary_formula_skeleton=_unary_formula_skeleton,
+        crop_region=crop_region,
+        detect_vertical_bars=detect_vertical_bars,
+        detect_text_row_bands=_detect_text_row_bands,
+        extract_band_crop=_extract_band_crop,
+        upscale_for_verifier=_upscale_for_verifier,
+        int_field=_int_field,
+        formula_components=_formula_components,
+        iter_proof_line_dicts=_iter_proof_line_dicts,
     )
-    margin_anchor_lookup = {
-        int(record["line_number"]): record
-        for record in margin_anchor_geometry.get("strips", [])
-        if isinstance(record, dict) and isinstance(record.get("line_number"), int)
-    }
-    full_image_line_anchors = (
-        {}
-        if margin_anchor_geometry.get("usable")
-        else _request_full_image_line_anchors(
-            full_img=full_img,
-            verifier_client=verifier_client,
-            total_lines=max_line_number,
-        )
-    )
-    records: List[Dict[str, Any]] = []
-    for entry in all_lines:
-        if not _should_verify_unary_formula(entry):
-            continue
-
-        node_id = str(entry.get("_ocr_node_id") or "").strip()
-        scope_role = str(entry.get("scope_role") or "derived_line").strip()
-        original_formula = _normalize_formula_text(entry.get("formula_text") or entry.get("wffstr") or "", scope_role)
-        node = node_lookup.get(node_id)
-        line_order = entry.get("_ocr_line_order")
-        line_number = entry.get("line")
-        attempt_records: List[Dict[str, Any]] = []
-        if isinstance(line_number, int) and margin_anchor_geometry.get("usable") and line_number in margin_anchor_lookup:
-            anchor_record = margin_anchor_lookup[line_number]
-            anchor_crop = _extract_margin_anchor_strip(full_img, anchor_record)
-            anchor_attempt = _run_unary_verifier_attempt(
-                entry=entry,
-                original_formula=original_formula,
-                verifier_client=verifier_client,
-                crop_img=anchor_crop,
-                verifier_path=output_dir / f"verifier_line_anchor_{line_number}.jpg",
-                attempt_metadata={
-                    "attempt_kind": "margin_anchor",
-                    "band_index": None,
-                    "band_distance": None,
-                    "anchor_rel": None,
-                    "projected_crop_y": None,
-                    "band_mid_y": float(anchor_record.get("center_y_original") or 0.0),
-                    "anchor_center_y": anchor_record.get("center_y_original"),
-                    "strip_y1": anchor_record.get("y1"),
-                    "strip_y2": anchor_record.get("y2"),
-                    "tail_regularized": bool(anchor_record.get("tail_regularized")),
-                },
-            )
-            if anchor_attempt is not None:
-                attempt_records.append(anchor_attempt)
-
-        if node is not None and isinstance(line_order, int):
-            node_crop = _verifier_node_crop_image(node=node, full_img=full_img)
-            bands = _detect_text_row_bands(node_crop)
-            _, node_origin_y = _node_crop_origin(node)
-            anchor_rel = full_image_line_anchors.get(int(line_number)) if isinstance(line_number, int) else None
-            projected_crop_y = None
-            if anchor_rel is not None and full_img.shape[0] > 0:
-                global_y = (anchor_rel / 1000.0) * float(full_img.shape[0])
-                projected_crop_y = global_y - float(node_origin_y)
-            candidate_indices = _candidate_band_indices(
-                line_order=line_order,
-                band_count=len(bands),
-                bands=bands,
-                projected_y=projected_crop_y,
-            )
-            for candidate_index in candidate_indices:
-                line_crop = _extract_band_crop(
-                    node_crop_img=node_crop,
-                    bands=bands,
-                    band_index=candidate_index,
-                )
-                suffix = f"{line_order + 1}"
-                if candidate_index != line_order:
-                    suffix = f"{suffix}_band{candidate_index + 1}"
-                verifier_path = output_dir / f"verifier_line_{node_id}_{suffix}.jpg"
-                attempt = _run_unary_verifier_attempt(
-                    entry=entry,
-                    original_formula=original_formula,
-                    verifier_client=verifier_client,
-                    crop_img=line_crop,
-                    verifier_path=verifier_path,
-                    attempt_metadata={
-                        "attempt_kind": "local_band",
-                        "band_index": candidate_index,
-                        "band_distance": abs(candidate_index - line_order),
-                        "anchor_rel": anchor_rel,
-                        "projected_crop_y": projected_crop_y,
-                        "band_mid_y": (bands[candidate_index][0] + bands[candidate_index][1]) / 2.0,
-                        "anchor_center_y": None,
-                        "strip_y1": None,
-                        "strip_y2": None,
-                    },
-                )
-                if attempt is not None:
-                    attempt_records.append(attempt)
-
-        if not attempt_records:
-            records.append(
-                {
-                    "node_id": node_id,
-                    "line_label": str(entry.get("line_label") or "").strip(),
-                    "line_number": line_number,
-                    "node_line_order": line_order if isinstance(line_order, int) else None,
-                    "baseline_formula": original_formula,
-                    "structured_error": "Could not isolate a single-line verifier crop.",
-                    "would_auto_apply": False,
-                }
-            )
-            continue
-
-        best_attempt = _best_verifier_attempt(
-            original_formula=original_formula,
-            expected_line_order=line_order if isinstance(line_order, int) else None,
-            attempts=attempt_records,
-        )
-
-        records.append(
-            {
-                "node_id": node_id,
-                "line_label": str(entry.get("line_label") or "").strip(),
-                "line_number": line_number,
-                "node_line_order": line_order if isinstance(line_order, int) else None,
-                "baseline_formula": original_formula,
-                "band_count": len(_detect_text_row_bands(_verifier_node_crop_image(node=node, full_img=full_img))) if node is not None else 0,
-                "anchor_rel": best_attempt.get("anchor_rel"),
-                "projected_crop_y": best_attempt.get("projected_crop_y"),
-                "structured_counts": best_attempt.get("structured_counts"),
-                "structured_formula": best_attempt.get("structured_formula"),
-                "forced_choice_candidates": best_attempt.get("forced_choice_candidates"),
-                "forced_choice": best_attempt.get("forced_choice"),
-                "proposed_correction": best_attempt.get("proposed_correction"),
-                "would_auto_apply": bool(best_attempt.get("proposed_correction")),
-                "attempt_kind": best_attempt.get("attempt_kind"),
-                "anchor_center_y": best_attempt.get("anchor_center_y"),
-                "strip_y1": best_attempt.get("strip_y1"),
-                "strip_y2": best_attempt.get("strip_y2"),
-                "line_crop_path": best_attempt.get("line_crop_path"),
-                "structured_raw_response": best_attempt.get("structured_raw_response"),
-                "forced_raw_response": best_attempt.get("forced_raw_response"),
-                "candidate_attempts": attempt_records,
-            }
-        )
-
-    if records:
-        (output_dir / UNARY_VERIFIER_FILENAME).write_text(
-            json.dumps(records, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
-    return records
 
 
 def _candidate_unary_prefixes(formula_text: str, justification: str) -> List[str]:
@@ -3006,11 +2343,17 @@ def process_node_recursive(
     output_dir: Path,
     library: Dict[str, List[Dict[str, Any]]],
     *,
-    base_prompt: str,
+    formula_prompt: str | None = None,
+    justification_prompt: str | None = None,
     client: LMStudioQwenClient | None,
     opener_client: LMStudioQwenClient | None = None,
     verifier_client: LMStudioQwenClient | None = None,
+    base_prompt: str | None = None,
 ) -> None:
+    if formula_prompt is None:
+        formula_prompt = base_prompt or ""
+    if justification_prompt is None:
+        justification_prompt = base_prompt or ""
     if node.id == "ROOT":
         current_img = img.copy()
     else:
@@ -3026,10 +2369,12 @@ def process_node_recursive(
             img,
             output_dir,
             library,
-            base_prompt=base_prompt,
+            formula_prompt=formula_prompt,
+            justification_prompt=justification_prompt,
             client=client,
             opener_client=opener_client,
             verifier_client=verifier_client,
+            base_prompt=base_prompt,
         )
         if node.id == "ROOT":
             current_img = mask_subproof_in_parent(current_img, child)
@@ -3046,10 +2391,12 @@ def process_node_recursive(
         node=node,
         node_crop_img=current_img,
         output_dir=output_dir,
-        base_prompt=base_prompt,
+        formula_prompt=formula_prompt,
+        justification_prompt=justification_prompt,
         client=client,
         opener_client=opener_client,
         verifier_client=verifier_client,
+        base_prompt=base_prompt,
     )
     (output_dir / RAW_RESPONSE_TEMPLATE.format(node_id=node.id)).write_text(
         json.dumps(node_response, indent=2, ensure_ascii=False),
@@ -3487,43 +2834,12 @@ def _apply_unary_verifier_corrections(
     proof_structure: List[Any],
     verifier_records: List[Dict[str, Any]],
 ) -> tuple[List[Any], List[Dict[str, Any]]]:
-    updated = _clone_jsonish(proof_structure)
-    lines_by_number = {
-        int(line.get("line")): line
-        for line in _iter_proof_line_dicts(updated)
-        if isinstance(line, dict) and isinstance(line.get("line"), int)
-    }
-
-    rewrites: List[Dict[str, Any]] = []
-    for record in verifier_records:
-        if not isinstance(record, dict):
-            continue
-        if not record.get("would_auto_apply"):
-            continue
-        line_number = record.get("line_number")
-        proposed = str(record.get("proposed_correction") or "").strip()
-        if not isinstance(line_number, int) or not proposed:
-            continue
-        target_line = lines_by_number.get(line_number)
-        if not isinstance(target_line, dict):
-            continue
-        original_formula = str(target_line.get("wffstr") or "").strip()
-        if not original_formula or original_formula == proposed:
-            continue
-        target_line["wffstr"] = proposed
-        rewrites.append(
-            {
-                "line_number": line_number,
-                "line_label": str(target_line.get("line_label") or "").strip(),
-                "node_id": str(record.get("node_id") or "").strip(),
-                "citation": str(target_line.get("jstr") or "").strip(),
-                "original_formula": original_formula,
-                "rewritten_formula": proposed,
-            }
-        )
-
-    rewrites.sort(key=lambda item: (int(item.get("line_number") or 0), str(item.get("line_label") or "")))
-    return updated, rewrites
+    return _apply_unary_verifier_corrections_impl(
+        proof_structure,
+        verifier_records,
+        clone_jsonish=_clone_jsonish,
+        iter_proof_line_dicts=_iter_proof_line_dicts,
+    )
 
 
 def build_modal_state(
@@ -3586,6 +2902,7 @@ def transcribe_image_to_modal_debug_state(
     modal_config: Dict[str, Any],
     client: LMStudioQwenClient | None = None,
     verifier_client: LMStudioQwenClient | None = None,
+    enable_unary_verifier: bool = False,
     vision_base_url: str | None = None,
     vision_model: str | None = None,
     verifier_vision_model: str | None = None,
@@ -3597,11 +2914,14 @@ def transcribe_image_to_modal_debug_state(
     for pattern in ("node_line_*.jpg", "node_line_*.json", "node_rows_*.json", "node_rows_overlay_*.jpg", "node_entries_*.json"):
         for path in output_dir.glob(pattern):
             path.unlink(missing_ok=True)
-    base_prompt = build_line_ocr_prompt(modal_config)
+    formula_prompt = build_formula_ocr_prompt(modal_config)
+    justification_prompt = build_justification_ocr_prompt(modal_config)
     prompt_artifact = "\n\n".join(
         [
-            "=== PER-LINE MODAL OCR PROMPT ===",
-            base_prompt,
+            "=== FORMULA ZONE OCR PROMPT ===",
+            formula_prompt,
+            "=== JUSTIFICATION ZONE OCR PROMPT ===",
+            justification_prompt,
             "=== STRICT OPENER CLASSIFIER PROMPT ===",
             _build_subproof_opener_prompt(),
         ]
@@ -3631,7 +2951,8 @@ def transcribe_image_to_modal_debug_state(
         img,
         output_dir,
         library,
-        base_prompt=base_prompt,
+        formula_prompt=formula_prompt,
+        justification_prompt=justification_prompt,
         client=client,
         opener_client=verifier_client or client,
         verifier_client=verifier_client,
@@ -3671,15 +2992,17 @@ def transcribe_image_to_modal_debug_state(
     except Exception:
         baseline_checker_response = None
 
-    verifier_records = _run_unary_verifier_experiment(
+    rewritten_structure, verifier_records, verifier_rewrites = run_unary_postprocess(
+        enabled=enable_unary_verifier,
         proof_structure=final_structure,
         tree_root=tree_root,
         full_img=img,
         output_dir=output_dir,
         verifier_client=verifier_client,
         checker_response=baseline_checker_response,
+        run_experiment=_run_unary_verifier_experiment,
+        apply_corrections=_apply_unary_verifier_corrections,
     )
-    rewritten_structure, verifier_rewrites = _apply_unary_verifier_corrections(final_structure, verifier_records)
 
     persisted_structure = _clone_jsonish(rewritten_structure)
     _strip_internal_ocr_metadata(persisted_structure)
@@ -3764,6 +3087,11 @@ def main() -> int:
         default=default_unary_verifier_model(),
         help="LM Studio model identifier for the unary verifier experiment.",
     )
+    parser.add_argument(
+        "--enable-unary-verifier",
+        action="store_true",
+        help="Enable the terminal unary verifier postprocess that may rewrite OCR formulas after the baseline checker run.",
+    )
     args = parser.parse_args()
 
     image_path = Path(args.image)
@@ -3785,6 +3113,7 @@ def main() -> int:
     print(f"[OCR] VLM base URL: {args.lmstudio_base_url}")
     print(f"[OCR] VLM model: {args.lmstudio_model}")
     print(f"[OCR] Unary verifier model: {args.lmstudio_verifier_model}")
+    print(f"[OCR] Unary verifier postprocess enabled: {'yes' if args.enable_unary_verifier else 'no'}")
 
     try:
         client = build_vlm_client(
@@ -3801,6 +3130,7 @@ def main() -> int:
             modal_config=modal_config,
             client=client,
             verifier_client=verifier_client,
+            enable_unary_verifier=args.enable_unary_verifier,
             vision_base_url=args.lmstudio_base_url,
             vision_model=args.lmstudio_model,
             verifier_vision_model=args.lmstudio_verifier_model,

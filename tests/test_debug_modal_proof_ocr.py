@@ -10,6 +10,7 @@ from uuid import uuid4
 import cv2
 import numpy as np
 
+from modal_ocr.verifier import run_unary_postprocess
 from scripts import debug_modal_proof_ocr
 
 
@@ -692,6 +693,28 @@ class DebugModalProofOcrTests(unittest.TestCase):
         self.assertEqual(rewrites[1]["original_formula"], "□¬A")
         self.assertEqual(rewrites[1]["rewritten_formula"], "□¬¬A")
 
+    def test_run_unary_postprocess_skips_experiment_when_disabled(self) -> None:
+        structure = [{"line": 1, "wffstr": "¬□¬A", "jstr": "MC 1"}]
+
+        def fail_run_experiment(**_kwargs):
+            raise AssertionError("run_experiment should not be called when disabled")
+
+        rewritten, records, rewrites = run_unary_postprocess(
+            enabled=False,
+            proof_structure=structure,
+            tree_root=object(),
+            full_img=np.zeros((1, 1, 3), dtype=np.uint8),
+            output_dir=self.tmp_dir,
+            verifier_client=object(),
+            checker_response={},
+            run_experiment=fail_run_experiment,
+            apply_corrections=lambda proof_structure, verifier_records: (proof_structure, verifier_records),
+        )
+
+        self.assertEqual(rewritten, structure)
+        self.assertEqual(records, [])
+        self.assertEqual(rewrites, [])
+
     def test_recursive_stitch_recovers_missing_child_token_before_box_intro(self) -> None:
         root = debug_modal_proof_ocr.SubproofNode("ROOT", (0, 0, 100, 100))
         parent = debug_modal_proof_ocr.SubproofNode("1", (10, 0, 80, 90))
@@ -887,6 +910,7 @@ class DebugModalProofOcrTests(unittest.TestCase):
                 modal_config={"system": "S4", "conclusion": "□□P"},
                 client=fake_client,
                 verifier_client=fake_verifier_client,
+                enable_unary_verifier=True,
                 vision_base_url="http://127.0.0.1:1234/v1",
                 vision_model="google/gemma-3-12b-it",
                 verifier_vision_model="qwen/qwen3-vl-8b",
