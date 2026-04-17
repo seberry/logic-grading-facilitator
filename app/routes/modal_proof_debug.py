@@ -52,6 +52,18 @@ IMAGE_ARTIFACTS = (
     "margin_anchor_candidate_boxes.jpg",
     "margin_anchor_strip_overlay.jpg",
 )
+BASELINE_OCR_STAGE_SPECS = (
+    ("ROOT", "Whole proof crop", "crop_ROOT.jpg", "intermediate_ROOT.json", "response_ROOT.json"),
+    ("1", "Subproof crop 1", "crop_1.jpg", "intermediate_1.json", "response_1.json"),
+    ("2", "Subproof crop 2", "crop_2.jpg", "intermediate_2.json", "response_2.json"),
+)
+LINE_NUMBER_DEBUG_IMAGE_NAMES = {
+    "margin_anchor_margin_base.jpg",
+    "margin_anchor_margin_upscaled_4x.jpg",
+    "margin_anchor_binary.png",
+    "margin_anchor_candidate_boxes.jpg",
+    "margin_anchor_strip_overlay.jpg",
+}
 SYSTEM_OPTIONS = ["K", "T", "S4", "S5"]
 STARTER_EXAMPLE = "starter"
 
@@ -93,6 +105,10 @@ def _artifact_text(example_slug: str, filename: str) -> str:
         return path.read_text(encoding="utf-8")
     except OSError:
         return ""
+
+
+def _artifact_url(example_slug: str, filename: str) -> str:
+    return f"/debug_modal_proof_assets/{example_slug}/{quote(filename)}"
 
 
 def _default_page_state() -> Dict[str, Any]:
@@ -641,6 +657,10 @@ def _render_page(
 
     artifact_texts = {}
     image_artifacts: List[Dict[str, str]] = []
+    primary_image_artifact: Optional[Dict[str, str]] = None
+    baseline_ocr_stages: List[Dict[str, Any]] = []
+    line_number_debug_artifacts: List[Dict[str, str]] = []
+    auxiliary_image_artifacts: List[Dict[str, str]] = []
     unary_verifier_results: List[Dict[str, Any]] = []
     if selected and selected != STARTER_EXAMPLE:
         for filename in (*OPTIONAL_TEXT_ARTIFACTS, *OCR_TEXT_ARTIFACTS):
@@ -662,7 +682,7 @@ def _render_page(
                 image_artifacts.append(
                     {
                         "filename": filename,
-                        "url": f"/debug_modal_proof_assets/{selected}/{quote(filename)}",
+                        "url": _artifact_url(selected, filename),
                     }
                 )
         for path in sorted(example_dir.glob("verifier_line_*.jpg"), key=lambda p: p.name.lower()):
@@ -672,10 +692,46 @@ def _render_page(
             image_artifacts.append(
                 {
                     "filename": path.name,
-                    "url": f"/debug_modal_proof_assets/{selected}/{quote(path.name)}",
+                    "url": _artifact_url(selected, path.name),
                 }
             )
         unary_verifier_results = _load_unary_verifier_results(selected)
+
+        source_candidate = next((item for item in image_artifacts if item["filename"] == source_image_name), None)
+        if source_candidate:
+            primary_image_artifact = source_candidate
+        elif image_artifacts:
+            primary_image_artifact = image_artifacts[0]
+
+        for stage_id, title, image_name, intermediate_name, response_name in BASELINE_OCR_STAGE_SPECS:
+            image_path = example_dir / image_name
+            intermediate_text = artifact_texts.get(intermediate_name, "")
+            response_text = artifact_texts.get(response_name, "")
+            if not image_path.exists() and not intermediate_text.strip() and not response_text.strip():
+                continue
+            baseline_ocr_stages.append(
+                {
+                    "stage_id": stage_id,
+                    "title": title,
+                    "image_filename": image_name if image_path.exists() else "",
+                    "image_url": _artifact_url(selected, image_name) if image_path.exists() else "",
+                    "intermediate_name": intermediate_name,
+                    "intermediate_text": intermediate_text,
+                    "response_name": response_name,
+                    "response_text": response_text,
+                }
+            )
+
+        for artifact in image_artifacts:
+            filename = artifact["filename"]
+            if primary_image_artifact and filename == primary_image_artifact["filename"]:
+                continue
+            if filename in LINE_NUMBER_DEBUG_IMAGE_NAMES:
+                line_number_debug_artifacts.append(artifact)
+                continue
+            if any(filename == stage["image_filename"] for stage in baseline_ocr_stages if stage.get("image_filename")):
+                continue
+            auxiliary_image_artifacts.append(artifact)
 
     review_panel = _build_review_panel(
         state=state,
@@ -752,6 +808,10 @@ def _render_page(
             "checker_request_preview": _render_checker_request_preview(state.get("checker_request")),
             "optional_artifacts": artifact_texts,
             "image_artifacts": image_artifacts,
+            "primary_image_artifact": primary_image_artifact,
+            "baseline_ocr_stages": baseline_ocr_stages,
+            "line_number_debug_artifacts": line_number_debug_artifacts,
+            "auxiliary_image_artifacts": auxiliary_image_artifacts,
             "unary_verifier_results": unary_verifier_results,
             "review_panel": review_panel,
             **state,

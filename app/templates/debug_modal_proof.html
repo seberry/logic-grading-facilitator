@@ -307,12 +307,71 @@
       padding: 0.55rem;
     }
 
+    .artifact-card strong {
+      display: block;
+      margin-bottom: 0.25rem;
+    }
+
     .artifact-card img {
       width: 100%;
       border: 1px solid #d1d5db;
       border-radius: 6px;
       background: #fff;
       margin-top: 0.45rem;
+    }
+
+    .stage-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+      margin-top: 0.75rem;
+    }
+
+    .stage-card {
+      border: 1px solid #dbe4f0;
+      border-radius: 10px;
+      background: #fff;
+      padding: 0.9rem;
+    }
+
+    .stage-card h3 {
+      margin: 0 0 0.25rem 0;
+      font-size: 1rem;
+    }
+
+    .stage-card img {
+      width: 100%;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      background: #fff;
+      margin: 0.6rem 0 0.85rem 0;
+    }
+
+    .stage-card textarea {
+      min-height: 150px;
+      margin-top: 0.45rem;
+    }
+
+    .context-grid {
+      display: grid;
+      grid-template-columns: minmax(220px, 0.7fr) minmax(260px, 1.3fr);
+      gap: 1rem;
+      align-items: start;
+      margin-bottom: 1rem;
+    }
+
+    .context-thumb {
+      width: 100%;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .line-number-debug-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0.9rem;
+      margin-top: 0.85rem;
     }
 
     .editor-header {
@@ -751,20 +810,19 @@
         <div class="workspace-grid">
           <div>
             <label>Proof image</label>
-            {% if image_artifacts %}
-              {% set primary_artifact = image_artifacts[0] %}
+            {% if primary_image_artifact %}
               <div class="proof-image-frame">
-                <img src="{{ primary_artifact.url }}" alt="{{ primary_artifact.filename }}" />
+                <img src="{{ primary_image_artifact.url }}" alt="{{ primary_image_artifact.filename }}" />
               </div>
               <div class="proof-image-caption">
-                <span>{{ primary_artifact.filename }}</span>
-                <a href="{{ primary_artifact.url }}">Open image file</a>
+                <span>{{ primary_image_artifact.filename }}</span>
+                <a href="{{ primary_image_artifact.url }}">Open image file</a>
               </div>
-              {% if image_artifacts|length > 1 %}
+              {% if auxiliary_image_artifacts %}
                 <details class="panel-toggle" style="margin-top: 0.9rem;">
                   <summary>Other image artifacts</summary>
                   <div class="artifact-gallery">
-                    {% for artifact in image_artifacts[1:] %}
+                    {% for artifact in auxiliary_image_artifacts %}
                       <div class="artifact-card">
                         <div class="muted">{{ artifact.filename }}</div>
                         <a href="{{ artifact.url }}">
@@ -936,6 +994,46 @@
           <p class="muted">
             The editor above is now the primary correction path. OCR guesses and rewrite summaries stay here as secondary reference.
           </p>
+          {% if baseline_ocr_stages %}
+            <div class="artifact">
+              <label>Baseline OCR crop / read pairs</label>
+              <div class="muted">These are the first OCR passes before the 8b correction layer. Each card pairs the crop image with the JSON emitted for that crop.</div>
+              <div class="stage-grid">
+                {% for stage in baseline_ocr_stages %}
+                  <div class="stage-card">
+                    <h3>{{ stage.title }}</h3>
+                    {% if stage.image_url %}
+                      <a href="{{ stage.image_url }}">
+                        <img src="{{ stage.image_url }}" alt="{{ stage.image_filename }}" />
+                      </a>
+                    {% else %}
+                      <div class="muted">No saved crop image.</div>
+                    {% endif %}
+                    {% if stage.intermediate_text %}
+                      <label>{{ stage.intermediate_name }}</label>
+                      <textarea class="small-textarea" readonly>{{ stage.intermediate_text }}</textarea>
+                    {% endif %}
+                    {% if stage.response_text %}
+                      <label>{{ stage.response_name }}</label>
+                      <textarea class="small-textarea" readonly>{{ stage.response_text }}</textarea>
+                    {% endif %}
+                  </div>
+                {% endfor %}
+              </div>
+            </div>
+          {% endif %}
+          {% if optional_artifacts.get("final_structure_baseline.json") %}
+            <details class="panel-toggle">
+              <summary>Baseline OCR combined structure</summary>
+              <textarea class="small-textarea" readonly style="margin-top: 0.75rem;">{{ optional_artifacts["final_structure_baseline.json"] }}</textarea>
+            </details>
+          {% endif %}
+          {% if optional_artifacts.get("ocr_prompt.txt") %}
+            <details class="panel-toggle">
+              <summary>OCR prompt</summary>
+              <textarea class="small-textarea" readonly style="margin-top: 0.75rem;">{{ optional_artifacts["ocr_prompt.txt"] }}</textarea>
+            </details>
+          {% endif %}
           {% if verifier_rewrite_summary %}
             <div class="artifact">
               <label>Verifier Rewrites</label>
@@ -965,6 +1063,22 @@
             <details class="panel-toggle">
               <summary>Original OCR JSON</summary>
               <textarea class="small-textarea" readonly style="margin-top: 0.75rem;">{{ original_proof_json_text }}</textarea>
+            </details>
+          {% endif %}
+          {% if line_number_debug_artifacts %}
+            <details class="panel-toggle">
+              <summary>Line-numbering debug artifacts</summary>
+              <div class="muted" style="margin-top: 0.75rem;">These are for the margin-anchor / strip-finding experiments. They are useful when line numbers are wrong, but they do not need to stay in the main OCR evidence flow.</div>
+              <div class="line-number-debug-grid">
+                {% for artifact in line_number_debug_artifacts %}
+                  <div class="artifact-card">
+                    <strong>{{ artifact.filename }}</strong>
+                    <a href="{{ artifact.url }}">
+                      <img src="{{ artifact.url }}" alt="{{ artifact.filename }}" />
+                    </a>
+                  </div>
+                {% endfor %}
+              </div>
             </details>
           {% endif %}
         </section>
@@ -1100,7 +1214,7 @@
               >
                 <div class="review-header">
                   <div>
-                    <div class="review-title">Line {{ item.line_number }}</div>
+                    <div class="review-title">Stitched line {{ item.line_number }}</div>
                     {% if item.citation %}
                       <div class="muted">{{ item.citation }}</div>
                     {% endif %}
@@ -1261,11 +1375,23 @@
       <section class="panel">
         <label>Unary Verifier Experiment</label>
         {% if unary_verifier_results %}
+          <div class="context-grid">
+            <div>
+              {% if primary_image_artifact %}
+                <a href="{{ primary_image_artifact.url }}">
+                  <img src="{{ primary_image_artifact.url }}" alt="{{ primary_image_artifact.filename }}" class="context-thumb" />
+                </a>
+              {% endif %}
+            </div>
+            <div class="muted">
+              Each row below targets a <strong>stitched proof line</strong>: the final line number in the editor/checker proof, not a local crop index. This is the table to inspect when 8b is trying to repair a specific line such as line 3 in the final proof.
+            </div>
+          </div>
           <table>
             <thead>
               <tr>
                 <th>Node</th>
-                <th>Line</th>
+                <th>Stitched line</th>
                 <th>Baseline</th>
                 <th>Structured 8b</th>
                 <th>Forced-choice 8b</th>
@@ -1279,6 +1405,7 @@
                   <td>{{ item.node_id or "" }}</td>
                   <td>
                     {{ item.line_number or item.line_label or "?" }}
+                    <div class="muted">editor/checker numbering</div>
                     {% if item.node_line_order is not none %}
                       <div class="muted">node slot {{ item.node_line_order + 1 }}</div>
                     {% endif %}

@@ -198,6 +198,10 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
             encoding="utf-8",
         )
         (example_dir / "sample_source.png").write_bytes(b"fakepng")
+        (example_dir / "crop_ROOT.jpg").write_bytes(b"fakejpg")
+        (example_dir / "response_ROOT.json").write_text('{"lines":[{"wffstr":"A"}]}', encoding="utf-8")
+        (example_dir / "intermediate_ROOT.json").write_text('{"stage":"root"}', encoding="utf-8")
+        (example_dir / "margin_anchor_margin_upscaled_4x.jpg").write_bytes(b"fakejpg")
         (example_dir / "unary_verifier.json").write_text(
             json.dumps(
                 [
@@ -253,8 +257,13 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertIn("Open image file", response.text)
         self.assertIn("ASCII Proof View", response.text)
         self.assertIn("OCR review details", response.text)
+        self.assertIn("Baseline OCR crop / read pairs", response.text)
+        self.assertIn("Whole proof crop", response.text)
+        self.assertIn("Line-numbering debug artifacts", response.text)
         self.assertIn("Flagged OCR lines: 1", response.text)
         self.assertIn("Flagged lines:", response.text)
+        self.assertIn("Stitched line 4", response.text)
+        self.assertIn("editor/checker numbering", response.text)
         self.assertIn("Use ¬□¬¬A", response.text)
         self.assertIn("Use manual", response.text)
         self.assertIn("checker issue", response.text)
