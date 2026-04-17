@@ -407,22 +407,12 @@
       width: 64px;
       height: 14px;
       border-radius: 999px;
-      background-image:
-        repeating-linear-gradient(
-          to right,
-          #cbd5e1 0 2px,
-          transparent 2px 8px
-        ),
-        linear-gradient(#64748b, #64748b);
-      background-size:
-        calc(var(--depth, 0) * 8px) 100%,
-        calc(var(--cap-depth, 0) * 8px) 2px;
-      background-position:
-        0 0,
-        0 calc(100% - 2px);
-      background-repeat: no-repeat, no-repeat;
-      background-color: #e5e7eb;
-      border: 1px solid #cbd5e1;
+      background-image: linear-gradient(90deg, #2563eb 0%, #1d4ed8 100%);
+      background-size: calc(var(--depth, 0) * 8px) 100%;
+      background-repeat: no-repeat;
+      background-color: #eff6ff;
+      border: 1px solid #93c5fd;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
     }
 
     .line-number {
@@ -662,15 +652,12 @@
       width: 64px;
       height: 14px;
       border-radius: 999px;
-      background-image: repeating-linear-gradient(
-        to right,
-        #cbd5e1 0 2px,
-        transparent 2px 8px
-      );
+      background-image: linear-gradient(90deg, #2563eb 0%, #1d4ed8 100%);
       background-size: calc(var(--depth, 0) * 8px) 100%;
       background-repeat: no-repeat;
-      background-color: #e5e7eb;
-      border: 1px solid #cbd5e1;
+      background-color: #eff6ff;
+      border: 1px solid #93c5fd;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
     }
 
     .proof-depth-label {
@@ -1466,17 +1453,42 @@
         return Math.max(0, Math.trunc(num));
       }
 
-      function closingCapDepth(rows, idx) {
-        const currentDepth = normalizeDepth(rows[idx]?.depth);
-        const nextDepth = idx + 1 < rows.length ? normalizeDepth(rows[idx + 1]?.depth) : 0;
-        if (currentDepth <= nextDepth) {
-          return 0;
+      function rowHasContent(row) {
+        if (!row || typeof row !== "object") {
+          return false;
         }
-        return currentDepth;
+        return Boolean(String(row.formula || "").trim() || String(row.citation || "").trim());
+      }
+
+      function isPremiseCitation(citation) {
+        const text = String(citation || "").trim();
+        return /^(pr|prem|premise)$/i.test(text);
+      }
+
+      function standingPremiseOffset(rows) {
+        for (const row of rows) {
+          if (!rowHasContent(row)) {
+            continue;
+          }
+          if (normalizeDepth(row.depth) !== 0) {
+            return 0;
+          }
+          return isPremiseCitation(row.citation) ? 1 : 0;
+        }
+        return 0;
+      }
+
+      function displayDepthForRawDepth(rawDepth, rows) {
+        return normalizeDepth(rawDepth) + standingPremiseOffset(rows);
+      }
+
+      function rawDepthFromDisplayDepth(displayDepth, rows) {
+        return Math.max(0, normalizeDepth(displayDepth) - standingPremiseOffset(rows));
       }
 
       function computeRowWarnings(rows) {
         const warnings = rows.map(() => []);
+        const displayOffset = standingPremiseOffset(rows);
         let previousDepth = 0;
         rows.forEach((row, idx) => {
           const rawDepth = Number(row.depth);
@@ -1487,8 +1499,9 @@
           if (Number.isFinite(rawDepth) && rawDepth < 0) {
             warnings[idx].push("Depth cannot be negative.");
           }
-          if (idx === 0 && depth !== 0) {
-            warnings[idx].push("First line should start at depth 0.");
+          const firstLineDepthAllowed = depth === 0 || (displayOffset === 0 && depth === 1);
+          if (idx === 0 && !firstLineDepthAllowed) {
+            warnings[idx].push(`First line should start at depth ${displayOffset}.`);
           }
           if (idx > 0 && depth - previousDepth > 1) {
             warnings[idx].push("Indent by +1 only when opening a subproof.");
@@ -1501,7 +1514,7 @@
       function refreshDepthBarCaps() {
         document.querySelectorAll("[data-depth-bar-index]").forEach((node) => {
           const idx = Number(node.getAttribute("data-depth-bar-index"));
-          node.style.setProperty("--cap-depth", closingCapDepth(proofRows, idx));
+          node.style.setProperty("--depth", displayDepthForRawDepth(proofRows[idx]?.depth, proofRows));
         });
       }
 
@@ -1634,6 +1647,7 @@
         if (!proofTableBody) return;
         proofTableBody.innerHTML = "";
         const warnings = precomputedWarnings || computeRowWarnings(proofRows);
+        const displayOffset = standingPremiseOffset(proofRows);
         lastFocusedFormulaInput = null;
 
         proofRows.forEach((row, idx) => {
@@ -1653,16 +1667,20 @@
           const bars = document.createElement("div");
           bars.className = "depth-bars";
           bars.setAttribute("data-depth-bar-index", String(idx));
-          bars.style.setProperty("--depth", normalizeDepth(row.depth));
-          bars.style.setProperty("--cap-depth", closingCapDepth(proofRows, idx));
+          bars.style.setProperty("--depth", displayDepthForRawDepth(row.depth, proofRows));
           const depthInput = document.createElement("input");
           depthInput.type = "number";
-          depthInput.min = "0";
-          depthInput.value = String(normalizeDepth(row.depth));
+          depthInput.min = String(displayOffset);
+          depthInput.value = String(displayDepthForRawDepth(row.depth, proofRows));
           depthInput.addEventListener("input", (event) => {
-            proofRows[idx].depth = event.target.value;
-            bars.style.setProperty("--depth", normalizeDepth(event.target.value));
-            bars.style.setProperty("--cap-depth", closingCapDepth(proofRows, idx));
+            const previousOffset = standingPremiseOffset(proofRows);
+            proofRows[idx].depth = rawDepthFromDisplayDepth(event.target.value, proofRows);
+            const nextOffset = standingPremiseOffset(proofRows);
+            if (previousOffset !== nextOffset) {
+              renderTable();
+              return;
+            }
+            bars.style.setProperty("--depth", displayDepthForRawDepth(proofRows[idx].depth, proofRows));
             refreshWarnings();
             refreshDepthBarCaps();
           });
@@ -1694,7 +1712,11 @@
           citationInput.value = row.citation || "";
           citationInput.placeholder = "Citation";
           citationInput.addEventListener("input", () => {
+            const previousOffset = standingPremiseOffset(proofRows);
             proofRows[idx].citation = citationInput.value;
+            if (previousOffset !== standingPremiseOffset(proofRows)) {
+              renderTable();
+            }
           });
           citationTd.appendChild(citationInput);
           tr.appendChild(citationTd);

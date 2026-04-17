@@ -40,6 +40,13 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertIn("OCR review details", response.text)
         self.assertIn("Unary Verifier Experiment", response.text)
 
+    def test_modal_proof_post_action_gets_redirect_back_to_debug_page(self) -> None:
+        with patch.object(modal_proof_debug_routes, "DEBUG_MODAL_PROOF_DIR", self.debug_dir):
+            response = self.client.get("/debug/modal-proof/run_ocr?example=starter", follow_redirects=False)
+
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["location"], "/debug/modal-proof?example=starter")
+
     def test_save_modal_proof_state_persists_state_json(self) -> None:
         with patch.object(modal_proof_debug_routes, "DEBUG_MODAL_PROOF_DIR", self.debug_dir):
             response = self.client.post(
@@ -144,12 +151,16 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
                     "draft_grade": "1",
                 },
                 files={"proof_image": ("proof.png", b"fakepng", "image/png")},
+                follow_redirects=False,
             )
+            page = self.client.get(response.headers["location"])
 
         saved = json.loads((self.debug_dir / "starter" / "state.json").read_text(encoding="utf-8"))
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("OCR ran and updated the modal proof state.", response.text)
+        self.assertEqual(response.status_code, 303)
+        self.assertIn("/debug/modal-proof?example=starter", response.headers["location"])
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("OCR ran and updated the modal proof state.", page.text)
         self.assertEqual(saved["vision_model"], "qwen/qwen3-vl-4b")
         self.assertEqual(saved["verifier_vision_model"], "qwen/qwen3-vl-8b")
         self.assertEqual(saved["draft_comment"], "keep me")
@@ -399,16 +410,20 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
                     "draft_comment": "",
                     "draft_grade": "",
                 },
+                follow_redirects=False,
             )
+            page = self.client.get(response.headers["location"])
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("Checker ran successfully through the shared autograde layer.", response.text)
-        self.assertIn("Modal proof checked under system K; conclusion reached.", response.text)
-        self.assertIn("Checker input", response.text)
-        self.assertIn("ASCII Proof View", response.text)
-        self.assertIn("1. A    PR", response.text)
-        self.assertIn('"sentence": "A"', response.text)
-        self.assertIn("No parse errors reported.", response.text)
+        self.assertEqual(response.status_code, 303)
+        self.assertIn("/debug/modal-proof?example=starter", response.headers["location"])
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Checker ran successfully through the shared autograde layer.", page.text)
+        self.assertIn("Modal proof checked under system K; conclusion reached.", page.text)
+        self.assertIn("Checker input", page.text)
+        self.assertIn("ASCII Proof View", page.text)
+        self.assertIn("1. A    PR", page.text)
+        self.assertIn('"sentence": "A"', page.text)
+        self.assertIn("No parse errors reported.", page.text)
 
     def test_malformed_json_stays_on_page_with_error_message(self) -> None:
         with patch.object(modal_proof_debug_routes, "DEBUG_MODAL_PROOF_DIR", self.debug_dir):
@@ -422,11 +437,14 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
                     "draft_comment": "",
                     "draft_grade": "",
                 },
+                follow_redirects=False,
             )
+            page = self.client.get(response.headers["location"])
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("Checker could not run.", response.text)
-        self.assertIn("Modal proof answer_text is not valid JSON", response.text)
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Checker could not run.", page.text)
+        self.assertIn("Modal proof answer_text is not valid JSON", page.text)
 
     def test_unavailable_checker_binary_stays_on_page_with_error_message(self) -> None:
         result = AutoGradeResult(
@@ -453,11 +471,14 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
                     "draft_comment": "",
                     "draft_grade": "",
                 },
+                follow_redirects=False,
             )
+            page = self.client.get(response.headers["location"])
 
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("Checker could not run.", response.text)
-        self.assertIn("checker binary missing", response.text)
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Checker could not run.", page.text)
+        self.assertIn("checker binary missing", page.text)
 
     def test_archive_current_data_includes_debug_modal_proof(self) -> None:
         root = self.debug_dir / "data_root"
