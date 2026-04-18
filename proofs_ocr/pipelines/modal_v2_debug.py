@@ -1,0 +1,167 @@
+"""Debug-state harness for running the modal_v2 baseline pipeline."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any, Mapping
+
+import cv2
+
+from proofs_ocr.common import artifacts
+from proofs_ocr.domains import modal
+from proofs_ocr.pipelines.modal_v2_core import (
+    ImagePromptClient,
+    _index_tree,
+    _masked_node_crop_image,
+    _node_crop_image,
+    run_modal_baseline_pipeline,
+)
+from proofs_ocr.pipelines.modal_v2_runtime import (
+    ModalBaselineArtifactLineReader,
+    build_vlm_client,
+    default_lmstudio_base_url,
+    default_lmstudio_model,
+)
+
+
+def build_modal_v2_state(
+    *,
+    modal_config: Mapping[str, Any] | None,
+    final_structure: list[Any],
+    run_summary: str,
+    vision_base_url: str | None = None,
+    vision_model: str | None = None,
+    source_image_name: str = "",
+) -> dict[str, Any]:
+    """Build the minimal state.json payload for baseline debug runs."""
+
+    canonical = modal.canonical_modal_config(modal_config)
+    return {
+        "system": canonical["system"],
+        "include_derived_rules": canonical["include_derived_rules"],
+        "conclusion": canonical["conclusion"],
+        "vision_base_url": (vision_base_url or default_lmstudio_base_url()).strip(),
+        "vision_model": (vision_model or default_lmstudio_model()).strip(),
+        "verifier_vision_model": "",
+        "source_image_name": source_image_name,
+        "proof_json_text": json.dumps({"lines": final_structure, "meta": {}}, indent=2, ensure_ascii=False),
+        "original_proof_json_text": json.dumps({"lines": final_structure, "meta": {}}, indent=2, ensure_ascii=False),
+        "verifier_rewrite_summary": [],
+        "draft_comment": "",
+        "draft_grade": "",
+        "checker_request": None,
+        "checker_response": None,
+        "run_summary": run_summary,
+    }
+
+
+def transcribe_image_to_modal_v2_debug_state(
+    *,
+    image_path: Path,
+    output_dir: Path,
+    modal_config: Mapping[str, Any] | None = None,
+    client: ImagePromptClient | None = None,
+    vision_base_url: str | None = None,
+    vision_model: str | None = None,
+) -> dict[str, Any]:
+    """Run the modal_v2 baseline end to end and write debug artifacts."""
+
+    image_path = image_path.resolve()
+    output_dir = output_dir.resolve()
+    preserved = [image_path] if image_path.parent == output_dir else []
+    artifacts.clear_debug_dir(output_dir, preserve_paths=preserved)
+
+    if client is None:
+        client = build_vlm_client(base_url=vision_base_url, model=vision_model)
+
+    image = cv2.imread(str(image_path))
+    if image is None:
+        raise FileNotFoundError(f"Could not read image at {image_path}")
+
+    source_copy_name = f"{artifacts.SOURCE_IMAGE_STEM}{image_path.suffix.lower() or '.png'}"
+    source_copy_path = output_dir / source_copy_name
+    if source_copy_path != image_path:
+        source_copy_path.write_bytes(image_path.read_bytes())
+
+    prompt = modal.build_line_ocr_prompt(modal_config)
+    (output_dir / artifacts.PROMPT_FILENAME).write_text(prompt, encoding="utf-8")
+
+    result = run_modal_baseline_pipeline(
+        image=image,
+        read_line=ModalBaselineArtifactLineReader(
+            output_dir=output_dir,
+            client=client,
+            prompt=prompt,
+        ),
+    )
+
+    artifacts.write_bar_overlay(
+        image=image,
+        bars=result.detected_bars,
+        output_path=output_dir / artifacts.DEBUG_BARS_FILENAME,
+    )
+
+    node_lookup = _index_tree(result.tree_root)
+    for node_id, node in node_lookup.items():
+        node_crop_img = _node_crop_image(node=node, full_img=image)
+        masked_crop_img = _masked_node_crop_image(node=node, full_img=image)
+        cv2.imwrite(str(output_dir / artifacts.NODE_CROP_TEMPLATE.format(node_id=node_id)), node_crop_img)
+        (output_dir / artifacts.INTERMEDIATE_TEMPLATE.format(node_id=node_id)).write_text(
+            json.dumps(
+                {
+                    "node_id": node_id,
+                    "box": list(node.box),
+                    "child_ids": [child.id for child in node.children],
+                    "row_records": result.row_records_by_node.get(node_id, []),
+                },
+                indent=2,
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        (output_dir / artifacts.RAW_RESPONSE_TEMPLATE.format(node_id=node_id)).write_text(
+            json.dumps(result.library.get(node_id, []), indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        (output_dir / artifacts.NODE_ROWS_TEMPLATE.format(node_id=node_id)).write_text(
+            json.dumps(result.row_records_by_node.get(node_id, []), indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        (output_dir / artifacts.NODE_ENTRIES_TEMPLATE.format(node_id=node_id)).write_text(
+            json.dumps(result.library.get(node_id, []), indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        artifacts.write_row_overlay(
+            node_crop_img=masked_crop_img,
+            row_records=result.row_records_by_node.get(node_id, []),
+            output_path=output_dir / artifacts.NODE_ROWS_OVERLAY_TEMPLATE.format(node_id=node_id),
+        )
+
+    final_structure_text = json.dumps(result.final_structure, indent=2, ensure_ascii=False)
+    (output_dir / artifacts.BASELINE_FINAL_STRUCTURE_FILENAME).write_text(final_structure_text, encoding="utf-8")
+    (output_dir / artifacts.FINAL_STRUCTURE_FILENAME).write_text(final_structure_text, encoding="utf-8")
+
+    visible_line_count = sum(
+        1
+        for entries in result.library.values()
+        for entry in entries
+        if modal.has_visible_formula(entry)
+    )
+    run_summary = (
+        f"modal_v2 baseline OCR produced {visible_line_count} visible lines across "
+        f"{len(node_lookup)} nodes and detected {len(result.detected_bars)} subproof bars."
+    )
+    state = build_modal_v2_state(
+        modal_config=modal_config,
+        final_structure=result.final_structure,
+        run_summary=run_summary,
+        vision_base_url=vision_base_url,
+        vision_model=vision_model,
+        source_image_name=source_copy_name,
+    )
+    (output_dir / artifacts.STATE_FILENAME).write_text(
+        json.dumps(state, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return state
