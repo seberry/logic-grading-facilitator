@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
+from proofs_ocr.common import rows as common_rows
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
@@ -702,60 +703,19 @@ def _token_rect_for_child(
 
 
 def _band_height(band: Tuple[int, int]) -> int:
-    return max(0, int(band[1]) - int(band[0]) + 1)
+    return common_rows.band_height(band)
 
 
 def _adaptive_band_padding(*, band: Tuple[int, int], img_h: int) -> int:
-    height = _band_height(band)
-    if height <= 10:
-        return min(24, max(16, img_h // 12))
-    if height <= 14:
-        return min(20, max(14, img_h // 14))
-    if height <= 20:
-        return min(16, max(12, img_h // 16))
-    return 12
+    return common_rows.adaptive_band_padding(band=band, img_h=img_h)
 
 
 def _band_gap(upper: Tuple[int, int], lower: Tuple[int, int]) -> int:
-    return int(lower[0]) - int(upper[1]) - 1
+    return common_rows.band_gap(upper, lower)
 
 
 def _merge_fragment_bands(bands: List[Tuple[int, int]]) -> List[Tuple[int, int]]:
-    if not bands:
-        return []
-
-    merged = [tuple(map(int, band)) for band in sorted(bands)]
-    changed = True
-    while changed and len(merged) > 1:
-        changed = False
-        for idx, band in enumerate(list(merged)):
-            height = _band_height(band)
-            if height > 12:
-                continue
-
-            prev_gap = _band_gap(merged[idx - 1], band) if idx > 0 else None
-            next_gap = _band_gap(band, merged[idx + 1]) if idx + 1 < len(merged) else None
-            candidate_idx: int | None = None
-            candidate_gap: int | None = None
-
-            if prev_gap is not None and prev_gap <= 18:
-                candidate_idx = idx - 1
-                candidate_gap = prev_gap
-            if next_gap is not None and next_gap <= 18 and (candidate_gap is None or next_gap < candidate_gap):
-                candidate_idx = idx + 1
-                candidate_gap = next_gap
-            if candidate_idx is None:
-                continue
-
-            other = merged[candidate_idx]
-            new_band = (min(band[0], other[0]), max(band[1], other[1]))
-            low_idx = min(idx, candidate_idx)
-            high_idx = max(idx, candidate_idx)
-            merged[low_idx] = new_band
-            del merged[high_idx]
-            changed = True
-            break
-    return merged
+    return common_rows.merge_fragment_bands(bands)
 
 
 def _band_has_text_outside_vertical_window(
@@ -765,35 +725,13 @@ def _band_has_text_outside_vertical_window(
     window_y1: int,
     window_y2: int,
 ) -> bool:
-    if node_crop_img.size == 0:
-        return False
-
-    img_h, img_w = node_crop_img.shape[:2]
-    pad_y = _adaptive_band_padding(band=band, img_h=img_h)
-    top = max(0, int(band[0]) - pad_y)
-    bottom = min(img_h, int(band[1]) + pad_y)
-    if bottom <= top:
-        return False
-
-    crop = _suppress_left_scope_bar(node_crop_img[top:bottom, :img_w])
-    if crop.size == 0:
-        return False
-
-    local_window_y1 = max(0, min(crop.shape[0], int(window_y1) - top))
-    local_window_y2 = max(0, min(crop.shape[0], int(window_y2) - top))
-    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-    left_ignore = min(20, max(12, gray.shape[1] // 8))
-    right_limit = min(gray.shape[1], max(80, int(gray.shape[1] * 0.68)))
-    if right_limit <= left_ignore:
-        return False
-
-    focused = gray[:, left_ignore:right_limit]
-    mask = np.ones(focused.shape[:2], dtype=np.uint8)
-    if local_window_y2 > local_window_y1:
-        mask[local_window_y1:local_window_y2, :] = 0
-
-    dark = ((focused < 185) & (mask > 0)).astype(np.uint8)
-    return int(dark.sum()) >= 14
+    return common_rows.band_has_text_outside_vertical_window(
+        node_crop_img,
+        band,
+        window_y1=window_y1,
+        window_y2=window_y2,
+        suppress_left_scope_bar=_suppress_left_scope_bar,
+    )
 
 
 def _band_matches_child_token_artifact(
@@ -804,30 +742,15 @@ def _band_matches_child_token_artifact(
     center_tolerance: int = 2,
     overlap_ratio_threshold: float = 0.45,
 ) -> bool:
-    band_height = _band_height(band)
-    if band_height <= 0 or not node.children:
-        return False
-
-    band_center = (int(band[0]) + int(band[1])) / 2.0
-    for child in node.children:
-        _, token_top, _, token_bottom = _token_rect_for_child(node=node, child=child, img_shape=node_crop_img.shape)
-        overlap_top = max(int(band[0]), int(token_top))
-        overlap_bottom = min(int(band[1]), int(token_bottom))
-        overlap = overlap_bottom - overlap_top + 1
-        overlap_ratio = (overlap / band_height) if overlap > 0 else 0.0
-        center_inside = (int(token_top) - center_tolerance) <= band_center <= (int(token_bottom) + center_tolerance)
-        if center_inside:
-            return True
-        if overlap_ratio < overlap_ratio_threshold:
-            continue
-        if not _band_has_text_outside_vertical_window(
-            node_crop_img,
-            band,
-            window_y1=int(token_top),
-            window_y2=int(token_bottom) + 1,
-        ):
-            return True
-    return False
+    return common_rows.band_matches_child_token_artifact(
+        band=band,
+        node=node,
+        node_crop_img=node_crop_img,
+        token_rect_for_child=_token_rect_for_child,
+        band_has_text_outside_vertical_window_fn=_band_has_text_outside_vertical_window,
+        center_tolerance=center_tolerance,
+        overlap_ratio_threshold=overlap_ratio_threshold,
+    )
 
 
 def _filter_bands_near_child_tokens(
@@ -836,18 +759,12 @@ def _filter_bands_near_child_tokens(
     node: SubproofNode,
     node_crop_img: np.ndarray,
 ) -> List[Tuple[int, int]]:
-    if not bands or not node.children:
-        return bands
-
-    filtered: List[Tuple[int, int]] = []
-    for band in bands:
-        if not _band_matches_child_token_artifact(
-            band=band,
-            node=node,
-            node_crop_img=node_crop_img,
-        ):
-            filtered.append(band)
-    return filtered
+    return common_rows.filter_bands_near_child_tokens(
+        bands=bands,
+        node=node,
+        node_crop_img=node_crop_img,
+        band_matches_child_token_artifact_fn=_band_matches_child_token_artifact,
+    )
 
 
 def _row_overlaps_child_token(
@@ -856,47 +773,20 @@ def _row_overlaps_child_token(
     row_record: Dict[str, Any],
     node_crop_img: np.ndarray,
 ) -> bool:
-    band = (int(row_record.get("y1", 0)), int(row_record.get("y2", 0)))
-    return _band_matches_child_token_artifact(
-        band=band,
+    return common_rows.row_overlaps_child_token(
         node=node,
+        row_record=row_record,
         node_crop_img=node_crop_img,
+        band_matches_child_token_artifact_fn=_band_matches_child_token_artifact,
     )
 
 
 def _band_has_textlike_ink(node_crop_img: np.ndarray, band: Tuple[int, int]) -> bool:
-    band_crop = _extract_band_crop(node_crop_img=node_crop_img, bands=[band], band_index=0)
-    if band_crop.size == 0:
-        return False
-    gray = cv2.cvtColor(band_crop, cv2.COLOR_BGR2GRAY)
-    left_ignore = min(20, max(12, gray.shape[1] // 8))
-    focused = gray[:, left_ignore : min(gray.shape[1], max(80, int(gray.shape[1] * 0.60)))]
-    dark = (focused < 185).astype(np.uint8)
-    if dark.size == 0:
-        return False
-    horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (max(18, int(focused.shape[1] * 0.2)), 1))
-    horizontal_mask = cv2.morphologyEx(dark, cv2.MORPH_OPEN, horizontal_kernel)
-    vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(16, int(focused.shape[0] * 0.75))))
-    vertical_mask = cv2.morphologyEx(dark, cv2.MORPH_OPEN, vertical_kernel)
-    text_mask = dark.copy()
-    text_mask[horizontal_mask > 0] = 0
-    text_mask[vertical_mask > 0] = 0
-    num_labels, _, stats, _ = cv2.connectedComponentsWithStats(text_mask, 8)
-    tall_components = 0
-    total_area = 0
-    for label_index in range(1, num_labels):
-        area = int(stats[label_index, cv2.CC_STAT_AREA])
-        width = int(stats[label_index, cv2.CC_STAT_WIDTH])
-        height = int(stats[label_index, cv2.CC_STAT_HEIGHT])
-        if area < 8:
-            continue
-        total_area += area
-        if height >= 6 and width >= 2:
-            tall_components += 1
-    band_height = int(band[1] - band[0] + 1)
-    if band_height < 12 and total_area < 36:
-        return False
-    return tall_components >= 1 and total_area >= 18
+    return common_rows.band_has_textlike_ink(
+        node_crop_img,
+        band,
+        extract_band_crop_fn=_extract_band_crop,
+    )
 
 
 def segment_node_rows(
@@ -905,51 +795,24 @@ def segment_node_rows(
     node_crop_img: np.ndarray,
     output_dir: Path,
 ) -> List[Dict[str, Any]]:
-    cleaned = _suppress_left_scope_bar(node_crop_img)
-    bands = [band for band in _detect_text_row_bands(cleaned) if _band_has_textlike_ink(cleaned, band)]
-    bands = _merge_fragment_bands(bands)
-    bands = _filter_bands_near_child_tokens(bands=bands, node=node, node_crop_img=cleaned)
-    row_records: List[Dict[str, Any]] = []
-    for band_index, (y1, y2) in enumerate(bands):
-        row_records.append(
-            {
-                "kind": "line",
-                "band_index": band_index,
-                "y1": int(y1),
-                "y2": int(y2),
-                "center_y": float((y1 + y2) / 2.0),
-            }
+    def _write_row_artifacts(row_records: List[Dict[str, Any]]) -> None:
+        (output_dir / NODE_ROWS_TEMPLATE.format(node_id=node.id)).write_text(
+            json.dumps(row_records, indent=2, ensure_ascii=False),
+            encoding="utf-8",
         )
-    img_h = node_crop_img.shape[0]
-    for child in sorted(node.children, key=lambda c: c.box[1]):
-        _, token_top, _, token_bottom = _token_rect_for_child(node=node, child=child, img_shape=node_crop_img.shape)
-        center_y = float((token_top + token_bottom) / 2.0)
-        row_records.append(
-            {
-                "kind": "subproof_token",
-                "child_id": child.id,
-                "y1": int(max(0, token_top)),
-                "y2": int(min(img_h - 1, token_bottom)),
-                "center_y": center_y,
-            }
-        )
+        _save_node_row_overlay(node_crop_img=node_crop_img, output_dir=output_dir, node_id=node.id, row_records=row_records)
 
-    row_records.sort(
-        key=lambda record: (
-            float(record.get("center_y", 0.0)),
-            0 if str(record.get("kind") or "line") == "line" else 1,
-            int(record.get("band_index", 0)),
-        )
+    return common_rows.segment_node_rows(
+        node=node,
+        node_crop_img=node_crop_img,
+        suppress_left_scope_bar=_suppress_left_scope_bar,
+        detect_text_row_bands_fn=_detect_text_row_bands,
+        band_has_textlike_ink_fn=_band_has_textlike_ink,
+        merge_fragment_bands_fn=_merge_fragment_bands,
+        filter_bands_near_child_tokens_fn=_filter_bands_near_child_tokens,
+        token_rect_for_child_fn=_token_rect_for_child,
+        write_row_artifacts=_write_row_artifacts,
     )
-    for row_order, record in enumerate(row_records, start=1):
-        record["row_order"] = row_order
-
-    (output_dir / NODE_ROWS_TEMPLATE.format(node_id=node.id)).write_text(
-        json.dumps(row_records, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    _save_node_row_overlay(node_crop_img=node_crop_img, output_dir=output_dir, node_id=node.id, row_records=row_records)
-    return row_records
 
 
 def _extract_line_row_crop(
@@ -958,16 +821,12 @@ def _extract_line_row_crop(
     y1: int,
     y2: int,
 ) -> np.ndarray:
-    if node_crop_img.size == 0:
-        return node_crop_img
-    img_h, img_w = node_crop_img.shape[:2]
-    pad_y = _adaptive_band_padding(band=(int(y1), int(y2)), img_h=img_h)
-    top = max(0, int(y1) - pad_y)
-    bottom = min(img_h, int(y2) + pad_y)
-    crop = node_crop_img[top:bottom, :img_w]
-    if crop.size == 0:
-        return node_crop_img
-    return _suppress_left_scope_bar(crop)
+    return common_rows.extract_line_row_crop(
+        node_crop_img=node_crop_img,
+        y1=y1,
+        y2=y2,
+        suppress_left_scope_bar=_suppress_left_scope_bar,
+    )
 
 
 def _score_to_confidence_label(score: float) -> str:
@@ -1969,112 +1828,7 @@ def _score_unary_formula_candidates(
 
 
 def _detect_text_row_bands(crop_img: np.ndarray) -> List[Tuple[int, int]]:
-    gray = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
-    img_h, img_w = gray.shape[:2]
-    formula_w = min(img_w, max(80, int(img_w * 0.50)))
-    focused = gray[:, :formula_w]
-
-    dark_mask = (focused < 185).astype(np.uint8)
-    if dark_mask.size == 0:
-        return []
-
-    # Remove long proof bars and scope underlines so they do not merge adjacent rows.
-    horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (max(20, int(formula_w * 0.18)), 1))
-    horizontal_mask = cv2.morphologyEx(dark_mask, cv2.MORPH_OPEN, horizontal_kernel)
-    vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(20, int(img_h * 0.35))))
-    vertical_mask = cv2.morphologyEx(dark_mask, cv2.MORPH_OPEN, vertical_kernel)
-    text_mask = dark_mask.copy()
-    text_mask[horizontal_mask > 0] = 0
-    text_mask[vertical_mask > 0] = 0
-
-    row_counts = text_mask.sum(axis=1).astype(np.float32)
-    if row_counts.size == 0:
-        return []
-
-    kernel = np.ones(9, dtype=np.float32) / 9.0
-    smoothed = np.convolve(row_counts, kernel, mode="same")
-    threshold = max(6.0, float(smoothed.max()) * 0.16)
-    active_rows = np.where(smoothed >= threshold)[0]
-    if active_rows.size == 0:
-        return []
-
-    bands: List[Tuple[int, int]] = []
-    start = int(active_rows[0])
-    prev = int(active_rows[0])
-    for idx in active_rows[1:]:
-        idx = int(idx)
-        if idx <= prev + 4:
-            prev = idx
-            continue
-        bands.append((start, prev))
-        start = idx
-        prev = idx
-    bands.append((start, prev))
-
-    merged: List[Tuple[int, int]] = []
-    for band_start, band_end in bands:
-        if merged and band_start <= merged[-1][1] + 10:
-            merged[-1] = (merged[-1][0], band_end)
-        else:
-            merged.append((band_start, band_end))
-
-    split_bands: List[Tuple[int, int]] = []
-    valley_threshold = max(2.0, threshold * 0.45)
-    min_band_height = 6
-    min_gap_height = 4
-    for band_start, band_end in merged:
-        if band_end - band_start < 22:
-            split_bands.append((band_start, band_end))
-            continue
-
-        current_start = band_start
-        gap_start: int | None = None
-        gap_end: int | None = None
-        for row in range(band_start, band_end + 1):
-            if smoothed[row] < valley_threshold:
-                if gap_start is None:
-                    gap_start = row
-                gap_end = row
-                continue
-
-            if gap_start is not None and gap_end is not None:
-                gap_height = gap_end - gap_start + 1
-                left_height = gap_start - current_start
-                right_height = band_end - gap_end
-                if gap_height >= min_gap_height and left_height >= min_band_height and right_height >= min_band_height:
-                    split_bands.append((current_start, gap_start - 1))
-                    current_start = gap_end + 1
-                gap_start = None
-                gap_end = None
-
-        if band_end - current_start + 1 >= min_band_height:
-            split_bands.append((current_start, band_end))
-
-    normalized = [(start, end) for start, end in split_bands if end - start >= min_band_height]
-    if not normalized:
-        normalized = [(start, end) for start, end in merged if end - start >= 6]
-
-    component_bands: List[Tuple[int, int]] = []
-    num_labels, _, stats, _ = cv2.connectedComponentsWithStats(text_mask, 8)
-    raw_component_bands: List[Tuple[int, int]] = []
-    for label_index in range(1, num_labels):
-        area = int(stats[label_index, cv2.CC_STAT_AREA])
-        if area < 10:
-            continue
-        top = int(stats[label_index, cv2.CC_STAT_TOP])
-        height = int(stats[label_index, cv2.CC_STAT_HEIGHT])
-        raw_component_bands.append((top, top + height - 1))
-
-    for band_start, band_end in sorted(raw_component_bands):
-        if component_bands and band_start <= component_bands[-1][1] + 8:
-            component_bands[-1] = (component_bands[-1][0], max(component_bands[-1][1], band_end))
-        else:
-            component_bands.append((band_start, band_end))
-    component_bands = [(start, end) for start, end in component_bands if end - start >= 4]
-
-    if len(component_bands) > len(normalized):
-        return component_bands
-    return normalized
+    return common_rows.detect_text_row_bands(crop_img)
 
 
 def _focused_unary_line_crop_path(
