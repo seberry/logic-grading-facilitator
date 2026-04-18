@@ -18,6 +18,24 @@ scope:
     - "Do not import shared logic from script modules as the long-term design."
     - "Do not add new verifier/postprocess layers before baseline OCR is stable."
 
+current_repo_state:
+  committed_refactor_base:
+    - "Commit d173dbb scaffolds proofs_ocr/ plus a proof-OCR-specific readme."
+    - "proofs_ocr/regression/manifest.yaml contains six seeded modal cases."
+    - "python -m proofs_ocr.regression prints a simple existence/status summary for those cases."
+  active_code_paths:
+    - "scripts/debug_fitch_ocr.py remains the stable TFL reference implementation."
+    - "scripts/debug_modal_proof_ocr.py remains the active modal OCR reference implementation."
+    - "proofs_ocr/ is not wired into production or debug routes yet."
+  known_workspace_confusions:
+    - "There may be uncommitted modal_ocr leftovers such as modal_ocr/tree.py and modal_ocr/masking.py."
+    - "There may also be uncommitted edits in scripts/debug_modal_proof_ocr.py and modal_ocr/verifier.py that do not belong to the new proofs_ocr scaffold."
+    - "Treat those leftovers as provisional unless they are deliberately cleaned up and committed."
+  recommended_restart_point:
+    - "Start new refactor work from proofs_ocr/, not from modal_ocr/."
+    - "Use the regression manifest as the evaluation target before adding new heuristics."
+    - "Only copy stable shared primitives into proofs_ocr/common after deciding they are worth preserving."
+
 core_workflow:
   summary: >
     The durable insight in this project is recursive decomposition of Fitch-style
@@ -95,3 +113,7 @@ handoff_notes:
     - "Explain whether a change belongs in common, domains, or pipelines."
     - "Keep the recursive decomposition workflow visible in code comments."
     - "Avoid mixing experiment-only code into the stable reference scripts unless necessary."
+  when_restarting_after_context_loss:
+    - "Read docs/PROOF_OCR_REFACTOR_STATUS.md first."
+    - "Then inspect proofs_ocr/regression/manifest.yaml and run python -m proofs_ocr.regression."
+    - "Ignore uncommitted modal_ocr leftovers until they are either cleaned up or intentionally revived."
