@@ -178,9 +178,43 @@ def detect_text_row_bands(crop_img: np.ndarray) -> List[Band]:
             component_bands.append((band_start, band_end))
     component_bands = [(start, end) for start, end in component_bands if end - start >= 4]
 
-    if len(component_bands) > len(normalized):
-        return component_bands
-    return normalized
+    candidate_bands = component_bands if len(component_bands) > len(normalized) else normalized
+
+    recovered_compact_bands: List[Band] = []
+    num_raw_labels, _, raw_stats, _ = cv2.connectedComponentsWithStats(dark_mask, 8)
+    top_limit = min(img_h - 1, max(48, img_h // 2))
+    left_limit = min(focused.shape[1], max(90, int(formula_w * 0.22)))
+    max_component_span = max(28, int(img_h * 0.28))
+    for label_index in range(1, num_raw_labels):
+        area = int(raw_stats[label_index, cv2.CC_STAT_AREA])
+        if area < 36:
+            continue
+        left = int(raw_stats[label_index, cv2.CC_STAT_LEFT])
+        top = int(raw_stats[label_index, cv2.CC_STAT_TOP])
+        width = int(raw_stats[label_index, cv2.CC_STAT_WIDTH])
+        height = int(raw_stats[label_index, cv2.CC_STAT_HEIGHT])
+        if top > top_limit or left > left_limit:
+            continue
+        if width < 8 or height < 8:
+            continue
+        if width > max_component_span or height > max_component_span:
+            continue
+        bottom = top + height - 1
+        if any(not (bottom < band_start - 3 or top > band_end + 3) for band_start, band_end in candidate_bands):
+            continue
+        recovered_compact_bands.append((top, bottom))
+
+    combined = sorted(candidate_bands + recovered_compact_bands)
+    if not combined:
+        return []
+
+    merged_combined: List[Band] = []
+    for band_start, band_end in combined:
+        if merged_combined and band_start <= merged_combined[-1][1] + 6:
+            merged_combined[-1] = (merged_combined[-1][0], max(merged_combined[-1][1], band_end))
+        else:
+            merged_combined.append((band_start, band_end))
+    return merged_combined
 
 
 def extract_line_row_crop(

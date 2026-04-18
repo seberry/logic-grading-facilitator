@@ -1,5 +1,6 @@
 import unittest
 
+import cv2
 import numpy as np
 
 from proofs_ocr.common import rows
@@ -76,6 +77,16 @@ class ProofsOcrCommonRowsTests(unittest.TestCase):
                 {"kind": "subproof_token", "child_id": "2", "y1": 146, "y2": 171, "center_y": 158.5, "row_order": 2},
             ],
         )
+
+    def test_detect_text_row_bands_recovers_compact_top_left_component(self) -> None:
+        crop_img = np.full((140, 260, 3), 255, dtype=np.uint8)
+        cv2.rectangle(crop_img, (36, 18), (56, 38), (0, 0, 0), 2)
+        cv2.line(crop_img, (20, 68), (88, 68), (0, 0, 0), 2)
+        cv2.putText(crop_img, "A", (30, 112), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 2)
+
+        bands = rows.detect_text_row_bands(crop_img)
+
+        self.assertTrue(any(start <= 22 and end >= 34 for start, end in bands))
 
 
 if __name__ == "__main__":
