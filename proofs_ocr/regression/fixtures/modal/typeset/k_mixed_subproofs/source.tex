@@ -1,0 +1,22 @@
+\documentclass[preview]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathrsfs}
+\usepackage{teachlogic}
+\begin{document}
+\[\begin{nd}
+		\hypo{1}{\ebox (A \eif B)}
+		\open
+		\hypo{2}{\ebox A}
+		\open
+		\hypo{3}{\ebox}
+		\have{4}{A}\boxe{2}
+		\have{5}{A \eif B}\boxe{1}
+		\have{6}{B}\ce{4,5}
+		\close
+		\have{7}{\ebox B}
+		\close
+		\have{8}{\ebox A \eif \ebox B} \ci{2-7}
+	\end{nd}\]
+\end{document}

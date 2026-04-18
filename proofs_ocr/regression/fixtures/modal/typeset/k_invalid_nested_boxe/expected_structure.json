@@ -1,0 +1,30 @@
+[
+  {
+    "line_label": "1",
+    "wffstr": "□A",
+    "jstr": "PR",
+    "line": 1
+  },
+  [
+    {
+      "line_label": "1",
+      "wffstr": "□",
+      "jstr": "PR",
+      "line": 2
+    },
+    [
+      {
+        "line_label": "1",
+        "wffstr": "□",
+        "jstr": "PR",
+        "line": 3
+      },
+      {
+        "line_label": "2",
+        "wffstr": "A",
+        "jstr": "incorrect use of □E 3",
+        "line": 4
+      }
+    ]
+  ]
+]

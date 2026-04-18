@@ -1,0 +1,54 @@
+[
+  [
+    {
+      "line_label": "",
+      "wffstr": "□(A ∧ □¬A)",
+      "jstr": "PR",
+      "line": 1
+    },
+    {
+      "line_label": "",
+      "wffstr": "□A",
+      "jstr": "∧E 1",
+      "line": 2
+    },
+    {
+      "line_label": "",
+      "wffstr": "⋄ ¬ A",
+      "jstr": "∧E 1",
+      "line": 3
+    },
+    {
+      "line_label": "",
+      "wffstr": "¬□¬¬A",
+      "jstr": "MC 3",
+      "line": 4
+    },
+    [
+      {
+        "line_label": "<<SUBPROOF>",
+        "wffstr": "□",
+        "jstr": "PR",
+        "line": 5
+      }
+    ],
+    {
+      "line_label": "<SUBPROOF_",
+      "wffstr": "□",
+      "jstr": "other _ID_2>",
+      "line": 6
+    },
+    {
+      "line_label": "",
+      "wffstr": "□ ⊢ A",
+      "jstr": "□I 5-7",
+      "line": 7
+    }
+  ],
+  {
+    "line_label": "<<SUBPROOF>",
+    "wffstr": "□",
+    "jstr": "→I 1",
+    "line": 8
+  }
+]

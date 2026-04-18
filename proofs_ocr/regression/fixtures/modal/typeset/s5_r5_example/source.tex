@@ -1,0 +1,22 @@
+\documentclass[preview]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathrsfs}
+\usepackage{teachlogic}
+\begin{document}
+\[\begin{nd}
+	\hypo{1}{\ediamond\ebox A}
+	\have{2}{\enot\ebox\enot\ebox A}\by{Def\ediamond}{1}
+	\open
+	\hypo{3}{\enot \ebox A}
+	\open
+	\hypo{4}{\ebox}
+	\have{5}{\enot\ebox A}\rfive{3}
+	\close
+	\have{6}{\ebox\enot\ebox A}\boxi{4-5}
+	\have{7}{\ered}\ne{2,6}
+	\close
+	\have{8}{\ebox A}\by{IP}{3-7}
+\end{nd}\]
+\end{document}

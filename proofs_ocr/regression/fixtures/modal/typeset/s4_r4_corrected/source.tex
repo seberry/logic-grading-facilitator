@@ -1,0 +1,21 @@
+\documentclass[preview]{standalone}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathrsfs}
+\usepackage{teachlogic}
+\begin{document}
+\[
+\begin{nd}
+	\open
+	\hypo{1}{\ebox A}
+	\open
+	\hypo{2}{\ebox}
+	\have{3}{\ebox A}\rfour{1}
+	\close
+	\have{4}{\ebox\ebox A}\boxi{2-3}
+	\close
+	\have{5}{\ebox A \eif \ebox\ebox A}\ci{1-4}
+\end{nd}
+\]
+\end{document}

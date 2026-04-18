@@ -1,0 +1,28 @@
+[
+  {
+    "line_label": "1.)",
+    "wffstr": "FK ⊢ (□A ∧ ¬O)",
+    "jstr": "IP 1",
+    "line": 1
+  },
+  [
+    {
+      "line_label": "",
+      "wffstr": "□",
+      "jstr": "PR",
+      "line": 2
+    },
+    {
+      "line_label": "",
+      "wffstr": "¬(□A ∧ ⋄¬A)",
+      "jstr": "¬I 1-9",
+      "line": 3
+    }
+  ],
+  {
+    "line_label": "",
+    "wffstr": "<SUBPROOF>",
+    "jstr": "→I 1",
+    "line": 4
+  }
+]

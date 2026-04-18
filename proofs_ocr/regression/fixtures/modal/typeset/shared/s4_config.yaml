@@ -1,0 +1,3 @@
+system: S4
+include_derived_rules: false
+conclusion: "□A → □□A"
