@@ -92,6 +92,7 @@ OCR_PIPELINE_OPTIONS = (
     ("legacy_modal_debug", "Legacy modal OCR"),
     ("modal_v2_baseline", "modal_v2 baseline"),
 )
+OCR_PIPELINE_LABELS = {pipeline_id: pipeline_label for pipeline_id, pipeline_label in OCR_PIPELINE_OPTIONS}
 STARTER_EXAMPLE = "starter"
 
 DEFAULT_PROOF_JSON_TEXT = json.dumps(
@@ -136,6 +137,24 @@ def _artifact_text(example_slug: str, filename: str) -> str:
 
 def _artifact_url(example_slug: str, filename: str) -> str:
     return f"/debug_modal_proof_assets/{example_slug}/{quote(filename)}"
+
+
+def _node_id_sort_key(node_id: str) -> tuple[int, int, str]:
+    text = str(node_id or "").strip()
+    if text == "ROOT":
+        return (0, 0, "")
+    if text.isdigit():
+        return (1, int(text), "")
+    return (2, 0, text.lower())
+
+
+def _node_crop_stage_title(node_id: str) -> str:
+    text = str(node_id or "").strip()
+    if text == "ROOT":
+        return "Whole proof crop"
+    if text:
+        return f"Subproof crop {text}"
+    return "Proof crop"
 
 
 def _default_page_state() -> Dict[str, Any]:
@@ -820,9 +839,11 @@ def _render_page(
     line_number_debug_artifacts: List[Dict[str, str]] = []
     auxiliary_image_artifacts: List[Dict[str, str]] = []
     unary_verifier_results: List[Dict[str, Any]] = []
+    current_pipeline_id = str(state.get("ocr_pipeline") or "legacy_modal_debug").strip() or "legacy_modal_debug"
+    current_pipeline_label = OCR_PIPELINE_LABELS.get(current_pipeline_id, current_pipeline_id)
     baseline_quick_view: Dict[str, Any] = {
         "enabled": False,
-        "pipeline_label": "",
+        "pipeline_label": current_pipeline_label,
         "run_summary": str(state.get("run_summary") or "").strip(),
         "source_image_url": "",
         "source_image_filename": "",
@@ -873,8 +894,8 @@ def _render_page(
             primary_image_artifact = image_artifacts[0]
 
         baseline_quick_view = {
-            "enabled": str(state.get("ocr_pipeline") or "").strip() == "modal_v2_baseline",
-            "pipeline_label": "modal_v2 baseline",
+            "enabled": current_pipeline_id == "modal_v2_baseline",
+            "pipeline_label": current_pipeline_label,
             "run_summary": str(state.get("run_summary") or "").strip(),
             "source_image_url": primary_image_artifact["url"] if primary_image_artifact else "",
             "source_image_filename": primary_image_artifact["filename"] if primary_image_artifact else "",
@@ -884,7 +905,18 @@ def _render_page(
             "has_artifacts": bool((example_dir / "debug_bars.jpg").exists() or artifact_texts.get("final_structure_baseline.json", "").strip()),
         }
 
-        for stage_id, title, image_name, intermediate_name, response_name in BASELINE_OCR_STAGE_SPECS:
+        baseline_stage_ids = set()
+        for path in example_dir.glob("crop_*.jpg"):
+            baseline_stage_ids.add(path.stem.removeprefix("crop_"))
+        for path in example_dir.glob("intermediate_*.json"):
+            baseline_stage_ids.add(path.stem.removeprefix("intermediate_"))
+        for path in example_dir.glob("response_*.json"):
+            baseline_stage_ids.add(path.stem.removeprefix("response_"))
+        for stage_id in sorted(baseline_stage_ids, key=_node_id_sort_key):
+            title = _node_crop_stage_title(stage_id)
+            image_name = f"crop_{stage_id}.jpg"
+            intermediate_name = f"intermediate_{stage_id}.json"
+            response_name = f"response_{stage_id}.json"
             image_path = example_dir / image_name
             intermediate_text = artifact_texts.get(intermediate_name, "")
             response_text = artifact_texts.get(response_name, "")
@@ -1034,7 +1066,7 @@ def _render_page(
     checker_ascii_records = _build_ascii_proof_records(checker_ascii_source)
     checker_line_lookup = {int(line.get("line_number") or 0): line for line in checker_ascii_base}
 
-    if selected and selected != STARTER_EXAMPLE:
+    if selected:
         example_dir = DEBUG_MODAL_PROOF_DIR / selected
         stitched_lookup = _build_stitched_line_lookup(example_dir)
         for stage in line_ocr_stages:
@@ -1090,6 +1122,8 @@ def _render_page(
             "selected_example": selected,
             "system_options": SYSTEM_OPTIONS,
             "ocr_pipeline_options": OCR_PIPELINE_OPTIONS,
+            "current_pipeline_id": current_pipeline_id,
+            "current_pipeline_label": current_pipeline_label,
             "parse_errors": _checker_issues(state.get("checker_response"), "parse_errors"),
             "check_errors": _checker_issues(state.get("checker_response"), "check_errors"),
             "normalized_lines": normalized_lines,

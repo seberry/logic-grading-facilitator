@@ -1,52 +1,56 @@
 project_meta:
   name: "Proof OCR"
-  status: "scaffolded for clean rewrite"
+  status: "modal baseline refactor running end-to-end"
   purpose: >
-    Shared guidance for future LLM-assisted work on proof OCR, separate from the
-    broader grading application readme. This document describes how to build the
-    next proof OCR pipeline without adding more complexity to the existing
-    script-shaped implementations.
+    Shared guidance for future LLM-assisted work on proof OCR. This document
+    describes the current clean pipeline boundaries, what is already live, and
+    what should happen next without collapsing back into giant script-shaped
+    implementations.
 
 scope:
   active_reference_implementations:
     - "scripts/debug_fitch_ocr.py"
     - "scripts/debug_modal_proof_ocr.py"
+  active_new_pipeline:
+    - "proofs_ocr/pipelines/modal_v2.py"
   new_workspace:
     - "proofs_ocr/"
   non_goals:
     - "Do not rewrite the existing TFL OCR path in-place."
     - "Do not import shared logic from script modules as the long-term design."
-    - "Do not add new verifier/postprocess layers before baseline OCR is stable."
+    - "Do not restore old modal heuristics as the default architecture."
 
 current_repo_state:
   committed_refactor_base:
-    - "Commit d173dbb scaffolds proofs_ocr/ plus a proof-OCR-specific readme."
-    - "proofs_ocr/regression/manifest.yaml contains six seeded modal cases."
-    - "python -m proofs_ocr.regression prints a simple existence/status summary for those cases."
+    - "Shared Fitch-style mechanics now live in proofs_ocr/common."
+    - "Committed modal fixtures live under proofs_ocr/regression/fixtures/modal."
+    - "The modal_v2 baseline runs end to end and writes debug artifacts."
+    - "/debug/modal-proof can run either the legacy modal script path or modal_v2 baseline."
   active_code_paths:
     - "scripts/debug_fitch_ocr.py remains the stable TFL reference implementation."
-    - "scripts/debug_modal_proof_ocr.py remains the active modal OCR reference implementation."
-    - "proofs_ocr/ is not wired into production or debug routes yet."
+    - "scripts/debug_modal_proof_ocr.py remains the richer modal reference implementation."
+    - "proofs_ocr/pipelines/modal_v2.py is the new minimal recursive modal baseline."
+  current_module_split:
+    - "proofs_ocr/pipelines/modal_v2_core.py owns recursive baseline orchestration."
+    - "proofs_ocr/pipelines/modal_v2_runtime.py owns the line-reader / LM Studio adapter."
+    - "proofs_ocr/pipelines/modal_v2_debug.py owns artifact writing and debug-state assembly."
+    - "proofs_ocr/pipelines/modal_v2.py is the public facade / CLI."
   known_workspace_confusions:
-    - "There may be uncommitted modal_ocr leftovers such as modal_ocr/tree.py and modal_ocr/masking.py."
-    - "There may also be uncommitted edits in scripts/debug_modal_proof_ocr.py and modal_ocr/verifier.py that do not belong to the new proofs_ocr scaffold."
-    - "Treat those leftovers as provisional unless they are deliberately cleaned up and committed."
-  recommended_restart_point:
-    - "Start new refactor work from proofs_ocr/, not from modal_ocr/."
-    - "Use the regression manifest as the evaluation target before adding new heuristics."
-    - "Only copy stable shared primitives into proofs_ocr/common after deciding they are worth preserving."
+    - "Expected structure files in the modal regression fixtures are regression targets, not uniformly gold truth."
+    - "Handwritten expected structures are especially provisional."
+    - "Legacy script artifacts still exist in the debug viewer for comparison; they should not be mistaken for the selected modal_v2 path."
 
 core_workflow:
   summary: >
-    The durable insight in this project is recursive decomposition of Fitch-style
-    proofs, not any one prompt tweak. Preserve that structure and keep it easy to
-    explain from the code.
+    The durable idea is recursive decomposition of Fitch-style proofs. Keep that
+    structure legible in code and in debug artifacts. Prompt experiments and
+    repair heuristics should stay secondary.
   steps:
     - "Detect vertical scope bars in a tightly cropped proof image."
     - "Build a nested subproof tree from those bar regions."
     - "OCR child scopes first so each subtree is resolved bottom-up."
     - "Mask each resolved child with a synthetic placeholder token inside its parent."
-    - "OCR the parent scope with child regions suppressed."
+    - "Segment rows and OCR the current node one line at a time."
     - "Stitch placeholders back into a nested proof structure and normalize output."
 
 module_boundaries:
@@ -54,70 +58,73 @@ module_boundaries:
     owns:
       - "bar detection and region geometry"
       - "subproof tree construction"
-      - "crop helpers"
-      - "placeholder token geometry and masking"
+      - "placeholder token masking"
       - "row-band detection"
-      - "generic stitch/renumber utilities"
-      - "debug artifact helpers"
+      - "stitch / renumber utilities"
+      - "artifact-writing helpers"
     should_not_own:
       - "modal-only repair heuristics"
-      - "TFL-only normalization rules"
-      - "prompt wording tied to a specific logic domain"
+      - "prompt wording tied to one logic domain"
+      - "legacy-script adapters"
   domains:
     owns:
       - "prompt text"
       - "formula normalization"
       - "justification normalization"
-      - "domain-specific repair rules"
-      - "domain-specific verifier integration"
+      - "final line-resolution helpers"
+      - "domain-specific heuristics when explicitly enabled"
   pipelines:
     owns:
       - "top-level orchestration for a concrete experiment path"
-      - "wiring between common mechanics and a domain adapter"
+      - "runtime adapters for a chosen OCR backend"
+      - "debug-state assembly for that path"
+
+modal_v2_baseline:
+  default_character:
+    - "Minimal recursive baseline."
+    - "Old-script-free by default."
+    - "Explicit feature flags reserved for future optional layers."
+  reserved_feature_flags:
+    - "enable_strict_opener_classifier"
+    - "enable_short_formula_reread"
+    - "enable_retry_on_suspicious_line"
+    - "enable_unary_verifier"
+    - "enable_boundary_repair"
+  current_debug_surface:
+    - "CLI entry point: python -m proofs_ocr.pipelines.modal_v2 ..."
+    - "Debug-state harness writes source image, debug bars, node crops, row overlays, per-line crops, and final_structure_baseline.json."
+    - "/debug/modal-proof exposes a pipeline toggle so modal_v2 artifacts can be inspected beside the proof image."
 
 guardrails:
   - "Treat existing debug scripts as reference implementations, not shared libraries."
-  - "Prefer copying a stable primitive into proofs_ocr over importing it from a script."
-  - "Keep common proof mechanics separate from modal-specific or TFL-specific cleanup."
-  - "Document any new heuristic in the regression manifest or nearby notes before stacking another one."
+  - "Prefer moving a stable primitive into proofs_ocr over importing it from a script."
+  - "Keep shared proof mechanics separate from modal-specific cleanup."
+  - "Keep optional legacy behavior behind explicit flags or adapters."
   - "If a behavior change is intentional, record which regression cases improved and what tradeoff appeared."
 
 near_term_plan:
-  - "Use proofs_ocr/common for shared recursive proof mechanics."
-  - "Start with a clean modal pipeline under proofs_ocr before attempting broader convergence."
-  - "Preserve the current TFL OCR path unchanged while the new pipeline matures."
-  - "Use the regression manifest as the source of truth for evaluation targets."
+  - "Use the modal_v2 baseline and debug viewer artifacts to diagnose real fixture failures."
+  - "Prioritize bar-geometry and masking fixes before adding more OCR heuristics."
+  - "Keep TFL OCR unchanged while the modal baseline matures."
+  - "Only add old-script complications later as explicit opt-in layers."
 
 regression_expectations:
-  current_state: >
-    The repository contains both modal typeset proof cases and handwritten cases,
-    but they are not yet described by one authoritative manifest.
   current_seed_cases:
-    - "proofs_ocr/regression/manifest.yaml now seeds four modal typeset cases from proofs_ocr/regression/fixtures/modal/typeset."
-    - "It also seeds two repo-local handwritten modal crops from proofs_ocr/regression/fixtures/modal/handwritten."
-    - "The current expected_structure files are regression targets, not uniformly gold truth."
-    - "The handwritten expected structures are provisional debug-run outputs, not hand-curated gold truth."
+    - "proofs_ocr/regression/manifest.yaml seeds four modal typeset fixtures and two handwritten modal fixtures."
+    - "The expected_structure files are useful regression targets, but not a perfect correctness oracle."
   known_gap:
-    - "The manifest currently carries one expected_structure target per case."
-    - "Longer-term, the suite should distinguish baseline OCR output from gold/correct structure so regressions can be separated from real progress."
-  target_manifest_fields:
-    - "id"
-    - "domain"
-    - "kind"
-    - "image_path"
-    - "expected_structure_path"
-    - "tags"
-    - "notes"
+    - "Longer-term, the suite should distinguish baseline OCR output from gold/correct structure."
   quality_bar: >
-    The immediate goal is not zero-touch OCR. The goal is to reduce the amount of
-    human correction needed while keeping the recursive proof structure reliable.
+    The immediate goal is not zero-touch OCR. The goal is to make recursive
+    proof structure reliable enough that human correction becomes smaller,
+    clearer, and faster.
 
 handoff_notes:
   when_editing_proofs_ocr:
     - "Explain whether a change belongs in common, domains, or pipelines."
-    - "Keep the recursive decomposition workflow visible in code comments."
-    - "Avoid mixing experiment-only code into the stable reference scripts unless necessary."
+    - "Prefer structural clarity over adding another hidden heuristic."
+    - "Keep the recursive decomposition workflow visible in code."
   when_restarting_after_context_loss:
     - "Read docs/PROOF_OCR_REFACTOR_STATUS.md first."
-    - "Then inspect proofs_ocr/regression/manifest.yaml and run python -m proofs_ocr.regression."
-    - "Ignore uncommitted modal_ocr leftovers until they are either cleaned up or intentionally revived."
+    - "Then inspect proofs_ocr/regression/manifest.yaml."
+    - "Use /debug/modal-proof with the modal_v2 baseline toggle to inspect real artifact output."

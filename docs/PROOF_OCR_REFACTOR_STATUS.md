@@ -2,116 +2,107 @@
 
 ## Purpose
 
-This note is the short restart brief for the proof OCR cleanup project. Read
-this first if the codebase feels confusing and you want the current intended
-direction without reconstructing the full conversation.
+This note is the short restart brief for the current proof OCR state. Read this
+first if you need to know what is live, what is still provisional, and what the
+next work should optimize for.
 
-## The Short Version
+## Current Reality
 
-The project now has two different layers:
+The repo now has two live modal OCR paths:
 
-- The old reference implementations:
-  - `scripts/debug_fitch_ocr.py`
+- Old reference implementation:
   - `scripts/debug_modal_proof_ocr.py`
-- The new clean refactor workspace:
-  - `proofs_ocr/`
+- New baseline path:
+  - `proofs_ocr/pipelines/modal_v2.py`
 
-The old scripts are still the real implementations. The new `proofs_ocr/`
-package is a scaffold for a cleaner second pass. It is not wired into the app
-yet.
+The old script is still the richer reference implementation. The new
+`proofs_ocr/` path is no longer a scaffold. It runs end to end, writes debug
+artifacts, and is selectable in `/debug/modal-proof`.
 
-## What Is Actually Committed
+## What Is Stable Enough To Build On
 
-The important committed refactor snapshot is:
-
-- `d173dbb` — `Scaffold proofs OCR workspace`
-
-That commit adds:
-
-- `docs/PROOF_OCR_LLM_README.yaml`
 - `proofs_ocr/common/`
-- `proofs_ocr/domains/`
+  - shared Fitch-style mechanics already extracted:
+    - `tree.py`
+    - `masking.py`
+    - `rows.py`
+    - `stitch.py`
+- `proofs_ocr/domains/modal.py`
+  - minimal modal-domain normalization and line-resolution helpers
 - `proofs_ocr/pipelines/`
-- `proofs_ocr/regression/`
-
-It also adds a tiny runner:
-
-```bash
-python -m proofs_ocr.regression
-```
-
-That command reads `proofs_ocr/regression/manifest.yaml` and reports whether
-each seeded regression case exists locally.
-
-## What To Treat As Stable
-
-Treat these as the stable starting point for the refactor:
-
-- `proofs_ocr/` as the new workspace
-- `proofs_ocr/regression/manifest.yaml` as the seed evaluation target
-- `docs/PROOF_OCR_LLM_README.yaml` as the design/guardrail document
-- `scripts/debug_fitch_ocr.py` and `scripts/debug_modal_proof_ocr.py` as the
-  reference behavior to copy from, not as libraries to import from
+  - `modal_v2_core.py` for recursive baseline orchestration
+  - `modal_v2_runtime.py` for the line-reader / VLM adapter
+  - `modal_v2_debug.py` for artifact writing and debug-state assembly
+  - `modal_v2.py` as the public facade / CLI entry point
+- `proofs_ocr/regression/fixtures/modal/`
+  - committed modal typeset and handwritten fixtures
+- `/debug/modal-proof`
+  - supports both:
+    - `Legacy modal OCR`
+    - `modal_v2 baseline`
 
 ## What Is Still Provisional
 
-The modal regression manifest currently contains:
+- The old scripts remain the broader behavioral reference.
+- The new modal baseline is intentionally old-script-free by default.
+- Optional legacy-style layers are feature-flagged for later work and mostly
+  off by default:
+  - `enable_strict_opener_classifier`
+  - `enable_short_formula_reread`
+  - `enable_retry_on_suspicious_line`
+  - `enable_unary_verifier`
+  - `enable_boundary_repair`
+- The modal regression `expected_structure.json` files are regression targets,
+  not uniformly gold truth.
+- Handwritten expected structures are especially provisional.
 
-- 4 modal typeset cases from `working/modal-proof-tex-suite`
-- 2 handwritten modal cases from repo-local debug crops
+## What The New Baseline Already Does
 
-Important caveat:
+The `modal_v2` baseline now follows the intended recursive shape:
 
-- The handwritten expected structures are provisional debug outputs, not
-  hand-curated gold truth.
-- More broadly, the current `expected_structure` files should be treated as
-  regression targets, not uniformly authoritative correct answers.
-- A later cleanup should split baseline OCR outputs from gold/correct proof
-  structures where both are available.
+1. detect vertical bars
+2. build a subproof tree
+3. recurse into child scopes first
+4. mask child scopes with placeholders
+5. segment rows in the current node
+6. OCR per-line crops through an injected line reader
+7. stitch the result back into a nested proof structure
 
-That is still useful for restart context, but it should not be mistaken for a
-finished benchmark suite.
+That structure is the main refactor win. It is now visible in code and in the
+debug viewer.
 
-## What Is Confusing Right Now
+## Current Main Blocker
 
-There may be uncommitted leftovers in the older modal OCR path, including:
+The next problem is not “pipeline missing.” It is baseline quality.
 
-- `modal_ocr/tree.py`
-- `modal_ocr/masking.py`
-- edits in `scripts/debug_modal_proof_ocr.py`
-- edits in `modal_ocr/verifier.py`
+The clearest known failure is bar geometry / masking on some typeset proofs:
 
-Those are not part of the committed `proofs_ocr/` scaffold. Unless they are
-cleaned up and deliberately committed later, they should be treated as drift,
-not direction.
+- child bars can start too high
+- parent masking then erases formulas that should remain visible
+- root crops keep line labels while losing formulas
 
-## Recommended Fresh-Context Starting Plan
+That means the next useful work is geometric/debug quality work, not another
+large structural rewrite.
 
-1. Read `docs/PROOF_OCR_LLM_README.yaml`.
-2. Run `python -m proofs_ocr.regression`.
-3. Inspect `proofs_ocr/regression/manifest.yaml`.
-4. Keep new work inside `proofs_ocr/`.
-5. Copy only stable shared primitives from the old scripts.
-6. Do not add new repair/verifier layers before the baseline clean pipeline is
-   understandable.
+## Recommended Near-Term Plan
+
+1. Keep new work inside `proofs_ocr/`.
+2. Use `/debug/modal-proof` with the `modal_v2 baseline` toggle to inspect the
+   real first-pass artifacts.
+3. Improve bar bounds / masking before stacking more OCR heuristics.
+4. Keep legacy behavior behind explicit adapters or feature flags, not as the
+   default architecture.
+5. Do not rewrite the TFL OCR path in place while the modal baseline is still
+   settling.
 
 ## Architectural Intent
 
-The long-term split is:
+The intended split remains:
 
-- `proofs_ocr/common/` for shared Fitch-style proof mechanics
-- `proofs_ocr/domains/` for modal/TFL-specific normalization and heuristics
-- `proofs_ocr/pipelines/` for concrete experiment pipelines
+- `proofs_ocr/common/` for shared proof mechanics
+- `proofs_ocr/domains/` for domain-specific normalization and heuristics
+- `proofs_ocr/pipelines/` for orchestration and experiment paths
 - `proofs_ocr/regression/` for evaluation targets
 
-The key durable idea is recursive decomposition:
-
-1. detect subproof bars
-2. build a tree
-3. recurse into child scopes
-4. mask children with placeholders
-5. OCR the current scope
-6. stitch everything back together
-
-That workflow is the real core. Prompt experiments and repair heuristics should
-remain secondary to it.
+Refactoring is good enough for now. The next phase should be baseline behavior
+debugging, not broad package churn.

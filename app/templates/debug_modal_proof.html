@@ -247,6 +247,65 @@
       margin-bottom: 1rem;
     }
 
+    .current-path-banner {
+      margin-top: 0.9rem;
+      border: 2px solid #93c5fd;
+      border-radius: 10px;
+      background: #eff6ff;
+      padding: 0.85rem 1rem;
+    }
+
+    .current-path-banner.is-legacy {
+      border-color: #99f6e4;
+      background: #f0fdfa;
+    }
+
+    .current-path-tag {
+      display: inline-block;
+      margin-bottom: 0.3rem;
+      font-size: 0.78rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #1d4ed8;
+    }
+
+    .current-path-banner.is-legacy .current-path-tag {
+      color: #0f766e;
+    }
+
+    .path-evidence-panel {
+      border-width: 2px;
+    }
+
+    .path-evidence-panel.is-modal-v2 {
+      border-color: #93c5fd;
+      background: linear-gradient(180deg, #f8fbff 0%, #ffffff 180px);
+    }
+
+    .path-evidence-panel.is-legacy {
+      border-color: #99f6e4;
+      background: linear-gradient(180deg, #f3fffc 0%, #ffffff 180px);
+    }
+
+    .path-evidence-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 0.9rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.85rem;
+    }
+
+    .path-evidence-title {
+      margin: 0;
+      font-size: 1.1rem;
+    }
+
+    .path-evidence-note {
+      margin: 0.25rem 0 0 0;
+    }
+
     .workspace-grid {
       display: grid;
       grid-template-columns: minmax(320px, 0.95fr) minmax(420px, 1.05fr);
@@ -818,87 +877,41 @@
                 <span>{{ primary_image_artifact.filename }}</span>
                 <a href="{{ primary_image_artifact.url }}">Open image file</a>
               </div>
-              {% if baseline_quick_view.enabled %}
-                <details class="panel-toggle" open style="margin-top: 0.9rem;">
-                  <summary>{{ baseline_quick_view.pipeline_label }} first pass</summary>
-                  <div class="summary-box" style="margin-top: 0.75rem;">
-                    <strong>Status</strong><br />
-                    {% if baseline_quick_view.run_summary %}
-                      {{ baseline_quick_view.run_summary }}
-                    {% else %}
-                      No baseline OCR run summary is saved yet.
-                    {% endif %}
-                  </div>
-                  {% if baseline_quick_view.has_artifacts %}
-                    <div class="artifact-gallery" style="margin-top: 0.75rem;">
-                      {% if baseline_quick_view.debug_bars_url %}
-                        <div class="artifact-card">
-                          <strong>Detected bars</strong>
-                          <a href="{{ baseline_quick_view.debug_bars_url }}">
-                            <img src="{{ baseline_quick_view.debug_bars_url }}" alt="{{ baseline_quick_view.debug_bars_filename }}" />
-                          </a>
-                        </div>
-                      {% endif %}
-                    </div>
-                    {% if baseline_quick_view.baseline_structure_text %}
-                      <label style="margin-top: 0.75rem;">Stitched baseline OCR</label>
-                      <textarea class="small-textarea" readonly style="margin-top: 0.45rem;">{{ baseline_quick_view.baseline_structure_text }}</textarea>
-                    {% endif %}
-                  {% else %}
-                    <div class="muted" style="margin-top: 0.75rem;">The modal_v2 pipeline is selected, but no saved baseline artifacts are available for this example yet.</div>
-                  {% endif %}
-                </details>
-              {% endif %}
-              {% if auxiliary_image_artifacts %}
-                <details class="panel-toggle" style="margin-top: 0.9rem;">
-                  <summary>Other image artifacts</summary>
-                  <div class="artifact-gallery">
-                    {% for artifact in auxiliary_image_artifacts %}
-                      <div class="artifact-card">
-                        <div class="muted">{{ artifact.filename }}</div>
-                        <a href="{{ artifact.url }}">
-                          <img src="{{ artifact.url }}" alt="{{ artifact.filename }}" />
-                        </a>
-                      </div>
-                    {% endfor %}
-                  </div>
-                </details>
-              {% endif %}
             {% else %}
               <div class="proof-image-frame">
                 <div class="muted">No saved proof image is available yet. Import a strip crop or upload a proof image below.</div>
               </div>
-              {% if baseline_quick_view.enabled %}
-                <details class="panel-toggle" open style="margin-top: 0.9rem;">
-                  <summary>{{ baseline_quick_view.pipeline_label }} first pass</summary>
-                  <div class="summary-box" style="margin-top: 0.75rem;">
-                    <strong>Status</strong><br />
-                    {% if baseline_quick_view.run_summary %}
-                      {{ baseline_quick_view.run_summary }}
-                    {% else %}
-                      No baseline OCR run summary is saved yet.
-                    {% endif %}
-                  </div>
-                  {% if baseline_quick_view.has_artifacts %}
-                    <div class="artifact-gallery" style="margin-top: 0.75rem;">
-                      {% if baseline_quick_view.debug_bars_url %}
-                        <div class="artifact-card">
-                          <strong>Detected bars</strong>
-                          <a href="{{ baseline_quick_view.debug_bars_url }}">
-                            <img src="{{ baseline_quick_view.debug_bars_url }}" alt="{{ baseline_quick_view.debug_bars_filename }}" />
-                          </a>
-                        </div>
-                      {% endif %}
+            {% endif %}
+
+            <div class="current-path-banner {{ 'is-modal-v2' if current_pipeline_id == 'modal_v2_baseline' else 'is-legacy' }}">
+              <div class="current-path-tag">Current OCR path</div>
+              <div><strong>{{ current_pipeline_label }}</strong></div>
+              <div class="muted" style="margin-top: 0.3rem;">
+                {% if baseline_quick_view.run_summary %}
+                  {{ baseline_quick_view.run_summary }}
+                {% else %}
+                  No saved OCR run summary is available for this example yet.
+                {% endif %}
+              </div>
+              <div class="muted" style="margin-top: 0.35rem;">
+                Detailed path-specific artifacts are in the highlighted panel to the right. Secondary or legacy-only diagnostics are collapsed below that.
+              </div>
+            </div>
+
+            {% if auxiliary_image_artifacts %}
+              <details class="panel-toggle" style="margin-top: 0.9rem;">
+                <summary>Other image artifacts</summary>
+                <div class="artifact-gallery">
+                  {% for artifact in auxiliary_image_artifacts %}
+                    <div class="artifact-card">
+                      <div class="muted">{{ artifact.filename }}</div>
+                      <a href="{{ artifact.url }}">
+                        <img src="{{ artifact.url }}" alt="{{ artifact.filename }}" />
+                      </a>
                     </div>
-                    {% if baseline_quick_view.baseline_structure_text %}
-                      <label style="margin-top: 0.75rem;">Stitched baseline OCR</label>
-                      <textarea class="small-textarea" readonly style="margin-top: 0.45rem;">{{ baseline_quick_view.baseline_structure_text }}</textarea>
-                    {% endif %}
-                  {% else %}
-                    <div class="muted" style="margin-top: 0.75rem;">The modal_v2 pipeline is selected, but no saved baseline artifacts are available for this example yet.</div>
-                  {% endif %}
-                </details>
-              {% endif %}
+                  {% endfor %}
+                </div>
+              </details>
             {% endif %}
           </div>
 
@@ -1063,15 +1076,65 @@
 
         </section>
 
-        <section class="panel">
-          <label>OCR snapshot</label>
-          <p class="muted">
-            The editor above is now the primary correction path. OCR guesses and rewrite summaries stay here as secondary reference.
-          </p>
+        <section class="panel path-evidence-panel {{ 'is-modal-v2' if current_pipeline_id == 'modal_v2_baseline' else 'is-legacy' }}">
+          <div class="path-evidence-header">
+            <div>
+              <div class="current-path-tag">Current OCR Path Evidence</div>
+              <h2 class="path-evidence-title">{{ current_pipeline_label }}</h2>
+              <p class="muted path-evidence-note">
+                {% if current_pipeline_id == "modal_v2_baseline" %}
+                  This panel prioritizes the artifacts written by the new `proofs_ocr` baseline. Older debug layers are still available, but they are visually demoted so they do not read like part of the current path.
+                {% else %}
+                  This panel prioritizes the artifacts written by the legacy modal script path. New `proofs_ocr` baseline artifacts can still appear for comparison, but they are not the selected OCR flow.
+                {% endif %}
+              </p>
+            </div>
+          </div>
+
+          <div class="summary-box">
+            <strong>Run summary</strong><br />
+            {% if run_summary %}
+              {{ run_summary }}
+            {% else %}
+              No OCR run summary is saved yet.
+            {% endif %}
+          </div>
+
+          {% if current_pipeline_id == "modal_v2_baseline" %}
+            {% if baseline_quick_view.has_artifacts %}
+              <div class="artifact" style="margin-top: 1rem;">
+                <label>modal_v2 baseline first pass</label>
+                <div class="muted">This is the crude stitched result from the currently selected baseline pipeline before any legacy-only repair layers.</div>
+                <div class="artifact-gallery" style="margin-top: 0.75rem;">
+                  {% if baseline_quick_view.debug_bars_url %}
+                    <div class="artifact-card">
+                      <strong>Detected bars</strong>
+                      <a href="{{ baseline_quick_view.debug_bars_url }}">
+                        <img src="{{ baseline_quick_view.debug_bars_url }}" alt="{{ baseline_quick_view.debug_bars_filename }}" />
+                      </a>
+                    </div>
+                  {% endif %}
+                </div>
+                {% if baseline_quick_view.baseline_structure_text %}
+                  <label style="margin-top: 0.75rem;">Stitched baseline OCR</label>
+                  <textarea class="small-textarea" readonly style="margin-top: 0.45rem;">{{ baseline_quick_view.baseline_structure_text }}</textarea>
+                {% endif %}
+              </div>
+            {% else %}
+              <div class="review-info" style="margin-top: 1rem;">The modal_v2 pipeline is selected, but no saved baseline artifacts are available for this example yet.</div>
+            {% endif %}
+          {% endif %}
+
           {% if baseline_ocr_stages %}
             <div class="artifact">
               <label>Baseline OCR crop / read pairs</label>
-              <div class="muted">These are the first OCR passes before the 8b correction layer. Each card pairs the crop image with the JSON emitted for that crop.</div>
+              <div class="muted">
+                {% if current_pipeline_id == "modal_v2_baseline" %}
+                  These are the recursive node crops and their saved JSON outputs from the currently selected baseline path.
+                {% else %}
+                  These are the first OCR passes before the 8b correction layer. Each card pairs the crop image with the JSON emitted for that crop.
+                {% endif %}
+              </div>
               <div class="stage-grid">
                 {% for stage in baseline_ocr_stages %}
                   <div class="stage-card">
@@ -1098,8 +1161,15 @@
           {% endif %}
           {% if strict_opener_stages %}
             <div class="artifact">
-              <label>Subproof opener classifier</label>
-              <div class="muted">These cards show the focused first-line pass used to decide whether a subproof begins with a strict opener `□` or an ordinary assumption. If it predicts `strict_open`, the OCR pipeline prepends a synthetic opener only when the main crop OCR missed it.</div>
+              <label>{% if current_pipeline_id == "modal_v2_baseline" %}Subproof opener classifier (legacy-only layer){% else %}Subproof opener classifier{% endif %}</label>
+              <div class="muted">
+                These cards show the focused first-line pass used to decide whether a subproof begins with a strict opener `□` or an ordinary assumption.
+                {% if current_pipeline_id == "modal_v2_baseline" %}
+                  They are shown only for comparison and are not part of the selected `modal_v2 baseline` path.
+                {% else %}
+                  If it predicts `strict_open`, the OCR pipeline prepends a synthetic opener only when the main crop OCR missed it.
+                {% endif %}
+              </div>
               <div class="stage-grid">
                 {% for stage in strict_opener_stages %}
                   <div class="stage-card">
@@ -1333,8 +1403,13 @@
           {% endif %}
           {% if line_number_debug_artifacts %}
             <details class="panel-toggle">
-              <summary>Line-numbering debug artifacts</summary>
-              <div class="muted" style="margin-top: 0.75rem;">These are for the margin-anchor / strip-finding experiments. They are useful when line numbers are wrong, but they do not need to stay in the main OCR evidence flow.</div>
+              <summary>{% if current_pipeline_id == "modal_v2_baseline" %}Line-numbering debug artifacts (legacy / secondary){% else %}Line-numbering debug artifacts{% endif %}</summary>
+              <div class="muted" style="margin-top: 0.75rem;">
+                These are for the margin-anchor / strip-finding experiments. They are useful when line numbers are wrong, but they do not need to stay in the main OCR evidence flow.
+                {% if current_pipeline_id == "modal_v2_baseline" %}
+                  They are not part of the currently selected `modal_v2 baseline` path.
+                {% endif %}
+              </div>
               <div class="line-number-debug-grid">
                 {% for artifact in line_number_debug_artifacts %}
                   <div class="artifact-card">

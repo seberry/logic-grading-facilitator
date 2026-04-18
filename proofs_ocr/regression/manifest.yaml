@@ -1,12 +1,13 @@
 suite:
   name: "proofs_ocr_regression"
-  status: "initial scaffold"
+  status: "modal baseline fixtures committed"
   purpose: >
-    Canonical list of proof OCR cases for the next clean pipeline. This manifest
-    should become the source of truth for typeset and handwritten regression runs.
+    Canonical list of proof OCR cases for the clean proofs_ocr pipelines. This
+    manifest is the working source of truth for modal typeset and handwritten
+    regression runs.
   notes:
-    - "Current cases still live in older working/ and data/ locations."
-    - "Populate exact paths as the suite is consolidated."
+    - "Current expected_structure files are regression targets, not uniformly gold truth."
+    - "Handwritten expected structures remain especially provisional."
 
 schema:
   required_fields:
