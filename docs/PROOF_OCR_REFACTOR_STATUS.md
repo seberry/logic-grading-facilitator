@@ -71,15 +71,40 @@ The `modal_v2` baseline now follows the intended recursive shape:
 That structure is the main refactor win. It is now visible in code and in the
 debug viewer.
 
+## Recent Baseline Win
+
+The most recent concrete modal_v2 fix was the strict-opener recovery on the
+`modal_s4_typeset_r4_corrected` fixture.
+
+That issue turned out to be two separate failures:
+
+- the tiny top `□` opener row in a deep child crop was being stripped out of
+  row segmentation as weak "structure"
+- once the row was recovered, the per-line OCR result still came back empty and
+  needed a narrow modal-domain recovery pass
+
+The current baseline now:
+
+- preserves compact top-left opener components during row-band detection
+- records row-band debug artifacts so rejected vs kept bands are inspectable in
+  `/debug/modal-proof`
+- recovers a tiny strict opener as `□` only when the crop is visually
+  consistent with a lone opener and the parsed line has no line label
+
+So the strict-opener problem is no longer the main blocker. The next debugging
+work should focus on tree/bar geometry.
+
 ## Current Main Blocker
 
 The next problem is not “pipeline missing.” It is baseline quality.
 
 The clearest known failure is bar geometry / masking on some typeset proofs:
 
-- child bars can start too high
+- a left number/formula separator can still be mistaken for a scope bar
+- child bars can start too high or run too long
 - parent masking then erases formulas that should remain visible
-- root crops keep line labels while losing formulas
+- root crops keep line labels while losing formulas or gain extra wrapper
+  structure
 
 That means the next useful work is geometric/debug quality work, not another
 large structural rewrite.
@@ -89,10 +114,14 @@ large structural rewrite.
 1. Keep new work inside `proofs_ocr/`.
 2. Use `/debug/modal-proof` with the `modal_v2 baseline` toggle to inspect the
    real first-pass artifacts.
-3. Improve bar bounds / masking before stacking more OCR heuristics.
-4. Keep legacy behavior behind explicit adapters or feature flags, not as the
+3. Before adding another wave of debug-viewer behavior, split
+   `app/routes/modal_proof_debug.py` so route wiring, state/fixture loading,
+   artifact loading, and page/view-model assembly stop living in one file.
+4. After that split is stable, go back to improving bar bounds / masking before
+   stacking more OCR heuristics.
+5. Keep legacy behavior behind explicit adapters or feature flags, not as the
    default architecture.
-5. Do not rewrite the TFL OCR path in place while the modal baseline is still
+6. Do not rewrite the TFL OCR path in place while the modal baseline is still
    settling.
 
 ## Architectural Intent

@@ -39,6 +39,10 @@ current_repo_state:
     - "Expected structure files in the modal regression fixtures are regression targets, not uniformly gold truth."
     - "Handwritten expected structures are especially provisional."
     - "Legacy script artifacts still exist in the debug viewer for comparison; they should not be mistaken for the selected modal_v2 path."
+  recent_baseline_fix:
+    - "A recent modal_v2 fix recovered tiny strict-opener rows in deep child scopes."
+    - "That fix had two parts: row-band detection now preserves compact top-left opener components, and modal line resolution can recover a lone `□` opener from a tiny crop when the parsed line is otherwise empty and unlabeled."
+    - "Use `node_row_bands_<id>.json` and `node_line_<id>_<row>.json` in /debug/modal-proof to verify whether the opener was lost during row segmentation or during line interpretation."
 
 core_workflow:
   summary: >
@@ -102,11 +106,15 @@ guardrails:
   - "Keep optional legacy behavior behind explicit flags or adapters."
   - "If a file grows large enough that a human has to scroll repeatedly to keep the mental model intact, split it before adding more behavior."
   - "Raise the possibility of an early split once one file starts carrying multiple concerns, even if the code still technically works."
+  - "Apply that same discipline to debug-route files: if one route module is carrying router handlers, state persistence, fixture loading, artifact parsing, and page assembly at once, split it before adding more OCR-path-specific behavior."
   - "If a behavior change is intentional, record which regression cases improved and what tradeoff appeared."
 
 near_term_plan:
+  - "Do a narrow housekeeping split of `app/routes/modal_proof_debug.py` before another major debug-viewer expansion."
+  - "A good first cut is: route handlers stay in `modal_proof_debug.py`, while state helpers, fixture helpers, artifact helpers, and page/view-model assembly move into neighboring modules."
   - "Use the modal_v2 baseline and debug viewer artifacts to diagnose real fixture failures."
   - "Prioritize bar-geometry and masking fixes before adding more OCR heuristics."
+  - "The next likely baseline issue to tackle is false scope-bar classification, especially when the left number/formula separator is misread as a subproof bar."
   - "Keep TFL OCR unchanged while the modal baseline matures."
   - "Only add old-script complications later as explicit opt-in layers."
 
