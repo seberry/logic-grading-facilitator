@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
@@ -30,6 +31,8 @@ router = APIRouter()
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+REPO_ROOT = Path(__file__).resolve().parents[2]
+MODAL_REGRESSION_MANIFEST_PATH = REPO_ROOT / "proofs_ocr" / "regression" / "manifest.yaml"
 
 STATE_FILENAME = "state.json"
 OPTIONAL_TEXT_ARTIFACTS = ("notes.md", "source.txt")
@@ -166,7 +169,9 @@ def _default_page_state() -> Dict[str, Any]:
         "vision_model": "",
         "verifier_vision_model": "",
         "ocr_pipeline": "legacy_modal_debug",
+        "fixture_id": "",
         "source_image_name": "",
+        "source_image_path": "",
         "proof_json_text": DEFAULT_PROOF_JSON_TEXT,
         "original_proof_json_text": DEFAULT_PROOF_JSON_TEXT,
         "verifier_rewrite_summary": [],
@@ -176,10 +181,94 @@ def _default_page_state() -> Dict[str, Any]:
         "checker_request": None,
         "checker_response": None,
         "run_summary": "Edit the starter proof JSON and run the modal checker.",
+        "last_run_at": "",
         "status": "",
         "message": "",
         "checker_error": "",
     }
+
+
+def _strip_yaml_scalar(raw: str) -> str:
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    if (text.startswith('"') and text.endswith('"')) or (text.startswith("'") and text.endswith("'")):
+        return text[1:-1]
+    return text
+
+
+def _load_modal_regression_fixtures() -> List[Dict[str, str]]:
+    if not MODAL_REGRESSION_MANIFEST_PATH.exists():
+        return []
+
+    try:
+        lines = MODAL_REGRESSION_MANIFEST_PATH.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+
+    fixtures: List[Dict[str, str]] = []
+    current: Dict[str, str] | None = None
+    in_cases = False
+
+    for raw_line in lines:
+        if not in_cases:
+            if raw_line.strip() == "cases:":
+                in_cases = True
+            continue
+
+        case_start = re.match(r'^  - id:\s*(.+)$', raw_line)
+        if case_start:
+            if current:
+                fixtures.append(current)
+            current = {"id": _strip_yaml_scalar(case_start.group(1))}
+            continue
+
+        if current is None:
+            continue
+
+        field_match = re.match(r"^    ([a-zA-Z0-9_]+):\s*(.*)$", raw_line)
+        if field_match:
+            key = field_match.group(1)
+            value = _strip_yaml_scalar(field_match.group(2))
+            current[key] = value
+            continue
+
+    if current:
+        fixtures.append(current)
+
+    resolved: List[Dict[str, str]] = []
+    for fixture in fixtures:
+        image_path = str(fixture.get("image_path") or "").strip()
+        fixture_id = str(fixture.get("id") or "").strip()
+        if not fixture_id or not image_path:
+            continue
+        absolute_image_path = (REPO_ROOT / image_path).resolve()
+        resolved.append(
+            {
+                "id": fixture_id,
+                "domain": str(fixture.get("domain") or "").strip(),
+                "kind": str(fixture.get("kind") or "").strip(),
+                "image_path": image_path,
+                "absolute_image_path": str(absolute_image_path),
+                "notes": str(fixture.get("notes") or "").strip(),
+            }
+        )
+    return resolved
+
+
+def _fixture_option_label(fixture: Dict[str, str]) -> str:
+    fixture_id = str(fixture.get("id") or "").strip()
+    kind = str(fixture.get("kind") or "").strip()
+    domain = str(fixture.get("domain") or "").strip()
+    parts = [fixture_id]
+    meta = " / ".join([item for item in (domain, kind) if item])
+    if meta:
+        parts.append(meta)
+    return " - ".join(parts)
+
+
+def _fixture_lookup(fixtures: List[Dict[str, str]]) -> Dict[str, Dict[str, str]]:
+    return {str(item.get("id") or "").strip(): item for item in fixtures if str(item.get("id") or "").strip()}
 
 
 def _load_example_state(example_slug: Optional[str]) -> Dict[str, Any]:
@@ -206,7 +295,9 @@ def _load_example_state(example_slug: Optional[str]) -> Dict[str, Any]:
         "vision_model",
         "verifier_vision_model",
         "ocr_pipeline",
+        "fixture_id",
         "source_image_name",
+        "source_image_path",
         "verifier_rewrite_summary",
         "review_decisions",
         "draft_comment",
@@ -214,6 +305,7 @@ def _load_example_state(example_slug: Optional[str]) -> Dict[str, Any]:
         "checker_request",
         "checker_response",
         "run_summary",
+        "last_run_at",
     ):
         if key in raw:
             state[key] = raw[key]
@@ -233,7 +325,9 @@ def _save_example_state(example_slug: str, state: Dict[str, Any]) -> None:
                 "vision_model": state.get("vision_model", ""),
                 "verifier_vision_model": state.get("verifier_vision_model", ""),
                 "ocr_pipeline": state.get("ocr_pipeline", "legacy_modal_debug"),
+                "fixture_id": state.get("fixture_id", ""),
                 "source_image_name": state.get("source_image_name", ""),
+                "source_image_path": state.get("source_image_path", ""),
                 "proof_json_text": state.get("proof_json_text", DEFAULT_PROOF_JSON_TEXT),
                 "original_proof_json_text": state.get("original_proof_json_text", DEFAULT_PROOF_JSON_TEXT),
                 "verifier_rewrite_summary": state.get("verifier_rewrite_summary") or [],
@@ -243,6 +337,7 @@ def _save_example_state(example_slug: str, state: Dict[str, Any]) -> None:
                 "checker_request": state.get("checker_request"),
                 "checker_response": state.get("checker_response"),
                 "run_summary": state.get("run_summary", ""),
+                "last_run_at": state.get("last_run_at", ""),
             },
             indent=2,
             ensure_ascii=False,
@@ -822,6 +917,14 @@ def _render_page(
     state: Dict[str, Any],
 ) -> Response:
     examples = list_modal_proof_examples()
+    regression_fixtures = _load_modal_regression_fixtures()
+    fixture_options = [
+        {
+            **fixture,
+            "label": _fixture_option_label(fixture),
+        }
+        for fixture in regression_fixtures
+    ]
     if example and (example == STARTER_EXAMPLE or example in examples):
         selected = example
     elif examples:
@@ -841,6 +944,7 @@ def _render_page(
     unary_verifier_results: List[Dict[str, Any]] = []
     current_pipeline_id = str(state.get("ocr_pipeline") or "legacy_modal_debug").strip() or "legacy_modal_debug"
     current_pipeline_label = OCR_PIPELINE_LABELS.get(current_pipeline_id, current_pipeline_id)
+    selected_fixture_id = str(state.get("fixture_id") or "").strip()
     baseline_quick_view: Dict[str, Any] = {
         "enabled": False,
         "pipeline_label": current_pipeline_label,
@@ -851,6 +955,16 @@ def _render_page(
         "debug_bars_filename": "",
         "baseline_structure_text": "",
         "has_artifacts": False,
+    }
+    provenance = {
+        "selected_example": selected,
+        "fixture_id": selected_fixture_id,
+        "artifact_dir": str((DEBUG_MODAL_PROOF_DIR / selected).resolve()) if selected else "",
+        "source_image_name": str(state.get("source_image_name") or "").strip(),
+        "source_image_path": str(state.get("source_image_path") or "").strip(),
+        "ocr_pipeline_label": current_pipeline_label,
+        "vision_model": str(state.get("vision_model") or "").strip(),
+        "last_run_at": str(state.get("last_run_at") or "").strip(),
     }
     if selected:
         for filename in (*OPTIONAL_TEXT_ARTIFACTS, *OCR_TEXT_ARTIFACTS):
@@ -1119,11 +1233,14 @@ def _render_page(
         "debug_modal_proof.html",
         {
             "available_examples": examples,
+            "fixture_options": fixture_options,
             "selected_example": selected,
+            "selected_fixture_id": selected_fixture_id,
             "system_options": SYSTEM_OPTIONS,
             "ocr_pipeline_options": OCR_PIPELINE_OPTIONS,
             "current_pipeline_id": current_pipeline_id,
             "current_pipeline_label": current_pipeline_label,
+            "provenance": provenance,
             "parse_errors": _checker_issues(state.get("checker_response"), "parse_errors"),
             "check_errors": _checker_issues(state.get("checker_response"), "check_errors"),
             "normalized_lines": normalized_lines,
@@ -1156,6 +1273,7 @@ def _state_from_form(
     vision_model: str,
     verifier_vision_model: str,
     ocr_pipeline: str,
+    fixture_id: str,
     proof_json_text: str,
     review_decisions_json: str,
     draft_comment: str,
@@ -1172,6 +1290,7 @@ def _state_from_form(
             "vision_model": str(vision_model or "").strip(),
             "verifier_vision_model": str(verifier_vision_model or "").strip(),
             "ocr_pipeline": str(ocr_pipeline or "legacy_modal_debug").strip() or "legacy_modal_debug",
+            "fixture_id": str(fixture_id or "").strip(),
             "proof_json_text": proof_json_text,
             "review_decisions": _parse_review_decisions(review_decisions_json),
             "draft_comment": draft_comment,
@@ -1282,6 +1401,7 @@ async def save_modal_proof_state(
     vision_model: str = Form(""),
     verifier_vision_model: str = Form(""),
     ocr_pipeline: str = Form("legacy_modal_debug"),
+    fixture_id: str = Form(""),
     proof_json_text: str = Form(...),
     review_decisions_json: str = Form(""),
     draft_comment: str = Form(""),
@@ -1296,6 +1416,7 @@ async def save_modal_proof_state(
         vision_model=vision_model,
         verifier_vision_model=verifier_vision_model,
         ocr_pipeline=ocr_pipeline,
+        fixture_id=fixture_id,
         proof_json_text=proof_json_text,
         review_decisions_json=review_decisions_json,
         draft_comment=draft_comment,
@@ -1321,6 +1442,7 @@ async def run_modal_proof_debug_checker(
     vision_model: str = Form(""),
     verifier_vision_model: str = Form(""),
     ocr_pipeline: str = Form("legacy_modal_debug"),
+    fixture_id: str = Form(""),
     proof_json_text: str = Form(...),
     review_decisions_json: str = Form(""),
     draft_comment: str = Form(""),
@@ -1335,6 +1457,7 @@ async def run_modal_proof_debug_checker(
         vision_model=vision_model,
         verifier_vision_model=verifier_vision_model,
         ocr_pipeline=ocr_pipeline,
+        fixture_id=fixture_id,
         proof_json_text=proof_json_text,
         review_decisions_json=review_decisions_json,
         draft_comment=draft_comment,
@@ -1379,15 +1502,21 @@ async def run_modal_proof_debug_ocr(
     vision_model: str = Form(""),
     verifier_vision_model: str = Form(""),
     ocr_pipeline: str = Form("legacy_modal_debug"),
+    fixture_id: str = Form(""),
     proof_json_text: str = Form(DEFAULT_PROOF_JSON_TEXT),
     review_decisions_json: str = Form(""),
     draft_comment: str = Form(""),
     draft_grade: str = Form(""),
     proof_image_path: str = Form(""),
     proof_image: UploadFile | None = File(None),
+    use_fixture_source: bool = Form(False),
 ) -> Response:
+    regression_fixtures = _load_modal_regression_fixtures()
+    fixture_map = _fixture_lookup(regression_fixtures)
+    fixture = fixture_map.get(str(fixture_id or "").strip())
+    example_value = fixture_id if use_fixture_source and fixture else example
     example_slug, state = _state_from_form(
-        example=example,
+        example=example_value,
         system=system,
         include_derived_rules=include_derived_rules,
         conclusion=conclusion,
@@ -1395,6 +1524,7 @@ async def run_modal_proof_debug_ocr(
         vision_model=vision_model,
         verifier_vision_model=verifier_vision_model,
         ocr_pipeline=ocr_pipeline,
+        fixture_id=fixture_id,
         proof_json_text=proof_json_text,
         review_decisions_json=review_decisions_json,
         draft_comment=draft_comment,
@@ -1406,7 +1536,17 @@ async def run_modal_proof_debug_ocr(
 
     try:
         uploaded_image_path = await _persist_uploaded_source_image(example_slug, proof_image)
-        source_image_path = uploaded_image_path or _resolve_source_image_path(example_slug, proof_image_path) or _find_saved_source_image(example_slug, state)
+        fixture_source_path: Optional[Path] = None
+        if use_fixture_source:
+            if fixture is None:
+                raise ValueError("Choose a regression fixture before running fixture OCR.")
+            fixture_source_path = Path(str(fixture.get("absolute_image_path") or "")).resolve()
+        source_image_path = (
+            uploaded_image_path
+            or fixture_source_path
+            or _resolve_source_image_path(example_slug, proof_image_path)
+            or _find_saved_source_image(example_slug, state)
+        )
         if source_image_path is None:
             raise ValueError("Provide a proof image upload or an existing image path before running OCR.")
         if not source_image_path.exists() or not source_image_path.is_file():
@@ -1449,6 +1589,9 @@ async def run_modal_proof_debug_ocr(
         ocr_state["draft_comment"] = draft_comment
         ocr_state["draft_grade"] = draft_grade
         ocr_state["review_decisions"] = {}
+        ocr_state["fixture_id"] = str(fixture.get("id") or "").strip() if fixture else ""
+        ocr_state["source_image_path"] = str(source_image_path.resolve())
+        ocr_state["last_run_at"] = datetime.now().isoformat(timespec="seconds")
         ocr_state["status"] = "success"
         ocr_state["message"] = "OCR ran and updated the modal proof state."
         state = ocr_state

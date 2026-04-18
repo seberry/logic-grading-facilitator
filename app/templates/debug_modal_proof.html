@@ -306,6 +306,31 @@
       margin: 0.25rem 0 0 0;
     }
 
+    .provenance-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0.75rem;
+      margin-top: 0.75rem;
+    }
+
+    .provenance-card {
+      border: 1px solid #dbe4f0;
+      border-radius: 8px;
+      background: #fff;
+      padding: 0.7rem 0.8rem;
+    }
+
+    .provenance-card strong {
+      display: block;
+      margin-bottom: 0.25rem;
+    }
+
+    .provenance-card code {
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 0.86rem;
+    }
+
     .workspace-grid {
       display: grid;
       grid-template-columns: minmax(320px, 0.95fr) minmax(420px, 1.05fr);
@@ -977,6 +1002,44 @@
 
       <div class="top-grid">
         <section class="panel">
+          <label>Run provenance</label>
+          <div class="muted">
+            This identifies the exact saved example, fixture, source image, and artifact folder currently shown on the page.
+          </div>
+          <div class="provenance-grid">
+            <div class="provenance-card">
+              <strong>Saved example</strong>
+              <code>{{ provenance.selected_example or "starter" }}</code>
+            </div>
+            <div class="provenance-card">
+              <strong>Fixture</strong>
+              <code>{{ provenance.fixture_id or "none" }}</code>
+            </div>
+            <div class="provenance-card">
+              <strong>OCR path</strong>
+              <code>{{ provenance.ocr_pipeline_label }}</code>
+            </div>
+            <div class="provenance-card">
+              <strong>Model</strong>
+              <code>{{ provenance.vision_model or "unset" }}</code>
+            </div>
+            <div class="provenance-card">
+              <strong>Source image path</strong>
+              <code>{{ provenance.source_image_path or provenance.source_image_name or "unset" }}</code>
+            </div>
+            <div class="provenance-card">
+              <strong>Artifact directory</strong>
+              <code>{{ provenance.artifact_dir }}</code>
+            </div>
+            {% if provenance.last_run_at %}
+              <div class="provenance-card">
+                <strong>Last OCR run</strong>
+                <code>{{ provenance.last_run_at }}</code>
+              </div>
+            {% endif %}
+          </div>
+
+          <div style="margin-top: 1rem;">
           <label for="example-picker">Saved example</label>
           <select
             id="example-picker"
@@ -995,6 +1058,20 @@
               <option value="{{ item }}" {% if item == selected_example %}selected{% endif %}>{{ item }}</option>
             {% endfor %}
           </select>
+          </div>
+
+          <div style="margin-top: 1rem;">
+            <label for="fixture-picker">Regression fixture</label>
+            <select id="fixture-picker" name="fixture_id">
+              <option value="">none</option>
+              {% for fixture in fixture_options %}
+                <option value="{{ fixture.id }}" {% if fixture.id == selected_fixture_id %}selected{% endif %}>{{ fixture.label }}</option>
+              {% endfor %}
+            </select>
+            <div class="muted" style="margin-top: 0.35rem;">
+              Running fixture OCR writes artifacts into a debug example folder named after the fixture id so the page and the inspected run stay aligned.
+            </div>
+          </div>
 
           <div class="two-col" style="margin-top: 1rem;">
             <div>
@@ -1060,6 +1137,7 @@
           <div class="controls">
             <button type="submit" class="secondary" formaction="/debug/modal-proof/save">Save state</button>
             <button type="submit" class="secondary" formaction="/debug/modal-proof/run_ocr">Run OCR</button>
+            <button type="submit" class="secondary" name="use_fixture_source" value="true" formaction="/debug/modal-proof/run_ocr">Run fixture OCR</button>
             <button type="submit">Run checker</button>
           </div>
 

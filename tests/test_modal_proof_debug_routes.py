@@ -31,16 +31,41 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("Modal Proof Debugger", response.text)
+        self.assertIn("Run provenance", response.text)
         self.assertIn("Proof image", response.text)
         self.assertIn("Proof editor", response.text)
         self.assertIn("Run OCR", response.text)
+        self.assertIn("Run fixture OCR", response.text)
         self.assertIn("Proof JSON", response.text)
         self.assertIn("Run checker", response.text)
         self.assertIn("starter", response.text)
+        self.assertIn("Regression fixture", response.text)
         self.assertIn("Legacy modal OCR", response.text)
         self.assertIn("modal_v2 baseline", response.text)
         self.assertIn("OCR review details", response.text)
         self.assertIn("Unary Verifier Experiment", response.text)
+
+    def test_modal_proof_debug_page_shows_fixture_picker_options(self) -> None:
+        fixtures = [
+            {
+                "id": "modal_s4_typeset_r4_corrected",
+                "domain": "modal",
+                "kind": "typeset",
+                "image_path": "proofs_ocr/regression/fixtures/modal/typeset/s4_r4_corrected/image.png",
+                "absolute_image_path": str((self.debug_dir / "fixture.png").resolve()),
+                "notes": "fixture note",
+            }
+        ]
+
+        with (
+            patch.object(modal_proof_debug_routes, "DEBUG_MODAL_PROOF_DIR", self.debug_dir),
+            patch.object(modal_proof_debug_routes, "_load_modal_regression_fixtures", return_value=fixtures),
+        ):
+            response = self.client.get("/debug/modal-proof")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("modal_s4_typeset_r4_corrected - modal / typeset", response.text)
+        self.assertIn("Artifact directory", response.text)
 
     def test_modal_proof_debug_page_shows_modal_v2_quick_view_for_starter(self) -> None:
         example_dir = self.debug_dir / "starter"
@@ -260,6 +285,71 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertEqual(saved["verifier_vision_model"], "")
         saved_lines = json.loads(saved["proof_json_text"])["lines"]
         self.assertEqual(saved_lines[0]["wffstr"], "□A → □□A")
+
+    def test_run_fixture_ocr_uses_manifest_fixture_image_and_fixture_example(self) -> None:
+        fixture_image = self.debug_dir / "fixture_image.png"
+        fixture_image.write_bytes(b"fakepng")
+        fixtures = [
+            {
+                "id": "modal_s4_typeset_r4_corrected",
+                "domain": "modal",
+                "kind": "typeset",
+                "image_path": "proofs_ocr/regression/fixtures/modal/typeset/s4_r4_corrected/image.png",
+                "absolute_image_path": str(fixture_image.resolve()),
+                "notes": "fixture note",
+            }
+        ]
+        ocr_state = {
+            "system": "S4",
+            "include_derived_rules": False,
+            "conclusion": "",
+            "vision_base_url": "http://127.0.0.1:1234/v1",
+            "vision_model": "qwen/qwen3-vl-4b",
+            "verifier_vision_model": "",
+            "ocr_pipeline": "modal_v2_baseline",
+            "source_image_name": "source_image.png",
+            "proof_json_text": json.dumps({"lines": [{"wffstr": "□A → □□A", "jstr": "→I 1-4"}], "meta": {}}),
+            "original_proof_json_text": json.dumps({"lines": [{"wffstr": "□A → □□A", "jstr": "→I 1-4"}], "meta": {}}),
+            "verifier_rewrite_summary": [],
+            "draft_comment": "",
+            "draft_grade": "",
+            "checker_request": None,
+            "checker_response": None,
+            "run_summary": "fixture OCR ran",
+            "review_decisions": {},
+        }
+
+        with (
+            patch.object(modal_proof_debug_routes, "DEBUG_MODAL_PROOF_DIR", self.debug_dir),
+            patch.object(modal_proof_debug_routes, "_load_modal_regression_fixtures", return_value=fixtures),
+            patch.object(modal_proof_debug_routes, "build_modal_v2_vlm_client", return_value=object()),
+            patch.object(modal_proof_debug_routes, "transcribe_image_to_modal_v2_debug_state", return_value=ocr_state) as transcribe_mock,
+        ):
+            response = self.client.post(
+                "/debug/modal-proof/run_ocr",
+                data={
+                    "example": "starter",
+                    "system": "S4",
+                    "vision_base_url": "http://127.0.0.1:1234/v1",
+                    "vision_model": "qwen/qwen3-vl-4b",
+                    "ocr_pipeline": "modal_v2_baseline",
+                    "fixture_id": "modal_s4_typeset_r4_corrected",
+                    "use_fixture_source": "true",
+                    "proof_json_text": json.dumps([{"wffstr": "A", "jstr": "PR"}]),
+                    "draft_comment": "",
+                    "draft_grade": "",
+                },
+                follow_redirects=False,
+            )
+
+        saved = json.loads((self.debug_dir / "modal_s4_typeset_r4_corrected" / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(response.status_code, 303)
+        self.assertIn("/debug/modal-proof?example=modal_s4_typeset_r4_corrected", response.headers["location"])
+        self.assertEqual(saved["fixture_id"], "modal_s4_typeset_r4_corrected")
+        self.assertEqual(saved["source_image_path"], str(fixture_image.resolve()))
+        self.assertEqual(saved["ocr_pipeline"], "modal_v2_baseline")
+        self.assertTrue(saved["last_run_at"])
+        self.assertEqual(transcribe_mock.call_args.kwargs["image_path"], fixture_image.resolve())
 
     def test_modal_proof_debug_page_shows_review_panel_and_unary_verifier_results(self) -> None:
         example_dir = self.debug_dir / "sample"
