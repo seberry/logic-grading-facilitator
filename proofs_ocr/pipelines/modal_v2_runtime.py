@@ -66,6 +66,10 @@ class ModalBaselineArtifactLineReader:
                 "scope_role": "derived_line",
                 "confidence": "",
             }
+        resolved, recovery_applied = modal.recover_line_entry_from_crop(
+            line_crop_img=line_crop_img,
+            parsed_entry=resolved,
+        )
 
         payload = {
             "node_id": node.id,
@@ -76,6 +80,7 @@ class ModalBaselineArtifactLineReader:
             "raw_response": raw_response,
             "parse_error": parse_error,
             "resolved": resolved,
+            "recovery_applied": recovery_applied,
         }
         (self.output_dir / artifacts.NODE_LINE_RESPONSE_TEMPLATE.format(node_id=node.id, row_order=row_order)).write_text(
             json.dumps(payload, indent=2, ensure_ascii=False),

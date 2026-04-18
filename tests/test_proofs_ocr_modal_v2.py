@@ -3,6 +3,7 @@ import unittest
 import cv2
 import numpy as np
 
+from proofs_ocr.domains import modal
 from proofs_ocr.pipelines import modal_v2
 from proofs_ocr.pipelines.modal_v2 import run_modal_baseline_pipeline
 from proofs_ocr.common.types import SubproofNode
@@ -45,6 +46,65 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
         gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
         formula_zone = gray[:, 380:520]
         self.assertGreater(int((formula_zone < 185).sum()), 25)
+
+    def test_recover_line_entry_from_crop_recovers_tiny_strict_open(self) -> None:
+        image = np.full((40, 220, 3), 255, dtype=np.uint8)
+        image[:, 0:3] = 0
+        cv2.rectangle(image, (34, 8), (56, 30), (0, 0, 0), 2)
+
+        resolved, recovery = modal.recover_line_entry_from_crop(
+            line_crop_img=image,
+            parsed_entry={
+                "line_label": "",
+                "formula_text": "",
+                "justification_text": "",
+                "scope_role": "premise",
+                "confidence": "1",
+            },
+        )
+
+        self.assertEqual(recovery, "tiny_strict_open_crop")
+        self.assertEqual(resolved["formula_text"], "□")
+        self.assertEqual(resolved["scope_role"], "strict_open")
+
+    def test_recover_line_entry_from_crop_does_not_fire_for_square_plus_formula(self) -> None:
+        image = np.full((48, 260, 3), 255, dtype=np.uint8)
+        image[:, 0:3] = 0
+        cv2.rectangle(image, (34, 10), (56, 32), (0, 0, 0), 2)
+        cv2.putText(image, "A", (78, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+
+        resolved, recovery = modal.recover_line_entry_from_crop(
+            line_crop_img=image,
+            parsed_entry={
+                "line_label": "",
+                "formula_text": "",
+                "justification_text": "",
+                "scope_role": "premise",
+                "confidence": "1",
+            },
+        )
+
+        self.assertEqual(recovery, "")
+        self.assertEqual(resolved["formula_text"], "")
+
+    def test_recover_line_entry_from_crop_does_not_fire_when_line_label_is_present(self) -> None:
+        image = np.full((40, 220, 3), 255, dtype=np.uint8)
+        image[:, 0:3] = 0
+        cv2.rectangle(image, (34, 8), (56, 30), (0, 0, 0), 2)
+
+        resolved, recovery = modal.recover_line_entry_from_crop(
+            line_crop_img=image,
+            parsed_entry={
+                "line_label": "1",
+                "formula_text": "",
+                "justification_text": "",
+                "scope_role": "premise",
+                "confidence": "1",
+            },
+        )
+
+        self.assertEqual(recovery, "")
+        self.assertEqual(resolved["formula_text"], "")
 
     def test_run_modal_baseline_pipeline_stitches_child_scope(self) -> None:
         image = _synthetic_recursive_modal_image()

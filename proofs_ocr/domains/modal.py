@@ -10,6 +10,9 @@ import json
 import re
 from typing import Any, Mapping
 
+import cv2
+import numpy as np
+
 from proofs_ocr.common.stitch import extract_subproof_token_id
 
 _WHITESPACE_RE = re.compile(r"\s+")
@@ -175,3 +178,77 @@ def parse_line_ocr_response(raw_response: str) -> dict[str, str]:
         "scope_role": normalize_scope_role(parsed.get("scope_role") or "derived_line"),
         "confidence": _collapse_whitespace(parsed.get("confidence") or ""),
     }
+
+
+def recover_line_entry_from_crop(
+    *,
+    line_crop_img: np.ndarray,
+    parsed_entry: Mapping[str, Any],
+) -> tuple[dict[str, str], str]:
+    """Apply narrow modal-domain recovery for tiny strict-opener crops."""
+
+    resolved = {
+        "line_label": _collapse_whitespace(parsed_entry.get("line_label") or ""),
+        "formula_text": normalize_formula_text(parsed_entry.get("formula_text") or ""),
+        "justification_text": normalize_justification_text(parsed_entry.get("justification_text") or ""),
+        "scope_role": normalize_scope_role(parsed_entry.get("scope_role") or "derived_line"),
+        "confidence": _collapse_whitespace(parsed_entry.get("confidence") or ""),
+    }
+    if resolved["formula_text"]:
+        return resolved, ""
+    if resolved["line_label"]:
+        return resolved, ""
+
+    if not _looks_like_tiny_strict_open_crop(line_crop_img):
+        return resolved, ""
+
+    resolved["formula_text"] = "□"
+    resolved["scope_role"] = "strict_open"
+    return resolved, "tiny_strict_open_crop"
+
+
+def _looks_like_tiny_strict_open_crop(line_crop_img: np.ndarray) -> bool:
+    if line_crop_img.size == 0:
+        return False
+
+    gray = cv2.cvtColor(line_crop_img, cv2.COLOR_BGR2GRAY)
+    img_h, img_w = gray.shape[:2]
+    left_ignore = min(14, max(8, img_w // 30))
+    right_limit = min(img_w, max(80, int(img_w * 0.45)))
+    if right_limit <= left_ignore:
+        return False
+
+    focused = gray[:, left_ignore:right_limit]
+    dark = (focused < 185).astype(np.uint8)
+    if int(dark.sum()) < 40:
+        return False
+
+    num_labels, _, stats, _ = cv2.connectedComponentsWithStats(dark, 8)
+    candidates: list[tuple[int, int, int, int, int]] = []
+    for label_index in range(1, num_labels):
+        area = int(stats[label_index, cv2.CC_STAT_AREA])
+        left = int(stats[label_index, cv2.CC_STAT_LEFT])
+        top = int(stats[label_index, cv2.CC_STAT_TOP])
+        width = int(stats[label_index, cv2.CC_STAT_WIDTH])
+        height = int(stats[label_index, cv2.CC_STAT_HEIGHT])
+        if area < 25:
+            continue
+        if left <= 2 and width <= 6 and height >= max(12, int(img_h * 0.60)):
+            continue
+        candidates.append((area, left, top, width, height))
+
+    if len(candidates) != 1:
+        return False
+
+    area, left, top, width, height = candidates[0]
+    if top > max(40, int(img_h * 0.60)):
+        return False
+    if width < 10 or height < 10:
+        return False
+    if width > max(34, int(img_w * 0.12)) or height > max(34, int(img_h * 0.85)):
+        return False
+    aspect_ratio = width / max(1, height)
+    if not 0.55 <= aspect_ratio <= 1.55:
+        return False
+    fill_ratio = area / max(1, width * height)
+    return 0.22 <= fill_ratio <= 0.72
