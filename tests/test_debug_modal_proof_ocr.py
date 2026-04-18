@@ -859,10 +859,25 @@ class DebugModalProofOcrTests(unittest.TestCase):
                     },
                     ensure_ascii=False,
                 ),
+                json.dumps(
+                    {
+                        "justification_head": "MC",
+                        "justification_tail": "1",
+                        "confidence": "high",
+                    },
+                    ensure_ascii=False,
+                ),
             ]
         )
         fake_verifier_client = FakeModalVisionClient(
             responses=[
+                json.dumps(
+                    {
+                        "formula_text": "¬□¬P",
+                        "confidence": "high",
+                    },
+                    ensure_ascii=False,
+                ),
                 json.dumps(
                     {
                         "main_modal_operator": "box",

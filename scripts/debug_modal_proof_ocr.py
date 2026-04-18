@@ -66,6 +66,7 @@ from modal_ocr.verifier import (
     SHORT_FORMULA_REREAD_RULE_HEADS,
     UNARY_PREFIX_CHARS,
     UNARY_SENSITIVE_RULE_HEADS,
+    _extract_left_margin_strip as _extract_left_margin_strip_impl,
     apply_unary_verifier_corrections as _apply_unary_verifier_corrections_impl,
     best_verifier_attempt as _best_verifier_attempt_impl,
     build_forced_choice_unary_verifier_prompt as _build_forced_choice_unary_verifier_prompt_impl,
@@ -1298,7 +1299,7 @@ def assemble_node_entries_from_rows(
                     "band_index": row_record.get("band_index"),
                     "y1": row_record.get("y1"),
                     "y2": row_record.get("y2"),
-                    "skipped_reason": "row_overlaps_child_token_pre_ocr",
+                    "skipped_reason": "row_overlaps_child_token",
                 }
             )
             continue
@@ -1538,6 +1539,18 @@ def _best_verifier_attempt(
 
 def _merge_margin_candidate_boxes(boxes: List[Tuple[int, int, int, int]]) -> List[Tuple[int, int, int, int]]:
     return _merge_margin_candidate_boxes_impl(boxes)
+
+
+def _extract_left_margin_strip(
+    full_img: np.ndarray,
+    *,
+    right_fraction: float = 1.0,
+) -> Tuple[np.ndarray, int]:
+    return _extract_left_margin_strip_impl(
+        full_img,
+        detect_vertical_bars=detect_vertical_bars,
+        right_fraction=right_fraction,
+    )
 
 
 def _margin_anchor_strip_bounds(
