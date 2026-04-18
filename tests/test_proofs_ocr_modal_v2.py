@@ -5,6 +5,7 @@ import numpy as np
 
 from proofs_ocr.pipelines import modal_v2
 from proofs_ocr.pipelines.modal_v2 import run_modal_baseline_pipeline
+from proofs_ocr.common.types import SubproofNode
 
 
 def _synthetic_recursive_modal_image() -> np.ndarray:
@@ -21,6 +22,14 @@ def _synthetic_recursive_modal_image() -> np.ndarray:
 
 
 class ModalV2BaselinePipelineTests(unittest.TestCase):
+    def test_node_crop_image_avoids_bottom_padding_for_child_nodes(self) -> None:
+        image = np.zeros((200, 50, 3), dtype=np.uint8)
+        child = SubproofNode("1", (10, 40, 2, 80))
+
+        crop = modal_v2._node_crop_image(node=child, full_img=image)
+
+        self.assertEqual(crop.shape[0], 90)
+
     def test_extract_ocr_line_crop_keeps_formula_side_visible(self) -> None:
         image = np.full((90, 900, 3), 255, dtype=np.uint8)
         font = cv2.FONT_HERSHEY_SIMPLEX

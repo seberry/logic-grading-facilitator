@@ -183,7 +183,7 @@ def _process_node_recursive(
 def _node_crop_image(*, node: SubproofNode, full_img: np.ndarray) -> np.ndarray:
     if node.id == "ROOT":
         return full_img.copy()
-    return tree.crop_region(full_img, node.box)
+    return tree.crop_region(full_img, node.box, bottom_padding=0)
 
 
 def _mask_child_scope_in_node_crop(
