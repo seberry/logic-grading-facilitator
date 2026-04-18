@@ -93,9 +93,13 @@ regression_expectations:
     The repository contains both modal typeset proof cases and handwritten cases,
     but they are not yet described by one authoritative manifest.
   current_seed_cases:
-    - "proofs_ocr/regression/manifest.yaml now seeds four modal typeset cases from working/modal-proof-tex-suite."
-    - "It also seeds two repo-local handwritten modal crops from working/modal-proof-zone-split-*."
+    - "proofs_ocr/regression/manifest.yaml now seeds four modal typeset cases from proofs_ocr/regression/fixtures/modal/typeset."
+    - "It also seeds two repo-local handwritten modal crops from proofs_ocr/regression/fixtures/modal/handwritten."
+    - "The current expected_structure files are regression targets, not uniformly gold truth."
     - "The handwritten expected structures are provisional debug-run outputs, not hand-curated gold truth."
+  known_gap:
+    - "The manifest currently carries one expected_structure target per case."
+    - "Longer-term, the suite should distinguish baseline OCR output from gold/correct structure so regressions can be separated from real progress."
   target_manifest_fields:
     - "id"
     - "domain"

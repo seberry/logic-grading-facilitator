@@ -64,6 +64,10 @@ Important caveat:
 
 - The handwritten expected structures are provisional debug outputs, not
   hand-curated gold truth.
+- More broadly, the current `expected_structure` files should be treated as
+  regression targets, not uniformly authoritative correct answers.
+- A later cleanup should split baseline OCR outputs from gold/correct proof
+  structures where both are available.
 
 That is still useful for restart context, but it should not be mistaken for a
 finished benchmark suite.
