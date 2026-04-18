@@ -139,7 +139,13 @@ def _artifact_text(example_slug: str, filename: str) -> str:
 
 
 def _artifact_url(example_slug: str, filename: str) -> str:
-    return f"/debug_modal_proof_assets/{example_slug}/{quote(filename)}"
+    path = DEBUG_MODAL_PROOF_DIR / example_slug / filename
+    base = f"/debug_modal_proof_assets/{example_slug}/{quote(filename)}"
+    try:
+        version = path.stat().st_mtime_ns
+    except OSError:
+        return base
+    return f"{base}?v={version}"
 
 
 def _node_id_sort_key(node_id: str) -> tuple[int, int, str]:

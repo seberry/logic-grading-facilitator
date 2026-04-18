@@ -98,6 +98,7 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertIn("modal_v2 baseline OCR produced 5 visible lines.", response.text)
         self.assertIn("Stitched baseline OCR", response.text)
         self.assertIn("Detected bars", response.text)
+        self.assertIn("debug_bars.jpg?v=", response.text)
 
     def test_modal_proof_post_action_gets_redirect_back_to_debug_page(self) -> None:
         with patch.object(modal_proof_debug_routes, "DEBUG_MODAL_PROOF_DIR", self.debug_dir):
@@ -448,8 +449,11 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertIn("OCR review details", response.text)
         self.assertIn("Baseline OCR crop / read pairs", response.text)
         self.assertIn("Whole proof crop", response.text)
+        self.assertIn("crop_ROOT.jpg?v=", response.text)
         self.assertIn("Node row segmentation", response.text)
+        self.assertIn("node_rows_overlay_ROOT.jpg?v=", response.text)
         self.assertIn("Per-line OCR inside nodes", response.text)
+        self.assertIn("node_line_ROOT_1.jpg?v=", response.text)
         self.assertIn("Line-numbering debug artifacts", response.text)
         self.assertIn("Flagged OCR lines: 1", response.text)
         self.assertIn("Flagged lines:", response.text)
