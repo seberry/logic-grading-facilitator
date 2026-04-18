@@ -246,11 +246,9 @@ def _process_node_recursive(
             entries.append(modal.build_subproof_token_entry(child_id))
             continue
 
-        line_crop_img = rows.extract_line_row_crop(
+        line_crop_img = _extract_ocr_line_crop(
             node_crop_img=masked_img,
-            y1=int(row_record.get("y1", 0)),
-            y2=int(row_record.get("y2", 0)),
-            suppress_left_scope_bar=_suppress_left_scope_bar,
+            row_record=row_record,
         )
         raw_entry = dict(
             read_line(
@@ -368,6 +366,26 @@ def _extract_band_crop(*, node_crop_img: np.ndarray, bands: List[rows.Band], ban
         y1=band_top,
         y2=band_bottom,
         suppress_left_scope_bar=_suppress_left_scope_bar,
+    )
+
+
+def _extract_ocr_line_crop(
+    *,
+    node_crop_img: np.ndarray,
+    row_record: rows.RowRecord,
+) -> np.ndarray:
+    """Extract the line image used for OCR without reapplying bar suppression.
+
+    Row segmentation benefits from whitening the left proof bar. The OCR crop
+    should keep the original visible formula area intact; otherwise wide root
+    rows can lose everything except the line number.
+    """
+
+    return rows.extract_line_row_crop(
+        node_crop_img=node_crop_img,
+        y1=int(row_record.get("y1", 0)),
+        y2=int(row_record.get("y2", 0)),
+        suppress_left_scope_bar=lambda crop: crop,
     )
 
 

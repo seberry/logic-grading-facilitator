@@ -3,6 +3,7 @@ import unittest
 import cv2
 import numpy as np
 
+from proofs_ocr.pipelines import modal_v2
 from proofs_ocr.pipelines.modal_v2 import run_modal_baseline_pipeline
 
 
@@ -20,6 +21,22 @@ def _synthetic_recursive_modal_image() -> np.ndarray:
 
 
 class ModalV2BaselinePipelineTests(unittest.TestCase):
+    def test_extract_ocr_line_crop_keeps_formula_side_visible(self) -> None:
+        image = np.full((90, 900, 3), 255, dtype=np.uint8)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        cv2.putText(image, "1", (300, 42), font, 1.1, (0, 0, 0), 2)
+        cv2.line(image, (345, 8), (345, 76), (0, 0, 0), 2)
+        cv2.putText(image, "[]A", (395, 42), font, 1.1, (0, 0, 0), 2)
+
+        crop = modal_v2._extract_ocr_line_crop(
+            node_crop_img=image,
+            row_record={"y1": 18, "y2": 46},
+        )
+
+        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+        formula_zone = gray[:, 380:520]
+        self.assertGreater(int((formula_zone < 185).sum()), 25)
+
     def test_run_modal_baseline_pipeline_stitches_child_scope(self) -> None:
         image = _synthetic_recursive_modal_image()
         line_calls: dict[str, list[dict[str, int | float | str]]] = {}
