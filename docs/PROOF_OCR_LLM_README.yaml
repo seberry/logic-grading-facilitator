@@ -100,6 +100,8 @@ guardrails:
   - "Prefer moving a stable primitive into proofs_ocr over importing it from a script."
   - "Keep shared proof mechanics separate from modal-specific cleanup."
   - "Keep optional legacy behavior behind explicit flags or adapters."
+  - "If a file grows large enough that a human has to scroll repeatedly to keep the mental model intact, split it before adding more behavior."
+  - "Raise the possibility of an early split once one file starts carrying multiple concerns, even if the code still technically works."
   - "If a behavior change is intentional, record which regression cases improved and what tradeoff appeared."
 
 near_term_plan:
