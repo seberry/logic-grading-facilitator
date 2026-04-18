@@ -1,0 +1,97 @@
+project_meta:
+  name: "Proof OCR"
+  status: "scaffolded for clean rewrite"
+  purpose: >
+    Shared guidance for future LLM-assisted work on proof OCR, separate from the
+    broader grading application readme. This document describes how to build the
+    next proof OCR pipeline without adding more complexity to the existing
+    script-shaped implementations.
+
+scope:
+  active_reference_implementations:
+    - "scripts/debug_fitch_ocr.py"
+    - "scripts/debug_modal_proof_ocr.py"
+  new_workspace:
+    - "proofs_ocr/"
+  non_goals:
+    - "Do not rewrite the existing TFL OCR path in-place."
+    - "Do not import shared logic from script modules as the long-term design."
+    - "Do not add new verifier/postprocess layers before baseline OCR is stable."
+
+core_workflow:
+  summary: >
+    The durable insight in this project is recursive decomposition of Fitch-style
+    proofs, not any one prompt tweak. Preserve that structure and keep it easy to
+    explain from the code.
+  steps:
+    - "Detect vertical scope bars in a tightly cropped proof image."
+    - "Build a nested subproof tree from those bar regions."
+    - "OCR child scopes first so each subtree is resolved bottom-up."
+    - "Mask each resolved child with a synthetic placeholder token inside its parent."
+    - "OCR the parent scope with child regions suppressed."
+    - "Stitch placeholders back into a nested proof structure and normalize output."
+
+module_boundaries:
+  common:
+    owns:
+      - "bar detection and region geometry"
+      - "subproof tree construction"
+      - "crop helpers"
+      - "placeholder token geometry and masking"
+      - "row-band detection"
+      - "generic stitch/renumber utilities"
+      - "debug artifact helpers"
+    should_not_own:
+      - "modal-only repair heuristics"
+      - "TFL-only normalization rules"
+      - "prompt wording tied to a specific logic domain"
+  domains:
+    owns:
+      - "prompt text"
+      - "formula normalization"
+      - "justification normalization"
+      - "domain-specific repair rules"
+      - "domain-specific verifier integration"
+  pipelines:
+    owns:
+      - "top-level orchestration for a concrete experiment path"
+      - "wiring between common mechanics and a domain adapter"
+
+guardrails:
+  - "Treat existing debug scripts as reference implementations, not shared libraries."
+  - "Prefer copying a stable primitive into proofs_ocr over importing it from a script."
+  - "Keep common proof mechanics separate from modal-specific or TFL-specific cleanup."
+  - "Document any new heuristic in the regression manifest or nearby notes before stacking another one."
+  - "If a behavior change is intentional, record which regression cases improved and what tradeoff appeared."
+
+near_term_plan:
+  - "Use proofs_ocr/common for shared recursive proof mechanics."
+  - "Start with a clean modal pipeline under proofs_ocr before attempting broader convergence."
+  - "Preserve the current TFL OCR path unchanged while the new pipeline matures."
+  - "Use the regression manifest as the source of truth for evaluation targets."
+
+regression_expectations:
+  current_state: >
+    The repository contains both modal typeset proof cases and handwritten cases,
+    but they are not yet described by one authoritative manifest.
+  current_seed_cases:
+    - "proofs_ocr/regression/manifest.yaml now seeds four modal typeset cases from working/modal-proof-tex-suite."
+    - "It also seeds two repo-local handwritten modal crops from working/modal-proof-zone-split-*."
+    - "The handwritten expected structures are provisional debug-run outputs, not hand-curated gold truth."
+  target_manifest_fields:
+    - "id"
+    - "domain"
+    - "kind"
+    - "image_path"
+    - "expected_structure_path"
+    - "tags"
+    - "notes"
+  quality_bar: >
+    The immediate goal is not zero-touch OCR. The goal is to reduce the amount of
+    human correction needed while keeping the recursive proof structure reliable.
+
+handoff_notes:
+  when_editing_proofs_ocr:
+    - "Explain whether a change belongs in common, domains, or pipelines."
+    - "Keep the recursive decomposition workflow visible in code comments."
+    - "Avoid mixing experiment-only code into the stable reference scripts unless necessary."
