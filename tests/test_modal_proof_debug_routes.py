@@ -385,6 +385,10 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         (example_dir / "debug_bars.jpg").write_bytes(b"fakejpg")
         (example_dir / "final_structure_baseline.json").write_text('[{"wffstr":"A","jstr":"PR"}]', encoding="utf-8")
         (example_dir / "node_rows_ROOT.json").write_text('[{"kind":"line","row_order":1}]', encoding="utf-8")
+        (example_dir / "node_row_bands_ROOT.json").write_text(
+            '{"raw_detected_bands":[{"y1":12,"y2":19,"height":8,"kept_after_textlike_filter":false,"rejection_reason":"band_has_textlike_ink=false"}]}',
+            encoding="utf-8",
+        )
         (example_dir / "node_entries_ROOT.json").write_text('[{"formula_text":"A","scope_role":"premise"}]', encoding="utf-8")
         (example_dir / "node_rows_overlay_ROOT.jpg").write_bytes(b"fakejpg")
         (example_dir / "node_line_ROOT_1.jpg").write_bytes(b"fakejpg")
@@ -451,6 +455,8 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertIn("Whole proof crop", response.text)
         self.assertIn("crop_ROOT.jpg?v=", response.text)
         self.assertIn("Node row segmentation", response.text)
+        self.assertIn("node_row_bands_ROOT.json", response.text)
+        self.assertIn("band_has_textlike_ink=false", response.text)
         self.assertIn("node_rows_overlay_ROOT.jpg?v=", response.text)
         self.assertIn("Per-line OCR inside nodes", response.text)
         self.assertIn("node_line_ROOT_1.jpg?v=", response.text)

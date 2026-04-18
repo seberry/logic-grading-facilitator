@@ -1075,8 +1075,10 @@ def _render_page(
             node_suffix = rows_path.stem.removeprefix("node_rows_")
             overlay_name = f"node_rows_overlay_{node_suffix}.jpg"
             entries_name = f"node_entries_{node_suffix}.json"
+            bands_name = f"node_row_bands_{node_suffix}.json"
             overlay_path = example_dir / overlay_name
             entries_text = _artifact_text(selected, entries_name)
+            bands_text = _artifact_text(selected, bands_name)
             node_response = _load_node_response(example_dir, node_suffix)
             node_row_stages.append(
                 {
@@ -1088,6 +1090,8 @@ def _render_page(
                     "rows_text": rows_path.read_text(encoding="utf-8"),
                     "entries_name": entries_name,
                     "entries_text": entries_text,
+                    "bands_name": bands_name,
+                    "bands_text": bands_text,
                     "assembly_summary": _node_response_summary(node_response),
                 }
             )

@@ -1303,6 +1303,10 @@
                       <label>{{ stage.rows_name }}</label>
                       <textarea class="small-textarea" readonly>{{ stage.rows_text }}</textarea>
                     {% endif %}
+                    {% if stage.bands_text %}
+                      <label>{{ stage.bands_name }}</label>
+                      <textarea class="small-textarea" readonly>{{ stage.bands_text }}</textarea>
+                    {% endif %}
                     {% if stage.entries_text %}
                       <label>{{ stage.entries_name }}</label>
                       <textarea class="small-textarea" readonly>{{ stage.entries_text }}</textarea>

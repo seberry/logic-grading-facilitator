@@ -128,6 +128,10 @@ def transcribe_image_to_modal_v2_debug_state(
             json.dumps(result.row_records_by_node.get(node_id, []), indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
+        (output_dir / artifacts.NODE_ROW_BANDS_TEMPLATE.format(node_id=node_id)).write_text(
+            json.dumps(result.band_debug_by_node.get(node_id, {}), indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
         (output_dir / artifacts.NODE_ENTRIES_TEMPLATE.format(node_id=node_id)).write_text(
             json.dumps(result.library.get(node_id, []), indent=2, ensure_ascii=False),
             encoding="utf-8",

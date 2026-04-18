@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Protocol
+from typing import Any, Callable, Dict, List, Mapping, Protocol
 
 import cv2
 import numpy as np
@@ -40,6 +40,7 @@ class ModalPipelineResult:
     tree_root: SubproofNode
     library: Dict[str, List[Dict[str, Any]]]
     row_records_by_node: Dict[str, List[rows.RowRecord]]
+    band_debug_by_node: Dict[str, Dict[str, Any]]
     final_structure: List[Any]
     feature_flags: ModalPipelineFeatureFlags
 
@@ -86,12 +87,14 @@ def run_modal_baseline_pipeline(
     tree_root = tree.build_proof_tree(detected_bars, image.shape[1], image.shape[0])
     library: Dict[str, List[Dict[str, Any]]] = {}
     row_records_by_node: Dict[str, List[rows.RowRecord]] = {}
+    band_debug_by_node: Dict[str, Dict[str, Any]] = {}
 
     _process_node_recursive(
         node=tree_root,
         full_img=image,
         library=library,
         row_records_by_node=row_records_by_node,
+        band_debug_by_node=band_debug_by_node,
         read_line=read_line,
         feature_flags=flags,
     )
@@ -111,6 +114,7 @@ def run_modal_baseline_pipeline(
         tree_root=tree_root,
         library=library,
         row_records_by_node=row_records_by_node,
+        band_debug_by_node=band_debug_by_node,
         final_structure=final_structure,
         feature_flags=flags,
     )
@@ -131,6 +135,7 @@ def _process_node_recursive(
     full_img: np.ndarray,
     library: Dict[str, List[Dict[str, Any]]],
     row_records_by_node: Dict[str, List[rows.RowRecord]],
+    band_debug_by_node: Dict[str, Dict[str, Any]],
     read_line: ModalLineReader,
     feature_flags: ModalPipelineFeatureFlags,
 ) -> None:
@@ -140,6 +145,7 @@ def _process_node_recursive(
             full_img=full_img,
             library=library,
             row_records_by_node=row_records_by_node,
+            band_debug_by_node=band_debug_by_node,
             read_line=read_line,
             feature_flags=feature_flags,
         )
@@ -149,8 +155,14 @@ def _process_node_recursive(
     for child in sorted(node.children, key=lambda item: (item.box[1], item.box[0])):
         masked_img = _mask_child_scope_in_node_crop(node=node, node_crop_img=masked_img, child=child)
 
-    row_records = _segment_node_rows(node=node, node_crop_img=masked_img)
+    band_debug: Dict[str, Any] = {}
+    row_records = _segment_node_rows(
+        node=node,
+        node_crop_img=masked_img,
+        write_band_debug_artifacts=lambda payload: band_debug.update(payload),
+    )
     row_records_by_node[node.id] = [dict(record) for record in row_records]
+    band_debug_by_node[node.id] = dict(band_debug)
 
     entries: List[Dict[str, Any]] = []
     for row_record in row_records:
@@ -340,7 +352,12 @@ def _filter_bands_near_child_tokens(
     )
 
 
-def _segment_node_rows(*, node: SubproofNode, node_crop_img: np.ndarray) -> List[rows.RowRecord]:
+def _segment_node_rows(
+    *,
+    node: SubproofNode,
+    node_crop_img: np.ndarray,
+    write_band_debug_artifacts: Callable[[Dict[str, Any]], None] | None = None,
+) -> List[rows.RowRecord]:
     return rows.segment_node_rows(
         node=node,
         node_crop_img=node_crop_img,
@@ -350,6 +367,7 @@ def _segment_node_rows(*, node: SubproofNode, node_crop_img: np.ndarray) -> List
         merge_fragment_bands_fn=rows.merge_fragment_bands,
         filter_bands_near_child_tokens_fn=_filter_bands_near_child_tokens,
         token_rect_for_child_fn=masking.token_rect_for_child,
+        write_band_debug_artifacts=write_band_debug_artifacts,
     )
 
 

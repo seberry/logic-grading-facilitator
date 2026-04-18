@@ -22,6 +22,7 @@ class ProofsOcrCommonRowsTests(unittest.TestCase):
         parent.children.append(child)
 
         writes = []
+        band_writes = []
 
         row_records = rows.segment_node_rows(
             node=parent,
@@ -33,9 +34,41 @@ class ProofsOcrCommonRowsTests(unittest.TestCase):
             filter_bands_near_child_tokens_fn=lambda **_kwargs: [(20, 34)],
             token_rect_for_child_fn=lambda **_kwargs: (70, 146, 120, 171),
             write_row_artifacts=lambda records: writes.append(records),
+            write_band_debug_artifacts=lambda payload: band_writes.append(payload),
         )
 
         self.assertEqual(len(writes), 1)
+        self.assertEqual(len(band_writes), 1)
+        self.assertEqual(
+            band_writes[0]["raw_detected_bands"],
+            [
+                {
+                    "y1": 20,
+                    "y2": 34,
+                    "height": 15,
+                    "kept_after_textlike_filter": True,
+                    "rejection_reason": "",
+                },
+                {
+                    "y1": 108,
+                    "y2": 120,
+                    "height": 13,
+                    "kept_after_textlike_filter": True,
+                    "rejection_reason": "",
+                },
+            ],
+        )
+        self.assertEqual(
+            band_writes[0]["rejected_after_merge"],
+            [
+                {
+                    "y1": 108,
+                    "y2": 120,
+                    "height": 13,
+                    "rejection_reason": "child_token_overlap",
+                }
+            ],
+        )
         self.assertEqual(
             row_records,
             [

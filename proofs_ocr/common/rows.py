@@ -364,11 +364,51 @@ def segment_node_rows(
     filter_bands_near_child_tokens_fn: Callable[..., List[Band]],
     token_rect_for_child_fn: Callable[..., Rect],
     write_row_artifacts: Callable[[List[RowRecord]], None] | None = None,
+    write_band_debug_artifacts: Callable[[Dict[str, Any]], None] | None = None,
 ) -> List[RowRecord]:
     cleaned = suppress_left_scope_bar(node_crop_img)
-    bands = [band for band in detect_text_row_bands_fn(cleaned) if band_has_textlike_ink_fn(cleaned, band)]
-    bands = merge_fragment_bands_fn(bands)
-    bands = filter_bands_near_child_tokens_fn(bands=bands, node=node, node_crop_img=cleaned)
+    detected_bands = detect_text_row_bands_fn(cleaned)
+    textlike_bands: List[Band] = []
+    raw_detected_bands: List[Dict[str, Any]] = []
+    for band in detected_bands:
+        keep = bool(band_has_textlike_ink_fn(cleaned, band))
+        raw_detected_bands.append(
+            {
+                "y1": int(band[0]),
+                "y2": int(band[1]),
+                "height": int(band_height(band)),
+                "kept_after_textlike_filter": keep,
+                "rejection_reason": "" if keep else "band_has_textlike_ink=false",
+            }
+        )
+        if keep:
+            textlike_bands.append(band)
+
+    merged_bands = merge_fragment_bands_fn(textlike_bands)
+    bands = filter_bands_near_child_tokens_fn(bands=merged_bands, node=node, node_crop_img=cleaned)
+
+    if write_band_debug_artifacts is not None:
+        merged_records = [{"y1": int(band[0]), "y2": int(band[1]), "height": int(band_height(band))} for band in merged_bands]
+        final_records = [{"y1": int(band[0]), "y2": int(band[1]), "height": int(band_height(band))} for band in bands]
+        token_filtered_records = [
+            {
+                "y1": int(band[0]),
+                "y2": int(band[1]),
+                "height": int(band_height(band)),
+                "rejection_reason": "child_token_overlap",
+            }
+            for band in merged_bands
+            if band not in bands
+        ]
+        write_band_debug_artifacts(
+            {
+                "raw_detected_bands": raw_detected_bands,
+                "merged_bands": merged_records,
+                "final_bands": final_records,
+                "rejected_after_merge": token_filtered_records,
+            }
+        )
+
     row_records: List[RowRecord] = []
     for band_index, (y1, y2) in enumerate(bands):
         row_records.append(
