@@ -37,8 +37,42 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertIn("Proof JSON", response.text)
         self.assertIn("Run checker", response.text)
         self.assertIn("starter", response.text)
+        self.assertIn("Legacy modal OCR", response.text)
+        self.assertIn("modal_v2 baseline", response.text)
         self.assertIn("OCR review details", response.text)
         self.assertIn("Unary Verifier Experiment", response.text)
+
+    def test_modal_proof_debug_page_shows_modal_v2_quick_view_for_starter(self) -> None:
+        example_dir = self.debug_dir / "starter"
+        example_dir.mkdir(parents=True, exist_ok=True)
+        (example_dir / "state.json").write_text(
+            json.dumps(
+                {
+                    "system": "S4",
+                    "include_derived_rules": False,
+                    "conclusion": "",
+                    "ocr_pipeline": "modal_v2_baseline",
+                    "source_image_name": "source_image.png",
+                    "proof_json_text": json.dumps({"lines": [{"wffstr": "□A → □□A", "jstr": "→I 1-4"}], "meta": {}}, ensure_ascii=False),
+                    "original_proof_json_text": json.dumps({"lines": [{"wffstr": "□A → □□A", "jstr": "→I 1-4"}], "meta": {}}, ensure_ascii=False),
+                    "run_summary": "modal_v2 baseline OCR produced 5 visible lines.",
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        (example_dir / "source_image.png").write_bytes(b"fakepng")
+        (example_dir / "debug_bars.jpg").write_bytes(b"fakejpg")
+        (example_dir / "final_structure_baseline.json").write_text('[{"wffstr":"□A → □□A","jstr":"→I 1-4"}]', encoding="utf-8")
+
+        with patch.object(modal_proof_debug_routes, "DEBUG_MODAL_PROOF_DIR", self.debug_dir):
+            response = self.client.get("/debug/modal-proof?example=starter")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("modal_v2 baseline first pass", response.text)
+        self.assertIn("modal_v2 baseline OCR produced 5 visible lines.", response.text)
+        self.assertIn("Stitched baseline OCR", response.text)
+        self.assertIn("Detected bars", response.text)
 
     def test_modal_proof_post_action_gets_redirect_back_to_debug_page(self) -> None:
         with patch.object(modal_proof_debug_routes, "DEBUG_MODAL_PROOF_DIR", self.debug_dir):
@@ -59,6 +93,7 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
                     "vision_base_url": "http://127.0.0.1:1234/v1",
                     "vision_model": "qwen/qwen3-vl-4b",
                     "verifier_vision_model": "qwen/qwen3-vl-8b",
+                    "ocr_pipeline": "modal_v2_baseline",
                     "proof_json_text": json.dumps([{"wffstr": "A", "jstr": "PR"}]),
                     "draft_comment": "saved comment",
                     "draft_grade": "2",
@@ -76,6 +111,7 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertEqual(saved["vision_base_url"], "http://127.0.0.1:1234/v1")
         self.assertEqual(saved["vision_model"], "qwen/qwen3-vl-4b")
         self.assertEqual(saved["verifier_vision_model"], "qwen/qwen3-vl-8b")
+        self.assertEqual(saved["ocr_pipeline"], "modal_v2_baseline")
         self.assertEqual(saved["draft_comment"], "saved comment")
         self.assertEqual(saved["draft_grade"], "2")
 
@@ -98,6 +134,7 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
                     "vision_base_url": "",
                     "vision_model": "qwen/qwen3-vl-4b",
                     "verifier_vision_model": "qwen/qwen3-vl-8b",
+                    "ocr_pipeline": "legacy_modal_debug",
                     "proof_json_text": json.dumps({"lines": [{"line": 4, "wffstr": "¬□¬A", "jstr": "MC 3"}], "meta": {}}, ensure_ascii=False),
                     "review_decisions_json": json.dumps(review_decisions, ensure_ascii=False),
                     "draft_comment": "",
@@ -118,6 +155,7 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
             "vision_base_url": "http://127.0.0.1:1234/v1",
             "vision_model": "qwen/qwen3-vl-4b",
             "verifier_vision_model": "qwen/qwen3-vl-8b",
+            "ocr_pipeline": "legacy_modal_debug",
             "source_image_name": "source_image.png",
             "proof_json_text": json.dumps({"lines": [{"wffstr": "□A", "jstr": "PR"}], "meta": {}}),
             "original_proof_json_text": json.dumps({"lines": [{"wffstr": "A", "jstr": "PR"}], "meta": {}}),
@@ -134,7 +172,7 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
 
         with (
             patch.object(modal_proof_debug_routes, "DEBUG_MODAL_PROOF_DIR", self.debug_dir),
-            patch.object(modal_proof_debug_routes, "build_vlm_client", return_value=object()),
+            patch.object(modal_proof_debug_routes, "build_legacy_vlm_client", return_value=object()),
             patch.object(modal_proof_debug_routes, "transcribe_image_to_modal_debug_state", return_value=ocr_state),
         ):
             response = self.client.post(
@@ -146,6 +184,7 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
                     "vision_base_url": "http://127.0.0.1:1234/v1",
                     "vision_model": "qwen/qwen3-vl-4b",
                     "verifier_vision_model": "qwen/qwen3-vl-8b",
+                    "ocr_pipeline": "legacy_modal_debug",
                     "proof_json_text": json.dumps([{"wffstr": "A", "jstr": "PR"}]),
                     "draft_comment": "keep me",
                     "draft_grade": "1",
@@ -163,6 +202,7 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertIn("OCR ran and updated the modal proof state.", page.text)
         self.assertEqual(saved["vision_model"], "qwen/qwen3-vl-4b")
         self.assertEqual(saved["verifier_vision_model"], "qwen/qwen3-vl-8b")
+        self.assertEqual(saved["ocr_pipeline"], "legacy_modal_debug")
         self.assertEqual(saved["draft_comment"], "keep me")
         self.assertEqual(saved["draft_grade"], "1")
         saved_lines = json.loads(saved["proof_json_text"])["lines"]
@@ -171,6 +211,55 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertEqual(original_lines[0]["wffstr"], "A")
         self.assertEqual(saved["verifier_rewrite_summary"][0]["rewritten_formula"], "□A")
         self.assertEqual(saved["review_decisions"], {})
+
+    def test_run_ocr_uses_modal_v2_pipeline_when_selected(self) -> None:
+        ocr_state = {
+            "system": "S4",
+            "include_derived_rules": False,
+            "conclusion": "",
+            "vision_base_url": "http://127.0.0.1:1234/v1",
+            "vision_model": "qwen/qwen3-vl-4b",
+            "verifier_vision_model": "",
+            "ocr_pipeline": "modal_v2_baseline",
+            "source_image_name": "source_image.png",
+            "proof_json_text": json.dumps({"lines": [{"wffstr": "□A → □□A", "jstr": "→I 1-4"}], "meta": {}}),
+            "original_proof_json_text": json.dumps({"lines": [{"wffstr": "□A → □□A", "jstr": "→I 1-4"}], "meta": {}}),
+            "verifier_rewrite_summary": [],
+            "draft_comment": "",
+            "draft_grade": "",
+            "checker_request": None,
+            "checker_response": None,
+            "run_summary": "modal_v2 baseline OCR produced 5 visible lines.",
+            "review_decisions": {},
+        }
+
+        with (
+            patch.object(modal_proof_debug_routes, "DEBUG_MODAL_PROOF_DIR", self.debug_dir),
+            patch.object(modal_proof_debug_routes, "build_modal_v2_vlm_client", return_value=object()),
+            patch.object(modal_proof_debug_routes, "transcribe_image_to_modal_v2_debug_state", return_value=ocr_state),
+        ):
+            response = self.client.post(
+                "/debug/modal-proof/run_ocr",
+                data={
+                    "example": "starter",
+                    "system": "S4",
+                    "vision_base_url": "http://127.0.0.1:1234/v1",
+                    "vision_model": "qwen/qwen3-vl-4b",
+                    "ocr_pipeline": "modal_v2_baseline",
+                    "proof_json_text": json.dumps([{"wffstr": "A", "jstr": "PR"}]),
+                    "draft_comment": "keep me",
+                    "draft_grade": "1",
+                },
+                files={"proof_image": ("proof.png", b"fakepng", "image/png")},
+                follow_redirects=False,
+            )
+
+        saved = json.loads((self.debug_dir / "starter" / "state.json").read_text(encoding="utf-8"))
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(saved["ocr_pipeline"], "modal_v2_baseline")
+        self.assertEqual(saved["verifier_vision_model"], "")
+        saved_lines = json.loads(saved["proof_json_text"])["lines"]
+        self.assertEqual(saved_lines[0]["wffstr"], "□A → □□A")
 
     def test_modal_proof_debug_page_shows_review_panel_and_unary_verifier_results(self) -> None:
         example_dir = self.debug_dir / "sample"
@@ -181,6 +270,7 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
                     "system": "K",
                     "include_derived_rules": False,
                     "conclusion": "",
+                    "ocr_pipeline": "modal_v2_baseline",
                     "source_image_name": "sample_source.png",
                     "proof_json_text": json.dumps({"lines": [{"line": 4, "wffstr": "¬□¬A", "jstr": "MC 3"}], "meta": {}}, ensure_ascii=False),
                     "original_proof_json_text": json.dumps({"lines": [{"wffstr": "¬□¬A", "jstr": "MC 3"}], "meta": {}}, ensure_ascii=False),
@@ -201,6 +291,8 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         (example_dir / "crop_ROOT.jpg").write_bytes(b"fakejpg")
         (example_dir / "response_ROOT.json").write_text('{"lines":[{"wffstr":"A"}]}', encoding="utf-8")
         (example_dir / "intermediate_ROOT.json").write_text('{"stage":"root"}', encoding="utf-8")
+        (example_dir / "debug_bars.jpg").write_bytes(b"fakejpg")
+        (example_dir / "final_structure_baseline.json").write_text('[{"wffstr":"A","jstr":"PR"}]', encoding="utf-8")
         (example_dir / "node_rows_ROOT.json").write_text('[{"kind":"line","row_order":1}]', encoding="utf-8")
         (example_dir / "node_entries_ROOT.json").write_text('[{"formula_text":"A","scope_role":"premise"}]', encoding="utf-8")
         (example_dir / "node_rows_overlay_ROOT.jpg").write_bytes(b"fakejpg")
@@ -259,6 +351,8 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Proof image", response.text)
         self.assertIn("Proof editor", response.text)
+        self.assertIn("modal_v2 baseline first pass", response.text)
+        self.assertIn("Detected bars", response.text)
         self.assertIn("Open image file", response.text)
         self.assertIn("ASCII Proof View", response.text)
         self.assertIn("OCR review details", response.text)

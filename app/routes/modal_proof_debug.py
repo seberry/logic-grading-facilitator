@@ -14,8 +14,12 @@ from fastapi.templating import Jinja2Templates
 from app.autograde import AutoGradeResult, autograde_submission
 from app.storage import RAW_SCANS_DIR
 from app.storage import DEBUG_MODAL_PROOF_DIR
+from proofs_ocr.pipelines.modal_v2 import (
+    build_vlm_client as build_modal_v2_vlm_client,
+    transcribe_image_to_modal_v2_debug_state,
+)
 from scripts.debug_modal_proof_ocr import (
-    build_vlm_client,
+    build_vlm_client as build_legacy_vlm_client,
     default_unary_verifier_model,
     recursive_stitch,
     renumber_lines,
@@ -84,6 +88,10 @@ LINE_NUMBER_DEBUG_IMAGE_NAMES = {
     "margin_anchor_strip_overlay.jpg",
 }
 SYSTEM_OPTIONS = ["K", "T", "S4", "S5"]
+OCR_PIPELINE_OPTIONS = (
+    ("legacy_modal_debug", "Legacy modal OCR"),
+    ("modal_v2_baseline", "modal_v2 baseline"),
+)
 STARTER_EXAMPLE = "starter"
 
 DEFAULT_PROOF_JSON_TEXT = json.dumps(
@@ -138,6 +146,7 @@ def _default_page_state() -> Dict[str, Any]:
         "vision_base_url": "",
         "vision_model": "",
         "verifier_vision_model": "",
+        "ocr_pipeline": "legacy_modal_debug",
         "source_image_name": "",
         "proof_json_text": DEFAULT_PROOF_JSON_TEXT,
         "original_proof_json_text": DEFAULT_PROOF_JSON_TEXT,
@@ -177,6 +186,7 @@ def _load_example_state(example_slug: Optional[str]) -> Dict[str, Any]:
         "vision_base_url",
         "vision_model",
         "verifier_vision_model",
+        "ocr_pipeline",
         "source_image_name",
         "verifier_rewrite_summary",
         "review_decisions",
@@ -203,6 +213,7 @@ def _save_example_state(example_slug: str, state: Dict[str, Any]) -> None:
                 "vision_base_url": state.get("vision_base_url", ""),
                 "vision_model": state.get("vision_model", ""),
                 "verifier_vision_model": state.get("verifier_vision_model", ""),
+                "ocr_pipeline": state.get("ocr_pipeline", "legacy_modal_debug"),
                 "source_image_name": state.get("source_image_name", ""),
                 "proof_json_text": state.get("proof_json_text", DEFAULT_PROOF_JSON_TEXT),
                 "original_proof_json_text": state.get("original_proof_json_text", DEFAULT_PROOF_JSON_TEXT),
@@ -809,7 +820,18 @@ def _render_page(
     line_number_debug_artifacts: List[Dict[str, str]] = []
     auxiliary_image_artifacts: List[Dict[str, str]] = []
     unary_verifier_results: List[Dict[str, Any]] = []
-    if selected and selected != STARTER_EXAMPLE:
+    baseline_quick_view: Dict[str, Any] = {
+        "enabled": False,
+        "pipeline_label": "",
+        "run_summary": str(state.get("run_summary") or "").strip(),
+        "source_image_url": "",
+        "source_image_filename": "",
+        "debug_bars_url": "",
+        "debug_bars_filename": "",
+        "baseline_structure_text": "",
+        "has_artifacts": False,
+    }
+    if selected:
         for filename in (*OPTIONAL_TEXT_ARTIFACTS, *OCR_TEXT_ARTIFACTS):
             text = _artifact_text(selected, filename)
             if text.strip():
@@ -849,6 +871,18 @@ def _render_page(
             primary_image_artifact = source_candidate
         elif image_artifacts:
             primary_image_artifact = image_artifacts[0]
+
+        baseline_quick_view = {
+            "enabled": str(state.get("ocr_pipeline") or "").strip() == "modal_v2_baseline",
+            "pipeline_label": "modal_v2 baseline",
+            "run_summary": str(state.get("run_summary") or "").strip(),
+            "source_image_url": primary_image_artifact["url"] if primary_image_artifact else "",
+            "source_image_filename": primary_image_artifact["filename"] if primary_image_artifact else "",
+            "debug_bars_url": _artifact_url(selected, "debug_bars.jpg") if (example_dir / "debug_bars.jpg").exists() else "",
+            "debug_bars_filename": "debug_bars.jpg" if (example_dir / "debug_bars.jpg").exists() else "",
+            "baseline_structure_text": artifact_texts.get("final_structure_baseline.json", ""),
+            "has_artifacts": bool((example_dir / "debug_bars.jpg").exists() or artifact_texts.get("final_structure_baseline.json", "").strip()),
+        }
 
         for stage_id, title, image_name, intermediate_name, response_name in BASELINE_OCR_STAGE_SPECS:
             image_path = example_dir / image_name
@@ -1055,6 +1089,7 @@ def _render_page(
             "available_examples": examples,
             "selected_example": selected,
             "system_options": SYSTEM_OPTIONS,
+            "ocr_pipeline_options": OCR_PIPELINE_OPTIONS,
             "parse_errors": _checker_issues(state.get("checker_response"), "parse_errors"),
             "check_errors": _checker_issues(state.get("checker_response"), "check_errors"),
             "normalized_lines": normalized_lines,
@@ -1069,6 +1104,7 @@ def _render_page(
             "line_ocr_stages": line_ocr_stages,
             "line_number_debug_artifacts": line_number_debug_artifacts,
             "auxiliary_image_artifacts": auxiliary_image_artifacts,
+            "baseline_quick_view": baseline_quick_view,
             "unary_verifier_results": unary_verifier_results,
             "review_panel": review_panel,
             **state,
@@ -1085,6 +1121,7 @@ def _state_from_form(
     vision_base_url: str,
     vision_model: str,
     verifier_vision_model: str,
+    ocr_pipeline: str,
     proof_json_text: str,
     review_decisions_json: str,
     draft_comment: str,
@@ -1100,6 +1137,7 @@ def _state_from_form(
             "vision_base_url": str(vision_base_url or "").strip(),
             "vision_model": str(vision_model or "").strip(),
             "verifier_vision_model": str(verifier_vision_model or "").strip(),
+            "ocr_pipeline": str(ocr_pipeline or "legacy_modal_debug").strip() or "legacy_modal_debug",
             "proof_json_text": proof_json_text,
             "review_decisions": _parse_review_decisions(review_decisions_json),
             "draft_comment": draft_comment,
@@ -1209,6 +1247,7 @@ async def save_modal_proof_state(
     vision_base_url: str = Form(""),
     vision_model: str = Form(""),
     verifier_vision_model: str = Form(""),
+    ocr_pipeline: str = Form("legacy_modal_debug"),
     proof_json_text: str = Form(...),
     review_decisions_json: str = Form(""),
     draft_comment: str = Form(""),
@@ -1222,6 +1261,7 @@ async def save_modal_proof_state(
         vision_base_url=vision_base_url,
         vision_model=vision_model,
         verifier_vision_model=verifier_vision_model,
+        ocr_pipeline=ocr_pipeline,
         proof_json_text=proof_json_text,
         review_decisions_json=review_decisions_json,
         draft_comment=draft_comment,
@@ -1246,6 +1286,7 @@ async def run_modal_proof_debug_checker(
     vision_base_url: str = Form(""),
     vision_model: str = Form(""),
     verifier_vision_model: str = Form(""),
+    ocr_pipeline: str = Form("legacy_modal_debug"),
     proof_json_text: str = Form(...),
     review_decisions_json: str = Form(""),
     draft_comment: str = Form(""),
@@ -1259,6 +1300,7 @@ async def run_modal_proof_debug_checker(
         vision_base_url=vision_base_url,
         vision_model=vision_model,
         verifier_vision_model=verifier_vision_model,
+        ocr_pipeline=ocr_pipeline,
         proof_json_text=proof_json_text,
         review_decisions_json=review_decisions_json,
         draft_comment=draft_comment,
@@ -1302,6 +1344,7 @@ async def run_modal_proof_debug_ocr(
     vision_base_url: str = Form(""),
     vision_model: str = Form(""),
     verifier_vision_model: str = Form(""),
+    ocr_pipeline: str = Form("legacy_modal_debug"),
     proof_json_text: str = Form(DEFAULT_PROOF_JSON_TEXT),
     review_decisions_json: str = Form(""),
     draft_comment: str = Form(""),
@@ -1317,6 +1360,7 @@ async def run_modal_proof_debug_ocr(
         vision_base_url=vision_base_url,
         vision_model=vision_model,
         verifier_vision_model=verifier_vision_model,
+        ocr_pipeline=ocr_pipeline,
         proof_json_text=proof_json_text,
         review_decisions_json=review_decisions_json,
         draft_comment=draft_comment,
@@ -1334,24 +1378,40 @@ async def run_modal_proof_debug_ocr(
         if not source_image_path.exists() or not source_image_path.is_file():
             raise ValueError(f"OCR image not found: {source_image_path}")
 
-        client = build_vlm_client(
-            base_url=state.get("vision_base_url") or None,
-            model=state.get("vision_model") or None,
-        )
-        verifier_client = build_vlm_client(
-            base_url=state.get("vision_base_url") or None,
-            model=state.get("verifier_vision_model") or default_unary_verifier_model(),
-        )
-        ocr_state = transcribe_image_to_modal_debug_state(
-            image_path=source_image_path,
-            output_dir=example_dir,
-            modal_config=_build_autograde_config(state),
-            client=client,
-            verifier_client=verifier_client,
-            vision_base_url=state.get("vision_base_url") or None,
-            vision_model=state.get("vision_model") or None,
-            verifier_vision_model=state.get("verifier_vision_model") or None,
-        )
+        pipeline = str(state.get("ocr_pipeline") or "legacy_modal_debug").strip() or "legacy_modal_debug"
+        if pipeline == "modal_v2_baseline":
+            client = build_modal_v2_vlm_client(
+                base_url=state.get("vision_base_url") or None,
+                model=state.get("vision_model") or None,
+            )
+            ocr_state = transcribe_image_to_modal_v2_debug_state(
+                image_path=source_image_path,
+                output_dir=example_dir,
+                modal_config=_build_autograde_config(state),
+                client=client,
+                vision_base_url=state.get("vision_base_url") or None,
+                vision_model=state.get("vision_model") or None,
+            )
+        else:
+            client = build_legacy_vlm_client(
+                base_url=state.get("vision_base_url") or None,
+                model=state.get("vision_model") or None,
+            )
+            verifier_client = build_legacy_vlm_client(
+                base_url=state.get("vision_base_url") or None,
+                model=state.get("verifier_vision_model") or default_unary_verifier_model(),
+            )
+            ocr_state = transcribe_image_to_modal_debug_state(
+                image_path=source_image_path,
+                output_dir=example_dir,
+                modal_config=_build_autograde_config(state),
+                client=client,
+                verifier_client=verifier_client,
+                vision_base_url=state.get("vision_base_url") or None,
+                vision_model=state.get("vision_model") or None,
+                verifier_vision_model=state.get("verifier_vision_model") or None,
+            )
+        ocr_state["ocr_pipeline"] = pipeline
         ocr_state["draft_comment"] = draft_comment
         ocr_state["draft_grade"] = draft_grade
         ocr_state["review_decisions"] = {}

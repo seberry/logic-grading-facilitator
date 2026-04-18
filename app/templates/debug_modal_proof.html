@@ -818,6 +818,37 @@
                 <span>{{ primary_image_artifact.filename }}</span>
                 <a href="{{ primary_image_artifact.url }}">Open image file</a>
               </div>
+              {% if baseline_quick_view.enabled %}
+                <details class="panel-toggle" open style="margin-top: 0.9rem;">
+                  <summary>{{ baseline_quick_view.pipeline_label }} first pass</summary>
+                  <div class="summary-box" style="margin-top: 0.75rem;">
+                    <strong>Status</strong><br />
+                    {% if baseline_quick_view.run_summary %}
+                      {{ baseline_quick_view.run_summary }}
+                    {% else %}
+                      No baseline OCR run summary is saved yet.
+                    {% endif %}
+                  </div>
+                  {% if baseline_quick_view.has_artifacts %}
+                    <div class="artifact-gallery" style="margin-top: 0.75rem;">
+                      {% if baseline_quick_view.debug_bars_url %}
+                        <div class="artifact-card">
+                          <strong>Detected bars</strong>
+                          <a href="{{ baseline_quick_view.debug_bars_url }}">
+                            <img src="{{ baseline_quick_view.debug_bars_url }}" alt="{{ baseline_quick_view.debug_bars_filename }}" />
+                          </a>
+                        </div>
+                      {% endif %}
+                    </div>
+                    {% if baseline_quick_view.baseline_structure_text %}
+                      <label style="margin-top: 0.75rem;">Stitched baseline OCR</label>
+                      <textarea class="small-textarea" readonly style="margin-top: 0.45rem;">{{ baseline_quick_view.baseline_structure_text }}</textarea>
+                    {% endif %}
+                  {% else %}
+                    <div class="muted" style="margin-top: 0.75rem;">The modal_v2 pipeline is selected, but no saved baseline artifacts are available for this example yet.</div>
+                  {% endif %}
+                </details>
+              {% endif %}
               {% if auxiliary_image_artifacts %}
                 <details class="panel-toggle" style="margin-top: 0.9rem;">
                   <summary>Other image artifacts</summary>
@@ -837,6 +868,37 @@
               <div class="proof-image-frame">
                 <div class="muted">No saved proof image is available yet. Import a strip crop or upload a proof image below.</div>
               </div>
+              {% if baseline_quick_view.enabled %}
+                <details class="panel-toggle" open style="margin-top: 0.9rem;">
+                  <summary>{{ baseline_quick_view.pipeline_label }} first pass</summary>
+                  <div class="summary-box" style="margin-top: 0.75rem;">
+                    <strong>Status</strong><br />
+                    {% if baseline_quick_view.run_summary %}
+                      {{ baseline_quick_view.run_summary }}
+                    {% else %}
+                      No baseline OCR run summary is saved yet.
+                    {% endif %}
+                  </div>
+                  {% if baseline_quick_view.has_artifacts %}
+                    <div class="artifact-gallery" style="margin-top: 0.75rem;">
+                      {% if baseline_quick_view.debug_bars_url %}
+                        <div class="artifact-card">
+                          <strong>Detected bars</strong>
+                          <a href="{{ baseline_quick_view.debug_bars_url }}">
+                            <img src="{{ baseline_quick_view.debug_bars_url }}" alt="{{ baseline_quick_view.debug_bars_filename }}" />
+                          </a>
+                        </div>
+                      {% endif %}
+                    </div>
+                    {% if baseline_quick_view.baseline_structure_text %}
+                      <label style="margin-top: 0.75rem;">Stitched baseline OCR</label>
+                      <textarea class="small-textarea" readonly style="margin-top: 0.45rem;">{{ baseline_quick_view.baseline_structure_text }}</textarea>
+                    {% endif %}
+                  {% else %}
+                    <div class="muted" style="margin-top: 0.75rem;">The modal_v2 pipeline is selected, but no saved baseline artifacts are available for this example yet.</div>
+                  {% endif %}
+                </details>
+              {% endif %}
             {% endif %}
           </div>
 
@@ -947,9 +1009,21 @@
               <input id="vision-base-url" name="vision_base_url" type="text" value="{{ vision_base_url }}" placeholder="http://127.0.0.1:1234/v1" />
             </div>
             <div>
+              <label for="ocr-pipeline">OCR pipeline</label>
+              <select id="ocr-pipeline" name="ocr_pipeline">
+                {% for pipeline_id, pipeline_label in ocr_pipeline_options %}
+                  <option value="{{ pipeline_id }}" {% if pipeline_id == ocr_pipeline %}selected{% endif %}>{{ pipeline_label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+
+          <div class="two-col" style="margin-top: 1rem;">
+            <div>
               <label for="vision-model">Baseline OCR model</label>
               <input id="vision-model" name="vision_model" type="text" value="{{ vision_model }}" placeholder="qwen/qwen3-vl-4b" />
             </div>
+            <div></div>
           </div>
 
           <div class="two-col" style="margin-top: 1rem;">
