@@ -17,6 +17,8 @@ from proofs_ocr.common.stitch import extract_subproof_token_id
 
 _WHITESPACE_RE = re.compile(r"\s+")
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
+_DASH_BETWEEN_DIGITS_RE = re.compile(r"(?<=\d)\s*[-–—]\s*(?=\d)")
+_COMMA_BETWEEN_DIGITS_RE = re.compile(r"(?<=\d)\s*,\s*(?=\d)")
 VALID_SCOPE_ROLES = {
     "premise",
     "ordinary_assumption",
@@ -63,7 +65,13 @@ def normalize_formula_text(value: Any) -> str:
 def normalize_justification_text(value: Any) -> str:
     """Normalize modal justifications without applying repair heuristics."""
 
-    return _collapse_whitespace(value)
+    normalized = _collapse_whitespace(value)
+    if not normalized:
+        return ""
+    normalized = normalized.replace("–", "-").replace("—", "-")
+    normalized = _DASH_BETWEEN_DIGITS_RE.sub("-", normalized)
+    normalized = _COMMA_BETWEEN_DIGITS_RE.sub(",", normalized)
+    return normalized
 
 
 def build_line_ocr_prompt(config: Mapping[str, Any] | None = None) -> str:
@@ -125,6 +133,8 @@ def resolve_modal_ocr_entry(entry: Any, _index: int) -> dict[str, str] | None:
     if scope_role in {"premise", "ordinary_assumption", "strict_open"} and (
         not justification_text or justification_text.strip().lower() in _IMPLICIT_PREMISE_JUSTIFICATIONS
     ):
+        justification_text = "PR"
+    elif not justification_text and _index == 0:
         justification_text = "PR"
 
     resolved = {

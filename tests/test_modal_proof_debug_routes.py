@@ -380,7 +380,10 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         )
         (example_dir / "sample_source.png").write_bytes(b"fakepng")
         (example_dir / "crop_ROOT.jpg").write_bytes(b"fakejpg")
-        (example_dir / "response_ROOT.json").write_text('{"lines":[{"wffstr":"A"}]}', encoding="utf-8")
+        (example_dir / "response_ROOT.json").write_text(
+            '[{"formula_text":"A","justification_text":"PR","scope_role":"premise","_ocr_row_order":1}]',
+            encoding="utf-8",
+        )
         (example_dir / "intermediate_ROOT.json").write_text('{"stage":"root"}', encoding="utf-8")
         (example_dir / "debug_bars.jpg").write_bytes(b"fakejpg")
         (example_dir / "final_structure_baseline.json").write_text('[{"wffstr":"A","jstr":"PR"}]', encoding="utf-8")
@@ -389,7 +392,10 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
             '{"raw_detected_bands":[{"y1":12,"y2":19,"height":8,"kept_after_textlike_filter":false,"rejection_reason":"band_has_textlike_ink=false"}]}',
             encoding="utf-8",
         )
-        (example_dir / "node_entries_ROOT.json").write_text('[{"formula_text":"A","scope_role":"premise"}]', encoding="utf-8")
+        (example_dir / "node_entries_ROOT.json").write_text(
+            '[{"formula_text":"A","justification_text":"PR","scope_role":"premise","_ocr_row_order":1}]',
+            encoding="utf-8",
+        )
         (example_dir / "node_rows_overlay_ROOT.jpg").write_bytes(b"fakejpg")
         (example_dir / "node_line_ROOT_1.jpg").write_bytes(b"fakejpg")
         (example_dir / "node_line_ROOT_1.json").write_text('{"resolved":{"formula_text":"A"}}', encoding="utf-8")
@@ -445,8 +451,11 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("Proof image", response.text)
+        self.assertIn("OCR verdict", response.text)
         self.assertIn("Proof editor", response.text)
         self.assertIn("modal_v2 baseline first pass", response.text)
+        self.assertIn("Likely bad rows/lines: 1", response.text)
+        self.assertIn("Line 4", response.text)
         self.assertIn("Detected bars", response.text)
         self.assertIn("Open image file", response.text)
         self.assertIn("ASCII Proof View", response.text)
@@ -483,6 +492,122 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertIn("y 120-148", response.text)
         self.assertIn("Verifier Rewrites", response.text)
         self.assertIn("Original OCR JSON", response.text)
+
+    def test_build_baseline_triage_flags_checker_and_unmapped_rows(self) -> None:
+        triage = modal_proof_debug_routes.page_helpers.build_baseline_triage(
+            line_ocr_stages=[
+                {
+                    "node_id": "ROOT",
+                    "row_order": 1,
+                    "title": "Node ROOT row 1",
+                    "image_url": "/debug_modal_proof_assets/sample/node_line_ROOT_1.jpg",
+                    "image_filename": "node_line_ROOT_1.jpg",
+                    "assembly_status": "stitched",
+                    "stitched_line_number": 4,
+                    "parsed_response": {"resolved": {"formula_text": "A"}},
+                },
+                {
+                    "node_id": "2",
+                    "row_order": 3,
+                    "title": "Node 2 row 3",
+                    "image_url": "/debug_modal_proof_assets/sample/node_line_2_3.jpg",
+                    "image_filename": "node_line_2_3.jpg",
+                    "assembly_status": "node_only",
+                    "parsed_response": {"resolved": {"formula_text": "B"}},
+                },
+            ],
+            checker_issue_map={4: [{"kind": "rule", "code": "BadUsage", "message": "bad rule"}]},
+            review_by_line={4: {"flag_reasons": ["multiple candidate formulas"]}},
+            current_lines={4: {"formula": "¬□¬A", "citation": "MC 3"}},
+        )
+
+        self.assertEqual(triage["flagged_count"], 2)
+        self.assertEqual(triage["line_count"], 1)
+        self.assertEqual(triage["row_count"], 1)
+        self.assertEqual(triage["items"][0]["title"], "Line 4")
+        self.assertIn("checker: bad rule", triage["items"][0]["reasons"])
+        self.assertTrue(any(item["kind"] == "row" for item in triage["items"]))
+
+    def test_build_gold_comparison_flags_formula_and_missing_lines(self) -> None:
+        comparison = modal_proof_debug_routes.page_helpers.build_gold_comparison(
+            expected_structure=[
+                {"line": 1, "wffstr": "□P", "jstr": "PR"},
+                {"line": 2, "wffstr": "P", "jstr": "□E 1"},
+            ],
+            current_lines={
+                1: {"formula": "□", "citation": "PR", "depth": 0},
+            },
+        )
+
+        self.assertTrue(comparison["enabled"])
+        self.assertEqual(comparison["issue_count"], 2)
+        self.assertEqual(comparison["missing_count"], 1)
+        self.assertEqual(comparison["mismatch_count"], 1)
+        self.assertIn("formula mismatch: expected □P", comparison["line_issues"][1]["reasons"])
+        self.assertIn("missing line from current proof", comparison["line_issues"][2]["reasons"])
+
+    def test_modal_proof_debug_page_shows_gold_mismatch_summary_for_fixture(self) -> None:
+        fixture_root = self.debug_dir / "fixtures" / "modal"
+        fixture_root.mkdir(parents=True, exist_ok=True)
+        expected_path = fixture_root / "expected_structure.json"
+        expected_path.write_text(
+            json.dumps(
+                [
+                    {"line": 1, "wffstr": "□P", "jstr": "PR"},
+                    {"line": 2, "wffstr": "P", "jstr": "□E 1"},
+                ],
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        example_dir = self.debug_dir / "sample"
+        example_dir.mkdir(parents=True, exist_ok=True)
+        (example_dir / "state.json").write_text(
+            json.dumps(
+                {
+                    "system": "K",
+                    "include_derived_rules": False,
+                    "conclusion": "",
+                    "ocr_pipeline": "modal_v2_baseline",
+                    "fixture_id": "modal_sample",
+                    "source_image_name": "sample_source.png",
+                    "proof_json_text": json.dumps({"lines": [{"line": 1, "wffstr": "□", "jstr": "PR"}], "meta": {}}, ensure_ascii=False),
+                    "original_proof_json_text": json.dumps({"lines": [{"line": 1, "wffstr": "□", "jstr": "PR"}], "meta": {}}, ensure_ascii=False),
+                    "run_summary": "ready",
+                },
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        (example_dir / "sample_source.png").write_bytes(b"fakepng")
+        (example_dir / "debug_bars.jpg").write_bytes(b"fakejpg")
+        (example_dir / "final_structure_baseline.json").write_text('[{"wffstr":"□","jstr":"PR"}]', encoding="utf-8")
+
+        fixtures = [
+            {
+                "id": "modal_sample",
+                "domain": "modal",
+                "kind": "handwritten",
+                "image_path": "fixtures/modal/sample.png",
+                "absolute_image_path": str((fixture_root / "sample.png").resolve()),
+                "expected_structure_path": "fixtures/modal/expected_structure.json",
+                "absolute_expected_structure_path": str(expected_path.resolve()),
+                "notes": "sample fixture",
+            }
+        ]
+
+        with (
+            patch.object(modal_proof_debug_routes, "DEBUG_MODAL_PROOF_DIR", self.debug_dir),
+            patch.object(modal_proof_debug_routes, "_load_modal_regression_fixtures", return_value=fixtures),
+        ):
+            response = self.client.get("/debug/modal-proof?example=sample")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Gold mismatches: 2", response.text)
+        self.assertIn("Gold fixture modal_sample", response.text)
+        self.assertIn("Expected: □P    PR", response.text)
+        self.assertIn("formula mismatch: expected □P", response.text)
 
     def test_build_review_panel_dedupes_candidates_and_flags_checker_only_lines(self) -> None:
         state = {

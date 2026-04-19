@@ -62,6 +62,41 @@ def _synthetic_scope_bar_image() -> np.ndarray:
 
 
 class ModalV2BaselinePipelineTests(unittest.TestCase):
+    def test_select_top_level_entries_prefers_first_child_when_root_has_only_token(self) -> None:
+        root = SubproofNode("ROOT", (0, 0, 100, 100))
+
+        selected = modal_v2_core._select_top_level_entries(
+            tree_root=root,
+            library={
+                "ROOT": [{"formula_text": "<SUBPROOF_ID_1>", "scope_role": "subproof_token"}],
+                "1": [{"formula_text": "A", "scope_role": "premise"}],
+            },
+        )
+
+        self.assertEqual(selected, [{"formula_text": "A", "scope_role": "premise"}])
+
+    def test_select_top_level_entries_keeps_root_when_root_has_visible_line(self) -> None:
+        root = SubproofNode("ROOT", (0, 0, 100, 100))
+
+        selected = modal_v2_core._select_top_level_entries(
+            tree_root=root,
+            library={
+                "ROOT": [
+                    {"formula_text": "<SUBPROOF_ID_1>", "scope_role": "subproof_token"},
+                    {"formula_text": "T", "scope_role": "derived_line"},
+                ],
+                "1": [{"formula_text": "A", "scope_role": "premise"}],
+            },
+        )
+
+        self.assertEqual(
+            selected,
+            [
+                {"formula_text": "<SUBPROOF_ID_1>", "scope_role": "subproof_token"},
+                {"formula_text": "T", "scope_role": "derived_line"},
+            ],
+        )
+
     def test_node_crop_image_avoids_bottom_padding_for_child_nodes(self) -> None:
         image = np.zeros((200, 50, 3), dtype=np.uint8)
         child = SubproofNode("1", (10, 40, 2, 80))
@@ -431,6 +466,24 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
                 "scope_role": "ordinary_assumption",
                 "formula_text": "A",
                 "justification_text": "Assump",
+                "line_label": "",
+            },
+            0,
+        )
+
+        self.assertIsNotNone(resolved)
+        self.assertEqual(resolved["jstr"], "PR")
+
+    def test_normalize_justification_text_collapses_reference_spacing_and_dash_variants(self) -> None:
+        self.assertEqual(modal.normalize_justification_text("→E 4, 5"), "→E 4,5")
+        self.assertEqual(modal.normalize_justification_text("□I 2–3"), "□I 2-3")
+
+    def test_resolve_modal_ocr_entry_fills_blank_first_line_as_pr(self) -> None:
+        resolved = modal.resolve_modal_ocr_entry(
+            {
+                "scope_role": "derived_line",
+                "formula_text": "□(A → B)",
+                "justification_text": "",
                 "line_label": "",
             },
             0,

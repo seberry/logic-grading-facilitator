@@ -56,6 +56,7 @@ class ModalProofDebugHelperTests(unittest.TestCase):
                     "    domain: modal",
                     "    kind: typeset",
                     f"    image_path: {fixture_image.relative_to(self.tmp_dir).as_posix()}",
+                    "    expected_structure_path: fixtures/modal/expected_structure.json",
                     "    notes: sample fixture",
                 ]
             ),
@@ -67,6 +68,11 @@ class ModalProofDebugHelperTests(unittest.TestCase):
         self.assertEqual(len(fixtures), 1)
         self.assertEqual(fixtures[0]["id"], "modal_sample")
         self.assertEqual(fixtures[0]["absolute_image_path"], str(fixture_image.resolve()))
+        self.assertEqual(fixtures[0]["expected_structure_path"], "fixtures/modal/expected_structure.json")
+        self.assertEqual(
+            fixtures[0]["absolute_expected_structure_path"],
+            str((self.tmp_dir / "fixtures" / "modal" / "expected_structure.json").resolve()),
+        )
         self.assertEqual(fixture_helpers.fixture_option_label(fixtures[0]), "modal_sample - modal / typeset")
 
     def test_unary_verifier_results_add_asset_urls(self) -> None:
@@ -99,6 +105,44 @@ class ModalProofDebugHelperTests(unittest.TestCase):
             "/debug_modal_proof_assets/sample/verifier_line_1_4_band3.jpg",
             attempt["line_crop_url"],
         )
+
+    def test_legacy_response_list_still_maps_row_order_to_visible_line_order(self) -> None:
+        example_dir = self.tmp_dir / "sample"
+        example_dir.mkdir(parents=True, exist_ok=True)
+        (example_dir / "response_1.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "formula_text": "A",
+                        "justification_text": "Assumption",
+                        "scope_role": "ordinary_assumption",
+                        "_ocr_row_order": 1,
+                    },
+                    {
+                        "scope_role": "subproof_token",
+                        "formula_text": "<SUBPROOF_ID_2>",
+                        "justification_text": "",
+                    },
+                    {
+                        "formula_text": "□A",
+                        "justification_text": "PR",
+                        "scope_role": "premise",
+                        "_ocr_row_order": 3,
+                    },
+                ],
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        node_response = artifact_helpers.load_node_response(example_dir, "1")
+
+        self.assertEqual(artifact_helpers.row_order_to_visible_line_order(node_response, 1), 0)
+        self.assertEqual(artifact_helpers.row_order_to_visible_line_order(node_response, 3), 1)
+        artifact = artifact_helpers.find_line_artifact(node_response, 3)
+        assert artifact is not None
+        self.assertEqual(artifact["kind"], "line")
+        self.assertEqual(artifact["resolved"]["scope_role"], "premise")
 
 
 if __name__ == "__main__":

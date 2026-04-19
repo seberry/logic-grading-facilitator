@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
+from proofs_ocr.common.stitch import extract_subproof_token_id
 from scripts.debug_modal_proof_ocr import recursive_stitch, renumber_lines
+
+
+@dataclass
+class _SyntheticNode:
+    id: str
+    children: List[Any] = field(default_factory=list)
 
 
 def artifact_text(debug_dir: Path, example_slug: str, filename: str) -> str:
@@ -77,7 +85,8 @@ def build_stitched_line_lookup(example_dir: Path) -> Dict[Tuple[str, int], Dict[
     if not top_level_entries:
         return {}
 
-    stitched = recursive_stitch(top_level_entries, library)
+    root_node = _SyntheticNode("ROOT") if top_level_entries is root_entries else None
+    stitched = recursive_stitch(top_level_entries, library, root_node)
     while isinstance(stitched, list) and len(stitched) == 1 and isinstance(stitched[0], list):
         stitched = stitched[0]
     renumber_lines(stitched)
@@ -99,7 +108,14 @@ def build_stitched_line_lookup(example_dir: Path) -> Dict[Tuple[str, int], Dict[
 
 def load_node_response(example_dir: Path, node_id: str) -> Dict[str, Any]:
     parsed = read_json_artifact(example_dir / f"response_{node_id}.json")
-    return parsed if isinstance(parsed, dict) else {}
+    if isinstance(parsed, dict):
+        return parsed
+    if isinstance(parsed, list):
+        return {
+            "entries": [item for item in parsed if isinstance(item, dict)],
+            "legacy_response_format": True,
+        }
+    return {}
 
 
 def find_line_artifact(node_response: Dict[str, Any], row_order: int) -> Optional[Dict[str, Any]]:
@@ -108,6 +124,20 @@ def find_line_artifact(node_response: Dict[str, Any], row_order: int) -> Optiona
             continue
         if item.get("row_order") == row_order:
             return item
+    for entry in node_response.get("entries") or []:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("_ocr_row_order") != row_order:
+            continue
+        return {
+            "kind": "line",
+            "row_order": row_order,
+            "resolved": {
+                "scope_role": str(entry.get("scope_role") or "").strip(),
+                "formula_text": str(entry.get("formula_text") or entry.get("wffstr") or "").strip(),
+                "justification_text": str(entry.get("justification_text") or entry.get("jstr") or "").strip(),
+            },
+        }
     return None
 
 
@@ -142,13 +172,28 @@ def node_response_summary(node_response: Dict[str, Any]) -> Dict[str, Any]:
 
 def row_order_to_visible_line_order(node_response: Dict[str, Any], row_order: int) -> Optional[int]:
     visible_line_order = 0
-    for item in node_response.get("line_artifacts") or []:
-        if not isinstance(item, dict):
+    line_artifacts = node_response.get("line_artifacts") or []
+    if line_artifacts:
+        for item in line_artifacts:
+            if not isinstance(item, dict):
+                continue
+            kind = str(item.get("kind") or "").strip()
+            if kind in {"subproof_token", "strict_open_consumed", "token_overlap_skipped"}:
+                continue
+            candidate = item.get("row_order")
+            if isinstance(candidate, int) and candidate == row_order:
+                return visible_line_order
+            visible_line_order += 1
+        return None
+
+    for entry in node_response.get("entries") or []:
+        if not isinstance(entry, dict):
             continue
-        kind = str(item.get("kind") or "").strip()
-        if kind in {"subproof_token", "strict_open_consumed", "token_overlap_skipped"}:
+        formula_text = str(entry.get("formula_text") or entry.get("wffstr") or "").strip()
+        scope_role = str(entry.get("scope_role") or "").strip()
+        if scope_role == "subproof_token" or extract_subproof_token_id(formula_text):
             continue
-        candidate = item.get("row_order")
+        candidate = entry.get("_ocr_row_order")
         if isinstance(candidate, int) and candidate == row_order:
             return visible_line_order
         visible_line_order += 1

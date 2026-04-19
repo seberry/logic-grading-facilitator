@@ -57,6 +57,10 @@ def load_modal_regression_fixtures(manifest_path: Path, repo_root: Path) -> List
         if not fixture_id or not image_path:
             continue
         absolute_image_path = (repo_root / image_path).resolve()
+        expected_structure_path = str(fixture.get("expected_structure_path") or "").strip()
+        absolute_expected_structure_path = (
+            str((repo_root / expected_structure_path).resolve()) if expected_structure_path else ""
+        )
         resolved.append(
             {
                 "id": fixture_id,
@@ -64,6 +68,8 @@ def load_modal_regression_fixtures(manifest_path: Path, repo_root: Path) -> List
                 "kind": str(fixture.get("kind") or "").strip(),
                 "image_path": image_path,
                 "absolute_image_path": str(absolute_image_path),
+                "expected_structure_path": expected_structure_path,
+                "absolute_expected_structure_path": absolute_expected_structure_path,
                 "notes": str(fixture.get("notes") or "").strip(),
             }
         )

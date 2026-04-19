@@ -150,6 +150,10 @@ def proof_lines_from_text(text: str) -> Dict[int, Dict[str, Any]]:
     except json.JSONDecodeError:
         return {}
 
+    return proof_lines_from_structure(parsed)
+
+
+def proof_lines_from_structure(parsed: Any) -> Dict[int, Dict[str, Any]]:
     if isinstance(parsed, list):
         structure = parsed
     elif isinstance(parsed, dict):
@@ -191,6 +195,121 @@ def proof_lines_from_text(text: str) -> Dict[int, Dict[str, Any]]:
 
     visit(structure, 0)
     return lines
+
+
+def _line_text(formula: str, citation: str) -> str:
+    formula_text = str(formula or "").strip()
+    citation_text = str(citation or "").strip()
+    if formula_text and citation_text:
+        return f"{formula_text}    {citation_text}"
+    return formula_text or citation_text or "Blank line"
+
+
+def build_gold_comparison(
+    *,
+    expected_structure: Any,
+    current_lines: Dict[int, Dict[str, Any]],
+) -> Dict[str, Any]:
+    expected_lines = proof_lines_from_structure(expected_structure)
+    if not expected_lines:
+        return {
+            "enabled": False,
+            "summary": "",
+            "issue_count": 0,
+            "missing_count": 0,
+            "extra_count": 0,
+            "mismatch_count": 0,
+            "items": [],
+            "line_issues": {},
+            "expected_lines": {},
+        }
+
+    items: List[Dict[str, Any]] = []
+    line_issues: Dict[int, Dict[str, Any]] = {}
+    missing_count = 0
+    extra_count = 0
+    mismatch_count = 0
+
+    for line_number in sorted(set(expected_lines.keys()) | set(current_lines.keys())):
+        expected = expected_lines.get(line_number)
+        current = current_lines.get(line_number)
+        reasons: List[str] = []
+        kind = "mismatch"
+
+        if expected is None and current is not None:
+            reasons.append("extra line not present in gold fixture")
+            extra_count += 1
+            kind = "extra"
+        elif current is None and expected is not None:
+            reasons.append("missing line from current proof")
+            missing_count += 1
+            kind = "missing"
+        elif expected is not None and current is not None:
+            expected_formula = str(expected.get("formula") or "").strip()
+            current_formula = str(current.get("formula") or "").strip()
+            expected_citation = str(expected.get("citation") or "").strip()
+            current_citation = str(current.get("citation") or "").strip()
+            expected_depth = expected.get("depth")
+            current_depth = current.get("depth")
+            if expected_formula != current_formula:
+                reasons.append(f"formula mismatch: expected {expected_formula or 'blank'}")
+            if expected_citation != current_citation:
+                reasons.append(f"citation mismatch: expected {expected_citation or 'blank'}")
+            if expected_depth != current_depth:
+                reasons.append(f"depth mismatch: expected depth {expected_depth}")
+            if reasons:
+                mismatch_count += 1
+
+        if not reasons:
+            continue
+
+        expected_line_text = _line_text(
+            str((expected or {}).get("formula") or ""),
+            str((expected or {}).get("citation") or ""),
+        )
+        current_line_text = _line_text(
+            str((current or {}).get("formula") or ""),
+            str((current or {}).get("citation") or ""),
+        )
+        item = {
+            "line_number": line_number,
+            "kind": kind,
+            "reasons": reasons,
+            "expected_line_text": expected_line_text,
+            "current_line_text": current_line_text,
+            "expected_depth": (expected or {}).get("depth"),
+            "current_depth": (current or {}).get("depth"),
+        }
+        items.append(item)
+        line_issues[line_number] = item
+
+    if not items:
+        summary = "Current proof matches the selected gold fixture."
+    else:
+        summary = f"Gold fixture mismatch on {len(items)} line"
+        summary += "" if len(items) == 1 else "s"
+        details: List[str] = []
+        if missing_count:
+            details.append(f"{missing_count} missing")
+        if extra_count:
+            details.append(f"{extra_count} extra")
+        if mismatch_count:
+            details.append(f"{mismatch_count} content/depth mismatch")
+        if details:
+            summary += f" ({', '.join(details)})"
+        summary += "."
+
+    return {
+        "enabled": True,
+        "summary": summary,
+        "issue_count": len(items),
+        "missing_count": missing_count,
+        "extra_count": extra_count,
+        "mismatch_count": mismatch_count,
+        "items": items,
+        "line_issues": line_issues,
+        "expected_lines": expected_lines,
+    }
 
 
 def checker_issues_by_line(checker_response: Any) -> Dict[int, List[Dict[str, str]]]:
@@ -403,6 +522,169 @@ def build_review_panel(
     }
 
 
+def _stage_suspicious_reasons(stage: Dict[str, Any]) -> List[str]:
+    reasons: List[str] = []
+    assembly_status = str(stage.get("assembly_status") or "").strip()
+    if assembly_status == "skipped":
+        reasons.append("dropped before stitching")
+    elif assembly_status == "node_only":
+        reasons.append("not mapped to final stitched line")
+
+    if stage.get("skipped_reason"):
+        reasons.append(f"skip reason: {stage.get('skipped_reason')}")
+
+    parsed_response = stage.get("parsed_response")
+    if isinstance(parsed_response, dict):
+        for key in ("parse_error", "formula_parse_error", "justification_parse_error"):
+            value = str(parsed_response.get(key) or "").strip()
+            if value:
+                reasons.append(f"{key}: {value}")
+        if bool(parsed_response.get("retry_used")):
+            reasons.append("needed retry")
+        resolved = parsed_response.get("resolved")
+        if isinstance(resolved, dict):
+            if not str(resolved.get("formula_text") or "").strip():
+                reasons.append("blank formula OCR")
+
+    artifact_kind = str(stage.get("artifact_kind") or "").strip()
+    if artifact_kind == "token_overlap_skipped":
+        reasons.append("token overlap skipped")
+
+    # Deduplicate while preserving order.
+    deduped: List[str] = []
+    for reason in reasons:
+        if reason not in deduped:
+            deduped.append(reason)
+    return deduped
+
+
+def build_baseline_triage(
+    *,
+    line_ocr_stages: List[Dict[str, Any]],
+    checker_issue_map: Dict[int, List[Dict[str, str]]],
+    review_by_line: Dict[int, Dict[str, Any]],
+    current_lines: Dict[int, Dict[str, Any]],
+    gold_line_issues: Optional[Dict[int, Dict[str, Any]]] = None,
+    expected_lines: Optional[Dict[int, Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
+    stage_by_line: Dict[int, Dict[str, Any]] = {}
+    stage_only_items: List[Dict[str, Any]] = []
+    gold_issue_map = gold_line_issues or {}
+    expected_line_map = expected_lines or {}
+
+    for stage in line_ocr_stages:
+        stage_reasons = _stage_suspicious_reasons(stage)
+        line_number = stage.get("stitched_line_number")
+        if isinstance(line_number, int):
+            gold_issue = gold_issue_map.get(line_number, {})
+            gold_reasons = [f"gold: {reason}" for reason in (gold_issue.get("reasons") or []) if str(reason).strip()]
+            stage["gold_reasons"] = gold_reasons
+            expected_line = expected_line_map.get(line_number, {})
+            if expected_line:
+                stage["expected_line_text"] = _line_text(
+                    str(expected_line.get("formula") or ""),
+                    str(expected_line.get("citation") or ""),
+                )
+                stage["expected_depth"] = expected_line.get("depth")
+            if gold_reasons:
+                stage_reasons = [*gold_reasons, *stage_reasons]
+        stage["triage_reasons"] = list(stage_reasons)
+        if isinstance(line_number, int):
+            stage_by_line.setdefault(line_number, stage)
+        elif stage_reasons:
+            stage_only_items.append(
+                {
+                    "kind": "row",
+                    "title": f"Node {stage.get('node_id')} row {stage.get('row_order')}",
+                    "line_text": str(stage.get("title") or "").strip(),
+                    "reasons": stage_reasons,
+                    "image_url": stage.get("image_url") or "",
+                    "image_filename": stage.get("image_filename") or "",
+                    "node_id": str(stage.get("node_id") or "").strip(),
+                    "row_order": int(stage.get("row_order") or 0),
+                    "line_number": None,
+                    "priority": 2 if "dropped before stitching" in stage_reasons else 4,
+                }
+            )
+
+    flagged_line_numbers = sorted(
+        set(checker_issue_map.keys())
+        | set(review_by_line.keys())
+        | set(gold_issue_map.keys())
+        | {line_number for line_number, stage in stage_by_line.items() if stage.get("triage_reasons")}
+    )
+
+    line_items: List[Dict[str, Any]] = []
+    for line_number in flagged_line_numbers:
+        reasons: List[str] = []
+        issues = checker_issue_map.get(line_number, [])
+        gold_issue = gold_issue_map.get(line_number, {})
+        for reason in gold_issue.get("reasons") or []:
+            text = str(reason or "").strip()
+            if text:
+                reasons.append(f"gold: {text}")
+        if issues:
+            messages = [str(issue.get("message") or "").strip() for issue in issues if str(issue.get("message") or "").strip()]
+            if messages:
+                reasons.append(f"checker: {'; '.join(messages)}")
+            else:
+                reasons.append("checker issue")
+        review_item = review_by_line.get(line_number, {})
+        for reason in review_item.get("flag_reasons") or []:
+            text = str(reason or "").strip()
+            if text:
+                reasons.append(f"ocr: {text}")
+
+        stage = stage_by_line.get(line_number, {})
+        for reason in stage.get("triage_reasons") or []:
+            reasons.append(f"artifact: {reason}")
+
+        deduped_reasons: List[str] = []
+        for reason in reasons:
+            if reason not in deduped_reasons:
+                deduped_reasons.append(reason)
+        if not deduped_reasons:
+            continue
+
+        current_line = current_lines.get(line_number, {})
+        formula = str(current_line.get("formula") or "").strip()
+        citation = str(current_line.get("citation") or "").strip()
+        line_text = formula
+        if citation:
+            line_text = f"{formula}    {citation}" if formula else citation
+
+        priority = 1 if issues else 2 if any(reason.startswith("artifact: dropped") for reason in deduped_reasons) else 3
+        line_items.append(
+            {
+                "kind": "line",
+                "title": f"Line {line_number}",
+                "line_text": line_text or "No current stitched text.",
+                "expected_line_text": gold_issue.get("expected_line_text") or _line_text(
+                    str((expected_line_map.get(line_number) or {}).get("formula") or ""),
+                    str((expected_line_map.get(line_number) or {}).get("citation") or ""),
+                ),
+                "reasons": deduped_reasons,
+                "image_url": stage.get("image_url") or "",
+                "image_filename": stage.get("image_filename") or "",
+                "node_id": str(stage.get("node_id") or "").strip(),
+                "row_order": int(stage.get("row_order") or 0) if stage.get("row_order") is not None else 0,
+                "line_number": line_number,
+                "priority": 0 if gold_issue else priority,
+            }
+        )
+
+    items = sorted(
+        line_items + stage_only_items,
+        key=lambda item: (int(item.get("priority") or 9), int(item.get("line_number") or 10_000), str(item.get("title") or "")),
+    )
+    return {
+        "items": items,
+        "flagged_count": len(items),
+        "line_count": len(line_items),
+        "row_count": len(stage_only_items),
+    }
+
+
 def render_checker_request_preview(checker_request: Any) -> str:
     lines = checker_request_lines(checker_request)
     if not lines:
@@ -435,6 +717,11 @@ def render_page(
 ) -> Response:
     examples = deps.list_modal_proof_examples()
     regression_fixtures = deps.load_modal_regression_fixtures()
+    fixture_map = {
+        str(fixture.get("id") or "").strip(): fixture
+        for fixture in regression_fixtures
+        if str(fixture.get("id") or "").strip()
+    }
     fixture_options = [{**fixture, "label": deps.fixture_option_label(fixture)} for fixture in regression_fixtures]
     if example and (example == deps.starter_example or example in examples):
         selected = example
@@ -456,6 +743,9 @@ def render_page(
     current_pipeline_id = str(state.get("ocr_pipeline") or "legacy_modal_debug").strip() or "legacy_modal_debug"
     current_pipeline_label = deps.ocr_pipeline_labels.get(current_pipeline_id, current_pipeline_id)
     selected_fixture_id = str(state.get("fixture_id") or "").strip()
+    if not selected_fixture_id and selected in fixture_map:
+        selected_fixture_id = selected
+    selected_fixture = fixture_map.get(selected_fixture_id, {})
     baseline_quick_view: Dict[str, Any] = {
         "enabled": False,
         "pipeline_label": current_pipeline_label,
@@ -476,6 +766,18 @@ def render_page(
         "ocr_pipeline_label": current_pipeline_label,
         "vision_model": str(state.get("vision_model") or "").strip(),
         "last_run_at": str(state.get("last_run_at") or "").strip(),
+    }
+    gold_comparison: Dict[str, Any] = {
+        "enabled": False,
+        "summary": "",
+        "issue_count": 0,
+        "missing_count": 0,
+        "extra_count": 0,
+        "mismatch_count": 0,
+        "items": [],
+        "line_issues": {},
+        "expected_lines": {},
+        "fixture_id": selected_fixture_id,
     }
     if selected:
         for filename in (*deps.optional_text_artifacts, *deps.ocr_text_artifacts):
@@ -625,12 +927,22 @@ def render_page(
                 continue
             auxiliary_image_artifacts.append(artifact)
 
+    current_lines = deps.proof_lines_from_text(str(state.get("proof_json_text") or ""))
+    expected_structure_raw = str(selected_fixture.get("absolute_expected_structure_path") or "").strip()
+    if expected_structure_raw:
+        expected_structure_path = Path(expected_structure_raw)
+        expected_structure = deps.read_json_artifact(expected_structure_path)
+        gold_comparison = {
+            **build_gold_comparison(expected_structure=expected_structure, current_lines=current_lines),
+            "fixture_id": selected_fixture_id,
+        }
     review_panel = deps.build_review_panel(state=state, unary_verifier_results=unary_verifier_results)
     review_by_line = {
         int(item.get("line_number")): item
         for item in (review_panel.get("items") or [])
         if isinstance(item, dict) and isinstance(item.get("line_number"), int)
     }
+    checker_issue_map = checker_issues_by_line(state.get("checker_response"))
     normalized_lines = deps.checker_lines(state.get("checker_response"))
     if normalized_lines:
         checker_ascii_base = [
@@ -732,6 +1044,15 @@ def render_page(
                 else:
                     stage["assembly_status"] = "node_only"
 
+    baseline_triage = build_baseline_triage(
+        line_ocr_stages=line_ocr_stages,
+        checker_issue_map=checker_issue_map,
+        review_by_line=review_by_line,
+        current_lines=current_lines,
+        gold_line_issues=gold_comparison.get("line_issues"),
+        expected_lines=gold_comparison.get("expected_lines"),
+    )
+
     return deps.templates.TemplateResponse(
         request,
         "debug_modal_proof.html",
@@ -760,6 +1081,8 @@ def render_page(
             "line_number_debug_artifacts": line_number_debug_artifacts,
             "auxiliary_image_artifacts": auxiliary_image_artifacts,
             "baseline_quick_view": baseline_quick_view,
+            "baseline_triage": baseline_triage,
+            "gold_comparison": gold_comparison,
             "unary_verifier_results": unary_verifier_results,
             "review_panel": review_panel,
             **state,
