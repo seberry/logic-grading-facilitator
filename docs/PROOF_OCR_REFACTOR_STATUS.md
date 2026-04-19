@@ -19,6 +19,10 @@ The old script is still the richer reference implementation. The new
 `proofs_ocr/` path is no longer a scaffold. It runs end to end, writes debug
 artifacts, and is selectable in `/debug/modal-proof`.
 
+The `/debug/modal-proof` route surface has also now been split into smaller
+neighboring modules, so future OCR/debug work no longer needs to accumulate in
+one giant route file.
+
 ## What Is Stable Enough To Build On
 
 - `proofs_ocr/common/`
@@ -40,6 +44,12 @@ artifacts, and is selectable in `/debug/modal-proof`.
   - supports both:
     - `Legacy modal OCR`
     - `modal_v2 baseline`
+- `app/routes/`
+  - `modal_proof_debug.py` keeps endpoint wiring and route decorators
+  - `modal_proof_debug_state.py` owns state persistence and form normalization
+  - `modal_proof_debug_fixtures.py` owns regression fixture loading and lookup
+  - `modal_proof_debug_artifacts.py` owns artifact loading / URL helpers
+  - `modal_proof_debug_page.py` owns page/view-model assembly helpers
 
 ## What Is Still Provisional
 
@@ -114,11 +124,11 @@ large structural rewrite.
 1. Keep new work inside `proofs_ocr/`.
 2. Use `/debug/modal-proof` with the `modal_v2 baseline` toggle to inspect the
    real first-pass artifacts.
-3. Before adding another wave of debug-viewer behavior, split
-   `app/routes/modal_proof_debug.py` so route wiring, state/fixture loading,
-   artifact loading, and page/view-model assembly stop living in one file.
-4. After that split is stable, go back to improving bar bounds / masking before
-   stacking more OCR heuristics.
+3. With the route split in place, go back to improving bar bounds / masking
+   before stacking more OCR heuristics.
+4. Keep route handlers in `app/routes/modal_proof_debug.py`, and keep further
+   debug-viewer helpers in the neighboring route modules instead of regrowing
+   the endpoint file.
 5. Keep legacy behavior behind explicit adapters or feature flags, not as the
    default architecture.
 6. Do not rewrite the TFL OCR path in place while the modal baseline is still

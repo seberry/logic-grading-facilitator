@@ -35,6 +35,11 @@ current_repo_state:
     - "proofs_ocr/pipelines/modal_v2_runtime.py owns the line-reader / LM Studio adapter."
     - "proofs_ocr/pipelines/modal_v2_debug.py owns artifact writing and debug-state assembly."
     - "proofs_ocr/pipelines/modal_v2.py is the public facade / CLI."
+    - "app/routes/modal_proof_debug.py keeps endpoint wiring and route decorators for /debug/modal-proof."
+    - "app/routes/modal_proof_debug_state.py owns state persistence and form normalization for the modal proof debug page."
+    - "app/routes/modal_proof_debug_fixtures.py owns regression fixture loading and lookup."
+    - "app/routes/modal_proof_debug_artifacts.py owns artifact loading and debug asset URL helpers."
+    - "app/routes/modal_proof_debug_page.py owns page/view-model assembly helpers."
   known_workspace_confusions:
     - "Expected structure files in the modal regression fixtures are regression targets, not uniformly gold truth."
     - "Handwritten expected structures are especially provisional."
@@ -110,8 +115,7 @@ guardrails:
   - "If a behavior change is intentional, record which regression cases improved and what tradeoff appeared."
 
 near_term_plan:
-  - "Do a narrow housekeeping split of `app/routes/modal_proof_debug.py` before another major debug-viewer expansion."
-  - "A good first cut is: route handlers stay in `modal_proof_debug.py`, while state helpers, fixture helpers, artifact helpers, and page/view-model assembly move into neighboring modules."
+  - "The route split is now done: keep route handlers in `app/routes/modal_proof_debug.py`, and keep future helper growth in the neighboring route modules."
   - "Use the modal_v2 baseline and debug viewer artifacts to diagnose real fixture failures."
   - "Prioritize bar-geometry and masking fixes before adding more OCR heuristics."
   - "The next likely baseline issue to tackle is false scope-bar classification, especially when the left number/formula separator is misread as a subproof bar."
