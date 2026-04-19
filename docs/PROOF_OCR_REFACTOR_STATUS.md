@@ -26,6 +26,16 @@ The `/debug/modal-proof` route surface has also now been split into smaller
 neighboring modules, so future OCR/debug work no longer needs to accumulate in
 one giant route file.
 
+One convention that needs to stay explicit:
+
+- visual parsing `ROOT` is the outer container crop used during recursive OCR
+- final JSON top level is the stitched proof structure after child resolution
+
+Those are not always the same. In ordinary Fitch proofs with premises, the
+visible proof may sit entirely inside an outer proof rail, so visual `ROOT`
+can be empty of sentences except for a masked child proof-environment token.
+That is normal and should not be treated as a geometry failure by itself.
+
 ## What Is Stable Enough To Build On
 
 - `proofs_ocr/common/`
@@ -107,6 +117,13 @@ The `modal_v2` baseline now follows the intended recursive shape:
 
 That structure is the main refactor win. It is now visible in code and in the
 debug viewer.
+
+The baseline now also mirrors the legacy visual-root convention explicitly:
+
+- if visual `ROOT` has no visible proof lines of its own, stitching may start
+  from child node `1`
+- this keeps ordinary "proof-inside-an-outer-rail" layouts from being
+  misdiagnosed as root-ownership failures
 
 The repo also now has:
 

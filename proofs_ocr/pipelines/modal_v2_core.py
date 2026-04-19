@@ -114,7 +114,7 @@ def run_modal_baseline_pipeline(
         feature_flags=flags,
     )
 
-    root_entries = library.get(tree_root.id, [])
+    root_entries = _select_top_level_entries(tree_root=tree_root, library=library)
     final_structure = stitch.recursive_stitch(
         root_entries,
         library,
@@ -135,6 +135,20 @@ def run_modal_baseline_pipeline(
         feature_flags=flags,
         bar_filter_debug=bar_filter_debug,
     )
+
+
+def _select_top_level_entries(
+    *,
+    tree_root: SubproofNode,
+    library: Mapping[str, List[Dict[str, Any]]],
+) -> List[Dict[str, Any]]:
+    """Choose the stitched top level, allowing a visually empty ROOT container."""
+
+    root_entries = list(library.get(tree_root.id, []))
+    root_has_visible_lines = any(modal.has_visible_formula(entry) for entry in root_entries)
+    if not root_has_visible_lines and "1" in library:
+        return list(library["1"])
+    return root_entries
 
 
 def _ensure_baseline_feature_support(feature_flags: ModalPipelineFeatureFlags) -> None:

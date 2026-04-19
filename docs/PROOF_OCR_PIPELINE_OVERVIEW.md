@@ -68,6 +68,33 @@ The durable idea is recursive decomposition of a Fitch-style proof image:
 If the code or a proposed heuristic makes this flow harder to see, that is a
 warning sign.
 
+## Visual ROOT Convention
+
+There are two different "roots" in play:
+
+- visual parsing `ROOT`
+  - the outer image/container crop used for recursive parsing
+- final JSON top level
+  - the stitched semantic proof structure after child placeholders are resolved
+
+These are not always the same thing.
+
+In ordinary Fitch proofs with premises, the visible proof can sit entirely
+inside an outer proof rail. In that layout, the visual parsing `ROOT` may have
+no visible sentences of its own and may only contain a masked child proof
+environment token. That is normal and is not by itself a tree bug.
+
+The theorem-style case is different:
+
+- the visual parsing `ROOT` may contain a visible line outside the proof rail,
+  usually below one or more cited proof environments
+
+Practical consequence:
+
+- do not treat "empty ROOT rows" as suspicious by default
+- when `ROOT` has no visible lines, the parser may legitimately stitch from the
+  first child proof environment instead
+
 ## What The Debug Viewer Is Showing
 
 The `/debug/modal-proof` page is useful because it exposes several layers of
