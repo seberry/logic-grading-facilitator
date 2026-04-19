@@ -108,6 +108,23 @@ class ProofsOcrCommonRowsTests(unittest.TestCase):
         self.assertTrue(any(45 <= center <= 80 for center in centers))
         self.assertTrue(any(center > 85 for center in centers))
 
+    def test_detect_text_row_bands_can_rescue_sparse_lower_half_compact_symbol_when_enabled(self) -> None:
+        crop_img = np.full((180, 260, 3), 255, dtype=np.uint8)
+        cv2.line(crop_img, (28, 126), (31, 126), (0, 0, 0), 1)
+        cv2.line(crop_img, (35, 126), (38, 126), (0, 0, 0), 1)
+        cv2.line(crop_img, (33, 121), (33, 126), (0, 0, 0), 1)
+
+        default_bands = rows.detect_text_row_bands(crop_img)
+        rescued_bands = rows.detect_text_row_bands(
+            crop_img,
+            enable_sparse_lower_compact_band_recovery=True,
+        )
+
+        self.assertEqual(default_bands, [])
+        self.assertEqual(len(rescued_bands), 1)
+        self.assertLessEqual(rescued_bands[0][0], 121)
+        self.assertGreaterEqual(rescued_bands[0][1], 126)
+
     def test_split_first_band_on_opener_underline_splits_merged_opener_band(self) -> None:
         gray = np.full((138, 483), 255, dtype=np.uint8)
         cv2.line(gray, (6, 0), (6, 137), 0, 2)

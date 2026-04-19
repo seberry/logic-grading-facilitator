@@ -24,6 +24,7 @@ class ModalPipelineFeatureFlags:
     enable_retry_on_suspicious_line: bool = False
     enable_unary_verifier: bool = False
     enable_boundary_repair: bool = False
+    enable_sparse_lower_compact_band_recovery: bool = False
 
     def enabled_layers(self) -> List[str]:
         enabled: List[str] = []
@@ -152,7 +153,11 @@ def _select_top_level_entries(
 
 
 def _ensure_baseline_feature_support(feature_flags: ModalPipelineFeatureFlags) -> None:
-    enabled_layers = feature_flags.enabled_layers()
+    enabled_layers = [
+        layer
+        for layer in feature_flags.enabled_layers()
+        if layer not in {"enable_sparse_lower_compact_band_recovery"}
+    ]
     if enabled_layers:
         joined = ", ".join(enabled_layers)
         raise NotImplementedError(
@@ -190,6 +195,7 @@ def _process_node_recursive(
     row_records = _segment_node_rows(
         node=node,
         node_crop_img=masked_img,
+        feature_flags=feature_flags,
         write_band_debug_artifacts=lambda payload: band_debug.update(payload),
     )
     row_records_by_node[node.id] = [dict(record) for record in row_records]
@@ -387,13 +393,17 @@ def _segment_node_rows(
     *,
     node: SubproofNode,
     node_crop_img: np.ndarray,
+    feature_flags: ModalPipelineFeatureFlags,
     write_band_debug_artifacts: Callable[[Dict[str, Any]], None] | None = None,
 ) -> List[rows.RowRecord]:
     return rows.segment_node_rows(
         node=node,
         node_crop_img=node_crop_img,
         suppress_left_scope_bar=_suppress_left_scope_bar,
-        detect_text_row_bands_fn=rows.detect_text_row_bands,
+        detect_text_row_bands_fn=lambda crop_img: rows.detect_text_row_bands(
+            crop_img,
+            enable_sparse_lower_compact_band_recovery=feature_flags.enable_sparse_lower_compact_band_recovery,
+        ),
         band_has_textlike_ink_fn=_band_has_textlike_ink,
         merge_fragment_bands_fn=rows.merge_fragment_bands,
         filter_bands_near_child_tokens_fn=_filter_bands_near_child_tokens,

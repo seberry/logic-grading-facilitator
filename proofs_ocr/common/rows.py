@@ -7,6 +7,7 @@ this module.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, Tuple
 
 import cv2
@@ -15,6 +16,17 @@ import numpy as np
 Band = Tuple[int, int]
 Rect = Tuple[int, int, int, int]
 RowRecord = Dict[str, Any]
+
+
+@dataclass(frozen=True)
+class _CompactComponent:
+    top: int
+    bottom: int
+    left: int
+    right: int
+    width: int
+    height: int
+    area: int
 
 
 def band_height(band: Band) -> int:
@@ -225,7 +237,94 @@ def _split_first_band_on_opener_underline(gray: np.ndarray, bands: List[Band]) -
     return [(first_start, top_end), (bottom_start, first_end), *bands[1:]]
 
 
-def detect_text_row_bands(crop_img: np.ndarray) -> List[Band]:
+def _recover_sparse_lower_compact_bands(
+    *,
+    dark_mask: np.ndarray,
+    candidate_bands: List[Band],
+) -> List[Band]:
+    if dark_mask.size == 0:
+        return []
+
+    img_h, img_w = dark_mask.shape[:2]
+    top_limit = min(img_h - 1, max(48, img_h // 2))
+    left_limit = min(img_w - 1, max(90, int(img_w * 0.28)))
+    min_left = max(8, img_w // 40)
+    max_component_span = max(18, int(img_h * 0.16))
+    num_labels, _, stats, _ = cv2.connectedComponentsWithStats(dark_mask, 8)
+    components: List[_CompactComponent] = []
+    for label_index in range(1, num_labels):
+        area = int(stats[label_index, cv2.CC_STAT_AREA])
+        left = int(stats[label_index, cv2.CC_STAT_LEFT])
+        top = int(stats[label_index, cv2.CC_STAT_TOP])
+        width = int(stats[label_index, cv2.CC_STAT_WIDTH])
+        height = int(stats[label_index, cv2.CC_STAT_HEIGHT])
+        if area < 3 or area > 24:
+            continue
+        if top <= top_limit:
+            continue
+        if left < min_left or left > left_limit:
+            continue
+        if width > max_component_span or height > max_component_span:
+            continue
+        components.append(
+            _CompactComponent(
+                top=top,
+                bottom=top + height - 1,
+                left=left,
+                right=left + width - 1,
+                width=width,
+                height=height,
+                area=area,
+            )
+        )
+
+    if len(components) < 2:
+        return []
+
+    components.sort(key=lambda item: (item.top, item.left))
+    grouped: List[List[_CompactComponent]] = []
+    current_group = [components[0]]
+    for component in components[1:]:
+        current_bottom = max(item.bottom for item in current_group)
+        if component.top <= current_bottom + 6:
+            current_group.append(component)
+        else:
+            grouped.append(current_group)
+            current_group = [component]
+    grouped.append(current_group)
+
+    rescued: List[Band] = []
+    for group in grouped:
+        if len(group) < 2:
+            continue
+        band_top = min(item.top for item in group)
+        band_bottom = max(item.bottom for item in group)
+        band_left = min(item.left for item in group)
+        band_right = max(item.right for item in group)
+        band_width = band_right - band_left + 1
+        band_height_value = band_bottom - band_top + 1
+        total_area = sum(item.area for item in group)
+        has_horizontal = any(item.width >= 4 and item.height <= 3 for item in group)
+        has_vertical = any(item.height >= 4 and item.width <= 3 for item in group)
+        if total_area < 10:
+            continue
+        if band_height_value < 5 or band_height_value > 18:
+            continue
+        if band_width > 28:
+            continue
+        if not (has_horizontal and has_vertical):
+            continue
+        if any(not (band_bottom < existing_top - 3 or band_top > existing_bottom + 3) for existing_top, existing_bottom in candidate_bands):
+            continue
+        rescued.append((band_top, band_bottom))
+    return rescued
+
+
+def detect_text_row_bands(
+    crop_img: np.ndarray,
+    *,
+    enable_sparse_lower_compact_band_recovery: bool = False,
+) -> List[Band]:
     gray = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
     img_h, img_w = gray.shape[:2]
     formula_w = min(img_w, max(80, int(img_w * 0.50)))
@@ -243,6 +342,10 @@ def detect_text_row_bands(crop_img: np.ndarray) -> List[Band]:
             candidate_bands = right_candidate_bands
 
     candidate_bands = _split_first_band_on_opener_underline(gray, candidate_bands)
+    if enable_sparse_lower_compact_band_recovery:
+        candidate_bands = sorted(
+            candidate_bands + _recover_sparse_lower_compact_bands(dark_mask=dark_mask, candidate_bands=candidate_bands)
+        )
 
     recovered_compact_bands: List[Band] = []
     num_raw_labels, _, raw_stats, _ = cv2.connectedComponentsWithStats(dark_mask, 8)

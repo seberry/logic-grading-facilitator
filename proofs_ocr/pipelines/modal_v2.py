@@ -48,6 +48,11 @@ def _parse_args() -> argparse.Namespace:
         help="Apply a narrow pre-tree filter that can drop one suspicious full-height left separator bar.",
     )
     parser.add_argument(
+        "--enable-sparse-lower-compact-band-recovery",
+        action="store_true",
+        help="Rescue tiny lower-half formula-side component clusters as row bands.",
+    )
+    parser.add_argument(
         "--enable-unary-structured-probe",
         action="store_true",
         help="Run the passive structured unary probe and write unary_structured_probe.json.",
@@ -86,6 +91,7 @@ def main() -> int:
         enable_unary_structured_formula_crop_probe=bool(args.enable_unary_structured_formula_crop_probe),
         enable_unary_blob_probe=bool(args.enable_unary_blob_probe),
         enable_false_left_separator_filter=bool(args.enable_false_left_separator_filter),
+        enable_sparse_lower_compact_band_recovery=bool(args.enable_sparse_lower_compact_band_recovery),
     )
     print(state["run_summary"])
     print(f"Artifacts written to {Path(args.output_dir).resolve()}")

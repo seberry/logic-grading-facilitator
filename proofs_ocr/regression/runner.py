@@ -401,6 +401,7 @@ def run_gold_regressions(
     vision_model: str | None = None,
     verifier_vision_model: str | None = None,
     enable_false_left_separator_filter: bool = False,
+    enable_sparse_lower_compact_band_recovery: bool = False,
     transcribe_fn: Callable[..., Mapping[str, Any]] | None = None,
 ) -> List[GoldRegressionResult]:
     root = repo_root or get_repo_root()
@@ -438,6 +439,7 @@ def run_gold_regressions(
                         "vision_model": vision_model,
                         "verifier_vision_model": verifier_vision_model,
                         "enable_false_left_separator_filter": enable_false_left_separator_filter,
+                        "enable_sparse_lower_compact_band_recovery": enable_sparse_lower_compact_band_recovery,
                     },
                 )
             )
@@ -585,6 +587,11 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Enable the pre-tree handwritten false-left-separator verifier experiment.",
     )
+    run_parser.add_argument(
+        "--enable-sparse-lower-compact-band-recovery",
+        action="store_true",
+        help="Enable a narrow handwritten row-band rescue for tiny lower-half formula symbols.",
+    )
 
     return parser.parse_args()
 
@@ -608,6 +615,7 @@ def main() -> int:
             vision_model=args.vision_model or None,
             verifier_vision_model=args.verifier_model or None,
             enable_false_left_separator_filter=bool(args.enable_false_left_separator_filter),
+            enable_sparse_lower_compact_band_recovery=bool(args.enable_sparse_lower_compact_band_recovery),
         )
         print(render_gold_regression_summary(results))
         return 0 if all(result.passed for result in results) else 1
