@@ -73,6 +73,28 @@ def _should_probe_entry(entry: Mapping[str, Any]) -> bool:
     )
 
 
+def _is_atomic_unary_body(body: str) -> bool:
+    return bool(body) and (body.isalpha() or body == "⊥")
+
+
+def _should_probe_structured_entry(entry: Mapping[str, Any]) -> bool:
+    if not _should_probe_entry(entry):
+        return False
+
+    formula_text = modal.normalize_formula_text(entry.get("formula_text") or entry.get("wffstr") or "")
+    if "¬" not in formula_text:
+        return False
+    if any(char in formula_text for char in "()∧∨→↔"):
+        return False
+
+    modal_count = formula_text.count("□") + formula_text.count("⋄")
+    if modal_count > 1:
+        return False
+
+    _, body = _formula_components(formula_text)
+    return _is_atomic_unary_body(body)
+
+
 def _upscale_for_probe(crop_img, *, scale: int = 4):
     if crop_img.size == 0:
         return crop_img
@@ -93,7 +115,7 @@ def run_structured_unary_probe(
         for entry in entries_by_node.get(node_id, []):
             if not isinstance(entry, Mapping):
                 continue
-            if not _should_probe_entry(entry):
+            if not _should_probe_structured_entry(entry):
                 continue
 
             row_order = int(entry.get("_ocr_row_order", 0))

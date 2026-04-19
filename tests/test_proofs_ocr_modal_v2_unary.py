@@ -37,6 +37,10 @@ class ModalV2UnaryProbeTests(unittest.TestCase):
         image = np.full((40, 160, 3), 255, dtype=np.uint8)
         cv2.putText(image, "[]~A", (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 2)
         cv2.imwrite(str(crop_path), image)
+        skipped_crop_path = self.tmp_dir / artifacts.NODE_LINE_CROP_TEMPLATE.format(node_id="ROOT", row_order=3)
+        skipped_image = np.full((40, 200, 3), 255, dtype=np.uint8)
+        cv2.putText(skipped_image, "~([]A&<>A)", (10, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+        cv2.imwrite(str(skipped_crop_path), skipped_image)
 
         client = FakeUnaryVerifierClient(
             [
@@ -66,6 +70,12 @@ class ModalV2UnaryProbeTests(unittest.TestCase):
                         "formula_text": "P",
                         "justification_text": "PR",
                         "scope_role": "premise",
+                    },
+                    {
+                        "_ocr_row_order": 3,
+                        "formula_text": "¬(□A ∧ ◇A)",
+                        "justification_text": "¬I 1-9",
+                        "scope_role": "derived_line",
                     },
                 ]
             },
