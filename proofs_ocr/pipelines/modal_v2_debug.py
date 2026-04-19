@@ -83,7 +83,11 @@ def transcribe_image_to_modal_v2_debug_state(
 
     if client is None:
         client = build_vlm_client(base_url=vision_base_url, model=vision_model)
-    if (enable_unary_structured_probe or enable_unary_structured_formula_crop_probe) and verifier_client is None:
+    if (
+        enable_unary_structured_probe
+        or enable_unary_structured_formula_crop_probe
+        or enable_false_left_separator_filter
+    ) and verifier_client is None:
         verifier_client = build_vlm_client(
             base_url=vision_base_url,
             model=(verifier_vision_model or vision_model),
@@ -111,6 +115,8 @@ def transcribe_image_to_modal_v2_debug_state(
             enable_formula_justification_separation=enable_formula_justification_separation,
         ),
         enable_false_left_separator_filter=enable_false_left_separator_filter,
+        false_left_separator_verifier_client=verifier_client if enable_false_left_separator_filter else None,
+        false_left_separator_output_dir=output_dir if enable_false_left_separator_filter else None,
     )
 
     if result.bar_filter_debug:

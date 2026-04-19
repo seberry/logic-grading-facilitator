@@ -24,6 +24,19 @@ def _synthetic_recursive_modal_image() -> np.ndarray:
     return image
 
 
+def _synthetic_false_separator_image() -> np.ndarray:
+    image = np.full((280, 260, 3), 255, dtype=np.uint8)
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    cv2.line(image, (18, 0), (18, 262), (0, 0, 0), 8)
+    cv2.line(image, (54, 157), (54, 262), (0, 0, 0), 2)
+    cv2.putText(image, "P", (72, 28), font, 0.8, (0, 0, 0), 2)
+    cv2.putText(image, "Q", (72, 62), font, 0.8, (0, 0, 0), 2)
+    cv2.putText(image, "A", (82, 188), font, 0.8, (0, 0, 0), 2)
+    cv2.putText(image, "B", (82, 224), font, 0.8, (0, 0, 0), 2)
+    cv2.putText(image, "R", (72, 254), font, 0.8, (0, 0, 0), 2)
+    return image
+
+
 class FakeImagePromptClient:
     def __init__(self, responses: list[str]) -> None:
         self.responses = list(responses)
@@ -261,6 +274,50 @@ class ModalV2DebugStateTests(unittest.TestCase):
         self.assertEqual(len(probe_records), 1)
         self.assertEqual(probe_records[0]["baseline_formula"], "□¬A")
         self.assertIn("Passive unary blob probe inspected 1 line", state["run_summary"])
+
+    def test_transcribe_image_to_modal_v2_debug_state_writes_false_bar_verifier_artifacts(self) -> None:
+        image_path = self.tmp_dir / "synthetic_false_bar.png"
+        cv2.imwrite(str(image_path), _synthetic_false_separator_image())
+        ocr_client = FakeImagePromptClient(
+            [
+                json.dumps({"scope_role": "ordinary_assumption", "formula_text": "A", "justification_text": "", "line_label": "", "confidence": "high"}),
+                json.dumps({"scope_role": "derived_line", "formula_text": "B", "justification_text": "R 1", "line_label": "", "confidence": "high"}),
+                json.dumps({"scope_role": "premise", "formula_text": "P", "justification_text": "", "line_label": "", "confidence": "high"}),
+                json.dumps({"scope_role": "premise", "formula_text": "Q", "justification_text": "", "line_label": "", "confidence": "high"}),
+                json.dumps({"scope_role": "derived_line", "formula_text": "R", "justification_text": "R 2", "line_label": "", "confidence": "high"}),
+            ]
+        )
+        verifier_client = FakeImagePromptClient(
+            [
+                json.dumps(
+                    {
+                        "classification": "number_formula_separator",
+                        "confidence": "high",
+                        "reason": "margin separator beside line numbers",
+                    }
+                )
+            ]
+        )
+
+        state = transcribe_image_to_modal_v2_debug_state(
+            image_path=image_path,
+            output_dir=self.tmp_dir / "out_false_bar",
+            modal_config={"system": "S4", "conclusion": "R"},
+            client=ocr_client,
+            verifier_client=verifier_client,
+            vision_base_url="http://127.0.0.1:1234/v1",
+            vision_model="fake-model",
+            verifier_vision_model="fake-8b",
+            enable_false_left_separator_filter=True,
+        )
+
+        output_dir = self.tmp_dir / "out_false_bar"
+        self.assertTrue((output_dir / artifacts.BAR_FILTER_DEBUG_FILENAME).exists())
+        self.assertTrue((output_dir / artifacts.FALSE_LEFT_SEPARATOR_VERIFIER_CROP_FILENAME).exists())
+        payload = json.loads((output_dir / artifacts.BAR_FILTER_DEBUG_FILENAME).read_text(encoding="utf-8"))
+        self.assertEqual(payload["reason"], "verifier_rejected_false_left_separator")
+        self.assertEqual(payload["verifier"]["classification"], "number_formula_separator")
+        self.assertIn("False-left-separator filtering was enabled and removed one candidate bar.", state["run_summary"])
 
 
 if __name__ == "__main__":

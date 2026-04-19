@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import inspect
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,8 +22,26 @@ class GoldRegressionResult:
     expected_path: Path
     passed: bool
     run_summary: str
+    granular_metrics: Dict[str, Any] | None = None
     diff_text: str = ""
     error: str = ""
+
+
+@dataclass(frozen=True)
+class FlattenedProofLine:
+    order_index: int
+    nesting_path: tuple[int, ...]
+    wffstr: str
+    jstr: str
+
+    def to_json(self) -> Dict[str, Any]:
+        return {
+            "order_index": int(self.order_index),
+            "nesting_path": list(self.nesting_path),
+            "nesting_path_text": render_nesting_path(self.nesting_path),
+            "wffstr": self.wffstr,
+            "jstr": self.jstr,
+        }
 
 
 def get_repo_root() -> Path:
@@ -181,6 +200,116 @@ def canonicalize_proof_structure(value: Any) -> Any:
     return value
 
 
+def render_nesting_path(nesting_path: Sequence[int]) -> str:
+    if not nesting_path:
+        return "ROOT"
+    return "ROOT/" + "/".join(str(int(part)) for part in nesting_path)
+
+
+def flatten_proof_structure(value: Any) -> List[FlattenedProofLine]:
+    flattened: List[FlattenedProofLine] = []
+
+    def _walk(node: Any, nesting_path: tuple[int, ...]) -> None:
+        if isinstance(node, list):
+            for item_index, item in enumerate(node, start=1):
+                if isinstance(item, list):
+                    _walk(item, nesting_path + (item_index,))
+                    continue
+                if not isinstance(item, dict):
+                    continue
+                flattened.append(
+                    FlattenedProofLine(
+                        order_index=len(flattened) + 1,
+                        nesting_path=nesting_path,
+                        wffstr=str(item.get("wffstr") or "").strip(),
+                        jstr=str(item.get("jstr") or "").strip(),
+                    )
+                )
+
+    _walk(value, ())
+    return flattened
+
+
+def compare_proof_structures_granular(actual: Any, expected: Any) -> Dict[str, Any]:
+    actual_lines = flatten_proof_structure(canonicalize_proof_structure(actual))
+    expected_lines = flatten_proof_structure(canonicalize_proof_structure(expected))
+    matched_line_count = min(len(actual_lines), len(expected_lines))
+    line_records: List[Dict[str, Any]] = []
+    formula_correct_line_count = 0
+    justification_correct_line_count = 0
+    both_correct_line_count = 0
+    structure_mismatch_count = 0
+
+    for line_index in range(matched_line_count):
+        expected_line = expected_lines[line_index]
+        actual_line = actual_lines[line_index]
+        formula_matches = actual_line.wffstr == expected_line.wffstr
+        justification_matches = actual_line.jstr == expected_line.jstr
+        structure_matches = actual_line.nesting_path == expected_line.nesting_path
+        if formula_matches:
+            formula_correct_line_count += 1
+        if justification_matches:
+            justification_correct_line_count += 1
+        if formula_matches and justification_matches:
+            both_correct_line_count += 1
+        if not structure_matches:
+            structure_mismatch_count += 1
+        line_records.append(
+            {
+                "order_index": line_index + 1,
+                "expected": expected_line.to_json(),
+                "actual": actual_line.to_json(),
+                "formula_matches": formula_matches,
+                "justification_matches": justification_matches,
+                "structure_matches": structure_matches,
+            }
+        )
+
+    for line in expected_lines[matched_line_count:]:
+        line_records.append(
+            {
+                "order_index": len(line_records) + 1,
+                "expected": line.to_json(),
+                "actual": None,
+                "formula_matches": False,
+                "justification_matches": False,
+                "structure_matches": False,
+                "status": "missing_actual_line",
+            }
+        )
+    for line in actual_lines[matched_line_count:]:
+        line_records.append(
+            {
+                "order_index": len(line_records) + 1,
+                "expected": None,
+                "actual": line.to_json(),
+                "formula_matches": False,
+                "justification_matches": False,
+                "structure_matches": False,
+                "status": "extra_actual_line",
+            }
+        )
+
+    expected_line_count = len(expected_lines)
+    actual_line_count = len(actual_lines)
+    missing_line_count = max(0, expected_line_count - actual_line_count)
+    extra_line_count = max(0, actual_line_count - expected_line_count)
+    return {
+        "expected_line_count": expected_line_count,
+        "actual_line_count": actual_line_count,
+        "matched_line_count": matched_line_count,
+        "formula_correct_line_count": formula_correct_line_count,
+        "justification_correct_line_count": justification_correct_line_count,
+        "both_correct_line_count": both_correct_line_count,
+        "missing_line_count": missing_line_count,
+        "extra_line_count": extra_line_count,
+        "structure_mismatch_count": structure_mismatch_count,
+        "expected_lines": [line.to_json() for line in expected_lines],
+        "actual_lines": [line.to_json() for line in actual_lines],
+        "line_records": line_records,
+    }
+
+
 def compare_proof_structures(actual: Any, expected: Any) -> tuple[bool, str]:
     canonical_actual = canonicalize_proof_structure(actual)
     canonical_expected = canonicalize_proof_structure(expected)
@@ -216,6 +345,7 @@ def _write_regression_report(
     run_summary: str,
     diff_text: str,
     error: str,
+    granular_metrics: Mapping[str, Any] | None = None,
 ) -> None:
     payload = {
         "case_id": str(case.get("id") or ""),
@@ -230,8 +360,33 @@ def _write_regression_report(
         json.dumps(payload, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
+    metrics_payload = {
+        "case_id": str(case.get("id") or ""),
+        "oracle_kind": str(case.get("oracle_kind") or ""),
+        "error": error,
+    }
+    if granular_metrics is not None:
+        metrics_payload["metrics"] = dict(granular_metrics)
+    (output_dir / "gold_regression_metrics.json").write_text(
+        json.dumps(metrics_payload, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
     if diff_text:
         (output_dir / "gold_regression_diff.txt").write_text(diff_text, encoding="utf-8")
+
+
+def _call_transcribe_fn(
+    transcribe_fn: Callable[..., Mapping[str, Any]],
+    *,
+    kwargs: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    signature = inspect.signature(transcribe_fn)
+    supported = {
+        key: value
+        for key, value in kwargs.items()
+        if key in signature.parameters
+    }
+    return transcribe_fn(**supported)
 
 
 def run_gold_regressions(
@@ -244,6 +399,8 @@ def run_gold_regressions(
     tags: Sequence[str] | None = None,
     vision_base_url: str | None = None,
     vision_model: str | None = None,
+    verifier_vision_model: str | None = None,
+    enable_false_left_separator_filter: bool = False,
     transcribe_fn: Callable[..., Mapping[str, Any]] | None = None,
 ) -> List[GoldRegressionResult]:
     root = repo_root or get_repo_root()
@@ -271,17 +428,23 @@ def run_gold_regressions(
         modal_config = default_modal_config_for_case(case, repo_root=root)
         try:
             state = dict(
-                transcribe_fn(
-                    image_path=image_path,
-                    output_dir=output_dir,
-                    modal_config=modal_config,
-                    vision_base_url=vision_base_url,
-                    vision_model=vision_model,
+                _call_transcribe_fn(
+                    transcribe_fn,
+                    kwargs={
+                        "image_path": image_path,
+                        "output_dir": output_dir,
+                        "modal_config": modal_config,
+                        "vision_base_url": vision_base_url,
+                        "vision_model": vision_model,
+                        "verifier_vision_model": verifier_vision_model,
+                        "enable_false_left_separator_filter": enable_false_left_separator_filter,
+                    },
                 )
             )
             actual = _load_actual_final_structure(output_dir)
             expected = load_expected_structure(case, repo_root=root)
             passed, diff_text = compare_proof_structures(actual, expected)
+            granular_metrics = compare_proof_structures_granular(actual, expected)
             run_summary = str(state.get("run_summary") or "").strip()
             _write_regression_report(
                 output_dir=output_dir,
@@ -292,6 +455,7 @@ def run_gold_regressions(
                 run_summary=run_summary,
                 diff_text=diff_text,
                 error="",
+                granular_metrics=granular_metrics,
             )
             results.append(
                 GoldRegressionResult(
@@ -302,6 +466,7 @@ def run_gold_regressions(
                     expected_path=expected_path,
                     passed=passed,
                     run_summary=run_summary,
+                    granular_metrics=granular_metrics,
                     diff_text=diff_text,
                 )
             )
@@ -316,6 +481,7 @@ def run_gold_regressions(
                 run_summary="",
                 diff_text="",
                 error=error,
+                granular_metrics=None,
             )
             results.append(
                 GoldRegressionResult(
@@ -326,6 +492,7 @@ def run_gold_regressions(
                     expected_path=expected_path,
                     passed=False,
                     run_summary="",
+                    granular_metrics=None,
                     error=error,
                 )
             )
@@ -337,7 +504,43 @@ def render_gold_regression_summary(results: Iterable[GoldRegressionResult]) -> s
     total = len(materialized)
     passed_count = sum(1 for result in materialized if result.passed)
     failed_count = total - passed_count
-    lines = [f"Gold cases: {total}", f"Passed: {passed_count}", f"Failed: {failed_count}"]
+    totals = {
+        "matched": 0,
+        "formula": 0,
+        "justification": 0,
+        "both": 0,
+        "expected": 0,
+        "actual": 0,
+        "missing": 0,
+        "extra": 0,
+        "structure": 0,
+    }
+    for result in materialized:
+        metrics = result.granular_metrics or {}
+        totals["matched"] += int(metrics.get("matched_line_count", 0))
+        totals["formula"] += int(metrics.get("formula_correct_line_count", 0))
+        totals["justification"] += int(metrics.get("justification_correct_line_count", 0))
+        totals["both"] += int(metrics.get("both_correct_line_count", 0))
+        totals["expected"] += int(metrics.get("expected_line_count", 0))
+        totals["actual"] += int(metrics.get("actual_line_count", 0))
+        totals["missing"] += int(metrics.get("missing_line_count", 0))
+        totals["extra"] += int(metrics.get("extra_line_count", 0))
+        totals["structure"] += int(metrics.get("structure_mismatch_count", 0))
+
+    lines = [
+        f"Gold cases: {total}",
+        f"Passed: {passed_count}",
+        f"Failed: {failed_count}",
+        (
+            "Aggregate lines: "
+            f"formula {totals['formula']}/{totals['matched']}, "
+            f"justification {totals['justification']}/{totals['matched']}, "
+            f"both {totals['both']}/{totals['matched']}, "
+            f"expected={totals['expected']}, actual={totals['actual']}, "
+            f"missing={totals['missing']}, extra={totals['extra']}, "
+            f"structural mismatches={totals['structure']}"
+        ),
+    ]
     for result in materialized:
         status = "PASS" if result.passed else "FAIL"
         line = f"- {status} {result.case_id} ({result.oracle_kind})"
@@ -345,6 +548,16 @@ def render_gold_regression_summary(results: Iterable[GoldRegressionResult]) -> s
             line += f" error={result.error}"
         elif result.run_summary:
             line += f" {result.run_summary}"
+        metrics = result.granular_metrics or {}
+        if metrics:
+            line += (
+                " | "
+                f"formula {int(metrics.get('formula_correct_line_count', 0))}/{int(metrics.get('matched_line_count', 0))}, "
+                f"justification {int(metrics.get('justification_correct_line_count', 0))}/{int(metrics.get('matched_line_count', 0))}, "
+                f"both {int(metrics.get('both_correct_line_count', 0))}/{int(metrics.get('matched_line_count', 0))}, "
+                f"structure mismatches={int(metrics.get('structure_mismatch_count', 0))}, "
+                f"missing={int(metrics.get('missing_line_count', 0))}, extra={int(metrics.get('extra_line_count', 0))}"
+            )
         lines.append(line)
         if result.diff_text:
             diff_preview = "\n".join(result.diff_text.splitlines()[:20])
@@ -366,6 +579,12 @@ def _parse_args() -> argparse.Namespace:
     run_parser.add_argument("--tag", action="append", default=[], help="Require a tag on selected gold cases.")
     run_parser.add_argument("--vision-base-url", default="", help="LM Studio base URL override.")
     run_parser.add_argument("--vision-model", default="", help="LM Studio model override.")
+    run_parser.add_argument("--verifier-model", default="", help="LM Studio verifier model override.")
+    run_parser.add_argument(
+        "--enable-false-left-separator-filter",
+        action="store_true",
+        help="Enable the pre-tree handwritten false-left-separator verifier experiment.",
+    )
 
     return parser.parse_args()
 
@@ -387,6 +606,8 @@ def main() -> int:
             tags=args.tag,
             vision_base_url=args.vision_base_url or None,
             vision_model=args.vision_model or None,
+            verifier_vision_model=args.verifier_model or None,
+            enable_false_left_separator_filter=bool(args.enable_false_left_separator_filter),
         )
         print(render_gold_regression_summary(results))
         return 0 if all(result.passed for result in results) else 1

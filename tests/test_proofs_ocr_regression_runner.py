@@ -43,6 +43,82 @@ class ProofOcrRegressionRunnerTests(unittest.TestCase):
         self.assertTrue(passed)
         self.assertEqual(diff_text, "")
 
+    def test_flatten_proof_structure_records_nesting_path(self) -> None:
+        structure = [
+            {"line": 1, "wffstr": "P", "jstr": "PR"},
+            [
+                {"line": 2, "wffstr": "A", "jstr": "PR"},
+                {"line": 3, "wffstr": "B", "jstr": "R 1"},
+            ],
+            {"line": 4, "wffstr": "Q", "jstr": "R 2"},
+        ]
+
+        flattened = runner.flatten_proof_structure(structure)
+
+        self.assertEqual([line.wffstr for line in flattened], ["P", "A", "B", "Q"])
+        self.assertEqual([line.nesting_path for line in flattened], [(), (2,), (2,), ()])
+
+    def test_compare_proof_structures_granular_reports_exact_match(self) -> None:
+        structure = [
+            {"wffstr": "A", "jstr": "PR"},
+            [{"wffstr": "B", "jstr": "R 1"}],
+        ]
+
+        metrics = runner.compare_proof_structures_granular(structure, structure)
+
+        self.assertEqual(metrics["expected_line_count"], 2)
+        self.assertEqual(metrics["actual_line_count"], 2)
+        self.assertEqual(metrics["matched_line_count"], 2)
+        self.assertEqual(metrics["formula_correct_line_count"], 2)
+        self.assertEqual(metrics["justification_correct_line_count"], 2)
+        self.assertEqual(metrics["both_correct_line_count"], 2)
+        self.assertEqual(metrics["missing_line_count"], 0)
+        self.assertEqual(metrics["extra_line_count"], 0)
+        self.assertEqual(metrics["structure_mismatch_count"], 0)
+
+    def test_compare_proof_structures_granular_reports_formula_only_mismatch(self) -> None:
+        expected = [{"wffstr": "A", "jstr": "PR"}]
+        actual = [{"wffstr": "B", "jstr": "PR"}]
+
+        metrics = runner.compare_proof_structures_granular(actual, expected)
+
+        self.assertEqual(metrics["formula_correct_line_count"], 0)
+        self.assertEqual(metrics["justification_correct_line_count"], 1)
+        self.assertEqual(metrics["both_correct_line_count"], 0)
+
+    def test_compare_proof_structures_granular_reports_justification_only_mismatch(self) -> None:
+        expected = [{"wffstr": "A", "jstr": "PR"}]
+        actual = [{"wffstr": "A", "jstr": "R 1"}]
+
+        metrics = runner.compare_proof_structures_granular(actual, expected)
+
+        self.assertEqual(metrics["formula_correct_line_count"], 1)
+        self.assertEqual(metrics["justification_correct_line_count"], 0)
+        self.assertEqual(metrics["both_correct_line_count"], 0)
+
+    def test_compare_proof_structures_granular_reports_missing_and_extra_lines(self) -> None:
+        expected = [{"wffstr": "A", "jstr": "PR"}, {"wffstr": "B", "jstr": "R 1"}]
+        actual = [{"wffstr": "A", "jstr": "PR"}]
+
+        missing_metrics = runner.compare_proof_structures_granular(actual, expected)
+        extra_metrics = runner.compare_proof_structures_granular(expected, actual)
+
+        self.assertEqual(missing_metrics["missing_line_count"], 1)
+        self.assertEqual(missing_metrics["extra_line_count"], 0)
+        self.assertEqual(extra_metrics["missing_line_count"], 0)
+        self.assertEqual(extra_metrics["extra_line_count"], 1)
+
+    def test_compare_proof_structures_granular_reports_structure_mismatch_with_matching_text(self) -> None:
+        expected = [{"wffstr": "A", "jstr": "PR"}, [{"wffstr": "B", "jstr": "R 1"}]]
+        actual = [[{"wffstr": "A", "jstr": "PR"}], {"wffstr": "B", "jstr": "R 1"}]
+
+        metrics = runner.compare_proof_structures_granular(actual, expected)
+
+        self.assertEqual(metrics["formula_correct_line_count"], 2)
+        self.assertEqual(metrics["justification_correct_line_count"], 2)
+        self.assertEqual(metrics["both_correct_line_count"], 2)
+        self.assertEqual(metrics["structure_mismatch_count"], 2)
+
     def test_run_gold_regressions_writes_pass_fail_reports(self) -> None:
         fixtures_dir = self.tmp_dir / "fixtures"
         fixtures_dir.mkdir(parents=True, exist_ok=True)
@@ -103,13 +179,19 @@ class ProofOcrRegressionRunnerTests(unittest.TestCase):
         self.assertIn("ran a.png under K", result_a.run_summary)
         self.assertIn("ran b.png under S4", result_b.run_summary)
         self.assertTrue((output_root / "case_a" / "gold_regression_result.json").exists())
+        self.assertTrue((output_root / "case_a" / "gold_regression_metrics.json").exists())
         self.assertTrue((output_root / "case_b" / "gold_regression_diff.txt").exists())
+        metrics_b = json.loads((output_root / "case_b" / "gold_regression_metrics.json").read_text(encoding="utf-8"))
+        self.assertEqual(metrics_b["metrics"]["formula_correct_line_count"], 0)
+        self.assertEqual(metrics_b["metrics"]["justification_correct_line_count"], 1)
 
         summary = runner.render_gold_regression_summary(results)
         self.assertIn("Gold cases: 2", summary)
         self.assertIn("Passed: 1", summary)
         self.assertIn("Failed: 1", summary)
+        self.assertIn("Aggregate lines: formula 1/2, justification 2/2, both 1/2", summary)
         self.assertIn("FAIL case_b", summary)
+        self.assertIn("formula 0/1, justification 1/1, both 0/1", summary)
 
 
 if __name__ == "__main__":

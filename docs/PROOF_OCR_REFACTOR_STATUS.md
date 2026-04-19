@@ -73,8 +73,15 @@ one giant route file.
     - `--enable-false-left-separator-filter`
   - It targets one handwritten failure mode where a full-height left separator
     is misread as a real scope bar and collapses `ROOT` into a child token.
-  - It is still experimental and should stay off by default until it has been
-    checked against the full gold set.
+  - The current version now combines:
+    - code-side root-ownership checks
+    - an optional local-model bar-role verifier
+  - It is still experimental and should stay off by default.
+  - Current 5-case gold verdict:
+    - it can restore the intended tree geometry on `modal_handwritten_user_box_q`
+    - it does not regress node/bar structure on `modal_handwritten_user_negated_modal_conjunction`
+    - but it does not yet improve end-to-end handwritten OCR accuracy enough to
+      justify wider use
 - Optional legacy-style layers are feature-flagged for later work and mostly
   off by default:
   - `enable_strict_opener_classifier`
@@ -106,6 +113,12 @@ The repo also now has:
 - a curated 5-case modal gold set under `proofs_ocr/regression/fixtures/modal/`
 - a slow gold regression runner:
   - `python -m proofs_ocr.regression run-gold ...`
+  - it now reports both:
+    - exact proof pass/fail
+    - granular per-line formula / justification / structure metrics
+  - each case now writes:
+    - `gold_regression_result.json`
+    - `gold_regression_metrics.json`
 
 ## Recent Baseline Win
 
@@ -194,6 +207,19 @@ There is now also a small review artifact generator under
 
 Those are intended as handoff aids for focused debugging rather than as new
 pipeline logic.
+
+There is now also a more useful regression scoring layer under
+`proofs_ocr/regression/runner.py`:
+
+- exact proof equality is still the top-line pass/fail metric
+- but each gold run now also records:
+  - line-count mismatches
+  - line-level formula accuracy
+  - line-level justification accuracy
+  - combined line accuracy
+  - nesting / structure mismatches after flattening
+
+That makes partial progress visible even when a full proof still fails gold.
 
 ## Recommended Near-Term Plan
 

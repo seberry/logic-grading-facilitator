@@ -81,6 +81,8 @@ def run_modal_baseline_pipeline(
     read_line: ModalLineReader,
     feature_flags: ModalPipelineFeatureFlags | None = None,
     enable_false_left_separator_filter: bool = False,
+    false_left_separator_verifier_client: ImagePromptClient | None = None,
+    false_left_separator_output_dir: Path | None = None,
 ) -> ModalPipelineResult:
     """Run the minimal recursive modal baseline on one proof image."""
 
@@ -94,6 +96,8 @@ def run_modal_baseline_pipeline(
         detected_bars, bar_filter_debug = filter_false_left_separator_bars(
             image=image,
             bars=raw_detected_bars,
+            verifier_client=false_left_separator_verifier_client,
+            output_dir=false_left_separator_output_dir,
         )
     tree_root = tree.build_proof_tree(detected_bars, image.shape[1], image.shape[0])
     library: Dict[str, List[Dict[str, Any]]] = {}

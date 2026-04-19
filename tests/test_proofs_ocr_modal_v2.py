@@ -32,6 +32,35 @@ def _synthetic_recursive_modal_image() -> np.ndarray:
     return image
 
 
+def _synthetic_false_separator_image() -> np.ndarray:
+    image = np.full((280, 260, 3), 255, dtype=np.uint8)
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    cv2.line(image, (18, 0), (18, 262), (0, 0, 0), 8)
+    cv2.line(image, (54, 157), (54, 262), (0, 0, 0), 2)
+    cv2.putText(image, "P", (72, 28), font, 0.8, (0, 0, 0), 2)
+    cv2.putText(image, "Q", (72, 62), font, 0.8, (0, 0, 0), 2)
+    cv2.putText(image, "A", (82, 188), font, 0.8, (0, 0, 0), 2)
+    cv2.putText(image, "B", (82, 224), font, 0.8, (0, 0, 0), 2)
+    cv2.putText(image, "R", (72, 254), font, 0.8, (0, 0, 0), 2)
+    return image
+
+
+def _synthetic_scope_bar_image() -> np.ndarray:
+    image = np.full((420, 320, 3), 255, dtype=np.uint8)
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    cv2.line(image, (38, 2), (38, 417), (0, 0, 0), 2)
+    cv2.line(image, (54, 157), (54, 285), (0, 0, 0), 2)
+    cv2.putText(image, "A", (74, 24), font, 0.8, (0, 0, 0), 2)
+    cv2.putText(image, "B", (74, 56), font, 0.8, (0, 0, 0), 2)
+    cv2.putText(image, "C", (74, 96), font, 0.8, (0, 0, 0), 2)
+    cv2.putText(image, "D", (74, 132), font, 0.8, (0, 0, 0), 2)
+    cv2.putText(image, "E", (86, 204), font, 0.8, (0, 0, 0), 2)
+    cv2.putText(image, "F", (86, 244), font, 0.8, (0, 0, 0), 2)
+    cv2.putText(image, "G", (74, 308), font, 0.8, (0, 0, 0), 2)
+    cv2.putText(image, "H", (74, 432), font, 0.8, (0, 0, 0), 2)
+    return image
+
+
 class ModalV2BaselinePipelineTests(unittest.TestCase):
     def test_node_crop_image_avoids_bottom_padding_for_child_nodes(self) -> None:
         image = np.zeros((200, 50, 3), dtype=np.uint8)
@@ -226,7 +255,7 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
         self.assertGreater(int((justification_gray[:, -140:] < 185).sum()), 25)
 
     def test_filter_false_left_separator_bars_removes_top_anchored_left_edge_bar(self) -> None:
-        image = np.full((280, 260, 3), 255, dtype=np.uint8)
+        image = _synthetic_false_separator_image()
 
         filtered, payload = filter_false_left_separator_bars(
             image=image,
@@ -235,7 +264,9 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
 
         self.assertEqual(filtered, [(54, 157, 2, 128)])
         self.assertTrue(payload["applied"])
-        self.assertEqual(payload["reason"], "removed_false_left_separator_candidate")
+        self.assertEqual(payload["reason"], "code_only_rejected_false_left_separator")
+        self.assertTrue(payload["code_signals"]["suspicious_root_ownership"])
+        self.assertTrue(payload["code_signals"]["restores_root_rows_above_first_child"])
 
     def test_filter_false_left_separator_bars_keeps_bar_when_not_top_anchored(self) -> None:
         image = np.full((280, 260, 3), 255, dtype=np.uint8)
@@ -249,8 +280,62 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
         self.assertFalse(payload["applied"])
         self.assertEqual(payload["reason"], "leftmost_not_top_anchored")
 
+    def test_filter_false_left_separator_bars_verifier_keeps_real_scope_bar(self) -> None:
+        class ScopeBarVerifier:
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                del image_path, prompt, system_prompt
+                return '{"classification":"scope_bar","confidence":"high","reason":"outer proof bar"}'
+
+        image = _synthetic_scope_bar_image()
+        output_dir = Path("working/test_modal_v2_false_bar_keep")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            filtered, payload = filter_false_left_separator_bars(
+                image=image,
+                bars=[(38, 2, 2, 417), (54, 157, 2, 128)],
+                verifier_client=ScopeBarVerifier(),
+                output_dir=output_dir,
+            )
+
+            self.assertEqual(filtered, [(38, 2, 2, 417), (54, 157, 2, 128)])
+            self.assertFalse(payload["applied"])
+            self.assertEqual(payload["reason"], "verifier_kept_scope_bar")
+            self.assertEqual(payload["verifier"]["classification"], "scope_bar")
+            self.assertTrue((output_dir / "false_left_separator_candidate.jpg").exists())
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
+    def test_filter_false_left_separator_bars_verifier_can_drop_separator(self) -> None:
+        class SeparatorVerifier:
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                del image_path, prompt, system_prompt
+                return (
+                    '{"classification":"number_formula_separator","confidence":"high",'
+                    '"reason":"left margin separator beside line numbers"}'
+                )
+
+        image = _synthetic_false_separator_image()
+        output_dir = Path("working/test_modal_v2_false_bar_drop")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            filtered, payload = filter_false_left_separator_bars(
+                image=image,
+                bars=[(18, 0, 8, 262), (54, 157, 2, 128)],
+                verifier_client=SeparatorVerifier(),
+                output_dir=output_dir,
+            )
+
+            self.assertEqual(filtered, [(54, 157, 2, 128)])
+            self.assertTrue(payload["applied"])
+            self.assertEqual(payload["reason"], "verifier_rejected_false_left_separator")
+            self.assertEqual(payload["verifier"]["classification"], "number_formula_separator")
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
     def test_run_modal_baseline_pipeline_can_filter_false_left_separator_before_tree_build(self) -> None:
-        image = np.full((280, 260, 3), 255, dtype=np.uint8)
+        image = _synthetic_false_separator_image()
         rows_seen = []
 
         def read_line(*, node, node_crop_img, line_crop_img, row_record, feature_flags):
@@ -272,6 +357,28 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
         self.assertEqual(result.raw_detected_bars, [(18, 0, 8, 262), (54, 157, 2, 128)])
         self.assertEqual(result.detected_bars, [(54, 157, 2, 128)])
         self.assertTrue(result.bar_filter_debug["applied"])
+
+    def test_run_modal_baseline_pipeline_leaves_bars_unchanged_when_false_left_filter_disabled(self) -> None:
+        image = _synthetic_false_separator_image()
+
+        def read_line(*, node, node_crop_img, line_crop_img, row_record, feature_flags):
+            del node, node_crop_img, line_crop_img, row_record, feature_flags
+            return {"scope_role": "premise", "formula_text": "P"}
+
+        original_detect_vertical_bars = modal_v2_core.tree.detect_vertical_bars
+        try:
+            modal_v2_core.tree.detect_vertical_bars = lambda _img: [(18, 0, 8, 262), (54, 157, 2, 128)]
+            result = run_modal_baseline_pipeline(
+                image=image,
+                read_line=read_line,
+                enable_false_left_separator_filter=False,
+            )
+        finally:
+            modal_v2_core.tree.detect_vertical_bars = original_detect_vertical_bars
+
+        self.assertEqual(result.raw_detected_bars, [(18, 0, 8, 262), (54, 157, 2, 128)])
+        self.assertEqual(result.detected_bars, [(18, 0, 8, 262), (54, 157, 2, 128)])
+        self.assertEqual(result.bar_filter_debug, {})
 
     def test_modal_line_zones_merge_recovers_justification_from_formula_label_spill(self) -> None:
         merged = modal_line_zones.merge_line_zone_results(
