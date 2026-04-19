@@ -100,6 +100,52 @@ class ModalV2DebugStateTests(unittest.TestCase):
         root_rows = json.loads((output_dir / artifacts.NODE_ROWS_TEMPLATE.format(node_id="ROOT")).read_text(encoding="utf-8"))
         self.assertEqual([record["kind"] for record in root_rows], ["line", "subproof_token", "line"])
 
+    def test_transcribe_image_to_modal_v2_debug_state_can_write_passive_unary_probe_artifact(self) -> None:
+        image_path = self.tmp_dir / "synthetic_unary.png"
+        cv2.imwrite(str(image_path), _synthetic_recursive_modal_image())
+        ocr_client = FakeImagePromptClient(
+            [
+                json.dumps({"scope_role": "ordinary_assumption", "formula_text": "A", "justification_text": "", "line_label": "", "confidence": "high"}),
+                json.dumps({"scope_role": "derived_line", "formula_text": "B", "justification_text": "R 1", "line_label": "", "confidence": "high"}),
+                json.dumps({"scope_role": "premise", "formula_text": "□¬A", "justification_text": "", "line_label": "", "confidence": "high"}),
+                json.dumps({"scope_role": "derived_line", "formula_text": "Q", "justification_text": "R 2", "line_label": "", "confidence": "high"}),
+            ]
+        )
+        verifier_client = FakeImagePromptClient(
+            [
+                json.dumps(
+                    {
+                        "main_modal_operator": "box",
+                        "negations_before_modal": 0,
+                        "negations_before_final_atom": 2,
+                        "confidence": 1.0,
+                    }
+                )
+            ]
+        )
+
+        state = transcribe_image_to_modal_v2_debug_state(
+            image_path=image_path,
+            output_dir=self.tmp_dir / "out_unary",
+            modal_config={"system": "S4", "conclusion": "Q"},
+            client=ocr_client,
+            verifier_client=verifier_client,
+            vision_base_url="http://127.0.0.1:1234/v1",
+            vision_model="fake-model",
+            verifier_vision_model="fake-8b",
+            enable_unary_structured_probe=True,
+        )
+
+        output_dir = self.tmp_dir / "out_unary"
+        self.assertTrue((output_dir / artifacts.UNARY_STRUCTURED_PROBE_FILENAME).exists())
+        probe_records = json.loads((output_dir / artifacts.UNARY_STRUCTURED_PROBE_FILENAME).read_text(encoding="utf-8"))
+        self.assertEqual(len(probe_records), 1)
+        self.assertEqual(probe_records[0]["baseline_formula"], "□¬A")
+        self.assertEqual(probe_records[0]["structured_formula"], "□¬¬A")
+        self.assertTrue(probe_records[0]["would_change_formula"])
+        self.assertIn("Passive unary structured probe inspected 1 line", state["run_summary"])
+        self.assertEqual(state["verifier_vision_model"], "fake-8b")
+
 
 if __name__ == "__main__":
     unittest.main()

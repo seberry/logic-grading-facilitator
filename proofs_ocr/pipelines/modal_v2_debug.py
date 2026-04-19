@@ -23,6 +23,7 @@ from proofs_ocr.pipelines.modal_v2_runtime import (
     default_lmstudio_base_url,
     default_lmstudio_model,
 )
+from proofs_ocr.pipelines.modal_v2_unary import run_structured_unary_probe
 
 
 def build_modal_v2_state(
@@ -32,6 +33,7 @@ def build_modal_v2_state(
     run_summary: str,
     vision_base_url: str | None = None,
     vision_model: str | None = None,
+    verifier_vision_model: str | None = None,
     source_image_name: str = "",
 ) -> dict[str, Any]:
     """Build the minimal state.json payload for baseline debug runs."""
@@ -43,7 +45,7 @@ def build_modal_v2_state(
         "conclusion": canonical["conclusion"],
         "vision_base_url": (vision_base_url or default_lmstudio_base_url()).strip(),
         "vision_model": (vision_model or default_lmstudio_model()).strip(),
-        "verifier_vision_model": "",
+        "verifier_vision_model": (verifier_vision_model or "").strip(),
         "source_image_name": source_image_name,
         "proof_json_text": json.dumps({"lines": final_structure, "meta": {}}, indent=2, ensure_ascii=False),
         "original_proof_json_text": json.dumps({"lines": final_structure, "meta": {}}, indent=2, ensure_ascii=False),
@@ -64,6 +66,9 @@ def transcribe_image_to_modal_v2_debug_state(
     client: ImagePromptClient | None = None,
     vision_base_url: str | None = None,
     vision_model: str | None = None,
+    verifier_client: ImagePromptClient | None = None,
+    verifier_vision_model: str | None = None,
+    enable_unary_structured_probe: bool = False,
 ) -> dict[str, Any]:
     """Run the modal_v2 baseline end to end and write debug artifacts."""
 
@@ -74,6 +79,11 @@ def transcribe_image_to_modal_v2_debug_state(
 
     if client is None:
         client = build_vlm_client(base_url=vision_base_url, model=vision_model)
+    if enable_unary_structured_probe and verifier_client is None:
+        verifier_client = build_vlm_client(
+            base_url=vision_base_url,
+            model=(verifier_vision_model or vision_model),
+        )
 
     image = cv2.imread(str(image_path))
     if image is None:
@@ -146,6 +156,14 @@ def transcribe_image_to_modal_v2_debug_state(
     (output_dir / artifacts.BASELINE_FINAL_STRUCTURE_FILENAME).write_text(final_structure_text, encoding="utf-8")
     (output_dir / artifacts.FINAL_STRUCTURE_FILENAME).write_text(final_structure_text, encoding="utf-8")
 
+    unary_structured_probe_records: list[dict[str, Any]] = []
+    if enable_unary_structured_probe and verifier_client is not None:
+        unary_structured_probe_records = run_structured_unary_probe(
+            entries_by_node=result.library,
+            output_dir=output_dir,
+            client=verifier_client,
+        )
+
     visible_line_count = sum(
         1
         for entries in result.library.values()
@@ -156,12 +174,18 @@ def transcribe_image_to_modal_v2_debug_state(
         f"modal_v2 baseline OCR produced {visible_line_count} visible lines across "
         f"{len(node_lookup)} nodes and detected {len(result.detected_bars)} subproof bars."
     )
+    if enable_unary_structured_probe:
+        run_summary += (
+            f" Passive unary structured probe inspected {len(unary_structured_probe_records)} line"
+            f"{'' if len(unary_structured_probe_records) == 1 else 's'}."
+        )
     state = build_modal_v2_state(
         modal_config=modal_config,
         final_structure=result.final_structure,
         run_summary=run_summary,
         vision_base_url=vision_base_url,
         vision_model=vision_model,
+        verifier_vision_model=verifier_vision_model or vision_model,
         source_image_name=source_copy_name,
     )
     (output_dir / artifacts.STATE_FILENAME).write_text(

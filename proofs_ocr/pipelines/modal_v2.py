@@ -36,6 +36,12 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--conclusion", default="", help="Optional target conclusion shown in the OCR prompt.")
     parser.add_argument("--vision-base-url", default="", help="LM Studio base URL.")
     parser.add_argument("--vision-model", default="", help="LM Studio model identifier.")
+    parser.add_argument("--verifier-model", default="", help="LM Studio model identifier for the passive unary structured probe.")
+    parser.add_argument(
+        "--enable-unary-structured-probe",
+        action="store_true",
+        help="Run the passive structured unary probe and write unary_structured_probe.json.",
+    )
     return parser.parse_args()
 
 
@@ -51,6 +57,8 @@ def main() -> int:
         },
         vision_base_url=args.vision_base_url or None,
         vision_model=args.vision_model or None,
+        verifier_vision_model=args.verifier_model or None,
+        enable_unary_structured_probe=bool(args.enable_unary_structured_probe),
     )
     print(state["run_summary"])
     print(f"Artifacts written to {Path(args.output_dir).resolve()}")

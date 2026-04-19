@@ -52,6 +52,7 @@ OCR_TEXT_ARTIFACTS = (
     "response_ROOT.json",
     "response_1.json",
     "response_2.json",
+    "unary_structured_probe.json",
     "final_structure_baseline.json",
     "final_structure.json",
     "unary_verifier.json",
