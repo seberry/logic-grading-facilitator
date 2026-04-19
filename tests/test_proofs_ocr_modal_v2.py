@@ -161,6 +161,49 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
         finally:
             shutil.rmtree(output_dir, ignore_errors=True)
 
+    def test_modal_baseline_artifact_line_reader_recovers_first_nonroot_strict_open_band(self) -> None:
+        class FixedClient:
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                del image_path, prompt, system_prompt
+                return (
+                    '{"line_label":"","formula_text":"Assum","justification_text":"",'
+                    '"scope_role":"ordinary_assumption","confidence":"0.98"}'
+                )
+
+        image = np.full((44, 320, 3), 255, dtype=np.uint8)
+        cv2.line(image, (6, 0), (6, 43), (0, 0, 0), 2)
+        cv2.rectangle(image, (20, 4), (38, 22), (0, 0, 0), 2)
+        cv2.line(image, (20, 27), (110, 27), (0, 0, 0), 2)
+        cv2.putText(image, "Assum", (190, 21), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+        cv2.putText(image, "A", (24, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
+
+        node = SubproofNode("2", (0, 0, 0, 0))
+        output_dir = Path("working/test_modal_v2_runtime_first_nonroot_strict_open")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            reader = ModalBaselineArtifactLineReader(
+                output_dir=output_dir,
+                client=FixedClient(),
+                prompt="prompt",
+            )
+
+            resolved = reader(
+                node=node,
+                node_crop_img=image,
+                line_crop_img=image,
+                row_record={"row_order": 1, "band_index": 0, "y1": 4, "y2": 26},
+                feature_flags=ModalPipelineFeatureFlags(),
+            )
+
+            self.assertEqual(resolved["formula_text"], "□")
+            self.assertEqual(resolved["scope_role"], "strict_open")
+            self.assertEqual(resolved["justification_text"], "")
+            payload = (output_dir / "node_line_2_1.json").read_text(encoding="utf-8")
+            self.assertIn('"recovery_applied": "first_nonroot_strict_open_band"', payload)
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
     def test_run_modal_baseline_pipeline_stitches_child_scope(self) -> None:
         image = _synthetic_recursive_modal_image()
         line_calls: dict[str, list[dict[str, int | float | str]]] = {}

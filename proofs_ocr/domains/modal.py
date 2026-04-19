@@ -207,6 +207,34 @@ def recover_line_entry_from_crop(
     return resolved, "tiny_strict_open_crop"
 
 
+def recover_first_nonroot_strict_open_from_crop(
+    *,
+    line_crop_img: np.ndarray,
+    parsed_entry: Mapping[str, Any],
+) -> tuple[dict[str, str], str]:
+    """Recover a first non-root row that visually looks like a strict opener band."""
+
+    resolved = {
+        "line_label": _collapse_whitespace(parsed_entry.get("line_label") or ""),
+        "formula_text": normalize_formula_text(parsed_entry.get("formula_text") or ""),
+        "justification_text": normalize_justification_text(parsed_entry.get("justification_text") or ""),
+        "scope_role": normalize_scope_role(parsed_entry.get("scope_role") or "derived_line"),
+        "confidence": _collapse_whitespace(parsed_entry.get("confidence") or ""),
+    }
+    if resolved["scope_role"] == "strict_open" and resolved["formula_text"] == "□":
+        resolved["justification_text"] = ""
+        return resolved, ""
+    if resolved["line_label"]:
+        return resolved, ""
+    if not _looks_like_first_nonroot_strict_open_band(line_crop_img):
+        return resolved, ""
+
+    resolved["formula_text"] = "□"
+    resolved["justification_text"] = ""
+    resolved["scope_role"] = "strict_open"
+    return resolved, "first_nonroot_strict_open_band"
+
+
 def detect_label_only_crop(line_crop_img: np.ndarray) -> str:
     """Return a skip reason when a wide crop appears to contain only a line label."""
 
@@ -294,3 +322,72 @@ def _looks_like_tiny_strict_open_crop(line_crop_img: np.ndarray) -> bool:
         return False
     fill_ratio = area / max(1, width * height)
     return 0.22 <= fill_ratio <= 0.72
+
+
+def _looks_like_first_nonroot_strict_open_band(line_crop_img: np.ndarray) -> bool:
+    if line_crop_img.size == 0:
+        return False
+
+    gray = cv2.cvtColor(line_crop_img, cv2.COLOR_BGR2GRAY)
+    img_h, img_w = gray.shape[:2]
+    left_w = min(img_w, max(120, int(img_w * 0.38)))
+    focused = gray[:, :left_w]
+    dark = (focused < 185).astype(np.uint8)
+    if int(dark.sum()) < 60:
+        return False
+
+    num_labels, _, stats, _ = cv2.connectedComponentsWithStats(dark, 8)
+    box_candidate: tuple[int, int, int, int] | None = None
+    for label_index in range(1, num_labels):
+        area = int(stats[label_index, cv2.CC_STAT_AREA])
+        left = int(stats[label_index, cv2.CC_STAT_LEFT])
+        top = int(stats[label_index, cv2.CC_STAT_TOP])
+        width = int(stats[label_index, cv2.CC_STAT_WIDTH])
+        height = int(stats[label_index, cv2.CC_STAT_HEIGHT])
+        if area < 25:
+            continue
+        if left <= 2 and width <= 6 and height >= max(12, int(img_h * 0.60)):
+            continue
+        if left > max(36, int(left_w * 0.22)) or top > max(20, int(img_h * 0.45)):
+            continue
+        if width < 10 or height < 10 or width > 40 or height > 40:
+            continue
+        aspect_ratio = width / max(1, height)
+        if not 0.55 <= aspect_ratio <= 1.65:
+            continue
+        box_candidate = (left, top, width, height)
+        break
+
+    if box_candidate is None:
+        return False
+
+    kernel_w = min(100, max(20, int(left_w * 0.20)))
+    horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_w, 1))
+    horizontal_mask = cv2.morphologyEx(dark, cv2.MORPH_OPEN, horizontal_kernel)
+    num_hlabels, _, hstats, _ = cv2.connectedComponentsWithStats(horizontal_mask, 8)
+    underline: tuple[int, int, int, int] | None = None
+    box_left, box_top, box_w, box_h = box_candidate
+    box_bottom = box_top + box_h - 1
+    for label_index in range(1, num_hlabels):
+        area = int(hstats[label_index, cv2.CC_STAT_AREA])
+        left = int(hstats[label_index, cv2.CC_STAT_LEFT])
+        top = int(hstats[label_index, cv2.CC_STAT_TOP])
+        width = int(hstats[label_index, cv2.CC_STAT_WIDTH])
+        height = int(hstats[label_index, cv2.CC_STAT_HEIGHT])
+        if area < 40 or height > 5 or width < 35:
+            continue
+        if left > max(40, int(left_w * 0.25)):
+            continue
+        if top < box_bottom - 2 or top > min(img_h - 4, box_bottom + 18):
+            continue
+        underline = (left, top, width, height)
+        break
+
+    if underline is None:
+        return False
+
+    _, line_top, _, line_h = underline
+    below_y = min(img_h, line_top + line_h + 4)
+    if below_y >= img_h:
+        return False
+    return int(dark[below_y:, :].sum()) >= 15

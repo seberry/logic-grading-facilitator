@@ -46,7 +46,7 @@ def merge_fragment_bands(bands: List[Band]) -> List[Band]:
         changed = False
         for idx, band in enumerate(list(merged)):
             height = band_height(band)
-            if height > 12:
+            if height > 11:
                 continue
 
             prev_gap = band_gap(merged[idx - 1], band) if idx > 0 else None
@@ -74,18 +74,12 @@ def merge_fragment_bands(bands: List[Band]) -> List[Band]:
     return merged
 
 
-def detect_text_row_bands(crop_img: np.ndarray) -> List[Band]:
-    gray = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
-    img_h, img_w = gray.shape[:2]
-    formula_w = min(img_w, max(80, int(img_w * 0.50)))
-    focused = gray[:, :formula_w]
-
-    dark_mask = (focused < 185).astype(np.uint8)
+def _projection_bands_from_dark_mask(dark_mask: np.ndarray) -> List[Band]:
     if dark_mask.size == 0:
         return []
 
-    # Remove long proof bars and scope underlines so they do not merge adjacent rows.
-    horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (max(20, int(formula_w * 0.18)), 1))
+    img_h, img_w = dark_mask.shape[:2]
+    horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (max(20, int(img_w * 0.18)), 1))
     horizontal_mask = cv2.morphologyEx(dark_mask, cv2.MORPH_OPEN, horizontal_kernel)
     vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(20, int(img_h * 0.35))))
     vertical_mask = cv2.morphologyEx(dark_mask, cv2.MORPH_OPEN, vertical_kernel)
@@ -178,7 +172,77 @@ def detect_text_row_bands(crop_img: np.ndarray) -> List[Band]:
             component_bands.append((band_start, band_end))
     component_bands = [(start, end) for start, end in component_bands if end - start >= 4]
 
-    candidate_bands = component_bands if len(component_bands) > len(normalized) else normalized
+    return component_bands if len(component_bands) > len(normalized) else normalized
+
+
+def _split_first_band_on_opener_underline(gray: np.ndarray, bands: List[Band]) -> List[Band]:
+    if not bands:
+        return bands
+
+    first_start, first_end = bands[0]
+    if first_start > 30 or band_height((first_start, first_end)) < 26:
+        return bands
+
+    img_h, img_w = gray.shape[:2]
+    left_w = min(img_w, max(120, int(img_w * 0.38)))
+    left_window = gray[:, :left_w]
+    dark = (left_window < 185).astype(np.uint8)
+    kernel_w = min(100, max(20, int(left_w * 0.20)))
+    horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (kernel_w, 1))
+    horizontal_mask = cv2.morphologyEx(dark, cv2.MORPH_OPEN, horizontal_kernel)
+    num_labels, _, stats, _ = cv2.connectedComponentsWithStats(horizontal_mask, 8)
+
+    underline: tuple[int, int, int, int] | None = None
+    for label_index in range(1, num_labels):
+        area = int(stats[label_index, cv2.CC_STAT_AREA])
+        x = int(stats[label_index, cv2.CC_STAT_LEFT])
+        y = int(stats[label_index, cv2.CC_STAT_TOP])
+        w = int(stats[label_index, cv2.CC_STAT_WIDTH])
+        h = int(stats[label_index, cv2.CC_STAT_HEIGHT])
+        if area < 40 or h > 5:
+            continue
+        if y < first_start + 4 or y > first_end - 8:
+            continue
+        if w < 35 or w > int(left_w * 0.85):
+            continue
+        if underline is None or w > underline[2]:
+            underline = (x, y, w, h)
+
+    if underline is None:
+        return bands
+
+    _, line_y, _, line_h = underline
+    top_end = line_y - 2
+    bottom_start = line_y + line_h + 4
+    if band_height((first_start, top_end)) < 6 or band_height((bottom_start, first_end)) < 6:
+        return bands
+
+    below_dark = int(dark[bottom_start : first_end + 1, :].sum())
+    above_dark = int(dark[first_start : top_end + 1, :].sum())
+    if above_dark < 20 or below_dark < 20:
+        return bands
+
+    return [(first_start, top_end), (bottom_start, first_end), *bands[1:]]
+
+
+def detect_text_row_bands(crop_img: np.ndarray) -> List[Band]:
+    gray = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
+    img_h, img_w = gray.shape[:2]
+    formula_w = min(img_w, max(80, int(img_w * 0.50)))
+    focused = gray[:, :formula_w]
+    dark_mask = (focused < 185).astype(np.uint8)
+    candidate_bands = _projection_bands_from_dark_mask(dark_mask)
+
+    if img_w >= 220:
+        right_start = min(img_w - 1, max(formula_w, int(img_w * 0.42)))
+        right_end = max(right_start + 1, min(img_w, int(img_w * 0.92)))
+        right_window = gray[:, right_start:right_end]
+        right_dark_mask = (right_window < 185).astype(np.uint8)
+        right_candidate_bands = _projection_bands_from_dark_mask(right_dark_mask)
+        if len(right_candidate_bands) > len(candidate_bands):
+            candidate_bands = right_candidate_bands
+
+    candidate_bands = _split_first_band_on_opener_underline(gray, candidate_bands)
 
     recovered_compact_bands: List[Band] = []
     num_raw_labels, _, raw_stats, _ = cv2.connectedComponentsWithStats(dark_mask, 8)

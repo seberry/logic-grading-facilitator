@@ -88,6 +88,39 @@ class ProofsOcrCommonRowsTests(unittest.TestCase):
 
         self.assertTrue(any(start <= 22 and end >= 34 for start, end in bands))
 
+    def test_detect_text_row_bands_uses_justification_side_to_split_handwritten_child_rows(self) -> None:
+        crop_img = np.full((138, 483, 3), 255, dtype=np.uint8)
+        cv2.line(crop_img, (6, 0), (6, 137), (0, 0, 0), 2)
+        cv2.rectangle(crop_img, (18, 10), (36, 28), (0, 0, 0), 2)
+        cv2.line(crop_img, (18, 36), (120, 36), (0, 0, 0), 2)
+        cv2.putText(crop_img, "A", (22, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 2)
+        cv2.putText(crop_img, "~~A", (12, 108), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 2)
+
+        cv2.putText(crop_img, "Assum", (232, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(crop_img, "[]E 2", (228, 68), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(crop_img, "DN 6", (236, 106), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+
+        bands = rows.detect_text_row_bands(crop_img)
+
+        self.assertGreaterEqual(len(bands), 3)
+        centers = [((start + end) / 2.0) for start, end in bands]
+        self.assertTrue(any(center < 35 for center in centers))
+        self.assertTrue(any(45 <= center <= 80 for center in centers))
+        self.assertTrue(any(center > 85 for center in centers))
+
+    def test_split_first_band_on_opener_underline_splits_merged_opener_band(self) -> None:
+        gray = np.full((138, 483), 255, dtype=np.uint8)
+        cv2.line(gray, (6, 0), (6, 137), 0, 2)
+        cv2.rectangle(gray, (18, 10), (36, 28), 0, 2)
+        cv2.line(gray, (18, 37), (120, 37), 0, 2)
+        cv2.putText(gray, "A", (22, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.9, 0, 2)
+        cv2.putText(gray, "Assum", (232, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.8, 0, 2)
+        cv2.putText(gray, "[]E 2", (228, 68), cv2.FONT_HERSHEY_SIMPLEX, 0.8, 0, 2)
+
+        split = rows._split_first_band_on_opener_underline(gray, [(22, 58), (77, 88)])
+
+        self.assertEqual(split, [(22, 34), (43, 58), (77, 88)])
+
 
 if __name__ == "__main__":
     unittest.main()

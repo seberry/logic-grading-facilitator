@@ -74,6 +74,14 @@ class ModalBaselineArtifactLineReader:
                 line_crop_img=line_crop_img,
                 parsed_entry=resolved,
             )
+            if str(node.id) != "ROOT" and row_order == 1:
+                strict_open_resolved, strict_open_recovery = modal.recover_first_nonroot_strict_open_from_crop(
+                    line_crop_img=line_crop_img,
+                    parsed_entry=resolved,
+                )
+                if strict_open_recovery:
+                    resolved = strict_open_resolved
+                    recovery_applied = strict_open_recovery
 
         payload = {
             "node_id": node.id,
