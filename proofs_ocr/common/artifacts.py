@@ -28,6 +28,8 @@ NODE_LINE_CROP_TEMPLATE = "node_line_{node_id}_{row_order}.jpg"
 NODE_LINE_RESPONSE_TEMPLATE = "node_line_{node_id}_{row_order}.json"
 UNARY_STRUCTURED_PROBE_FILENAME = "unary_structured_probe.json"
 UNARY_STRUCTURED_LINE_CROP_TEMPLATE = "unary_structured_line_{node_id}_{row_order}.jpg"
+UNARY_BLOB_PROBE_FILENAME = "unary_blob_probe.json"
+UNARY_BLOB_LINE_WINDOW_TEMPLATE = "unary_blob_line_{node_id}_{row_order}.jpg"
 
 
 def clear_debug_dir(output_dir: Path, *, preserve_paths: Sequence[Path] | None = None) -> None:

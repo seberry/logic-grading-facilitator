@@ -146,6 +146,35 @@ class ModalV2DebugStateTests(unittest.TestCase):
         self.assertIn("Passive unary structured probe inspected 1 line", state["run_summary"])
         self.assertEqual(state["verifier_vision_model"], "fake-8b")
 
+    def test_transcribe_image_to_modal_v2_debug_state_can_write_passive_unary_blob_artifact(self) -> None:
+        image_path = self.tmp_dir / "synthetic_blob.png"
+        cv2.imwrite(str(image_path), _synthetic_recursive_modal_image())
+        ocr_client = FakeImagePromptClient(
+            [
+                json.dumps({"scope_role": "ordinary_assumption", "formula_text": "A", "justification_text": "", "line_label": "", "confidence": "high"}),
+                json.dumps({"scope_role": "derived_line", "formula_text": "B", "justification_text": "R 1", "line_label": "", "confidence": "high"}),
+                json.dumps({"scope_role": "premise", "formula_text": "□¬A", "justification_text": "", "line_label": "", "confidence": "high"}),
+                json.dumps({"scope_role": "derived_line", "formula_text": "Q", "justification_text": "R 2", "line_label": "", "confidence": "high"}),
+            ]
+        )
+
+        state = transcribe_image_to_modal_v2_debug_state(
+            image_path=image_path,
+            output_dir=self.tmp_dir / "out_blob",
+            modal_config={"system": "S4", "conclusion": "Q"},
+            client=ocr_client,
+            vision_base_url="http://127.0.0.1:1234/v1",
+            vision_model="fake-model",
+            enable_unary_blob_probe=True,
+        )
+
+        output_dir = self.tmp_dir / "out_blob"
+        self.assertTrue((output_dir / artifacts.UNARY_BLOB_PROBE_FILENAME).exists())
+        probe_records = json.loads((output_dir / artifacts.UNARY_BLOB_PROBE_FILENAME).read_text(encoding="utf-8"))
+        self.assertEqual(len(probe_records), 1)
+        self.assertEqual(probe_records[0]["baseline_formula"], "□¬A")
+        self.assertIn("Passive unary blob probe inspected 1 line", state["run_summary"])
+
 
 if __name__ == "__main__":
     unittest.main()

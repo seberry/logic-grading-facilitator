@@ -23,7 +23,7 @@ from proofs_ocr.pipelines.modal_v2_runtime import (
     default_lmstudio_base_url,
     default_lmstudio_model,
 )
-from proofs_ocr.pipelines.modal_v2_unary import run_structured_unary_probe
+from proofs_ocr.pipelines.modal_v2_unary import run_blob_unary_probe, run_structured_unary_probe
 
 
 def build_modal_v2_state(
@@ -69,6 +69,7 @@ def transcribe_image_to_modal_v2_debug_state(
     verifier_client: ImagePromptClient | None = None,
     verifier_vision_model: str | None = None,
     enable_unary_structured_probe: bool = False,
+    enable_unary_blob_probe: bool = False,
 ) -> dict[str, Any]:
     """Run the modal_v2 baseline end to end and write debug artifacts."""
 
@@ -163,6 +164,12 @@ def transcribe_image_to_modal_v2_debug_state(
             output_dir=output_dir,
             client=verifier_client,
         )
+    unary_blob_probe_records: list[dict[str, Any]] = []
+    if enable_unary_blob_probe:
+        unary_blob_probe_records = run_blob_unary_probe(
+            entries_by_node=result.library,
+            output_dir=output_dir,
+        )
 
     visible_line_count = sum(
         1
@@ -178,6 +185,12 @@ def transcribe_image_to_modal_v2_debug_state(
         run_summary += (
             f" Passive unary structured probe inspected {len(unary_structured_probe_records)} line"
             f"{'' if len(unary_structured_probe_records) == 1 else 's'}."
+        )
+    if enable_unary_blob_probe:
+        flagged_count = sum(1 for record in unary_blob_probe_records if bool(record.get("any_blob_flagged")))
+        run_summary += (
+            f" Passive unary blob probe inspected {len(unary_blob_probe_records)} line"
+            f"{'' if len(unary_blob_probe_records) == 1 else 's'} and flagged {flagged_count}."
         )
     state = build_modal_v2_state(
         modal_config=modal_config,

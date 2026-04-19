@@ -42,6 +42,11 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Run the passive structured unary probe and write unary_structured_probe.json.",
     )
+    parser.add_argument(
+        "--enable-unary-blob-probe",
+        action="store_true",
+        help="Run the passive unary blob probe and write unary_blob_probe.json.",
+    )
     return parser.parse_args()
 
 
@@ -59,6 +64,7 @@ def main() -> int:
         vision_model=args.vision_model or None,
         verifier_vision_model=args.verifier_model or None,
         enable_unary_structured_probe=bool(args.enable_unary_structured_probe),
+        enable_unary_blob_probe=bool(args.enable_unary_blob_probe),
     )
     print(state["run_summary"])
     print(f"Artifacts written to {Path(args.output_dir).resolve()}")

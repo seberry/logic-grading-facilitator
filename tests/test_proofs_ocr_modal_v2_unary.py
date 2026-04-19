@@ -8,7 +8,7 @@ import cv2
 import numpy as np
 
 from proofs_ocr.common import artifacts
-from proofs_ocr.pipelines.modal_v2_unary import run_structured_unary_probe
+from proofs_ocr.pipelines.modal_v2_unary import run_blob_unary_probe, run_structured_unary_probe
 
 
 class FakeUnaryVerifierClient:
@@ -80,6 +80,41 @@ class ModalV2UnaryProbeTests(unittest.TestCase):
         self.assertTrue((self.tmp_dir / artifacts.UNARY_STRUCTURED_PROBE_FILENAME).exists())
         self.assertTrue((self.tmp_dir / artifacts.UNARY_STRUCTURED_LINE_CROP_TEMPLATE.format(node_id="ROOT", row_order=1)).exists())
         self.assertEqual(len(client.calls), 1)
+
+    def test_run_blob_unary_probe_writes_records_for_unary_lines(self) -> None:
+        crop_path = self.tmp_dir / artifacts.NODE_LINE_CROP_TEMPLATE.format(node_id="ROOT", row_order=1)
+        image = np.full((80, 320, 3), 255, dtype=np.uint8)
+        cv2.putText(image, "1", (8, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 2)
+        cv2.putText(image, "[]~~A", (45, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 2)
+        cv2.putText(image, "[]I 5-7", (220, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 2)
+        cv2.imwrite(str(crop_path), image)
+
+        records = run_blob_unary_probe(
+            entries_by_node={
+                "ROOT": [
+                    {
+                        "_ocr_row_order": 1,
+                        "line_label": "1",
+                        "formula_text": "□¬A",
+                        "justification_text": "□I 5-7",
+                        "scope_role": "derived_line",
+                    },
+                    {
+                        "_ocr_row_order": 2,
+                        "formula_text": "P",
+                        "justification_text": "PR",
+                        "scope_role": "premise",
+                    },
+                ]
+            },
+            output_dir=self.tmp_dir,
+        )
+
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["baseline_formula"], "□¬A")
+        self.assertTrue((self.tmp_dir / artifacts.UNARY_BLOB_PROBE_FILENAME).exists())
+        self.assertTrue((self.tmp_dir / artifacts.UNARY_BLOB_LINE_WINDOW_TEMPLATE.format(node_id="ROOT", row_order=1)).exists())
+        self.assertGreaterEqual(records[0]["max_component_count"], records[0]["ocr_symbol_count"])
 
 
 if __name__ == "__main__":

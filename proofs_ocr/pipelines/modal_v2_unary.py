@@ -16,6 +16,7 @@ from modal_ocr.verifier import (
 from proofs_ocr.common import artifacts
 from proofs_ocr.domains import modal
 from proofs_ocr.pipelines.modal_v2_core import ImagePromptClient
+from proofs_ocr.regression import unary_blob_probe
 
 
 def _int_field(value: Any, default: int = 0, minimum: int = 0, maximum: int = 3) -> int:
@@ -143,6 +144,65 @@ def run_structured_unary_probe(
             )
 
     (output_dir / artifacts.UNARY_STRUCTURED_PROBE_FILENAME).write_text(
+        json.dumps(records, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return records
+
+
+def run_blob_unary_probe(
+    *,
+    entries_by_node: Mapping[str, Sequence[Mapping[str, Any]]],
+    output_dir: Path,
+) -> list[dict[str, Any]]:
+    """Run the passive unary blob-count probe on baseline line crops."""
+
+    records: list[dict[str, Any]] = []
+
+    for node_id in sorted(entries_by_node.keys(), key=str):
+        for entry in entries_by_node.get(node_id, []):
+            if not isinstance(entry, Mapping):
+                continue
+            if not _should_probe_entry(entry):
+                continue
+
+            row_order = int(entry.get("_ocr_row_order", 0))
+            crop_path = output_dir / artifacts.NODE_LINE_CROP_TEMPLATE.format(node_id=node_id, row_order=row_order)
+            if not crop_path.exists():
+                continue
+
+            line_output_dir = output_dir / f"unary_blob_probe_{node_id}_{row_order}"
+            baseline_formula = modal.normalize_formula_text(entry.get("formula_text") or entry.get("wffstr") or "")
+            payload = unary_blob_probe.run_blob_probe(
+                image_path=crop_path,
+                current_ocr_formula=baseline_formula,
+                output_dir=line_output_dir,
+            )
+
+            formula_window_source = Path(str(payload.get("formula_window_path") or "")).resolve()
+            formula_window_name = artifacts.UNARY_BLOB_LINE_WINDOW_TEMPLATE.format(node_id=node_id, row_order=row_order)
+            formula_window_target = output_dir / formula_window_name
+            if formula_window_source.exists() and formula_window_source.is_file():
+                formula_window_target.write_bytes(formula_window_source.read_bytes())
+
+            records.append(
+                {
+                    "node_id": str(node_id),
+                    "row_order": row_order,
+                    "line_label": str(entry.get("line_label") or "").strip(),
+                    "scope_role": str(entry.get("scope_role") or "derived_line").strip(),
+                    "baseline_formula": baseline_formula,
+                    "ocr_symbol_count": int(payload.get("ocr_symbol_count") or 0),
+                    "max_component_count": int(payload.get("max_component_count") or 0),
+                    "any_blob_flagged": bool(payload.get("any_blob_flagged")),
+                    "window": payload.get("window") or {},
+                    "formula_window_filename": formula_window_name if formula_window_target.exists() else "",
+                    "line_crop_filename": crop_path.name,
+                    "variants": payload.get("variants") or [],
+                }
+            )
+
+    (output_dir / artifacts.UNARY_BLOB_PROBE_FILENAME).write_text(
         json.dumps(records, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
