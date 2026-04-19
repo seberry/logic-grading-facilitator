@@ -38,6 +38,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--vision-model", default="", help="LM Studio model identifier.")
     parser.add_argument("--verifier-model", default="", help="LM Studio model identifier for the passive unary structured probe.")
     parser.add_argument(
+        "--enable-formula-justification-separation",
+        action="store_true",
+        help="OCR the formula and justification zones separately and merge the result.",
+    )
+    parser.add_argument(
         "--enable-unary-structured-probe",
         action="store_true",
         help="Run the passive structured unary probe and write unary_structured_probe.json.",
@@ -63,6 +68,7 @@ def main() -> int:
         vision_base_url=args.vision_base_url or None,
         vision_model=args.vision_model or None,
         verifier_vision_model=args.verifier_model or None,
+        enable_formula_justification_separation=bool(args.enable_formula_justification_separation),
         enable_unary_structured_probe=bool(args.enable_unary_structured_probe),
         enable_unary_blob_probe=bool(args.enable_unary_blob_probe),
     )

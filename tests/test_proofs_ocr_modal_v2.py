@@ -6,10 +6,12 @@ import cv2
 import numpy as np
 
 from proofs_ocr.domains import modal
+from proofs_ocr.domains import modal_line_zones
 from proofs_ocr.pipelines import modal_v2
 from proofs_ocr.pipelines.modal_v2 import run_modal_baseline_pipeline
 from proofs_ocr.pipelines.modal_v2_core import ModalPipelineFeatureFlags
 from proofs_ocr.pipelines.modal_v2_runtime import ModalBaselineArtifactLineReader
+from proofs_ocr.pipelines.modal_v2_line_zones import extract_line_zone_crops
 from proofs_ocr.common.types import SubproofNode
 
 
@@ -201,6 +203,84 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
             self.assertEqual(resolved["justification_text"], "")
             payload = (output_dir / "node_line_2_1.json").read_text(encoding="utf-8")
             self.assertIn('"recovery_applied": "first_nonroot_strict_open_band"', payload)
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
+    def test_extract_line_zone_crops_splits_formula_and_justification_sides(self) -> None:
+        image = np.full((52, 420, 3), 255, dtype=np.uint8)
+        cv2.putText(image, "4", (12, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(image, "[]A", (82, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 2)
+        cv2.putText(image, "[]E 1", (285, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+
+        formula_crop, justification_crop, geometry = extract_line_zone_crops(image)
+
+        self.assertGreater(geometry["split_x"], 120)
+        self.assertLess(geometry["split_x"], 300)
+        formula_gray = cv2.cvtColor(formula_crop, cv2.COLOR_BGR2GRAY)
+        justification_gray = cv2.cvtColor(justification_crop, cv2.COLOR_BGR2GRAY)
+        self.assertGreater(int((formula_gray[:, :180] < 185).sum()), 25)
+        self.assertGreater(int((justification_gray[:, -140:] < 185).sum()), 25)
+
+    def test_modal_line_zones_merge_recovers_justification_from_formula_label_spill(self) -> None:
+        merged = modal_line_zones.merge_line_zone_results(
+            formula_result={"line_label": "□E 2", "formula_text": "A", "confidence": "high"},
+            justification_result={"justification_text": "", "confidence": "medium"},
+            is_root_node=False,
+            is_first_visible_row_of_nonroot=False,
+        )
+
+        self.assertEqual(merged["formula_text"], "A")
+        self.assertEqual(merged["justification_text"], "□E 2")
+        self.assertEqual(merged["scope_role"], "derived_line")
+
+    def test_modal_baseline_artifact_line_reader_can_separate_formula_and_justification_zones(self) -> None:
+        class SequentialClient:
+            def __init__(self) -> None:
+                self.calls = []
+
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                del system_prompt
+                self.calls.append((image_path.name, prompt))
+                if "formula side" in prompt:
+                    return '{"line_label":"4","formula_text":"[]A","confidence":"high"}'
+                return '{"justification_text":"[]E 1","confidence":"medium"}'
+
+        image = np.full((52, 420, 3), 255, dtype=np.uint8)
+        cv2.putText(image, "4", (12, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(image, "[]A", (82, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 2)
+        cv2.putText(image, "[]E 1", (285, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+
+        node = SubproofNode("ROOT", (0, 0, 0, 0))
+        output_dir = Path("working/test_modal_v2_runtime_line_zones")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            client = SequentialClient()
+            reader = ModalBaselineArtifactLineReader(
+                output_dir=output_dir,
+                client=client,
+                prompt="unused",
+                modal_config={"system": "S4"},
+                enable_formula_justification_separation=True,
+            )
+
+            resolved = reader(
+                node=node,
+                node_crop_img=image,
+                line_crop_img=image,
+                row_record={"row_order": 4, "band_index": 0, "y1": 8, "y2": 42},
+                feature_flags=ModalPipelineFeatureFlags(),
+            )
+
+            self.assertEqual(resolved["line_label"], "4")
+            self.assertEqual(resolved["formula_text"], "□A")
+            self.assertEqual(resolved["justification_text"], "□E 1")
+            self.assertEqual(resolved["scope_role"], "derived_line")
+            self.assertEqual(len(client.calls), 2)
+            self.assertTrue((output_dir / "node_line_formula_ROOT_4.jpg").exists())
+            self.assertTrue((output_dir / "node_line_justification_ROOT_4.jpg").exists())
+            payload = (output_dir / "node_line_ROOT_4.json").read_text(encoding="utf-8")
+            self.assertIn('"mode": "formula_justification_separation"', payload)
         finally:
             shutil.rmtree(output_dir, ignore_errors=True)
 

@@ -68,6 +68,7 @@ def transcribe_image_to_modal_v2_debug_state(
     vision_model: str | None = None,
     verifier_client: ImagePromptClient | None = None,
     verifier_vision_model: str | None = None,
+    enable_formula_justification_separation: bool = False,
     enable_unary_structured_probe: bool = False,
     enable_unary_blob_probe: bool = False,
 ) -> dict[str, Any]:
@@ -104,6 +105,8 @@ def transcribe_image_to_modal_v2_debug_state(
             output_dir=output_dir,
             client=client,
             prompt=prompt,
+            modal_config=modal_config,
+            enable_formula_justification_separation=enable_formula_justification_separation,
         ),
     )
 
@@ -186,6 +189,8 @@ def transcribe_image_to_modal_v2_debug_state(
             f" Passive unary structured probe inspected {len(unary_structured_probe_records)} line"
             f"{'' if len(unary_structured_probe_records) == 1 else 's'}."
         )
+    if enable_formula_justification_separation:
+        run_summary += " Formula/justification separation was enabled."
     if enable_unary_blob_probe:
         flagged_count = sum(1 for record in unary_blob_probe_records if bool(record.get("any_blob_flagged")))
         run_summary += (

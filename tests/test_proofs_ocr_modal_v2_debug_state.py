@@ -146,6 +146,40 @@ class ModalV2DebugStateTests(unittest.TestCase):
         self.assertIn("Passive unary structured probe inspected 1 line", state["run_summary"])
         self.assertEqual(state["verifier_vision_model"], "fake-8b")
 
+    def test_transcribe_image_to_modal_v2_debug_state_can_write_formula_justification_zone_artifacts(self) -> None:
+        image_path = self.tmp_dir / "synthetic_zones.png"
+        cv2.imwrite(str(image_path), _synthetic_recursive_modal_image())
+        ocr_client = FakeImagePromptClient(
+            [
+                json.dumps({"line_label": "", "formula_text": "A", "confidence": "high"}),
+                json.dumps({"justification_text": "", "confidence": "high"}),
+                json.dumps({"line_label": "", "formula_text": "B", "confidence": "high"}),
+                json.dumps({"justification_text": "R 1", "confidence": "high"}),
+                json.dumps({"line_label": "", "formula_text": "P", "confidence": "high"}),
+                json.dumps({"justification_text": "", "confidence": "high"}),
+                json.dumps({"line_label": "", "formula_text": "Q", "confidence": "high"}),
+                json.dumps({"justification_text": "R 2", "confidence": "high"}),
+            ]
+        )
+
+        state = transcribe_image_to_modal_v2_debug_state(
+            image_path=image_path,
+            output_dir=self.tmp_dir / "out_zones",
+            modal_config={"system": "S4", "conclusion": "Q"},
+            client=ocr_client,
+            vision_base_url="http://127.0.0.1:1234/v1",
+            vision_model="fake-model",
+            enable_formula_justification_separation=True,
+        )
+
+        output_dir = self.tmp_dir / "out_zones"
+        self.assertEqual(len(ocr_client.calls), 8)
+        self.assertTrue((output_dir / artifacts.NODE_LINE_FORMULA_CROP_TEMPLATE.format(node_id="ROOT", row_order=1)).exists())
+        self.assertTrue((output_dir / artifacts.NODE_LINE_JUSTIFICATION_CROP_TEMPLATE.format(node_id="ROOT", row_order=1)).exists())
+        payload = json.loads((output_dir / artifacts.NODE_LINE_RESPONSE_TEMPLATE.format(node_id="ROOT", row_order=1)).read_text(encoding="utf-8"))
+        self.assertEqual(payload["mode"], "formula_justification_separation")
+        self.assertIn("Formula/justification separation was enabled.", state["run_summary"])
+
     def test_transcribe_image_to_modal_v2_debug_state_can_write_passive_unary_blob_artifact(self) -> None:
         image_path = self.tmp_dir / "synthetic_blob.png"
         cv2.imwrite(str(image_path), _synthetic_recursive_modal_image())

@@ -11,6 +11,7 @@ import cv2
 from proofs_ocr.common import artifacts
 from proofs_ocr.domains import modal
 from proofs_ocr.pipelines.modal_v2_core import ImagePromptClient, ModalPipelineFeatureFlags
+from proofs_ocr.pipelines.modal_v2_line_zones import read_line_with_zone_separation
 
 try:
     from app.vlm_client import LMStudioQwenClient, default_lmstudio_base_url, default_lmstudio_model
@@ -33,10 +34,20 @@ class ModalBaselineArtifactLineReader:
         output_dir: Path,
         client: ImagePromptClient,
         prompt: str,
+        modal_config: Mapping[str, object] | None = None,
+        enable_formula_justification_separation: bool = False,
     ) -> None:
         self.output_dir = output_dir
         self.client = client
         self.prompt = prompt
+        self.enable_formula_justification_separation = enable_formula_justification_separation
+        self.formula_prompt = ""
+        self.justification_prompt = ""
+        if enable_formula_justification_separation:
+            from proofs_ocr.domains import modal_line_zones
+
+            self.formula_prompt = modal_line_zones.build_formula_zone_prompt(modal_config)
+            self.justification_prompt = modal_line_zones.build_justification_zone_prompt(modal_config)
 
     def __call__(
         self,
@@ -48,6 +59,16 @@ class ModalBaselineArtifactLineReader:
         feature_flags: ModalPipelineFeatureFlags,
     ) -> Mapping[str, str]:
         del node_crop_img, feature_flags
+        if self.enable_formula_justification_separation:
+            return read_line_with_zone_separation(
+                output_dir=self.output_dir,
+                client=self.client,
+                formula_prompt=self.formula_prompt,
+                justification_prompt=self.justification_prompt,
+                node=node,
+                line_crop_img=line_crop_img,
+                row_record=row_record,
+            )
         row_order = int(row_record.get("row_order", 0))
         crop_name = artifacts.NODE_LINE_CROP_TEMPLATE.format(node_id=node.id, row_order=row_order)
         crop_path = self.output_dir / crop_name

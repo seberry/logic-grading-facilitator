@@ -58,6 +58,15 @@ one giant route file.
 
 - The old scripts remain the broader behavioral reference.
 - The new modal baseline is intentionally old-script-free by default.
+- A minimal formula/justification zone-separation path now exists as a
+  toggleable experiment in the new pipeline:
+  - `proofs_ocr/pipelines/modal_v2_line_zones.py`
+  - `proofs_ocr/domains/modal_line_zones.py`
+  - CLI toggle:
+    - `--enable-formula-justification-separation`
+  - It is promising on handwritten cases, especially where justification text
+    leaks into formulas, but it is not yet ready to become the default OCR
+    path.
 - Optional legacy-style layers are feature-flagged for later work and mostly
   off by default:
   - `enable_strict_opener_classifier`
@@ -122,7 +131,14 @@ underlying false-bar geometry issue.
 
 The next problem is not “pipeline missing.” It is baseline quality.
 
-The clearest known failure is bar geometry / masking on some typeset proofs:
+The current handwritten bottlenecks are now clearer:
+
+- formula vs justification separation on handwritten lines
+- repeated-negation loss on narrow unary/modal formulas
+- remaining symbol confusions such as `◇ -> ⊢`
+
+The clearest typeset technical debt is still bar geometry / masking on some
+proofs:
 
 - a left number/formula separator can still be mistaken for a scope bar
 - child bars can start too high or run too long
@@ -138,14 +154,16 @@ large structural rewrite.
 1. Keep new work inside `proofs_ocr/`.
 2. Use `/debug/modal-proof` with the `modal_v2 baseline` toggle to inspect the
    real first-pass artifacts.
-3. With the route split in place, go back to improving bar bounds / masking
-   before stacking more OCR heuristics.
-4. Keep route handlers in `app/routes/modal_proof_debug.py`, and keep further
+3. For handwriting, prefer modular A/B-testable experiments such as
+   formula/justification separation before broad default rewrites.
+4. With the route split in place, go back to improving bar bounds / masking
+   before stacking more always-on OCR heuristics.
+5. Keep route handlers in `app/routes/modal_proof_debug.py`, and keep further
    debug-viewer helpers in the neighboring route modules instead of regrowing
    the endpoint file.
-5. Keep legacy behavior behind explicit adapters or feature flags, not as the
+6. Keep legacy behavior behind explicit adapters or feature flags, not as the
    default architecture.
-6. Do not rewrite the TFL OCR path in place while the modal baseline is still
+7. Do not rewrite the TFL OCR path in place while the modal baseline is still
    settling.
 
 ## Architectural Intent
