@@ -1,13 +1,14 @@
 suite:
   name: "proofs_ocr_regression"
-  status: "modal baseline fixtures committed"
+  status: "curated modal gold fixtures selected"
   purpose: >
     Canonical list of proof OCR cases for the clean proofs_ocr pipelines. This
     manifest is the working source of truth for modal typeset and handwritten
     regression runs.
   notes:
-    - "Current expected_structure files are regression targets, not uniformly gold truth."
-    - "Handwritten expected structures remain especially provisional."
+    - "The active modal manifest now tracks a small curated gold set."
+    - "Typeset gold structures come from source.tex."
+    - "Handwritten gold structures are curated from the image as written; semantic caveats live in sidecar notes."
 
 schema:
   required_fields:
@@ -21,6 +22,7 @@ schema:
     - "notes"
     - "source"
     - "oracle_kind"
+    - "semantic_notes_path"
 
 cases:
   - id: "modal_k_typeset_mixed_subproofs"
@@ -33,21 +35,8 @@ cases:
       - "strict_open"
       - "baseline_typeset"
     source: "proofs_ocr/regression/fixtures/modal/typeset/k_mixed_subproofs/source.tex"
-    oracle_kind: "current_debug_output"
-    notes: "K proof with an ordinary subproof containing a strict subproof, ending in □A → □B."
-
-  - id: "modal_k_typeset_invalid_nested_boxe"
-    domain: "modal"
-    kind: "typeset"
-    image_path: "proofs_ocr/regression/fixtures/modal/typeset/k_invalid_nested_boxe/image.png"
-    expected_structure_path: "proofs_ocr/regression/fixtures/modal/typeset/k_invalid_nested_boxe/expected_structure.json"
-    tags:
-      - "nested_subproofs"
-      - "strict_open"
-      - "boundary_case"
-    source: "proofs_ocr/regression/fixtures/modal/typeset/k_invalid_nested_boxe/source.tex"
-    oracle_kind: "current_debug_output"
-    notes: "Typeset K case used for invalid nested box debugging."
+    oracle_kind: "gold_from_source_tex"
+    notes: "Curated K typeset gold case with nested subproofs and a strict opener."
 
   - id: "modal_s4_typeset_r4_corrected"
     domain: "modal"
@@ -59,8 +48,8 @@ cases:
       - "r4"
       - "baseline_typeset"
     source: "proofs_ocr/regression/fixtures/modal/typeset/s4_r4_corrected/source.tex"
-    oracle_kind: "current_debug_output"
-    notes: "S4 typeset case used to validate passing system-specific checker config."
+    oracle_kind: "gold_from_source_tex"
+    notes: "Curated S4 typeset gold case."
 
   - id: "modal_s5_typeset_example"
     domain: "modal"
@@ -72,32 +61,34 @@ cases:
       - "r5"
       - "baseline_typeset"
     source: "proofs_ocr/regression/fixtures/modal/typeset/s5_r5_example/source.tex"
-    oracle_kind: "current_debug_output"
-    notes: "S5 typeset example from the modal tex suite."
+    oracle_kind: "gold_from_source_tex"
+    notes: "Curated S5 typeset gold case."
 
-  - id: "modal_handwritten_repo_crop_root"
+  - id: "modal_handwritten_user_box_q"
     domain: "modal"
     kind: "handwritten"
-    image_path: "proofs_ocr/regression/fixtures/modal/handwritten/repo_crop_root/image.jpg"
-    expected_structure_path: "proofs_ocr/regression/fixtures/modal/handwritten/repo_crop_root/expected_structure.json"
+    image_path: "proofs_ocr/regression/fixtures/modal/handwritten/user_box_q/image.jpg"
+    expected_structure_path: "proofs_ocr/regression/fixtures/modal/handwritten/user_box_q/expected_structure.json"
+    semantic_notes_path: "proofs_ocr/regression/fixtures/modal/handwritten/user_box_q/semantic_notes.yaml"
     tags:
       - "handwritten"
-      - "repo_local_crop"
-      - "known_hard_case"
-    source: "proofs_ocr/regression/fixtures/modal/handwritten/repo_crop_root"
-    oracle_kind: "provisional_debug_output"
-    notes: "Repo-local handwritten modal crop with saved final structure and verifier artifacts."
+      - "user_provided"
+      - "box_intro"
+    source: "proofs_ocr/regression/fixtures/modal/handwritten/user_box_q"
+    oracle_kind: "gold_curated_from_image"
+    notes: "Curated handwritten gold case ending with □Q."
 
-  - id: "modal_handwritten_repo_crop_node1"
+  - id: "modal_handwritten_user_negated_modal_conjunction"
     domain: "modal"
     kind: "handwritten"
-    image_path: "proofs_ocr/regression/fixtures/modal/handwritten/repo_crop_node1/image.jpg"
-    expected_structure_path: "proofs_ocr/regression/fixtures/modal/handwritten/repo_crop_node1/expected_structure.json"
+    image_path: "proofs_ocr/regression/fixtures/modal/handwritten/user_negated_modal_conjunction/image.jpg"
+    expected_structure_path: "proofs_ocr/regression/fixtures/modal/handwritten/user_negated_modal_conjunction/expected_structure.json"
+    semantic_notes_path: "proofs_ocr/regression/fixtures/modal/handwritten/user_negated_modal_conjunction/semantic_notes.yaml"
     tags:
       - "handwritten"
-      - "repo_local_crop"
-      - "unary_heavy"
-      - "strict_open"
-    source: "proofs_ocr/regression/fixtures/modal/handwritten/repo_crop_node1"
-    oracle_kind: "provisional_debug_output"
-    notes: "Repo-local handwritten modal crop used during unary-prefix debugging."
+      - "user_provided"
+      - "derived_rule_note"
+      - "semantic_note"
+    source: "proofs_ocr/regression/fixtures/modal/handwritten/user_negated_modal_conjunction"
+    oracle_kind: "gold_curated_from_image"
+    notes: "Curated handwritten gold case with explicit semantic notes for lines 4 and 7."

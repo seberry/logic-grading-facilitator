@@ -1,0 +1,7 @@
+notes:
+  - line: 4
+    status: incorrect_written_rule
+    note: "Student wrote MC 3; intended rule is Def⋄ 3."
+  - line: 7
+    status: acceptable_if_derived_rules_enabled
+    note: "DN 6 is not an official base rule, but acceptable if derived rules are enabled."

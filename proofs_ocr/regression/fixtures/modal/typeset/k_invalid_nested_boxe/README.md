@@ -1,2 +1,2 @@
-Source image rendered from `source.tex`. `expected_structure.json` is the
-currently selected legacy modal OCR output for this case.
+Source image rendered from `source.tex`. This is a legacy invalid/debugging
+fixture and is no longer part of the active curated gold manifest set.
