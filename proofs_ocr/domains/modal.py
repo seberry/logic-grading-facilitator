@@ -19,6 +19,16 @@ _WHITESPACE_RE = re.compile(r"\s+")
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 _DASH_BETWEEN_DIGITS_RE = re.compile(r"(?<=\d)\s*[-–—]\s*(?=\d)")
 _COMMA_BETWEEN_DIGITS_RE = re.compile(r"(?<=\d)\s*,\s*(?=\d)")
+_PREMISE_ALIAS_HEADS = {
+    "pr",
+    "prem",
+    "premise",
+    "hyp",
+    "assumption",
+    "assume",
+    "assum",
+    "assump",
+}
 VALID_SCOPE_ROLES = {
     "premise",
     "ordinary_assumption",
@@ -57,7 +67,7 @@ def normalize_formula_text(value: Any) -> str:
     """Normalize the formula text for the minimal modal baseline."""
 
     normalized = _collapse_whitespace(value)
-    for source, target in (("<->", "↔"), ("->", "→"), ("[]", "□"), ("<>", "⋄")):
+    for source, target in (("<->", "↔"), ("->", "→"), ("[]", "□"), ("<>", "⋄"), ("◇", "⋄"), ("◊", "⋄")):
         normalized = normalized.replace(source, target)
     return normalized
 
@@ -71,6 +81,12 @@ def normalize_justification_text(value: Any) -> str:
     normalized = normalized.replace("–", "-").replace("—", "-")
     normalized = _DASH_BETWEEN_DIGITS_RE.sub("-", normalized)
     normalized = _COMMA_BETWEEN_DIGITS_RE.sub(",", normalized)
+    parts = normalized.split(" ", 1)
+    head = parts[0].strip()
+    tail = parts[1].strip() if len(parts) > 1 else ""
+    if head.lower() in _PREMISE_ALIAS_HEADS:
+        head = "PR"
+    normalized = f"{head} {tail}".strip()
     return normalized
 
 

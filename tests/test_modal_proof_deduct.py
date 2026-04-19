@@ -90,6 +90,23 @@ class ModalProofDeductTests(unittest.TestCase):
         self.assertEqual(request["lines"][0]["citation"], "PR")
         self.assertEqual(request["lines"][1]["citation"], "PR")
 
+    def test_build_request_normalizes_assum_shorthand_to_pr(self) -> None:
+        answer_text = json.dumps(
+            [
+                {"wffstr": "◇A", "jstr": "Assum"},
+                [
+                    {"wffstr": "B", "jstr": "Assump"},
+                ],
+            ],
+            ensure_ascii=False,
+        )
+
+        request = build_modal_proof_request(answer_text, {"system": "K"})
+
+        self.assertEqual(request["lines"][0]["sentence"], "⋄A")
+        self.assertEqual(request["lines"][0]["citation"], "PR")
+        self.assertEqual(request["lines"][1]["citation"], "PR")
+
     def test_build_request_normalizes_diamond_variants_to_black_diamond(self) -> None:
         answer_text = json.dumps(
             [

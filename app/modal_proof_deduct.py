@@ -108,7 +108,7 @@ def _normalize_modal_citation_text(text: Any) -> str:
     tail = parts[1].strip() if len(parts) > 1 else ""
     head_lower = head.lower()
 
-    if head_lower in {"pr", "premise", "prem", "hyp", "assumption", "assume"}:
+    if head_lower in {"pr", "premise", "prem", "hyp", "assumption", "assume", "assum", "assump"}:
         head = "PR"
 
     normalized = f"{head} {tail}".strip()

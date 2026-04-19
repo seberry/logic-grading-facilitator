@@ -477,6 +477,13 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
     def test_normalize_justification_text_collapses_reference_spacing_and_dash_variants(self) -> None:
         self.assertEqual(modal.normalize_justification_text("→E 4, 5"), "→E 4,5")
         self.assertEqual(modal.normalize_justification_text("□I 2–3"), "□I 2-3")
+        self.assertEqual(modal.normalize_justification_text("Assum"), "PR")
+        self.assertEqual(modal.normalize_justification_text("Assump"), "PR")
+
+    def test_normalize_formula_text_canonicalizes_modal_diamond_variants(self) -> None:
+        self.assertEqual(modal.normalize_formula_text("◇A"), "⋄A")
+        self.assertEqual(modal.normalize_formula_text("◊A"), "⋄A")
+        self.assertEqual(modal.normalize_formula_text("<>A"), "⋄A")
 
     def test_resolve_modal_ocr_entry_fills_blank_first_line_as_pr(self) -> None:
         resolved = modal.resolve_modal_ocr_entry(

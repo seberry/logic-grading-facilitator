@@ -8,6 +8,7 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from fastapi import Request, Response
 from fastapi.templating import Jinja2Templates
+from proofs_ocr.domains import modal
 
 
 @dataclass(frozen=True)
@@ -187,8 +188,8 @@ def proof_lines_from_structure(parsed: Any) -> Dict[int, Dict[str, Any]]:
         citation = str(node.get("jstr") or node.get("citation") or "").strip()
         lines[line_number] = {
             "line_number": line_number,
-            "formula": formula,
-            "citation": citation,
+            "formula": modal.normalize_formula_text(formula),
+            "citation": modal.normalize_justification_text(citation),
             "depth": max(0, depth - 1),
         }
         auto_line_number = max(auto_line_number + 1, line_number + 1)

@@ -1583,20 +1583,24 @@
                       <div class="muted">band {{ band_index + 1 if band_index is not none else "?" }}, y {{ band_y1 if band_y1 is not none else "?" }}-{{ band_y2 if band_y2 is not none else "?" }}</div>
 
                       {% if parsed_response.get("initial_parsed") %}
-                        <label style="margin-top: 0.6rem;">Initial parsed answer</label>
+                        <label style="margin-top: 0.6rem;">Raw OCR parse</label>
+                        <div class="muted">Literal content parsed from the local model response before downstream regularization.</div>
                         <textarea class="small-textarea" readonly>{{ parsed_response.get("initial_parsed") | tojson(indent=2) }}</textarea>
                       {% endif %}
 
                       {% if parsed_response.get("resolved") %}
-                        <label>Resolved line used downstream</label>
+                        <label>Regularized line used downstream</label>
+                        <div class="muted">Canonicalized modal symbols and citation forms used for stitch/check comparison.</div>
                         <textarea class="small-textarea" readonly>{{ parsed_response.get("resolved") | tojson(indent=2) }}</textarea>
                       {% endif %}
 
                       {% if parsed_response.get("retry_used") %}
-                        <label>Retry parsed answer</label>
+                        <label>Retry raw OCR parse</label>
+                        <div class="muted">Literal content from the retry response before downstream regularization.</div>
                         <textarea class="small-textarea" readonly>{{ parsed_response.get("retry_parsed") | tojson(indent=2) }}</textarea>
                         {% if parsed_response.get("retry_resolved") %}
-                          <label>Retry resolved line</label>
+                          <label>Retry regularized line</label>
+                          <div class="muted">Canonicalized retry result used downstream.</div>
                           <textarea class="small-textarea" readonly>{{ parsed_response.get("retry_resolved") | tojson(indent=2) }}</textarea>
                         {% endif %}
                       {% endif %}
