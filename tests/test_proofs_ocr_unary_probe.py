@@ -40,6 +40,18 @@ class UnaryProbeTests(unittest.TestCase):
         self.assertEqual(parsed["selected_formula"], "¬□¬¬A")
         self.assertEqual(parsed["confidence"], 0.92)
 
+    def test_derive_formula_from_structured_counts_rebuilds_box_double_negation(self) -> None:
+        reconstructed = unary_probe.derive_formula_from_structured_counts(
+            formula_text="□¬A",
+            structured_parsed={
+                "main_modal_operator": "box",
+                "negations_before_modal": 0,
+                "negations_before_final_atom": 2,
+            },
+        )
+
+        self.assertEqual(reconstructed, "□¬¬A")
+
 
 if __name__ == "__main__":
     unittest.main()

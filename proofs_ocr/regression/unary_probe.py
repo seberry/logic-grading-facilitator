@@ -136,6 +136,53 @@ def _upscale_for_probe(crop_img, *, scale: int = 4):
     return cv2.resize(crop_img, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
 
 
+def int_field(value: Any, default: int = 0, minimum: int = 0, maximum: int = 3) -> int:
+    """Clamp an integer-like verifier field into the expected unary-count range."""
+
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(maximum, parsed))
+
+
+def formula_components(formula_text: str) -> tuple[str, str]:
+    """Split a formula into its unary prefix and remaining body."""
+
+    prefix = leading_unary_prefix(normalize_probe_formula_text(formula_text))
+    body = normalize_probe_formula_text(formula_text)[len(prefix) :].strip()
+    return prefix, body
+
+
+def derive_formula_from_structured_counts(
+    *,
+    formula_text: str,
+    structured_parsed: dict[str, Any],
+    scope_role: str = "derived_line",
+) -> str | None:
+    """Reconstruct a unary formula directly from the structured negation counts."""
+
+    normalized_formula = normalize_probe_formula_text(formula_text, scope_role)
+    _, body = formula_components(normalized_formula)
+    if not body:
+        return None
+
+    modal_value = str(structured_parsed.get("main_modal_operator") or "").strip().lower()
+    if modal_value == "box":
+        modal_symbol = "□"
+    elif modal_value == "diamond":
+        modal_symbol = "⋄"
+    else:
+        modal_symbol = ""
+
+    before_modal = int_field(structured_parsed.get("negations_before_modal"), 0, 0, 3)
+    before_atom = int_field(structured_parsed.get("negations_before_final_atom"), 0, 0, 3)
+
+    if not modal_symbol:
+        return f"{'¬' * before_atom}{body}"
+    return f"{'¬' * before_modal}{modal_symbol}{'¬' * before_atom}{body}"
+
+
 def run_unary_probe(
     *,
     image_path: Path,
@@ -190,6 +237,11 @@ def run_unary_probe(
     )
     structured_raw = client.chat_with_image_prompt(probe_crop_path, structured_prompt)
     structured_parsed = parse_probe_response(structured_raw)
+    structured_formula = derive_formula_from_structured_counts(
+        formula_text=normalized_formula,
+        structured_parsed=structured_parsed,
+        scope_role=scope_role,
+    )
 
     forced_prompt = build_forced_choice_unary_verifier_prompt(
         entry,
@@ -208,6 +260,7 @@ def run_unary_probe(
         "structured_prompt": structured_prompt,
         "structured_raw_response": structured_raw,
         "structured_parsed": structured_parsed,
+        "structured_formula": structured_formula,
         "forced_choice_prompt": forced_prompt,
         "forced_choice_raw_response": forced_raw,
         "forced_choice_parsed": forced_parsed,
