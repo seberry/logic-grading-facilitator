@@ -7,7 +7,11 @@ import numpy as np
 
 from proofs_ocr.domains import modal
 from proofs_ocr.domains import modal_line_zones
+from modal_ocr.prompts import build_justification_ocr_prompt
+from proofs_ocr.pipelines.modal_v2_bar_filters import filter_false_left_separator_bars
+from proofs_ocr.pipelines.modal_v2_unary import run_structured_unary_probe
 from proofs_ocr.pipelines import modal_v2
+from proofs_ocr.pipelines import modal_v2_core
 from proofs_ocr.pipelines.modal_v2 import run_modal_baseline_pipeline
 from proofs_ocr.pipelines.modal_v2_core import ModalPipelineFeatureFlags
 from proofs_ocr.pipelines.modal_v2_runtime import ModalBaselineArtifactLineReader
@@ -221,6 +225,54 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
         self.assertGreater(int((formula_gray[:, :180] < 185).sum()), 25)
         self.assertGreater(int((justification_gray[:, -140:] < 185).sum()), 25)
 
+    def test_filter_false_left_separator_bars_removes_top_anchored_left_edge_bar(self) -> None:
+        image = np.full((280, 260, 3), 255, dtype=np.uint8)
+
+        filtered, payload = filter_false_left_separator_bars(
+            image=image,
+            bars=[(18, 0, 8, 262), (54, 157, 2, 128)],
+        )
+
+        self.assertEqual(filtered, [(54, 157, 2, 128)])
+        self.assertTrue(payload["applied"])
+        self.assertEqual(payload["reason"], "removed_false_left_separator_candidate")
+
+    def test_filter_false_left_separator_bars_keeps_bar_when_not_top_anchored(self) -> None:
+        image = np.full((280, 260, 3), 255, dtype=np.uint8)
+
+        filtered, payload = filter_false_left_separator_bars(
+            image=image,
+            bars=[(18, 24, 8, 220), (54, 157, 2, 128)],
+        )
+
+        self.assertEqual(filtered, [(18, 24, 8, 220), (54, 157, 2, 128)])
+        self.assertFalse(payload["applied"])
+        self.assertEqual(payload["reason"], "leftmost_not_top_anchored")
+
+    def test_run_modal_baseline_pipeline_can_filter_false_left_separator_before_tree_build(self) -> None:
+        image = np.full((280, 260, 3), 255, dtype=np.uint8)
+        rows_seen = []
+
+        def read_line(*, node, node_crop_img, line_crop_img, row_record, feature_flags):
+            del node_crop_img, line_crop_img, feature_flags
+            rows_seen.append((node.id, int(row_record.get("row_order", 0))))
+            return {"scope_role": "premise", "formula_text": "P"}
+
+        original_detect_vertical_bars = modal_v2_core.tree.detect_vertical_bars
+        try:
+            modal_v2_core.tree.detect_vertical_bars = lambda _img: [(18, 0, 8, 262), (54, 157, 2, 128)]
+            result = run_modal_baseline_pipeline(
+                image=image,
+                read_line=read_line,
+                enable_false_left_separator_filter=True,
+            )
+        finally:
+            modal_v2_core.tree.detect_vertical_bars = original_detect_vertical_bars
+
+        self.assertEqual(result.raw_detected_bars, [(18, 0, 8, 262), (54, 157, 2, 128)])
+        self.assertEqual(result.detected_bars, [(54, 157, 2, 128)])
+        self.assertTrue(result.bar_filter_debug["applied"])
+
     def test_modal_line_zones_merge_recovers_justification_from_formula_label_spill(self) -> None:
         merged = modal_line_zones.merge_line_zone_results(
             formula_result={"line_label": "□E 2", "formula_text": "A", "confidence": "high"},
@@ -232,6 +284,63 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
         self.assertEqual(merged["formula_text"], "A")
         self.assertEqual(merged["justification_text"], "□E 2")
         self.assertEqual(merged["scope_role"], "derived_line")
+
+    def test_modal_line_zones_merge_marks_blank_root_line_as_premise(self) -> None:
+        merged = modal_line_zones.merge_line_zone_results(
+            formula_result={"line_label": "1", "formula_text": "A", "confidence": "high"},
+            justification_result={"justification_text": "", "confidence": "medium"},
+            is_root_node=True,
+            is_first_visible_row_of_nonroot=False,
+        )
+
+        self.assertEqual(merged["scope_role"], "premise")
+        self.assertEqual(merged["justification_text"], "")
+
+    def test_modal_line_zones_merge_marks_first_nonroot_blank_line_as_assumption(self) -> None:
+        merged = modal_line_zones.merge_line_zone_results(
+            formula_result={"line_label": "", "formula_text": "A", "confidence": "high"},
+            justification_result={"justification_text": "", "confidence": "medium"},
+            is_root_node=False,
+            is_first_visible_row_of_nonroot=True,
+        )
+
+        self.assertEqual(merged["scope_role"], "ordinary_assumption")
+        self.assertEqual(merged["justification_text"], "")
+
+    def test_modal_line_zones_merge_keeps_later_nonroot_blank_line_as_derived(self) -> None:
+        merged = modal_line_zones.merge_line_zone_results(
+            formula_result={"line_label": "", "formula_text": "B", "confidence": "high"},
+            justification_result={"justification_text": "", "confidence": "medium"},
+            is_root_node=False,
+            is_first_visible_row_of_nonroot=False,
+        )
+
+        self.assertEqual(merged["scope_role"], "derived_line")
+        self.assertEqual(merged["justification_text"], "")
+
+    def test_resolve_modal_ocr_entry_normalizes_assumption_variants_to_pr(self) -> None:
+        resolved = modal.resolve_modal_ocr_entry(
+            {
+                "scope_role": "ordinary_assumption",
+                "formula_text": "A",
+                "justification_text": "Assump",
+                "line_label": "",
+            },
+            0,
+        )
+
+        self.assertIsNotNone(resolved)
+        self.assertEqual(resolved["jstr"], "PR")
+
+    def test_build_justification_ocr_prompt_mentions_assumption_and_intro_variants(self) -> None:
+        prompt = build_justification_ocr_prompt({"system": "S4"})
+
+        self.assertIn('"Assum"', prompt)
+        self.assertIn('"Assump"', prompt)
+        self.assertIn('"¬I 1-9"', prompt)
+        self.assertIn('keep the printed tilde form', prompt)
+        self.assertIn('do not copy numbers from the examples', prompt)
+        self.assertIn('first line of a proof or subproof often has no printed justification', prompt)
 
     def test_modal_baseline_artifact_line_reader_can_separate_formula_and_justification_zones(self) -> None:
         class SequentialClient:
@@ -281,6 +390,55 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
             self.assertTrue((output_dir / "node_line_justification_ROOT_4.jpg").exists())
             payload = (output_dir / "node_line_ROOT_4.json").read_text(encoding="utf-8")
             self.assertIn('"mode": "formula_justification_separation"', payload)
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
+    def test_run_structured_unary_probe_can_use_formula_zone_crops_only(self) -> None:
+        class FixedVerifierClient:
+            def __init__(self) -> None:
+                self.calls = []
+
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                del prompt, system_prompt
+                self.calls.append(image_path.name)
+                return (
+                    '{"main_modal_operator":"box","negations_before_modal":0,'
+                    '"negations_before_final_atom":2,"confidence":1.0}'
+                )
+
+        output_dir = Path("working/test_modal_v2_unary_formula_probe")
+        output_dir.mkdir(parents=True, exist_ok=True)
+        formula_crop = np.full((40, 120, 3), 255, dtype=np.uint8)
+        cv2.putText(formula_crop, "[]~A", (8, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
+        whole_line_crop = np.full((40, 220, 3), 255, dtype=np.uint8)
+        cv2.putText(whole_line_crop, "1 []~A []E 2", (8, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+        cv2.imwrite(str(output_dir / "node_line_formula_ROOT_1.jpg"), formula_crop)
+        cv2.imwrite(str(output_dir / "node_line_ROOT_1.jpg"), whole_line_crop)
+
+        try:
+            client = FixedVerifierClient()
+            records = run_structured_unary_probe(
+                entries_by_node={
+                    "ROOT": [
+                        {
+                            "formula_text": "□¬A",
+                            "justification_text": "",
+                            "scope_role": "derived_line",
+                            "_ocr_row_order": 1,
+                        }
+                    ]
+                },
+                output_dir=output_dir,
+                client=client,
+                crop_mode="formula_crop_only",
+            )
+
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0]["probe_source_kind"], "formula_crop")
+            self.assertEqual(records[0]["probe_source_filename"], "node_line_formula_ROOT_1.jpg")
+            self.assertEqual(records[0]["structured_formula"], "□¬¬A")
+            self.assertEqual(client.calls, ["unary_structured_formula_ROOT_1.jpg"])
+            self.assertTrue((output_dir / "unary_structured_formula_probe.json").exists())
         finally:
             shutil.rmtree(output_dir, ignore_errors=True)
 

@@ -180,6 +180,59 @@ class ModalV2DebugStateTests(unittest.TestCase):
         self.assertEqual(payload["mode"], "formula_justification_separation")
         self.assertIn("Formula/justification separation was enabled.", state["run_summary"])
 
+    def test_transcribe_image_to_modal_v2_debug_state_can_write_passive_unary_formula_crop_probe_artifact(self) -> None:
+        image_path = self.tmp_dir / "synthetic_formula_probe.png"
+        cv2.imwrite(str(image_path), _synthetic_recursive_modal_image())
+        ocr_client = FakeImagePromptClient(
+            [
+                json.dumps({"line_label": "", "formula_text": "A", "confidence": "high"}),
+                json.dumps({"justification_text": "", "confidence": "high"}),
+                json.dumps({"line_label": "", "formula_text": "B", "confidence": "high"}),
+                json.dumps({"justification_text": "R 1", "confidence": "high"}),
+                json.dumps({"line_label": "", "formula_text": "□¬A", "confidence": "high"}),
+                json.dumps({"justification_text": "", "confidence": "high"}),
+                json.dumps({"line_label": "", "formula_text": "Q", "confidence": "high"}),
+                json.dumps({"justification_text": "R 2", "confidence": "high"}),
+            ]
+        )
+        verifier_client = FakeImagePromptClient(
+            [
+                json.dumps(
+                    {
+                        "main_modal_operator": "box",
+                        "negations_before_modal": 0,
+                        "negations_before_final_atom": 2,
+                        "confidence": 1.0,
+                    }
+                )
+            ]
+        )
+
+        state = transcribe_image_to_modal_v2_debug_state(
+            image_path=image_path,
+            output_dir=self.tmp_dir / "out_formula_probe",
+            modal_config={"system": "S4", "conclusion": "Q"},
+            client=ocr_client,
+            verifier_client=verifier_client,
+            vision_base_url="http://127.0.0.1:1234/v1",
+            vision_model="fake-model",
+            verifier_vision_model="fake-8b",
+            enable_formula_justification_separation=True,
+            enable_unary_structured_formula_crop_probe=True,
+        )
+
+        output_dir = self.tmp_dir / "out_formula_probe"
+        self.assertTrue((output_dir / artifacts.UNARY_STRUCTURED_FORMULA_PROBE_FILENAME).exists())
+        probe_records = json.loads(
+            (output_dir / artifacts.UNARY_STRUCTURED_FORMULA_PROBE_FILENAME).read_text(encoding="utf-8")
+        )
+        self.assertEqual(len(probe_records), 1)
+        self.assertEqual(probe_records[0]["baseline_formula"], "□¬A")
+        self.assertEqual(probe_records[0]["structured_formula"], "□¬¬A")
+        self.assertEqual(probe_records[0]["probe_source_kind"], "formula_crop")
+        self.assertEqual(probe_records[0]["probe_source_filename"], "node_line_formula_ROOT_1.jpg")
+        self.assertIn("Passive unary structured formula-crop probe inspected 1 line", state["run_summary"])
+
     def test_transcribe_image_to_modal_v2_debug_state_can_write_passive_unary_blob_artifact(self) -> None:
         image_path = self.tmp_dir / "synthetic_blob.png"
         cv2.imwrite(str(image_path), _synthetic_recursive_modal_image())

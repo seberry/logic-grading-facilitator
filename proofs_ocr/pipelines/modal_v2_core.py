@@ -12,6 +12,7 @@ import numpy as np
 from proofs_ocr.common import masking, rows, stitch, tree
 from proofs_ocr.common.types import Box, SubproofNode
 from proofs_ocr.domains import modal
+from proofs_ocr.pipelines.modal_v2_bar_filters import filter_false_left_separator_bars
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,7 @@ class ModalPipelineFeatureFlags:
 class ModalPipelineResult:
     """Artifacts returned by one baseline pipeline run."""
 
+    raw_detected_bars: List[Box]
     detected_bars: List[Box]
     tree_root: SubproofNode
     library: Dict[str, List[Dict[str, Any]]]
@@ -43,6 +45,7 @@ class ModalPipelineResult:
     band_debug_by_node: Dict[str, Dict[str, Any]]
     final_structure: List[Any]
     feature_flags: ModalPipelineFeatureFlags
+    bar_filter_debug: Dict[str, Any]
 
 
 class ModalLineReader(Protocol):
@@ -77,13 +80,21 @@ def run_modal_baseline_pipeline(
     image: np.ndarray,
     read_line: ModalLineReader,
     feature_flags: ModalPipelineFeatureFlags | None = None,
+    enable_false_left_separator_filter: bool = False,
 ) -> ModalPipelineResult:
     """Run the minimal recursive modal baseline on one proof image."""
 
     flags = feature_flags or ModalPipelineFeatureFlags()
     _ensure_baseline_feature_support(flags)
 
-    detected_bars = tree.detect_vertical_bars(image)
+    raw_detected_bars = tree.detect_vertical_bars(image)
+    detected_bars = list(raw_detected_bars)
+    bar_filter_debug: Dict[str, Any] = {}
+    if enable_false_left_separator_filter:
+        detected_bars, bar_filter_debug = filter_false_left_separator_bars(
+            image=image,
+            bars=raw_detected_bars,
+        )
     tree_root = tree.build_proof_tree(detected_bars, image.shape[1], image.shape[0])
     library: Dict[str, List[Dict[str, Any]]] = {}
     row_records_by_node: Dict[str, List[rows.RowRecord]] = {}
@@ -110,6 +121,7 @@ def run_modal_baseline_pipeline(
     stitch.renumber_lines(final_structure)
 
     return ModalPipelineResult(
+        raw_detected_bars=raw_detected_bars,
         detected_bars=detected_bars,
         tree_root=tree_root,
         library=library,
@@ -117,6 +129,7 @@ def run_modal_baseline_pipeline(
         band_debug_by_node=band_debug_by_node,
         final_structure=final_structure,
         feature_flags=flags,
+        bar_filter_debug=bar_filter_debug,
     )
 
 

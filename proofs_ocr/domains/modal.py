@@ -24,6 +24,15 @@ VALID_SCOPE_ROLES = {
     "derived_line",
     "subproof_token",
 }
+_IMPLICIT_PREMISE_JUSTIFICATIONS = {
+    "",
+    "pr",
+    "prem",
+    "premise",
+    "assum",
+    "assump",
+    "assumption",
+}
 
 
 def _collapse_whitespace(value: Any) -> str:
@@ -113,7 +122,9 @@ def resolve_modal_ocr_entry(entry: Any, _index: int) -> dict[str, str] | None:
         return None
 
     justification_text = normalize_justification_text(entry.get("justification_text") or entry.get("jstr") or "")
-    if scope_role in {"premise", "ordinary_assumption", "strict_open"} and not justification_text:
+    if scope_role in {"premise", "ordinary_assumption", "strict_open"} and (
+        not justification_text or justification_text.strip().lower() in _IMPLICIT_PREMISE_JUSTIFICATIONS
+    ):
         justification_text = "PR"
 
     resolved = {

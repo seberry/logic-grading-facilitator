@@ -70,7 +70,14 @@ def build_justification_ocr_prompt(config: Dict[str, Any]) -> str:
         "Transcribe the justification side of this handwritten modal Fitch proof line.",
         "Return only JSON. Do not include markdown fences or explanation.",
         'Return one JSON object with exactly these keys: "justification_text" and "confidence".',
-        'Use "justification_text" only for the justification on this crop, such as "PR", "→E 4 5", or "□I 3-6".',
+        (
+            'Use "justification_text" only for the justification on this crop, such as "", '
+            '"PR", "Prem", "Assum", "Assump", "∧E 1", "∨I 4", "→E 4,5", "→I 2-7", '
+            '"□E 1", "□I 3-6", "R4 1", "RT 1", "MC 3", "DN 6", "Def⋄ 1", "¬I 1-9", or "¬E 4,8".'
+        ),
+        "These are examples of rule shapes only. Copy the visible rule head and cited line numbers from the image; do not copy numbers from the examples.",
+        'If the crop prints "~I" or "~E", keep the printed tilde form instead of rewriting it to "¬I" or "¬E".',
+        "The first line of a proof or subproof often has no printed justification; if this crop shows no justification, return an empty string.",
         'If no justification is printed, return an empty string for "justification_text".',
         'Do not include formula text in "justification_text".',
         "Use confidence values high, medium, low, or uncertain.",
@@ -87,4 +94,3 @@ def build_line_ocr_prompt(config: Dict[str, Any]) -> str:
             build_justification_ocr_prompt(config),
         ]
     )
-

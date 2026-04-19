@@ -67,6 +67,14 @@ one giant route file.
   - It is promising on handwritten cases, especially where justification text
     leaks into formulas, but it is not yet ready to become the default OCR
     path.
+- A narrow false-left-separator filter now exists as a toggleable pre-tree
+  experiment:
+  - CLI toggle:
+    - `--enable-false-left-separator-filter`
+  - It targets one handwritten failure mode where a full-height left separator
+    is misread as a real scope bar and collapses `ROOT` into a child token.
+  - It is still experimental and should stay off by default until it has been
+    checked against the full gold set.
 - Optional legacy-style layers are feature-flagged for later work and mostly
   off by default:
   - `enable_strict_opener_classifier`
@@ -148,6 +156,44 @@ proofs:
 
 That means the next useful work is geometric/debug quality work, not another
 large structural rewrite.
+
+## Current Failure Clusters
+
+The current handwritten failures now separate into three fairly distinct
+clusters:
+
+- Pure OCR failures
+  - A line crop exists and belongs to the right node, but the model still reads
+    the formula or justification incorrectly.
+  - Current examples:
+    - `◇ -> □` or `◇ -> ⋄` normalization drift on handwritten modal formulas
+    - repeated-negation loss such as `□¬¬A -> □¬A`
+    - short handwritten rule strings blanking even when the justification crop
+      visibly contains ink
+- Bar geometry / tree ownership failures
+  - A false left separator is still being promoted to a real scope bar in some
+    handwritten proofs.
+  - The clearest live case is `modal_handwritten_user_box_q`, where `ROOT`
+    collapses to a child token and the top premises get owned by a child node.
+  - Once ownership is wrong, later OCR output can look bad even if the crop is
+    individually readable.
+- Row segmentation failures
+  - A visible handwritten line can still be missed or merged into a neighboring
+    band before OCR.
+  - The clearest live case is the contradiction step in
+    `modal_handwritten_user_negated_modal_conjunction`, which is merged into the
+    same band as the preceding `□I` line, so OCR only emits one line for that
+    crop.
+
+There is now also a small review artifact generator under
+`proofs_ocr/regression/modal_zone_review.py` that can build:
+
+- full zone-separation review pages
+- suspicious-only review pages
+- OCR-only handouts that exclude known geometry / ownership failures
+
+Those are intended as handoff aids for focused debugging rather than as new
+pipeline logic.
 
 ## Recommended Near-Term Plan
 

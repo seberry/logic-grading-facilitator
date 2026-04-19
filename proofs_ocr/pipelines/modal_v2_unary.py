@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Literal, Mapping, Sequence
 
 import cv2
 
@@ -17,6 +17,8 @@ from proofs_ocr.common import artifacts
 from proofs_ocr.domains import modal
 from proofs_ocr.pipelines.modal_v2_core import ImagePromptClient
 from proofs_ocr.regression import unary_blob_probe
+
+StructuredUnaryProbeCropMode = Literal["whole_line", "formula_crop_only"]
 
 
 def _int_field(value: Any, default: int = 0, minimum: int = 0, maximum: int = 3) -> int:
@@ -101,15 +103,42 @@ def _upscale_for_probe(crop_img, *, scale: int = 4):
     return cv2.resize(crop_img, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
 
 
+def _structured_probe_source_artifacts(
+    *,
+    node_id: str,
+    row_order: int,
+    crop_mode: StructuredUnaryProbeCropMode,
+) -> tuple[Path, str, str, str]:
+    if crop_mode == "formula_crop_only":
+        return (
+            Path(artifacts.NODE_LINE_FORMULA_CROP_TEMPLATE.format(node_id=node_id, row_order=row_order)),
+            "formula_crop",
+            artifacts.UNARY_STRUCTURED_FORMULA_PROBE_FILENAME,
+            artifacts.UNARY_STRUCTURED_FORMULA_LINE_CROP_TEMPLATE,
+        )
+    return (
+        Path(artifacts.NODE_LINE_CROP_TEMPLATE.format(node_id=node_id, row_order=row_order)),
+        "whole_line",
+        artifacts.UNARY_STRUCTURED_PROBE_FILENAME,
+        artifacts.UNARY_STRUCTURED_LINE_CROP_TEMPLATE,
+    )
+
+
 def run_structured_unary_probe(
     *,
     entries_by_node: Mapping[str, Sequence[Mapping[str, Any]]],
     output_dir: Path,
     client: ImagePromptClient,
+    crop_mode: StructuredUnaryProbeCropMode = "whole_line",
 ) -> list[dict[str, Any]]:
     """Run the structured unary verifier prompt on baseline line crops."""
 
     records: list[dict[str, Any]] = []
+    _, _, output_filename, probe_crop_template = _structured_probe_source_artifacts(
+        node_id="ROOT",
+        row_order=0,
+        crop_mode=crop_mode,
+    )
 
     for node_id in sorted(entries_by_node.keys(), key=str):
         for entry in entries_by_node.get(node_id, []):
@@ -119,12 +148,18 @@ def run_structured_unary_probe(
                 continue
 
             row_order = int(entry.get("_ocr_row_order", 0))
-            crop_path = output_dir / artifacts.NODE_LINE_CROP_TEMPLATE.format(node_id=node_id, row_order=row_order)
-            crop_img = cv2.imread(str(crop_path))
+            source_crop_relpath, source_kind, _, _ = _structured_probe_source_artifacts(
+                node_id=str(node_id),
+                row_order=row_order,
+                crop_mode=crop_mode,
+            )
+            source_crop_path = output_dir / source_crop_relpath
+            crop_img = cv2.imread(str(source_crop_path))
             if crop_img is None or crop_img.size == 0:
                 continue
 
-            probe_crop_path = output_dir / artifacts.UNARY_STRUCTURED_LINE_CROP_TEMPLATE.format(
+            line_crop_path = output_dir / artifacts.NODE_LINE_CROP_TEMPLATE.format(node_id=node_id, row_order=row_order)
+            probe_crop_path = output_dir / probe_crop_template.format(
                 node_id=node_id,
                 row_order=row_order,
             )
@@ -159,13 +194,15 @@ def run_structured_unary_probe(
                     "structured_counts": parsed,
                     "structured_formula": structured_formula or "",
                     "would_change_formula": bool(structured_formula and structured_formula != baseline_formula),
-                    "line_crop_filename": crop_path.name,
+                    "line_crop_filename": line_crop_path.name if line_crop_path.exists() else "",
+                    "probe_source_kind": source_kind,
+                    "probe_source_filename": source_crop_path.name,
                     "probe_crop_filename": probe_crop_path.name,
                     "raw_response": raw_response,
                 }
             )
 
-    (output_dir / artifacts.UNARY_STRUCTURED_PROBE_FILENAME).write_text(
+    (output_dir / output_filename).write_text(
         json.dumps(records, indent=2, ensure_ascii=False),
         encoding="utf-8",
     )
