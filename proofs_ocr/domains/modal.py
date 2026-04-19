@@ -207,6 +207,48 @@ def recover_line_entry_from_crop(
     return resolved, "tiny_strict_open_crop"
 
 
+def detect_label_only_crop(line_crop_img: np.ndarray) -> str:
+    """Return a skip reason when a wide crop appears to contain only a line label."""
+
+    if line_crop_img.size == 0:
+        return "empty_crop"
+
+    gray = cv2.cvtColor(line_crop_img, cv2.COLOR_BGR2GRAY)
+    img_h, img_w = gray.shape[:2]
+    if img_w < 600 or img_h < 24:
+        return ""
+
+    dark = (gray < 185).astype(np.uint8)
+    dark_pixels = int(dark.sum())
+    if dark_pixels <= 0:
+        return "empty_crop"
+
+    coords = cv2.findNonZero(dark)
+    if coords is None:
+        return "empty_crop"
+    left, top, width, height = cv2.boundingRect(coords)
+    if left <= max(48, int(img_w * 0.22)):
+        return ""
+    if left + width >= max(220, int(img_w * 0.42)):
+        return ""
+    if width > max(110, int(img_w * 0.10)):
+        return ""
+    if height > max(42, int(img_h * 0.85)):
+        return ""
+    if dark_pixels > max(260, int(img_w * img_h * 0.01)):
+        return ""
+
+    num_labels, _, stats, _ = cv2.connectedComponentsWithStats(dark, 8)
+    significant_components = 0
+    for label_index in range(1, num_labels):
+        area = int(stats[label_index, cv2.CC_STAT_AREA])
+        if area >= 12:
+            significant_components += 1
+    if significant_components > 2:
+        return ""
+    return "label_only_crop"
+
+
 def _looks_like_tiny_strict_open_crop(line_crop_img: np.ndarray) -> bool:
     if line_crop_img.size == 0:
         return False

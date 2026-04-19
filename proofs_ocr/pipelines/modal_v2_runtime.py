@@ -53,23 +53,27 @@ class ModalBaselineArtifactLineReader:
         crop_path = self.output_dir / crop_name
         cv2.imwrite(str(crop_path), line_crop_img)
 
-        raw_response = self.client.chat_with_image_prompt(crop_path, self.prompt)
+        skip_reason = modal.detect_label_only_crop(line_crop_img)
+        raw_response = ""
         parse_error = ""
-        try:
-            resolved = modal.parse_line_ocr_response(raw_response)
-        except (ValueError, json.JSONDecodeError) as exc:
-            parse_error = str(exc)
-            resolved = {
-                "line_label": "",
-                "formula_text": "",
-                "justification_text": "",
-                "scope_role": "derived_line",
-                "confidence": "",
-            }
-        resolved, recovery_applied = modal.recover_line_entry_from_crop(
-            line_crop_img=line_crop_img,
-            parsed_entry=resolved,
-        )
+        resolved = {
+            "line_label": "",
+            "formula_text": "",
+            "justification_text": "",
+            "scope_role": "derived_line",
+            "confidence": "",
+        }
+        recovery_applied = ""
+        if not skip_reason:
+            raw_response = self.client.chat_with_image_prompt(crop_path, self.prompt)
+            try:
+                resolved = modal.parse_line_ocr_response(raw_response)
+            except (ValueError, json.JSONDecodeError) as exc:
+                parse_error = str(exc)
+            resolved, recovery_applied = modal.recover_line_entry_from_crop(
+                line_crop_img=line_crop_img,
+                parsed_entry=resolved,
+            )
 
         payload = {
             "node_id": node.id,
@@ -81,6 +85,7 @@ class ModalBaselineArtifactLineReader:
             "parse_error": parse_error,
             "resolved": resolved,
             "recovery_applied": recovery_applied,
+            "skip_reason": skip_reason,
         }
         (self.output_dir / artifacts.NODE_LINE_RESPONSE_TEMPLATE.format(node_id=node.id, row_order=row_order)).write_text(
             json.dumps(payload, indent=2, ensure_ascii=False),

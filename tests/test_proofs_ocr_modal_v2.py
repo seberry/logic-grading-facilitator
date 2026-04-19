@@ -1,4 +1,6 @@
 import unittest
+from pathlib import Path
+import shutil
 
 import cv2
 import numpy as np
@@ -6,6 +8,8 @@ import numpy as np
 from proofs_ocr.domains import modal
 from proofs_ocr.pipelines import modal_v2
 from proofs_ocr.pipelines.modal_v2 import run_modal_baseline_pipeline
+from proofs_ocr.pipelines.modal_v2_core import ModalPipelineFeatureFlags
+from proofs_ocr.pipelines.modal_v2_runtime import ModalBaselineArtifactLineReader
 from proofs_ocr.common.types import SubproofNode
 
 
@@ -105,6 +109,57 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
 
         self.assertEqual(recovery, "")
         self.assertEqual(resolved["formula_text"], "")
+
+    def test_detect_label_only_crop_flags_wide_label_region_blob(self) -> None:
+        image = np.full((52, 1433, 3), 255, dtype=np.uint8)
+        cv2.putText(image, "5", (483, 38), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2)
+
+        skip_reason = modal.detect_label_only_crop(image)
+
+        self.assertEqual(skip_reason, "label_only_crop")
+
+    def test_detect_label_only_crop_keeps_wide_formula_crop(self) -> None:
+        image = np.full((52, 1433, 3), 255, dtype=np.uint8)
+        cv2.putText(image, "3", (500, 38), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2)
+        cv2.putText(image, "~[]A", (610, 38), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2)
+
+        skip_reason = modal.detect_label_only_crop(image)
+
+        self.assertEqual(skip_reason, "")
+
+    def test_modal_baseline_artifact_line_reader_skips_label_only_crop(self) -> None:
+        class FailIfCalledClient:
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                raise AssertionError("client should not be called for label-only crop")
+
+        image = np.full((52, 1433, 3), 255, dtype=np.uint8)
+        cv2.putText(image, "5", (483, 38), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2)
+        node = SubproofNode("ROOT", (0, 0, 0, 0))
+        output_dir = Path("working/test_modal_v2_runtime_skip")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            reader = ModalBaselineArtifactLineReader(
+                output_dir=output_dir,
+                client=FailIfCalledClient(),
+                prompt="prompt",
+            )
+
+            resolved = reader(
+                node=node,
+                node_crop_img=image,
+                line_crop_img=image,
+                row_record={"row_order": 5, "band_index": 3, "y1": 10, "y2": 30},
+                feature_flags=ModalPipelineFeatureFlags(),
+            )
+
+            self.assertEqual(resolved["formula_text"], "")
+            payload_path = output_dir / "node_line_ROOT_5.json"
+            self.assertTrue(payload_path.exists())
+            payload = payload_path.read_text(encoding="utf-8")
+            self.assertIn('"skip_reason": "label_only_crop"', payload)
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
 
     def test_run_modal_baseline_pipeline_stitches_child_scope(self) -> None:
         image = _synthetic_recursive_modal_image()

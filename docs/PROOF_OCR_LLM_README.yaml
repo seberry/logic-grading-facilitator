@@ -6,6 +6,7 @@ project_meta:
     describes the current clean pipeline boundaries, what is already live, and
     what should happen next without collapsing back into giant script-shaped
     implementations.
+  companion_overview: "docs/PROOF_OCR_PIPELINE_OVERVIEW.md"
 
 scope:
   active_reference_implementations:
@@ -41,8 +42,7 @@ current_repo_state:
     - "app/routes/modal_proof_debug_artifacts.py owns artifact loading and debug asset URL helpers."
     - "app/routes/modal_proof_debug_page.py owns page/view-model assembly helpers."
   known_workspace_confusions:
-    - "Expected structure files in the modal regression fixtures are regression targets, not uniformly gold truth."
-    - "Handwritten expected structures are especially provisional."
+    - "Older modal fixture outputs and saved working artifacts should not be mistaken for the curated gold answers."
     - "Legacy script artifacts still exist in the debug viewer for comparison; they should not be mistaken for the selected modal_v2 path."
   recent_baseline_fix:
     - "A recent modal_v2 fix recovered tiny strict-opener rows in deep child scopes."
@@ -124,10 +124,11 @@ near_term_plan:
 
 regression_expectations:
   current_seed_cases:
-    - "proofs_ocr/regression/manifest.yaml seeds four modal typeset fixtures and two handwritten modal fixtures."
-    - "The expected_structure files are useful regression targets, but not a perfect correctness oracle."
-  known_gap:
-    - "Longer-term, the suite should distinguish baseline OCR output from gold/correct structure."
+    - "proofs_ocr/regression/manifest.yaml currently tracks a curated 5-case modal gold set: three typeset fixtures and two handwritten fixtures."
+    - "The typeset gold answers are derived from source TeX; the handwritten gold answers are curated from the images as written."
+  current_runner:
+    - "Use `python -m proofs_ocr.regression summary` for fixture inventory."
+    - "Use `python -m proofs_ocr.regression run-gold --output-root working/modal_v2_gold_regressions` for slow end-to-end comparison."
   quality_bar: >
     The immediate goal is not zero-touch OCR. The goal is to make recursive
     proof structure reliable enough that human correction becomes smaller,
@@ -140,5 +141,6 @@ handoff_notes:
     - "Keep the recursive decomposition workflow visible in code."
   when_restarting_after_context_loss:
     - "Read docs/PROOF_OCR_REFACTOR_STATUS.md first."
+    - "Then read docs/PROOF_OCR_PIPELINE_OVERVIEW.md for the stable mental model."
     - "Then inspect proofs_ocr/regression/manifest.yaml."
     - "Use /debug/modal-proof with the modal_v2 baseline toggle to inspect real artifact output."

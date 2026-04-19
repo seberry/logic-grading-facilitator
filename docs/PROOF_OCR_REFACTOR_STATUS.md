@@ -6,6 +6,9 @@ This note is the short restart brief for the current proof OCR state. Read this
 first if you need to know what is live, what is still provisional, and what the
 next work should optimize for.
 
+For the stable end-to-end mental model of the pipeline, also read
+`docs/PROOF_OCR_PIPELINE_OVERVIEW.md`.
+
 ## Current Reality
 
 The repo now has two live modal OCR paths:
@@ -62,9 +65,9 @@ one giant route file.
   - `enable_retry_on_suspicious_line`
   - `enable_unary_verifier`
   - `enable_boundary_repair`
-- The modal regression `expected_structure.json` files are regression targets,
-  not uniformly gold truth.
-- Handwritten expected structures are especially provisional.
+- Some handwritten gold cases still reflect difficult OCR targets and should be
+  treated as active evaluation targets, not as evidence that the baseline is
+  already strong on handwriting.
 
 ## What The New Baseline Already Does
 
@@ -80,6 +83,12 @@ The `modal_v2` baseline now follows the intended recursive shape:
 
 That structure is the main refactor win. It is now visible in code and in the
 debug viewer.
+
+The repo also now has:
+
+- a curated 5-case modal gold set under `proofs_ocr/regression/fixtures/modal/`
+- a slow gold regression runner:
+  - `python -m proofs_ocr.regression run-gold ...`
 
 ## Recent Baseline Win
 
@@ -103,6 +112,11 @@ The current baseline now:
 
 So the strict-opener problem is no longer the main blocker. The next debugging
 work should focus on tree/bar geometry.
+
+There is also now a cheap runtime safeguard against label-only wide crops, so
+false parent ownership is less likely to hallucinate stray formulas when the
+tree is wrong. That contains one visible failure mode, but it does not fix the
+underlying false-bar geometry issue.
 
 ## Current Main Blocker
 
