@@ -29,6 +29,74 @@ _PREMISE_ALIAS_HEADS = {
     "assum",
     "assump",
 }
+_JUSTIFICATION_HEAD_ALIASES = {
+    "pr": "PR",
+    "premise": "PR",
+    "assumption": "PR",
+    "assum": "PR",
+    "prem": "PR",
+    "hyp": "PR",
+    "r": "R",
+    "andi": "∧I",
+    "ande": "∧E",
+    "ai": "∧I",
+    "ae": "∧E",
+    "ori": "∨I",
+    "ore": "∨E",
+    "impi": "→I",
+    "impe": "→E",
+    "ci": "→I",
+    "ce": "→E",
+    "bici": "↔I",
+    "bice": "↔E",
+    "noti": "¬I",
+    "note": "¬E",
+    "ni": "¬I",
+    "ne": "¬E",
+    "~i": "~I",
+    "~e": "~E",
+    "ip": "IP",
+    "dn": "DN",
+    "mc": "MC",
+    "boxi": "□I",
+    "boxe": "□E",
+    "r4": "R4",
+    "rfour": "R4",
+    "r5": "R5",
+    "rfive": "R5",
+    "rt": "RT",
+    "defdiamond": "Def⋄",
+    "def⋄": "Def⋄",
+    "def◇": "Def⋄",
+    "def◊": "Def⋄",
+    "other": "other",
+}
+_JUSTIFICATION_HEAD_SET = {
+    "PR",
+    "R",
+    "∧I",
+    "∧E",
+    "∨I",
+    "∨E",
+    "→I",
+    "→E",
+    "↔I",
+    "↔E",
+    "¬I",
+    "¬E",
+    "~I",
+    "~E",
+    "IP",
+    "DN",
+    "MC",
+    "□I",
+    "□E",
+    "R4",
+    "R5",
+    "RT",
+    "Def⋄",
+    "other",
+}
 VALID_SCOPE_ROLES = {
     "premise",
     "ordinary_assumption",
@@ -88,6 +156,48 @@ def normalize_justification_text(value: Any) -> str:
         head = "PR"
     normalized = f"{head} {tail}".strip()
     return normalized
+
+
+def normalize_justification_head(value: Any) -> str:
+    """Normalize one modal justification rule head."""
+
+    raw = _collapse_whitespace(value)
+    lowered = raw.lower()
+    if lowered in {"", "blank", "<blank>", "none", "null"}:
+        return ""
+    if lowered in _JUSTIFICATION_HEAD_ALIASES:
+        return _JUSTIFICATION_HEAD_ALIASES[lowered]
+
+    normalized = normalize_justification_text(raw)
+    head = normalized.split(" ", 1)[0] if normalized else ""
+    if head in _JUSTIFICATION_HEAD_SET:
+        return head
+    return "other"
+
+
+def compose_justification_text(*, head: Any, tail: Any, raw_head: Any = None) -> str:
+    """Compose a display justification without duplicating an already-visible tail."""
+
+    normalized_head = normalize_justification_head(head)
+    normalized_tail = _collapse_whitespace(tail).replace("–", "-").replace("—", "-")
+    if normalized_head == "":
+        return ""
+    if normalized_head == "other":
+        raw = normalize_justification_text(raw_head or "")
+        if not raw:
+            return normalized_tail or "other"
+        if normalized_tail:
+            raw_tokens = _justification_dedupe_tokens(raw)
+            tail_tokens = _justification_dedupe_tokens(normalized_tail)
+            if not (tail_tokens and len(raw_tokens) >= len(tail_tokens) and raw_tokens[-len(tail_tokens) :] == tail_tokens):
+                return f"{raw} {normalized_tail}".strip()
+        return raw
+    return f"{normalized_head} {normalized_tail}".strip() if normalized_tail else normalized_head
+
+
+def _justification_dedupe_tokens(value: Any) -> list[str]:
+    collapsed = _collapse_whitespace(value).replace(",", " ").replace("–", "-").replace("—", "-")
+    return [token for token in collapsed.split(" ") if token]
 
 
 def build_line_ocr_prompt(config: Mapping[str, Any] | None = None) -> str:

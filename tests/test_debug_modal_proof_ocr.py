@@ -41,6 +41,19 @@ class DebugModalProofOcrTests(unittest.TestCase):
         self.assertEqual(debug_modal_proof_ocr._normalize_justification_text("DE1"), "□E 1")
         self.assertEqual(debug_modal_proof_ocr._normalize_justification_text("OI 3-6"), "□I 3-6")
 
+    def test_normalize_justification_head_accepts_tilde_intro(self) -> None:
+        self.assertEqual(debug_modal_proof_ocr._normalize_justification_head("~I"), "~I")
+
+    def test_compose_line_justification_text_avoids_duplicate_tail_for_other_head(self) -> None:
+        self.assertEqual(
+            debug_modal_proof_ocr._compose_line_justification_text(
+                head="other",
+                tail="1-9",
+                raw_head="~I 1-9",
+            ),
+            "~I 1-9",
+        )
+
     def test_load_modal_config_accepts_saved_state_shape(self) -> None:
         path = self.tmp_dir / "state.json"
         path.write_text(

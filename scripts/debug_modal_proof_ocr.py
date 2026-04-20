@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 from proofs_ocr.common import rows as common_rows
+from proofs_ocr.domains import modal as modal_domain
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
@@ -541,45 +542,7 @@ def _normalize_line_scope_role(
 
 
 def _normalize_justification_head(raw_head: Any) -> str:
-    raw = str(raw_head or "").strip()
-    lowered = raw.lower()
-    if lowered in {"", "blank", "<blank>", "none", "null"}:
-        return ""
-    shorthand = {
-        "pr": "PR",
-        "premise": "PR",
-        "assumption": "PR",
-        "assum": "PR",
-        "r": "R",
-        "andi": "∧I",
-        "ande": "∧E",
-        "ori": "∨I",
-        "ore": "∨E",
-        "impi": "→I",
-        "impe": "→E",
-        "bici": "↔I",
-        "bice": "↔E",
-        "noti": "¬I",
-        "note": "¬E",
-        "ip": "IP",
-        "dn": "DN",
-        "mc": "MC",
-        "boxi": "□I",
-        "boxe": "□E",
-        "r4": "R4",
-        "rt": "RT",
-        "defdiamond": "Def⋄",
-        "def⋄": "Def⋄",
-        "other": "other",
-    }
-    if lowered in shorthand:
-        return shorthand[lowered]
-
-    normalized = _normalize_justification_text(raw)
-    head = normalized.split(" ", 1)[0] if normalized else ""
-    if head in JUSTIFICATION_HEAD_OPTION_SET:
-        return head
-    return "other"
+    return modal_domain.normalize_justification_head(raw_head)
 
 
 def _normalize_justification_tail(raw_tail: Any) -> str:
@@ -592,14 +555,7 @@ def _normalize_justification_tail(raw_tail: Any) -> str:
 
 
 def _compose_line_justification_text(*, head: str, tail: str, raw_head: Any = None) -> str:
-    if head == "":
-        return ""
-    if head == "other":
-        raw = str(raw_head or "").strip()
-        if tail and raw:
-            return f"{raw} {tail}".strip()
-        return tail or raw or "other"
-    return f"{head} {tail}".strip() if tail else head
+    return modal_domain.compose_justification_text(head=head, tail=tail, raw_head=raw_head)
 
 
 def _line_result_is_suspicious(result: Dict[str, Any]) -> bool:

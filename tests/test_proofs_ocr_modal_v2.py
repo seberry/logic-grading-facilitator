@@ -480,6 +480,17 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
         self.assertEqual(modal.normalize_justification_text("Assum"), "PR")
         self.assertEqual(modal.normalize_justification_text("Assump"), "PR")
 
+    def test_normalize_justification_head_accepts_tilde_intro_and_legacy_aliases(self) -> None:
+        self.assertEqual(modal.normalize_justification_head("~I"), "~I")
+        self.assertEqual(modal.normalize_justification_head("boxi"), "□I")
+        self.assertEqual(modal.normalize_justification_head("rfive"), "R5")
+
+    def test_compose_justification_text_avoids_duplicate_tail_when_raw_head_already_contains_it(self) -> None:
+        self.assertEqual(
+            modal.compose_justification_text(head="other", tail="1-9", raw_head="~I 1-9"),
+            "~I 1-9",
+        )
+
     def test_normalize_formula_text_canonicalizes_modal_diamond_variants(self) -> None:
         self.assertEqual(modal.normalize_formula_text("◇A"), "⋄A")
         self.assertEqual(modal.normalize_formula_text("◊A"), "⋄A")
