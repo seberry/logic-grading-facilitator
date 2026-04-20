@@ -334,7 +334,7 @@
 
     .workspace-grid {
       display: grid;
-      grid-template-columns: minmax(760px, 1.35fr) minmax(620px, 1fr);
+      grid-template-columns: minmax(520px, 0.9fr) minmax(860px, 1.45fr);
       gap: 1rem;
     }
 
@@ -352,7 +352,7 @@
 
     .proof-image-frame img {
       max-width: 100%;
-      max-height: 78vh;
+      max-height: 74vh;
       border-radius: 8px;
       background: #fff;
       box-shadow: 0 10px 28px rgba(15, 23, 42, 0.38);
@@ -599,8 +599,8 @@
     }
 
     .editor-crop-cell {
-      width: 210px;
-      min-width: 210px;
+      width: 280px;
+      min-width: 280px;
     }
 
     .editor-crop-box {
@@ -611,11 +611,49 @@
 
     .editor-crop-box img {
       display: block;
-      width: 176px;
+      width: 220px;
       max-width: 100%;
       border-radius: 0.4rem;
       border: 1px solid #cbd5e1;
       background: #fff;
+    }
+
+    .editor-crop-mode {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+      color: #334155;
+    }
+
+    .editor-crop-mode select {
+      width: auto;
+      min-width: 150px;
+      padding: 0.45rem 0.6rem;
+    }
+
+    .editor-crop-pair {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 0.35rem;
+    }
+
+    .editor-crop-tile {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+
+    .editor-crop-label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: #334155;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .editor-crop-split img {
+      width: 220px;
     }
 
     .editor-crop-meta {
@@ -1151,6 +1189,14 @@
                 <button type="button" class="palette-btn" data-symbol="◇">◇</button>
                 <button type="button" class="palette-btn" data-symbol="⊥">⊥</button>
               </div>
+              <label class="editor-crop-mode" for="editor-crop-mode">
+                OCR crops
+                <select id="editor-crop-mode">
+                  <option value="full">Full line</option>
+                  <option value="split">Formula + justification</option>
+                  <option value="both" selected>Both</option>
+                </select>
+              </label>
               <span class="editor-note">Line numbers are automatic; change depth, formula, and citation directly in the grid.</span>
               <label class="toggle">
                 <input type="checkbox" id="raw-toggle">
@@ -2172,6 +2218,7 @@
       const flaggedCountNode = document.getElementById("review-flagged-count");
       const resolvedCountNode = document.getElementById("review-resolved-count");
       const unresolvedCountNode = document.getElementById("review-unresolved-count");
+      const editorCropModeSelect = document.getElementById("editor-crop-mode");
       const reviewItems = Array.from(document.querySelectorAll("[data-review-item]"));
       const editorLineArtifacts = {{ editor_line_artifacts | tojson }};
       const decisions = {};
@@ -2189,6 +2236,27 @@
       let proofWrapperMode = "object";
       let proofCollectionKey = "lines";
       let proofWrapperExtras = {};
+      let editorCropMode = editorCropModeSelect ? editorCropModeSelect.value : "both";
+
+      function appendCropTile(container, url, filename, label, extraClass = "") {
+        if (!url) return;
+        const tile = document.createElement("div");
+        tile.className = `editor-crop-tile ${extraClass}`.trim();
+        if (label) {
+          const heading = document.createElement("div");
+          heading.className = "editor-crop-label";
+          heading.textContent = label;
+          tile.appendChild(heading);
+        }
+        const link = document.createElement("a");
+        link.href = url;
+        const img = document.createElement("img");
+        img.src = url;
+        img.alt = filename || label || "OCR crop";
+        link.appendChild(img);
+        tile.appendChild(link);
+        container.appendChild(tile);
+      }
 
       function setEditorStatus(message, isError = false) {
         if (!editorStatus) return;
@@ -2488,14 +2556,49 @@
           const cropBox = document.createElement("div");
           cropBox.className = "editor-crop-box";
           const lineArtifact = editorLineArtifacts[String(idx + 1)] || null;
-          if (lineArtifact && lineArtifact.image_url) {
-            const cropLink = document.createElement("a");
-            cropLink.href = lineArtifact.image_url;
-            const cropImg = document.createElement("img");
-            cropImg.src = lineArtifact.image_url;
-            cropImg.alt = lineArtifact.image_filename || `OCR crop for line ${idx + 1}`;
-            cropLink.appendChild(cropImg);
-            cropBox.appendChild(cropLink);
+          if (lineArtifact && (lineArtifact.image_url || lineArtifact.formula_image_url || lineArtifact.justification_image_url)) {
+            const showFull = editorCropMode === "full" || editorCropMode === "both";
+            const showSplit = editorCropMode === "split" || editorCropMode === "both";
+
+            if (showFull && lineArtifact.image_url) {
+              appendCropTile(
+                cropBox,
+                lineArtifact.image_url,
+                lineArtifact.image_filename || `OCR crop for line ${idx + 1}`,
+                "Full line"
+              );
+            }
+
+            if (showSplit && (lineArtifact.formula_image_url || lineArtifact.justification_image_url)) {
+              const splitWrap = document.createElement("div");
+              splitWrap.className = "editor-crop-pair";
+              appendCropTile(
+                splitWrap,
+                lineArtifact.formula_image_url,
+                lineArtifact.formula_image_filename || `Formula crop for line ${idx + 1}`,
+                "Formula",
+                "editor-crop-split"
+              );
+              appendCropTile(
+                splitWrap,
+                lineArtifact.justification_image_url,
+                lineArtifact.justification_image_filename || `Justification crop for line ${idx + 1}`,
+                "Justification",
+                "editor-crop-split"
+              );
+              if (splitWrap.childNodes.length) {
+                cropBox.appendChild(splitWrap);
+              }
+            }
+
+            if (!cropBox.childNodes.length && lineArtifact.image_url) {
+              appendCropTile(
+                cropBox,
+                lineArtifact.image_url,
+                lineArtifact.image_filename || `OCR crop for line ${idx + 1}`,
+                "Full line"
+              );
+            }
 
             const cropMeta = document.createElement("div");
             cropMeta.className = "editor-crop-meta";
@@ -2571,6 +2674,13 @@
           renderTable();
           setEditorStatus(error instanceof Error ? error.message : "Could not read proof JSON.", true);
         }
+      }
+
+      if (editorCropModeSelect) {
+        editorCropModeSelect.addEventListener("change", () => {
+          editorCropMode = editorCropModeSelect.value || "both";
+          renderTable();
+        });
       }
 
       function syncRowsFromRaw() {

@@ -538,6 +538,10 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
                     "stitched_line_number": 9,
                     "image_url": "/debug_modal_proof_assets/sample/node_line_1_7.jpg",
                     "image_filename": "node_line_1_7.jpg",
+                    "formula_image_url": "/debug_modal_proof_assets/sample/node_line_1_7_formula.jpg",
+                    "formula_image_filename": "node_line_1_7_formula.jpg",
+                    "justification_image_url": "/debug_modal_proof_assets/sample/node_line_1_7_justification.jpg",
+                    "justification_image_filename": "node_line_1_7_justification.jpg",
                     "triage_reasons": ["gold: formula mismatch: expected ⊥"],
                 }
             ],
@@ -550,6 +554,8 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
 
         self.assertIn("9", artifacts)
         self.assertEqual(artifacts["9"]["image_filename"], "node_line_1_7.jpg")
+        self.assertEqual(artifacts["9"]["formula_image_filename"], "node_line_1_7_formula.jpg")
+        self.assertEqual(artifacts["9"]["justification_image_filename"], "node_line_1_7_justification.jpg")
         self.assertEqual(artifacts["9"]["expected_line_text"], "⊥    ¬E 4,8")
         self.assertIn("gold: formula mismatch: expected ⊥", artifacts["9"]["reasons"])
 

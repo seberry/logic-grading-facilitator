@@ -746,6 +746,10 @@ def build_editor_line_artifacts(
             "line_number": line_number,
             "image_url": str(stage.get("image_url") or "").strip(),
             "image_filename": str(stage.get("image_filename") or "").strip(),
+            "formula_image_url": str(stage.get("formula_image_url") or "").strip(),
+            "formula_image_filename": str(stage.get("formula_image_filename") or "").strip(),
+            "justification_image_url": str(stage.get("justification_image_url") or "").strip(),
+            "justification_image_filename": str(stage.get("justification_image_filename") or "").strip(),
             "node_id": str(stage.get("node_id") or "").strip(),
             "row_order": int(stage.get("row_order") or 0) if stage.get("row_order") is not None else 0,
             "current_line_text": current_line_text,
@@ -1122,6 +1126,14 @@ def render_page(
                     stage["artifact_kind"] = artifact_kind
                 if artifact_record.get("skipped_reason"):
                     stage["skipped_reason"] = str(artifact_record.get("skipped_reason") or "").strip()
+                formula_crop_filename = str(artifact_record.get("formula_crop_filename") or "").strip()
+                if formula_crop_filename:
+                    stage["formula_image_filename"] = formula_crop_filename
+                    stage["formula_image_url"] = deps.artifact_url(selected, formula_crop_filename)
+                justification_crop_filename = str(artifact_record.get("justification_crop_filename") or "").strip()
+                if justification_crop_filename:
+                    stage["justification_image_filename"] = justification_crop_filename
+                    stage["justification_image_url"] = deps.artifact_url(selected, justification_crop_filename)
                 resolved = artifact_record.get("resolved")
                 if isinstance(resolved, dict):
                     stage["resolved_scope_role"] = str(resolved.get("scope_role") or "").strip()
