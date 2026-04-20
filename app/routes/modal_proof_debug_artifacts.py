@@ -51,6 +51,28 @@ def load_node_entry_library(example_dir: Path) -> Dict[str, List[Dict[str, Any]]
     return library
 
 
+def _prepare_debug_stitch_library(
+    library: Dict[str, List[Dict[str, Any]]],
+) -> Dict[str, List[Dict[str, Any]]]:
+    prepared: Dict[str, List[Dict[str, Any]]] = {}
+    for node_id, entries in library.items():
+        visible_line_order = 0
+        prepared_entries: List[Dict[str, Any]] = []
+        for item in entries:
+            entry = dict(item)
+            entry.setdefault("_debug_node_id", node_id)
+            formula_text = str(entry.get("formula_text") or entry.get("wffstr") or "").strip()
+            scope_role = str(entry.get("scope_role") or "").strip()
+            if scope_role == "subproof_token" or extract_subproof_token_id(formula_text):
+                prepared_entries.append(entry)
+                continue
+            entry.setdefault("_debug_visible_line_order", visible_line_order)
+            prepared_entries.append(entry)
+            visible_line_order += 1
+        prepared[node_id] = prepared_entries
+    return prepared
+
+
 def flatten_stitched_lines(structure: Any) -> List[Dict[str, Any]]:
     flattened: List[Dict[str, Any]] = []
 
@@ -85,12 +107,15 @@ def _resolve_debug_stitch_item(item: Any, index: int) -> Optional[Dict[str, Any]
         "scope_role": scope_role,
     }
     node_id = str(item.get("_ocr_node_id") or "").strip()
+    if not node_id:
+        node_id = str(item.get("_debug_node_id") or "").strip()
     if node_id:
         line["_ocr_node_id"] = node_id
     row_order = item.get("_ocr_row_order")
     if isinstance(row_order, int):
         line["_ocr_row_order"] = row_order
-    line["_ocr_line_order"] = index
+    visible_line_order = item.get("_debug_visible_line_order")
+    line["_ocr_line_order"] = int(visible_line_order) if isinstance(visible_line_order, int) else index
     return line
 
 
@@ -110,7 +135,7 @@ def _visible_line_orders(entries: List[Dict[str, Any]]) -> Dict[int, int]:
 
 
 def build_stitched_line_lookup(example_dir: Path) -> Dict[Tuple[str, int], Dict[str, Any]]:
-    library = load_node_entry_library(example_dir)
+    library = _prepare_debug_stitch_library(load_node_entry_library(example_dir))
     if not library:
         return {}
 
@@ -214,7 +239,7 @@ def row_order_to_visible_line_order(node_response: Dict[str, Any], row_order: in
             if not isinstance(item, dict):
                 continue
             kind = str(item.get("kind") or "").strip()
-            if kind in {"subproof_token", "strict_open_consumed", "token_overlap_skipped"}:
+            if kind in {"subproof_token", "token_overlap_skipped"}:
                 continue
             candidate = item.get("row_order")
             if isinstance(candidate, int) and candidate == row_order:

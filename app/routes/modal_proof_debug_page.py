@@ -941,6 +941,42 @@ def render_page(
                 }
             )
 
+        for opener_stage in strict_opener_stages:
+            node_id = str(opener_stage.get("stage_id") or "").strip()
+            if not node_id:
+                continue
+            node_response = deps.load_node_response(example_dir, node_id)
+            strict_open_record = next(
+                (
+                    item
+                    for item in (node_response.get("line_artifacts") or [])
+                    if isinstance(item, dict) and str(item.get("kind") or "").strip() == "strict_open_consumed"
+                ),
+                None,
+            )
+            if not isinstance(strict_open_record, dict):
+                continue
+            row_order = strict_open_record.get("row_order")
+            if not isinstance(row_order, int):
+                continue
+            if any(
+                str(stage.get("node_id") or "").strip() == node_id and stage.get("row_order") == row_order
+                for stage in line_ocr_stages
+            ):
+                continue
+            line_ocr_stages.append(
+                {
+                    "node_id": node_id,
+                    "row_order": row_order,
+                    "title": f"Node {node_id} strict opener",
+                    "image_filename": str(opener_stage.get("image_filename") or ""),
+                    "image_url": str(opener_stage.get("image_url") or ""),
+                    "response_name": str(opener_stage.get("response_name") or ""),
+                    "response_text": str(opener_stage.get("response_text") or ""),
+                    "artifact_kind": "strict_open_consumed",
+                }
+            )
+
         for rows_path in sorted(example_dir.glob("node_rows_*.json"), key=lambda item: item.name.lower()):
             node_suffix = rows_path.stem.removeprefix("node_rows_")
             overlay_name = f"node_rows_overlay_{node_suffix}.jpg"

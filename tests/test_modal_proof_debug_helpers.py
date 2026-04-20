@@ -144,6 +144,19 @@ class ModalProofDebugHelperTests(unittest.TestCase):
         self.assertEqual(artifact["kind"], "line")
         self.assertEqual(artifact["resolved"]["scope_role"], "premise")
 
+    def test_row_order_to_visible_line_order_counts_strict_open_consumed(self) -> None:
+        node_response = {
+            "line_artifacts": [
+                {"kind": "strict_open_consumed", "row_order": 1},
+                {"kind": "line", "row_order": 2},
+                {"kind": "line", "row_order": 3},
+            ]
+        }
+
+        self.assertEqual(artifact_helpers.row_order_to_visible_line_order(node_response, 1), 0)
+        self.assertEqual(artifact_helpers.row_order_to_visible_line_order(node_response, 2), 1)
+        self.assertEqual(artifact_helpers.row_order_to_visible_line_order(node_response, 3), 2)
+
     def test_build_stitched_line_lookup_expands_root_tokens_into_nested_lines(self) -> None:
         example_dir = self.tmp_dir / "sample"
         example_dir.mkdir(parents=True, exist_ok=True)
@@ -224,6 +237,36 @@ class ModalProofDebugHelperTests(unittest.TestCase):
         self.assertEqual(lookup[("2", 0)]["line_number"], 3)
         self.assertEqual(lookup[("2", 1)]["line_number"], 4)
         self.assertEqual(lookup[("ROOT", 0)]["line_number"], 6)
+
+    def test_build_stitched_line_lookup_falls_back_when_entries_lack_ocr_metadata(self) -> None:
+        example_dir = self.tmp_dir / "sample_no_metadata"
+        example_dir.mkdir(parents=True, exist_ok=True)
+        (example_dir / "node_entries_ROOT.json").write_text(
+            json.dumps(
+                [
+                    {"formula_text": "<SUBPROOF_ID_1>", "scope_role": "subproof_token", "line_label": ""},
+                    {"formula_text": "¬◇A", "justification_text": "~I 1-3", "scope_role": "derived_line", "line_label": "1"},
+                ],
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        (example_dir / "node_entries_1.json").write_text(
+            json.dumps(
+                [
+                    {"formula_text": "◇A", "justification_text": "", "scope_role": "ordinary_assumption", "line_label": ""},
+                    {"formula_text": "A", "justification_text": "◇E 1", "scope_role": "derived_line", "line_label": ""},
+                ],
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        lookup = artifact_helpers.build_stitched_line_lookup(example_dir)
+
+        self.assertEqual(lookup[("1", 0)]["line_number"], 1)
+        self.assertEqual(lookup[("1", 1)]["line_number"], 2)
+        self.assertEqual(lookup[("ROOT", 0)]["line_number"], 3)
 
 
 if __name__ == "__main__":
