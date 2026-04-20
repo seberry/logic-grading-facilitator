@@ -320,6 +320,103 @@ def _recover_sparse_lower_compact_bands(
     return rescued
 
 
+def _has_lower_half_split_advantage(
+    *,
+    base_bands: List[Band],
+    alt_bands: List[Band],
+    img_h: int,
+) -> bool:
+    if len(alt_bands) < 2 or not base_bands:
+        return False
+
+    lower_half_y = int(img_h * 0.55)
+    max_split_gap = max(14, img_h // 10)
+    tolerance = 4
+    for upper_alt, lower_alt in zip(alt_bands, alt_bands[1:]):
+        if upper_alt[0] < lower_half_y:
+            continue
+        if band_gap(upper_alt, lower_alt) > max_split_gap:
+            continue
+
+        spanning_base: List[Band] = []
+        for base_band in base_bands:
+            overlaps_upper = not (
+                base_band[1] < upper_alt[0] - tolerance or base_band[0] > upper_alt[1] + tolerance
+            )
+            overlaps_lower = not (
+                base_band[1] < lower_alt[0] - tolerance or base_band[0] > lower_alt[1] + tolerance
+            )
+            if overlaps_upper and overlaps_lower:
+                spanning_base.append(base_band)
+        if len(spanning_base) != 1:
+            continue
+
+        base_band = spanning_base[0]
+        split_span_height = lower_alt[1] - upper_alt[0] + 1
+        if (
+            base_band[0] <= upper_alt[0] + tolerance
+            and base_band[1] >= lower_alt[0] - tolerance
+            and split_span_height >= band_height(base_band) + max(6, max_split_gap // 2)
+        ):
+            return True
+    return False
+
+
+def _recover_split_post_child_bands_from_right_window(
+    *,
+    bands: List[Band],
+    node: Any,
+    node_crop_img: np.ndarray,
+    token_rect_for_child_fn: Callable[..., Rect],
+) -> List[Band]:
+    if not bands or not getattr(node, "children", None):
+        return bands
+
+    img_h, img_w = node_crop_img.shape[:2]
+    if img_w < 220:
+        return bands
+
+    token_bottoms = [
+        int(token_rect_for_child_fn(node=node, child=child, img_shape=node_crop_img.shape)[3])
+        for child in sorted(getattr(node, "children", []), key=lambda c: c.box[1])
+    ]
+    if not token_bottoms:
+        return bands
+
+    last_token_bottom = max(token_bottoms)
+    post_child_bands = [band for band in bands if band[0] > last_token_bottom + 4]
+    if len(post_child_bands) != 1:
+        return bands
+
+    gray = cv2.cvtColor(node_crop_img, cv2.COLOR_BGR2GRAY)
+    formula_w = min(img_w, max(80, int(img_w * 0.50)))
+    right_start = min(img_w - 1, max(formula_w, int(img_w * 0.42)))
+    right_end = max(right_start + 1, min(img_w, int(img_w * 0.92)))
+    right_window = gray[:, right_start:right_end]
+    right_dark_mask = (right_window < 185).astype(np.uint8)
+    post_child_right_bands = [
+        band for band in _projection_bands_from_dark_mask(right_dark_mask) if band[0] > last_token_bottom + 4
+    ]
+    if len(post_child_right_bands) != 2:
+        return bands
+
+    target_band = post_child_bands[0]
+    if not _has_lower_half_split_advantage(
+        base_bands=[target_band],
+        alt_bands=post_child_right_bands,
+        img_h=img_h,
+    ):
+        return bands
+
+    refined: List[Band] = []
+    for band in bands:
+        if band == target_band:
+            refined.extend(post_child_right_bands)
+        else:
+            refined.append(band)
+    return refined
+
+
 def detect_text_row_bands(
     crop_img: np.ndarray,
     *,
@@ -587,6 +684,12 @@ def segment_node_rows(
 
     merged_bands = merge_fragment_bands_fn(textlike_bands)
     bands = filter_bands_near_child_tokens_fn(bands=merged_bands, node=node, node_crop_img=cleaned)
+    bands = _recover_split_post_child_bands_from_right_window(
+        bands=bands,
+        node=node,
+        node_crop_img=cleaned,
+        token_rect_for_child_fn=token_rect_for_child_fn,
+    )
 
     if write_band_debug_artifacts is not None:
         merged_records = [{"y1": int(band[0]), "y2": int(band[1]), "height": int(band_height(band))} for band in merged_bands]

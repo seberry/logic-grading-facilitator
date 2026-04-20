@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -124,6 +125,23 @@ class ProofsOcrCommonRowsTests(unittest.TestCase):
         self.assertEqual(len(rescued_bands), 1)
         self.assertLessEqual(rescued_bands[0][0], 121)
         self.assertGreaterEqual(rescued_bands[0][1], 126)
+
+    def test_recover_split_post_child_bands_from_right_window_refines_single_post_child_band(self) -> None:
+        crop_img = np.full((340, 480, 3), 255, dtype=np.uint8)
+        parent = SubproofNode("1", (0, 0, 480, 340))
+        child = SubproofNode("2", (60, 205, 40, 30))
+        child.parent = parent
+        parent.children.append(child)
+
+        with patch.object(rows, "_projection_bands_from_dark_mask", return_value=[(292, 312), (317, 338)]):
+            refined = rows._recover_split_post_child_bands_from_right_window(
+                bands=[(12, 29), (40, 51), (76, 103), (121, 136), (292, 314)],
+                node=parent,
+                node_crop_img=crop_img,
+                token_rect_for_child_fn=lambda **_kwargs: (70, 204, 130, 234),
+            )
+
+        self.assertEqual(refined[-2:], [(292, 312), (317, 338)])
 
     def test_split_first_band_on_opener_underline_splits_merged_opener_band(self) -> None:
         gray = np.full((138, 483), 255, dtype=np.uint8)
