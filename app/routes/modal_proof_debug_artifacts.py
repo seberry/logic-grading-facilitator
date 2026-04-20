@@ -1,19 +1,11 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
-from proofs_ocr.common.stitch import extract_subproof_token_id
-from scripts.debug_modal_proof_ocr import recursive_stitch, renumber_lines
-
-
-@dataclass
-class _SyntheticNode:
-    id: str
-    children: List[Any] = field(default_factory=list)
+from proofs_ocr.common.stitch import extract_subproof_token_id, recursive_stitch, renumber_lines
 
 
 def artifact_text(debug_dir: Path, example_slug: str, filename: str) -> str:
@@ -74,27 +66,71 @@ def flatten_stitched_lines(structure: Any) -> List[Dict[str, Any]]:
     return flattened
 
 
+def _resolve_debug_stitch_item(item: Any, index: int) -> Optional[Dict[str, Any]]:
+    if not isinstance(item, dict):
+        return None
+
+    formula_text = str(item.get("formula_text") or item.get("wffstr") or "").strip()
+    if extract_subproof_token_id(formula_text):
+        return None
+
+    scope_role = str(item.get("scope_role") or "").strip()
+    citation = str(item.get("justification_text") or item.get("jstr") or "").strip()
+    if scope_role in {"premise", "ordinary_assumption", "strict_open"}:
+        citation = "PR"
+
+    line: Dict[str, Any] = {
+        "wffstr": formula_text,
+        "jstr": citation,
+        "scope_role": scope_role,
+    }
+    node_id = str(item.get("_ocr_node_id") or "").strip()
+    if node_id:
+        line["_ocr_node_id"] = node_id
+    row_order = item.get("_ocr_row_order")
+    if isinstance(row_order, int):
+        line["_ocr_row_order"] = row_order
+    line["_ocr_line_order"] = index
+    return line
+
+
+def _visible_line_orders(entries: List[Dict[str, Any]]) -> Dict[int, int]:
+    orders: Dict[int, int] = {}
+    visible_line_order = 0
+    for entry in entries:
+        formula_text = str(entry.get("formula_text") or entry.get("wffstr") or "").strip()
+        scope_role = str(entry.get("scope_role") or "").strip()
+        if scope_role == "subproof_token" or extract_subproof_token_id(formula_text):
+            continue
+        row_order = entry.get("_ocr_row_order")
+        if isinstance(row_order, int):
+            orders[row_order] = visible_line_order
+        visible_line_order += 1
+    return orders
+
+
 def build_stitched_line_lookup(example_dir: Path) -> Dict[Tuple[str, int], Dict[str, Any]]:
     library = load_node_entry_library(example_dir)
     if not library:
         return {}
 
-    root_entries = library.get("ROOT", [])
-    root_has_content = any(str(item.get("formula_text") or item.get("wffstr") or "").strip() for item in root_entries)
-    top_level_entries = library.get("1", []) if not root_has_content and "1" in library else root_entries
+    top_level_entries = library.get("ROOT") or library.get("1") or []
     if not top_level_entries:
         return {}
 
-    root_node = _SyntheticNode("ROOT") if top_level_entries is root_entries else None
-    stitched = recursive_stitch(top_level_entries, library, root_node)
-    while isinstance(stitched, list) and len(stitched) == 1 and isinstance(stitched[0], list):
-        stitched = stitched[0]
+    stitched = recursive_stitch(top_level_entries, library, resolve_item=_resolve_debug_stitch_item)
     renumber_lines(stitched)
+    visible_orders_by_node = {node_id: _visible_line_orders(entries) for node_id, entries in library.items()}
 
     lookup: Dict[Tuple[str, int], Dict[str, Any]] = {}
     for line in flatten_stitched_lines(stitched):
         node_id = str(line.get("_ocr_node_id") or "").strip()
-        line_order = line.get("_ocr_line_order")
+        row_order = line.get("_ocr_row_order")
+        line_order = (
+            visible_orders_by_node.get(node_id, {}).get(row_order)
+            if isinstance(row_order, int)
+            else line.get("_ocr_line_order")
+        )
         if not node_id or not isinstance(line_order, int):
             continue
         lookup[(node_id, line_order)] = {

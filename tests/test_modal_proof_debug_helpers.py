@@ -144,6 +144,87 @@ class ModalProofDebugHelperTests(unittest.TestCase):
         self.assertEqual(artifact["kind"], "line")
         self.assertEqual(artifact["resolved"]["scope_role"], "premise")
 
+    def test_build_stitched_line_lookup_expands_root_tokens_into_nested_lines(self) -> None:
+        example_dir = self.tmp_dir / "sample"
+        example_dir.mkdir(parents=True, exist_ok=True)
+        (example_dir / "node_entries_ROOT.json").write_text(
+            json.dumps(
+                [
+                    {"scope_role": "subproof_token", "formula_text": "<SUBPROOF_ID_1>", "justification_text": ""},
+                    {
+                        "formula_text": "¬(□A ∧ ⊢A)",
+                        "justification_text": "~I 1-9",
+                        "scope_role": "derived_line",
+                        "_ocr_node_id": "ROOT",
+                        "_ocr_row_order": 2,
+                    },
+                ],
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        (example_dir / "node_entries_1.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "formula_text": "A",
+                        "justification_text": "Assum",
+                        "scope_role": "ordinary_assumption",
+                        "_ocr_node_id": "1",
+                        "_ocr_row_order": 1,
+                    },
+                    {
+                        "formula_text": "□A",
+                        "justification_text": "∧E 1",
+                        "scope_role": "derived_line",
+                        "_ocr_node_id": "1",
+                        "_ocr_row_order": 2,
+                    },
+                    {"scope_role": "subproof_token", "formula_text": "<SUBPROOF_ID_2>", "justification_text": ""},
+                    {
+                        "formula_text": "¬A",
+                        "justification_text": "",
+                        "scope_role": "premise",
+                        "_ocr_node_id": "1",
+                        "_ocr_row_order": 4,
+                    },
+                ],
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        (example_dir / "node_entries_2.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "formula_text": "□",
+                        "justification_text": "",
+                        "scope_role": "strict_open",
+                        "_ocr_node_id": "2",
+                        "_ocr_row_order": 1,
+                    },
+                    {
+                        "formula_text": "A",
+                        "justification_text": "",
+                        "scope_role": "premise",
+                        "_ocr_node_id": "2",
+                        "_ocr_row_order": 2,
+                    },
+                ],
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        lookup = artifact_helpers.build_stitched_line_lookup(example_dir)
+
+        self.assertEqual(lookup[("1", 0)]["line_number"], 1)
+        self.assertEqual(lookup[("1", 0)]["citation"], "PR")
+        self.assertEqual(lookup[("1", 2)]["line_number"], 5)
+        self.assertEqual(lookup[("2", 0)]["line_number"], 3)
+        self.assertEqual(lookup[("2", 1)]["line_number"], 4)
+        self.assertEqual(lookup[("ROOT", 0)]["line_number"], 6)
+
 
 if __name__ == "__main__":
     unittest.main()

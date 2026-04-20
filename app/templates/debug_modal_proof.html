@@ -12,9 +12,10 @@
     }
 
     .page {
-      max-width: 1280px;
+      width: min(1920px, calc(100vw - 2rem));
+      max-width: 1920px;
       margin: 0 auto;
-      padding: 2rem;
+      padding: 1.5rem 1rem 2rem;
     }
 
     h1 {
@@ -39,7 +40,7 @@
 
     .top-grid {
       display: grid;
-      grid-template-columns: minmax(320px, 0.95fr) minmax(360px, 1.05fr);
+      grid-template-columns: minmax(560px, 1.2fr) minmax(440px, 1fr);
       gap: 1rem;
       margin-bottom: 1rem;
     }
@@ -333,7 +334,7 @@
 
     .workspace-grid {
       display: grid;
-      grid-template-columns: minmax(320px, 0.95fr) minmax(420px, 1.05fr);
+      grid-template-columns: minmax(760px, 1.35fr) minmax(620px, 1fr);
       gap: 1rem;
     }
 
@@ -598,8 +599,8 @@
     }
 
     .editor-crop-cell {
-      width: 150px;
-      min-width: 150px;
+      width: 210px;
+      min-width: 210px;
     }
 
     .editor-crop-box {
@@ -610,7 +611,7 @@
 
     .editor-crop-box img {
       display: block;
-      width: 112px;
+      width: 176px;
       max-width: 100%;
       border-radius: 0.4rem;
       border: 1px solid #cbd5e1;
