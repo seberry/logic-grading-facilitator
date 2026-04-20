@@ -686,6 +686,76 @@ def build_baseline_triage(
     }
 
 
+def build_editor_line_artifacts(
+    *,
+    line_ocr_stages: List[Dict[str, Any]],
+    checker_issue_map: Dict[int, List[Dict[str, str]]],
+    review_by_line: Dict[int, Dict[str, Any]],
+    current_lines: Dict[int, Dict[str, Any]],
+    gold_line_issues: Optional[Dict[int, Dict[str, Any]]] = None,
+    expected_lines: Optional[Dict[int, Dict[str, Any]]] = None,
+) -> Dict[str, Dict[str, Any]]:
+    artifacts: Dict[str, Dict[str, Any]] = {}
+    gold_issue_map = gold_line_issues or {}
+    expected_line_map = expected_lines or {}
+
+    for stage in line_ocr_stages:
+        line_number = stage.get("stitched_line_number")
+        if not isinstance(line_number, int):
+            continue
+        key = str(line_number)
+        if key in artifacts:
+            continue
+
+        current_line = current_lines.get(line_number, {})
+        gold_issue = gold_issue_map.get(line_number, {})
+        expected_line = expected_line_map.get(line_number, {})
+        current_line_text = _line_text(
+            str(current_line.get("formula") or ""),
+            str(current_line.get("citation") or ""),
+        )
+        expected_line_text = gold_issue.get("expected_line_text") or _line_text(
+            str(expected_line.get("formula") or ""),
+            str(expected_line.get("citation") or ""),
+        )
+
+        reasons: List[str] = []
+        for reason in gold_issue.get("reasons") or []:
+            text = str(reason or "").strip()
+            if text:
+                reasons.append(f"gold: {text}")
+        for issue in checker_issue_map.get(line_number, []):
+            message = str(issue.get("message") or "").strip()
+            if message:
+                reasons.append(f"checker: {message}")
+        for reason in review_by_line.get(line_number, {}).get("flag_reasons") or []:
+            text = str(reason or "").strip()
+            if text and text != "checker issue":
+                reasons.append(f"ocr: {text}")
+        for reason in stage.get("triage_reasons") or []:
+            text = str(reason or "").strip()
+            if text:
+                reasons.append(f"artifact: {text}")
+
+        deduped_reasons: List[str] = []
+        for reason in reasons:
+            if reason not in deduped_reasons:
+                deduped_reasons.append(reason)
+
+        artifacts[key] = {
+            "line_number": line_number,
+            "image_url": str(stage.get("image_url") or "").strip(),
+            "image_filename": str(stage.get("image_filename") or "").strip(),
+            "node_id": str(stage.get("node_id") or "").strip(),
+            "row_order": int(stage.get("row_order") or 0) if stage.get("row_order") is not None else 0,
+            "current_line_text": current_line_text,
+            "expected_line_text": expected_line_text,
+            "reasons": deduped_reasons,
+        }
+
+    return artifacts
+
+
 def render_checker_request_preview(checker_request: Any) -> str:
     lines = checker_request_lines(checker_request)
     if not lines:
@@ -1053,6 +1123,14 @@ def render_page(
         gold_line_issues=gold_comparison.get("line_issues"),
         expected_lines=gold_comparison.get("expected_lines"),
     )
+    editor_line_artifacts = build_editor_line_artifacts(
+        line_ocr_stages=line_ocr_stages,
+        checker_issue_map=checker_issue_map,
+        review_by_line=review_by_line,
+        current_lines=current_lines,
+        gold_line_issues=gold_comparison.get("line_issues"),
+        expected_lines=gold_comparison.get("expected_lines"),
+    )
 
     return deps.templates.TemplateResponse(
         request,
@@ -1083,6 +1161,7 @@ def render_page(
             "auxiliary_image_artifacts": auxiliary_image_artifacts,
             "baseline_quick_view": baseline_quick_view,
             "baseline_triage": baseline_triage,
+            "editor_line_artifacts": editor_line_artifacts,
             "gold_comparison": gold_comparison,
             "unary_verifier_results": unary_verifier_results,
             "review_panel": review_panel,

@@ -454,7 +454,7 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertIn("OCR verdict", response.text)
         self.assertIn("Proof editor", response.text)
         self.assertIn("modal_v2 baseline first pass", response.text)
-        self.assertIn("Likely bad rows/lines: 1", response.text)
+        self.assertIn("Flagged stitched lines: 1", response.text)
         self.assertIn("Line 4", response.text)
         self.assertIn("Detected bars", response.text)
         self.assertIn("Open image file", response.text)
@@ -469,6 +469,7 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertIn("node_rows_overlay_ROOT.jpg?v=", response.text)
         self.assertIn("Per-line OCR inside nodes", response.text)
         self.assertIn("node_line_ROOT_1.jpg?v=", response.text)
+        self.assertIn("<th>OCR crop</th>", response.text)
         self.assertIn("Line-numbering debug artifacts", response.text)
         self.assertIn("Flagged OCR lines: 1", response.text)
         self.assertIn("Flagged lines:", response.text)
@@ -527,6 +528,30 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertEqual(triage["items"][0]["title"], "Line 4")
         self.assertIn("checker: bad rule", triage["items"][0]["reasons"])
         self.assertTrue(any(item["kind"] == "row" for item in triage["items"]))
+
+    def test_build_editor_line_artifacts_maps_stitched_line_crop_and_reasons(self) -> None:
+        artifacts = modal_proof_debug_routes.page_helpers.build_editor_line_artifacts(
+            line_ocr_stages=[
+                {
+                    "node_id": "1",
+                    "row_order": 7,
+                    "stitched_line_number": 9,
+                    "image_url": "/debug_modal_proof_assets/sample/node_line_1_7.jpg",
+                    "image_filename": "node_line_1_7.jpg",
+                    "triage_reasons": ["gold: formula mismatch: expected ⊥"],
+                }
+            ],
+            checker_issue_map={9: [{"kind": "rule", "code": "BadUsage", "message": "bad rule"}]},
+            review_by_line={9: {"flag_reasons": ["multiple candidate formulas"]}},
+            current_lines={9: {"formula": "¬E", "citation": ""}},
+            gold_line_issues={9: {"reasons": ["formula mismatch: expected ⊥"]}},
+            expected_lines={9: {"formula": "⊥", "citation": "¬E 4,8"}},
+        )
+
+        self.assertIn("9", artifacts)
+        self.assertEqual(artifacts["9"]["image_filename"], "node_line_1_7.jpg")
+        self.assertEqual(artifacts["9"]["expected_line_text"], "⊥    ¬E 4,8")
+        self.assertIn("gold: formula mismatch: expected ⊥", artifacts["9"]["reasons"])
 
     def test_build_gold_comparison_flags_formula_and_missing_lines(self) -> None:
         comparison = modal_proof_debug_routes.page_helpers.build_gold_comparison(

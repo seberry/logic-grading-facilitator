@@ -597,6 +597,36 @@
       min-height: 1.3rem;
     }
 
+    .editor-crop-cell {
+      width: 150px;
+      min-width: 150px;
+    }
+
+    .editor-crop-box {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+
+    .editor-crop-box img {
+      display: block;
+      width: 112px;
+      max-width: 100%;
+      border-radius: 0.4rem;
+      border: 1px solid #cbd5e1;
+      background: #fff;
+    }
+
+    .editor-crop-meta {
+      font-size: 0.75rem;
+      color: #475569;
+      line-height: 1.35;
+    }
+
+    .editor-crop-meta strong {
+      color: #1e293b;
+    }
+
     .review-summary {
       display: flex;
       flex-wrap: wrap;
@@ -994,7 +1024,10 @@
                   </div>
                 {% endif %}
                 {% if baseline_triage.flagged_count %}
-                  <div class="review-pill">Likely bad rows/lines: {{ baseline_triage.flagged_count }}</div>
+                  <div class="review-pill">Flagged stitched lines: {{ baseline_triage.line_count }}</div>
+                  {% if baseline_triage.row_count %}
+                    <div class="review-pill">Artifact-only rows: {{ baseline_triage.row_count }}</div>
+                  {% endif %}
                 {% endif %}
               </div>
               {% if gold_comparison.enabled %}
@@ -1133,6 +1166,7 @@
                       <th>Depth</th>
                       <th>Formula</th>
                       <th>Citation</th>
+                      <th>OCR crop</th>
                       <th>Warnings</th>
                     </tr>
                   </thead>
@@ -2138,6 +2172,7 @@
       const resolvedCountNode = document.getElementById("review-resolved-count");
       const unresolvedCountNode = document.getElementById("review-unresolved-count");
       const reviewItems = Array.from(document.querySelectorAll("[data-review-item]"));
+      const editorLineArtifacts = {{ editor_line_artifacts | tojson }};
       const decisions = {};
       const FORMULA_ASCII_REPLACEMENTS = [
         { ascii: "<->", symbol: "↔" },
@@ -2446,6 +2481,46 @@
           });
           citationTd.appendChild(citationInput);
           tr.appendChild(citationTd);
+
+          const cropTd = document.createElement("td");
+          cropTd.className = "editor-crop-cell";
+          const cropBox = document.createElement("div");
+          cropBox.className = "editor-crop-box";
+          const lineArtifact = editorLineArtifacts[String(idx + 1)] || null;
+          if (lineArtifact && lineArtifact.image_url) {
+            const cropLink = document.createElement("a");
+            cropLink.href = lineArtifact.image_url;
+            const cropImg = document.createElement("img");
+            cropImg.src = lineArtifact.image_url;
+            cropImg.alt = lineArtifact.image_filename || `OCR crop for line ${idx + 1}`;
+            cropLink.appendChild(cropImg);
+            cropBox.appendChild(cropLink);
+
+            const cropMeta = document.createElement("div");
+            cropMeta.className = "editor-crop-meta";
+            const metaParts = [];
+            if (lineArtifact.node_id) {
+              metaParts.push(`node ${lineArtifact.node_id}`);
+            }
+            if (lineArtifact.row_order) {
+              metaParts.push(`row ${lineArtifact.row_order}`);
+            }
+            const expectedLineText = String(lineArtifact.expected_line_text || "").trim();
+            const currentLineText = String(lineArtifact.current_line_text || "").trim();
+            cropMeta.innerHTML = [
+              metaParts.length ? `<div>${metaParts.join(" | ")}</div>` : "",
+              expectedLineText && expectedLineText !== currentLineText ? `<div><strong>Expected:</strong> ${expectedLineText}</div>` : "",
+              Array.isArray(lineArtifact.reasons) && lineArtifact.reasons.length ? `<div>${lineArtifact.reasons[0]}</div>` : "",
+            ].filter(Boolean).join("");
+            cropBox.appendChild(cropMeta);
+          } else {
+            const missingMeta = document.createElement("div");
+            missingMeta.className = "editor-crop-meta";
+            missingMeta.textContent = "No mapped OCR crop.";
+            cropBox.appendChild(missingMeta);
+          }
+          cropTd.appendChild(cropBox);
+          tr.appendChild(cropTd);
 
           const warningTd = document.createElement("td");
           const warningText = document.createElement("div");
