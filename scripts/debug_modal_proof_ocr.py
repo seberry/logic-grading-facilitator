@@ -1554,6 +1554,7 @@ def _build_short_formula_reread_prompt(*, current_formula: str, justification_te
         "Copy exactly the formula or symbol you see.",
         "Preserve unary operators exactly: ¬, □, ⋄.",
         "Short formulas such as Q, □Q, ¬Q, ¬□¬A, or □ are common.",
+        "A contradiction line may be written as ⊥, _|_, _ | _, or a short vertical stroke over a horizontal bar; transcribe any of these as ⊥.",
         "Do not include justification text, line numbers, or explanation.",
         f"Current OCR formula: {current_formula}",
     ]

@@ -742,6 +742,11 @@ def build_editor_line_artifacts(
             if reason not in deduped_reasons:
                 deduped_reasons.append(reason)
 
+        status = _editor_artifact_status(
+            gold_issue_reasons=[str(reason or "").strip() for reason in (gold_issue.get("reasons") or []) if str(reason or "").strip()],
+            has_attention=bool(checker_issue_map.get(line_number) or review_by_line.get(line_number, {}).get("flag_reasons") or stage.get("triage_reasons")),
+        )
+
         artifacts[key] = {
             "line_number": line_number,
             "image_url": str(stage.get("image_url") or "").strip(),
@@ -755,9 +760,31 @@ def build_editor_line_artifacts(
             "current_line_text": current_line_text,
             "expected_line_text": expected_line_text,
             "reasons": deduped_reasons,
+            "status": status,
         }
 
     return artifacts
+
+
+def _editor_artifact_status(*, gold_issue_reasons: List[str], has_attention: bool) -> str:
+    lower_reasons = [reason.lower() for reason in gold_issue_reasons]
+    has_formula = any("formula mismatch" in reason for reason in lower_reasons)
+    has_citation = any("citation mismatch" in reason for reason in lower_reasons)
+    has_structure = any("structure mismatch" in reason for reason in lower_reasons)
+    has_missing = any("missing line" in reason for reason in lower_reasons)
+    if has_missing:
+        return "gold_missing"
+    if has_formula and has_citation:
+        return "gold_both"
+    if has_formula:
+        return "gold_formula"
+    if has_citation:
+        return "gold_citation"
+    if has_structure:
+        return "gold_structure"
+    if has_attention:
+        return "attention"
+    return "ok"
 
 
 def render_checker_request_preview(checker_request: Any) -> str:

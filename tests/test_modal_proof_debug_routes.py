@@ -558,6 +558,7 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertEqual(artifacts["9"]["justification_image_filename"], "node_line_1_7_justification.jpg")
         self.assertEqual(artifacts["9"]["expected_line_text"], "⊥    ¬E 4,8")
         self.assertIn("gold: formula mismatch: expected ⊥", artifacts["9"]["reasons"])
+        self.assertEqual(artifacts["9"]["status"], "gold_formula")
 
     def test_build_gold_comparison_flags_formula_and_missing_lines(self) -> None:
         comparison = modal_proof_debug_routes.page_helpers.build_gold_comparison(

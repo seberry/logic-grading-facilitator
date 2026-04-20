@@ -7,7 +7,7 @@ import numpy as np
 
 from proofs_ocr.domains import modal
 from proofs_ocr.domains import modal_line_zones
-from modal_ocr.prompts import build_justification_ocr_prompt
+from modal_ocr.prompts import build_formula_ocr_prompt, build_justification_ocr_prompt
 from proofs_ocr.pipelines.modal_v2_bar_filters import filter_false_left_separator_bars
 from proofs_ocr.pipelines.modal_v2_unary import run_structured_unary_probe
 from proofs_ocr.pipelines import modal_v2
@@ -519,6 +519,12 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
         self.assertIn('keep the printed tilde form', prompt)
         self.assertIn('do not copy numbers from the examples', prompt)
         self.assertIn('first line of a proof or subproof often has no printed justification', prompt)
+
+    def test_build_formula_ocr_prompt_mentions_contradiction_variants(self) -> None:
+        prompt = build_formula_ocr_prompt({"system": "S4"})
+
+        self.assertIn("A contradiction line may be written as ⊥, _|_, _ | _", prompt)
+        self.assertIn('return "⊥" as formula_text', prompt)
 
     def test_modal_baseline_artifact_line_reader_can_separate_formula_and_justification_zones(self) -> None:
         class SequentialClient:

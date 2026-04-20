@@ -607,6 +607,10 @@
       display: flex;
       flex-direction: column;
       gap: 0.35rem;
+      border: 1px solid #cbd5e1;
+      border-radius: 0.65rem;
+      background: #f8fafc;
+      padding: 0.5rem;
     }
 
     .editor-crop-box img {
@@ -664,6 +668,32 @@
 
     .editor-crop-meta strong {
       color: #1e293b;
+    }
+
+    .editor-crop-box.is-gold-formula {
+      border-color: #f43f5e;
+      background: #fff1f2;
+    }
+
+    .editor-crop-box.is-gold-citation {
+      border-color: #f59e0b;
+      background: #fffbeb;
+    }
+
+    .editor-crop-box.is-gold-both {
+      border-color: #c026d3;
+      background: #fdf4ff;
+    }
+
+    .editor-crop-box.is-gold-structure,
+    .editor-crop-box.is-gold-missing {
+      border-color: #7c3aed;
+      background: #f5f3ff;
+    }
+
+    .editor-crop-box.is-attention {
+      border-color: #38bdf8;
+      background: #f0f9ff;
     }
 
     .review-summary {
@@ -2556,6 +2586,20 @@
           const cropBox = document.createElement("div");
           cropBox.className = "editor-crop-box";
           const lineArtifact = editorLineArtifacts[String(idx + 1)] || null;
+          const artifactStatus = String(lineArtifact?.status || "").trim();
+          if (artifactStatus === "gold_formula") {
+            cropBox.classList.add("is-gold-formula");
+          } else if (artifactStatus === "gold_citation") {
+            cropBox.classList.add("is-gold-citation");
+          } else if (artifactStatus === "gold_both") {
+            cropBox.classList.add("is-gold-both");
+          } else if (artifactStatus === "gold_structure") {
+            cropBox.classList.add("is-gold-structure");
+          } else if (artifactStatus === "gold_missing") {
+            cropBox.classList.add("is-gold-missing");
+          } else if (artifactStatus === "attention") {
+            cropBox.classList.add("is-attention");
+          }
           if (lineArtifact && (lineArtifact.image_url || lineArtifact.formula_image_url || lineArtifact.justification_image_url)) {
             const showFull = editorCropMode === "full" || editorCropMode === "both";
             const showSplit = editorCropMode === "split" || editorCropMode === "both";

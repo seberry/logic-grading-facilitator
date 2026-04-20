@@ -54,6 +54,15 @@ class DebugModalProofOcrTests(unittest.TestCase):
             "~I 1-9",
         )
 
+    def test_short_formula_reread_prompt_mentions_contradiction_variants(self) -> None:
+        prompt = debug_modal_proof_ocr._build_short_formula_reread_prompt(
+            current_formula="¬A",
+            justification_text="¬E 4,8",
+        )
+
+        self.assertIn("A contradiction line may be written as ⊥, _|_, _ | _", prompt)
+        self.assertIn("Current OCR formula: ¬A", prompt)
+
     def test_load_modal_config_accepts_saved_state_shape(self) -> None:
         path = self.tmp_dir / "state.json"
         path.write_text(

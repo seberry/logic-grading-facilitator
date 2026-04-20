@@ -58,6 +58,8 @@ def build_formula_ocr_prompt(config: Dict[str, Any]) -> str:
         'Copy the printed line label if visible; otherwise return an empty string for "line_label".',
         "Prefer Unicode operators: ¬, ∧, ∨, →, ↔, □, ⋄.",
         "Preserve repeated unary operators exactly.",
+        'A contradiction line may be written as ⊥, _|_, _ | _, or a short vertical stroke over a horizontal bar; transcribe any of these as ⊥.',
+        'If the visible formula is only contradiction/absurdity, return "⊥" as formula_text.',
         'If the visible content is only a modal box opener, return "□" as formula_text.',
         "Use confidence values high, medium, low, or uncertain.",
     ]
