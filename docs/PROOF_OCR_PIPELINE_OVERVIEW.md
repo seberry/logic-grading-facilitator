@@ -137,6 +137,8 @@ When a fixture is wrong, check the stages in this order:
    - missed row
    - merged rows
    - child token slot mistaken for text
+   - post-child lower rows may need a justification-side split hint when the
+     formula-side band stays merged
 4. Line OCR / parsing
    - symbol loss
    - unary operator loss such as `¬`
@@ -218,6 +220,27 @@ What it did not solve:
 That is a good example of the general rule:
 
 - contain visible damage first if cheap
+
+Another current example is the handwritten contradiction step in
+`modal_handwritten_user_negated_modal_conjunction`.
+
+What happened:
+
+- after child-token filtering, the parent node kept one merged post-child lower
+  band
+- the justification-side projection still showed two lower rows
+- the contradiction step therefore never reached OCR as its own line crop
+
+What helped:
+
+- a narrow post-child split recovery in `proofs_ocr/common/rows.py`
+- that recovery only runs when one post-child band remains and the right-side
+  projection offers a credible two-row lower-half split
+
+What it did not solve:
+
+- the recovered bottom rows are still OCRed poorly
+- so the failure has moved from row segmentation to line reading
 - still fix the earlier geometric cause afterwards
 
 ## How To Decide What To Work On Next

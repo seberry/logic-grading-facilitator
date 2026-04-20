@@ -139,31 +139,40 @@ The repo also now has:
 
 ## Recent Baseline Win
 
-The most recent concrete modal_v2 fix was the strict-opener recovery on the
-`modal_s4_typeset_r4_corrected` fixture.
+The most recent concrete modal_v2 fix was a handwritten row-segmentation repair
+for `modal_handwritten_user_negated_modal_conjunction`.
 
-That issue turned out to be two separate failures:
+That issue turned out not to be a generic "sparse symbol" failure. The real
+problem was narrower:
 
-- the tiny top `□` opener row in a deep child crop was being stripped out of
-  row segmentation as weak "structure"
-- once the row was recovered, the per-line OCR result still came back empty and
-  needed a narrow modal-domain recovery pass
+- after child-token filtering, the parent node kept exactly one post-child band
+  for the bottom of the proof
+- on the justification side, that same region clearly split into two lower rows
+- the missing contradiction step was therefore never reaching OCR as its own
+  crop
 
 The current baseline now:
 
-- preserves compact top-left opener components during row-band detection
-- records row-band debug artifacts so rejected vs kept bands are inspectable in
+- keeps the ordinary left-side row detector unchanged as the default path
+- adds a narrow post-child recovery in `proofs_ocr/common/rows.py`
+- only applies that recovery when one merged post-child band remains and the
+  right-side projection gives a credible two-row lower-half split
+- records the recovered split in the same row-band debug artifacts used by
   `/debug/modal-proof`
-- recovers a tiny strict opener as `□` only when the crop is visually
-  consistent with a lone opener and the parsed line has no line label
 
-So the strict-opener problem is no longer the main blocker. The next debugging
-work should focus on tree/bar geometry.
+End-to-end effect on the 5-case gold suite:
 
-There is also now a cheap runtime safeguard against label-only wide crops, so
-false parent ownership is less likely to hallucinate stray formulas when the
-tree is wrong. That contains one visible failure mode, but it does not fix the
-underlying false-bar geometry issue.
+- typeset passes stay green
+- `modal_handwritten_user_negated_modal_conjunction` returns to the correct
+  line count and nesting shape:
+  - no missing lines
+  - no extra lines
+  - no structural mismatches
+- the remaining failure on that case is now OCR quality on the recovered bottom
+  rows, not missing geometry
+
+The earlier strict-opener recovery for `modal_s4_typeset_r4_corrected` is still
+important and still live, but it is no longer the newest geometry win.
 
 ## Current Main Blocker
 
@@ -210,10 +219,12 @@ clusters:
 - Row segmentation failures
   - A visible handwritten line can still be missed or merged into a neighboring
     band before OCR.
-  - The clearest live case is the contradiction step in
-    `modal_handwritten_user_negated_modal_conjunction`, which is merged into the
-    same band as the preceding `□I` line, so OCR only emits one line for that
-    crop.
+  - The clearest remaining live risk is still lower handwritten rows near child
+    tokens, but the specific contradiction-step merge in
+    `modal_handwritten_user_negated_modal_conjunction` is now repaired by a
+    targeted post-child split recovery.
+  - On that fixture the bottleneck has moved downstream: the recovered rows now
+    exist, but OCR still misreads them.
 
 There is now also a small review artifact generator under
 `proofs_ocr/regression/modal_zone_review.py` that can build:
