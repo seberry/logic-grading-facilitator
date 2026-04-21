@@ -34,6 +34,7 @@ def build_modal_v2_state(
     run_summary: str,
     vision_base_url: str | None = None,
     vision_model: str | None = None,
+    line_vision_model: str | None = None,
     verifier_vision_model: str | None = None,
     enable_formula_justification_separation: bool = False,
     source_image_name: str = "",
@@ -47,6 +48,7 @@ def build_modal_v2_state(
         "conclusion": canonical["conclusion"],
         "vision_base_url": (vision_base_url or default_lmstudio_base_url()).strip(),
         "vision_model": (vision_model or default_lmstudio_model()).strip(),
+        "line_vision_model": (line_vision_model or vision_model or default_lmstudio_model()).strip(),
         "verifier_vision_model": (verifier_vision_model or "").strip(),
         "enable_formula_justification_separation": bool(enable_formula_justification_separation),
         "source_image_name": source_image_name,
@@ -69,6 +71,7 @@ def transcribe_image_to_modal_v2_debug_state(
     client: ImagePromptClient | None = None,
     vision_base_url: str | None = None,
     vision_model: str | None = None,
+    line_vision_model: str | None = None,
     verifier_client: ImagePromptClient | None = None,
     verifier_vision_model: str | None = None,
     enable_formula_justification_separation: bool = False,
@@ -79,6 +82,7 @@ def transcribe_image_to_modal_v2_debug_state(
     enable_sparse_lower_compact_band_recovery: bool = False,
     enable_contradiction_reread: bool = False,
     enable_justification_head_reread: bool = False,
+    enable_formula_consensus_reread: bool = False,
 ) -> dict[str, Any]:
     """Run the modal_v2 baseline end to end and write debug artifacts."""
 
@@ -88,7 +92,7 @@ def transcribe_image_to_modal_v2_debug_state(
     artifacts.clear_debug_dir(output_dir, preserve_paths=preserved)
 
     if client is None:
-        client = build_vlm_client(base_url=vision_base_url, model=vision_model)
+        client = build_vlm_client(base_url=vision_base_url, model=(line_vision_model or vision_model))
     if (
         (enable_formula_justification_separation and bool(verifier_vision_model))
         or enable_unary_structured_probe
@@ -96,10 +100,11 @@ def transcribe_image_to_modal_v2_debug_state(
         or enable_false_left_separator_filter
         or enable_contradiction_reread
         or enable_justification_head_reread
+        or enable_formula_consensus_reread
     ) and verifier_client is None:
         verifier_client = build_vlm_client(
             base_url=vision_base_url,
-            model=(verifier_vision_model or vision_model),
+            model=(verifier_vision_model or line_vision_model or vision_model),
         )
 
     image = cv2.imread(str(image_path))
@@ -128,6 +133,7 @@ def transcribe_image_to_modal_v2_debug_state(
             enable_sparse_lower_compact_band_recovery=enable_sparse_lower_compact_band_recovery,
             enable_contradiction_reread=enable_contradiction_reread,
             enable_justification_head_reread=enable_justification_head_reread,
+            enable_formula_consensus_reread=enable_formula_consensus_reread,
         ),
         enable_false_left_separator_filter=enable_false_left_separator_filter,
         false_left_separator_verifier_client=verifier_client if enable_false_left_separator_filter else None,
@@ -247,6 +253,10 @@ def transcribe_image_to_modal_v2_debug_state(
         run_summary += " Contradiction-line reread was enabled."
     if enable_justification_head_reread:
         run_summary += " Boxed justification-head reread was enabled."
+    if enable_formula_consensus_reread:
+        run_summary += " Formula-only consensus reread was enabled."
+    if str(line_vision_model or "").strip() and str(line_vision_model).strip() != str(vision_model or "").strip():
+        run_summary += f" Final line OCR used {str(line_vision_model).strip()} while structure used {str(vision_model or default_lmstudio_model()).strip()}."
     if enable_unary_blob_probe:
         flagged_count = sum(1 for record in unary_blob_probe_records if bool(record.get("any_blob_flagged")))
         run_summary += (
@@ -259,7 +269,8 @@ def transcribe_image_to_modal_v2_debug_state(
         run_summary=run_summary,
         vision_base_url=vision_base_url,
         vision_model=vision_model,
-        verifier_vision_model=verifier_vision_model or vision_model,
+        line_vision_model=line_vision_model or vision_model,
+        verifier_vision_model=verifier_vision_model or line_vision_model or vision_model,
         enable_formula_justification_separation=enable_formula_justification_separation,
         source_image_name=source_copy_name,
     )

@@ -11,6 +11,7 @@ import cv2
 from proofs_ocr.common import artifacts
 from proofs_ocr.domains import modal
 from proofs_ocr.pipelines.modal_v2_core import ImagePromptClient, ModalPipelineFeatureFlags
+from proofs_ocr.pipelines.modal_v2_formula_rereads import maybe_reread_formula_text
 from proofs_ocr.pipelines.modal_v2_line_rereads import maybe_reread_contradiction_line, maybe_reread_justification_head
 from proofs_ocr.pipelines.modal_v2_line_zones import read_line_with_zone_separation
 
@@ -47,6 +48,7 @@ class ModalBaselineArtifactLineReader:
         self.prompt = prompt
         self.enable_formula_justification_separation = enable_formula_justification_separation
         self.verifier_client = verifier_client
+        self.modal_config = modal_config
         self.formula_prompt = ""
         self.justification_prompt = ""
         if enable_formula_justification_separation:
@@ -74,6 +76,8 @@ class ModalBaselineArtifactLineReader:
                 node=node,
                 line_crop_img=line_crop_img,
                 row_record=row_record,
+                feature_flags=feature_flags,
+                modal_config=self.modal_config,
             )
         row_order = int(row_record.get("row_order", 0))
         crop_name = artifacts.NODE_LINE_CROP_TEMPLATE.format(node_id=node.id, row_order=row_order)
@@ -93,6 +97,7 @@ class ModalBaselineArtifactLineReader:
         recovery_applied = ""
         contradiction_reread = None
         justification_head_reread = None
+        formula_consensus_reread = None
         if not skip_reason:
             raw_response = self.client.chat_with_image_prompt(crop_path, self.prompt)
             try:
@@ -137,6 +142,19 @@ class ModalBaselineArtifactLineReader:
                 if justification_recovery:
                     resolved = justification_resolved
                     recovery_applied = justification_recovery
+            if feature_flags.enable_formula_consensus_reread:
+                formula_resolved, formula_consensus_reread, formula_recovery = maybe_reread_formula_text(
+                    output_dir=self.output_dir,
+                    client=self.verifier_client,
+                    node_id=str(node.id),
+                    row_order=row_order,
+                    line_crop_img=line_crop_img,
+                    parsed_entry=resolved,
+                    modal_config=self.modal_config,
+                )
+                if formula_recovery:
+                    resolved = formula_resolved
+                    recovery_applied = formula_recovery
 
         payload = {
             "node_id": node.id,
@@ -154,6 +172,8 @@ class ModalBaselineArtifactLineReader:
             payload["contradiction_reread"] = contradiction_reread
         if not skip_reason and justification_head_reread is not None:
             payload["justification_head_reread"] = justification_head_reread
+        if not skip_reason and formula_consensus_reread is not None:
+            payload["formula_consensus_reread"] = formula_consensus_reread
         (self.output_dir / artifacts.NODE_LINE_RESPONSE_TEMPLATE.format(node_id=node.id, row_order=row_order)).write_text(
             json.dumps(payload, indent=2, ensure_ascii=False),
             encoding="utf-8",

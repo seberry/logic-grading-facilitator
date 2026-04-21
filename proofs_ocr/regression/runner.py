@@ -434,11 +434,13 @@ def run_gold_regressions(
     tags: Sequence[str] | None = None,
     vision_base_url: str | None = None,
     vision_model: str | None = None,
+    line_vision_model: str | None = None,
     verifier_vision_model: str | None = None,
     enable_false_left_separator_filter: bool = False,
     enable_sparse_lower_compact_band_recovery: bool = False,
     enable_contradiction_reread: bool = False,
     enable_justification_head_reread: bool = False,
+    enable_formula_consensus_reread: bool = False,
     line_reread_base_url: str | None = None,
     line_reread_model: str | None = None,
     line_reread_modes: Sequence[str] | None = None,
@@ -487,11 +489,13 @@ def run_gold_regressions(
                         "modal_config": modal_config,
                         "vision_base_url": vision_base_url,
                         "vision_model": vision_model,
+                        "line_vision_model": line_vision_model,
                         "verifier_vision_model": verifier_vision_model,
                         "enable_false_left_separator_filter": enable_false_left_separator_filter,
                         "enable_sparse_lower_compact_band_recovery": enable_sparse_lower_compact_band_recovery,
                         "enable_contradiction_reread": enable_contradiction_reread,
                         "enable_justification_head_reread": enable_justification_head_reread,
+                        "enable_formula_consensus_reread": enable_formula_consensus_reread,
                     },
                 )
             )
@@ -651,6 +655,11 @@ def _parse_args() -> argparse.Namespace:
     run_parser.add_argument("--tag", action="append", default=[], help="Require a tag on selected gold cases.")
     run_parser.add_argument("--vision-base-url", default="", help="LM Studio base URL override.")
     run_parser.add_argument("--vision-model", default="", help="LM Studio model override.")
+    run_parser.add_argument(
+        "--line-vision-model",
+        default="",
+        help="LM Studio model override used only for final per-line OCR after structure detection.",
+    )
     run_parser.add_argument("--verifier-model", default="", help="LM Studio verifier model override.")
     run_parser.add_argument(
         "--line-reread-base-url",
@@ -688,6 +697,11 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Enable a boxed justification-head verifier reread for suspicious lines.",
     )
+    run_parser.add_argument(
+        "--enable-formula-consensus-reread",
+        action="store_true",
+        help="Enable a formula-only verifier reread on every visible line and apply only on agreement.",
+    )
 
     return parser.parse_args()
 
@@ -717,6 +731,7 @@ def main() -> int:
             tags=args.tag,
             vision_base_url=args.vision_base_url or None,
             vision_model=args.vision_model or None,
+            line_vision_model=args.line_vision_model or None,
             verifier_vision_model=args.verifier_model or None,
             line_reread_base_url=args.line_reread_base_url or None,
             line_reread_model=args.line_reread_model or None,
@@ -725,6 +740,7 @@ def main() -> int:
             enable_sparse_lower_compact_band_recovery=bool(args.enable_sparse_lower_compact_band_recovery),
             enable_contradiction_reread=bool(args.enable_contradiction_reread),
             enable_justification_head_reread=bool(args.enable_justification_head_reread),
+            enable_formula_consensus_reread=bool(args.enable_formula_consensus_reread),
         )
         _safe_console_print(render_gold_regression_summary(results))
         return 0 if all(result.passed for result in results) else 1

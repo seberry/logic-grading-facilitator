@@ -154,6 +154,23 @@ That is normal and should not be treated as a geometry failure by itself.
       reread attempts agree on the same changed formula
     - mixed rereads remain review evidence only and must not silently rewrite
       the proof JSON
+- The baseline path now also has an optional formula-only consensus reread:
+  - CLI toggles:
+    - `python -m proofs_ocr.pipelines.modal_v2 --enable-formula-consensus-reread`
+    - `python -m proofs_ocr.regression run-gold --enable-formula-consensus-reread`
+  - it keeps the ordinary baseline whole-line OCR in place
+  - then rereads only the formula side of each visible line with the verifier
+    model using:
+    - a formula-only crop
+    - a boxed full-line context crop
+  - it only rewrites the formula text when both reread attempts agree on the
+    same changed formula under comparison normalization
+  - current 5-case gold verdict:
+    - it is materially better than swapping all whole-line OCR to 8b
+    - it improves formula accuracy without regressing justification accuracy
+    - the remaining misses are mostly lines where the two formula rereads still
+      disagree or where open whole-line justification/assumption policy is
+      still wrong
 - Some handwritten gold cases still reflect difficult OCR targets and should be
   treated as active evaluation targets, not as evidence that the baseline is
   already strong on handwriting.

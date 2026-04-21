@@ -15,6 +15,7 @@ from proofs_ocr.pipelines import modal_v2_core
 from proofs_ocr.pipelines.modal_v2 import run_modal_baseline_pipeline
 from proofs_ocr.pipelines.modal_v2_core import ModalPipelineFeatureFlags
 from proofs_ocr.pipelines.modal_v2_line_rereads import maybe_reread_contradiction_line, maybe_reread_justification_head
+from proofs_ocr.pipelines.modal_v2_formula_rereads import maybe_reread_formula_text
 from proofs_ocr.pipelines.modal_v2_runtime import ModalBaselineArtifactLineReader
 from proofs_ocr.pipelines.modal_v2_line_zones import (
     extract_line_zone_crops,
@@ -565,6 +566,101 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
             payload = (output_dir / "node_line_2_2.json").read_text(encoding="utf-8")
             self.assertIn('"recovery_applied": "justification_head_reread"', payload)
             self.assertIn('"justification_head_reread"', payload)
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
+    def test_maybe_reread_formula_text_accepts_consensus_formula_only_change(self) -> None:
+        class FormulaVerifier:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                del image_path, prompt, system_prompt
+                self.calls += 1
+                if self.calls == 1:
+                    return '{"formula_text":"P → Q","confidence":"0.98"}'
+                return '{"formula_text":"P→Q","confidence":"1.0"}'
+
+        image = np.full((52, 420, 3), 255, dtype=np.uint8)
+        cv2.putText(image, "2", (12, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(image, "[](P->Q)", (82, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(image, "[]E 2", (290, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        output_dir = Path("working/test_modal_v2_formula_consensus_reread")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            resolved, artifact, recovery = maybe_reread_formula_text(
+                output_dir=output_dir,
+                client=FormulaVerifier(),
+                node_id="2",
+                row_order=3,
+                line_crop_img=image,
+                parsed_entry={
+                    "line_label": "2",
+                    "formula_text": "□(P→Q)",
+                    "justification_text": "□E 2",
+                    "scope_role": "derived_line",
+                    "confidence": "0.6",
+                },
+                modal_config={"system": "K", "include_derived_rules": False},
+            )
+
+            self.assertEqual(recovery, "formula_consensus_reread")
+            self.assertEqual(resolved["formula_text"], "P → Q")
+            self.assertIsNotNone(artifact)
+            self.assertTrue(artifact["applied"])
+            self.assertEqual(len(artifact["candidate_attempts"]), 2)
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
+    def test_modal_baseline_artifact_line_reader_can_apply_formula_consensus_reread(self) -> None:
+        class SequencedClient:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                del image_path, prompt, system_prompt
+                self.calls += 1
+                if self.calls == 1:
+                    return (
+                        '{"line_label":"2","formula_text":"□(P→Q)","justification_text":"□E 2",'
+                        '"scope_role":"derived_line","confidence":"0.7"}'
+                    )
+                if self.calls == 2:
+                    return '{"formula_text":"P → Q","confidence":"0.98"}'
+                return '{"formula_text":"P→Q","confidence":"1.0"}'
+
+        image = np.full((52, 420, 3), 255, dtype=np.uint8)
+        cv2.putText(image, "2", (12, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(image, "[](P->Q)", (82, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(image, "[]E 2", (290, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+
+        node = SubproofNode("2", (0, 0, 0, 0))
+        output_dir = Path("working/test_modal_v2_runtime_formula_consensus_reread")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            verifier_client = SequencedClient()
+            reader = ModalBaselineArtifactLineReader(
+                output_dir=output_dir,
+                client=verifier_client,
+                verifier_client=verifier_client,
+                prompt="prompt",
+                modal_config={"system": "K", "include_derived_rules": False},
+            )
+
+            resolved = reader(
+                node=node,
+                node_crop_img=image,
+                line_crop_img=image,
+                row_record={"row_order": 3, "band_index": 0, "y1": 8, "y2": 42},
+                feature_flags=ModalPipelineFeatureFlags(enable_formula_consensus_reread=True),
+            )
+
+            self.assertEqual(resolved["formula_text"], "P → Q")
+            payload = (output_dir / "node_line_2_3.json").read_text(encoding="utf-8")
+            self.assertIn('"recovery_applied": "formula_consensus_reread"', payload)
+            self.assertIn('"formula_consensus_reread"', payload)
         finally:
             shutil.rmtree(output_dir, ignore_errors=True)
 

@@ -108,6 +108,7 @@ class ModalV2DebugStateTests(unittest.TestCase):
         )
         self.assertEqual(state["system"], "S4")
         self.assertEqual(state["vision_model"], "fake-model")
+        self.assertEqual(state["line_vision_model"], "fake-model")
         self.assertIn("modal_v2 baseline OCR produced 4 visible lines", state["run_summary"])
 
         root_rows = json.loads((output_dir / artifacts.NODE_ROWS_TEMPLATE.format(node_id="ROOT")).read_text(encoding="utf-8"))
@@ -192,6 +193,41 @@ class ModalV2DebugStateTests(unittest.TestCase):
         payload = json.loads((output_dir / artifacts.NODE_LINE_RESPONSE_TEMPLATE.format(node_id="ROOT", row_order=1)).read_text(encoding="utf-8"))
         self.assertEqual(payload["mode"], "formula_justification_separation")
         self.assertIn("Formula/justification separation was enabled.", state["run_summary"])
+
+    def test_transcribe_image_to_modal_v2_debug_state_can_use_separate_line_vision_model(self) -> None:
+        image_path = self.tmp_dir / "synthetic_line_model.png"
+        cv2.imwrite(str(image_path), _synthetic_recursive_modal_image())
+
+        built_clients: list[str | None] = []
+
+        def fake_build_vlm_client(*, base_url=None, model=None, timeout=None):
+            del base_url, timeout
+            built_clients.append(model)
+            return FakeImagePromptClient(
+                [
+                    json.dumps({"scope_role": "ordinary_assumption", "formula_text": "A", "justification_text": "", "line_label": "", "confidence": "high"}),
+                    json.dumps({"scope_role": "derived_line", "formula_text": "B", "justification_text": "R 1", "line_label": "", "confidence": "high"}),
+                    json.dumps({"scope_role": "premise", "formula_text": "P", "justification_text": "", "line_label": "", "confidence": "high"}),
+                    json.dumps({"scope_role": "derived_line", "formula_text": "Q", "justification_text": "R 2", "line_label": "", "confidence": "high"}),
+                ]
+            )
+
+        from unittest.mock import patch
+
+        with patch("proofs_ocr.pipelines.modal_v2_debug.build_vlm_client", side_effect=fake_build_vlm_client):
+            state = transcribe_image_to_modal_v2_debug_state(
+                image_path=image_path,
+                output_dir=self.tmp_dir / "out_line_model",
+                modal_config={"system": "S4", "conclusion": "Q"},
+                vision_base_url="http://127.0.0.1:1234/v1",
+                vision_model="fake-structure-model",
+                line_vision_model="fake-content-model",
+            )
+
+        self.assertEqual(built_clients, ["fake-content-model"])
+        self.assertEqual(state["vision_model"], "fake-structure-model")
+        self.assertEqual(state["line_vision_model"], "fake-content-model")
+        self.assertIn("Final line OCR used fake-content-model while structure used fake-structure-model.", state["run_summary"])
 
     def test_transcribe_image_to_modal_v2_debug_state_can_write_passive_unary_formula_crop_probe_artifact(self) -> None:
         image_path = self.tmp_dir / "synthetic_formula_probe.png"

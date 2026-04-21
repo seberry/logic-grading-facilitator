@@ -65,6 +65,8 @@ def read_line_with_zone_separation(
     node: Any,
     line_crop_img: np.ndarray,
     row_record: Mapping[str, Any],
+    feature_flags: Any | None = None,
+    modal_config: Mapping[str, Any] | None = None,
 ) -> Mapping[str, str]:
     """Run formula/justification OCR on separate crops and merge the result."""
 
@@ -107,6 +109,7 @@ def read_line_with_zone_separation(
     tight_justification_geometry: dict[str, int | bool] = {}
     tight_justification_reread: dict[str, Any] | None = None
     boxed_justification_head_reread: dict[str, Any] | None = None
+    formula_consensus_reread: dict[str, Any] | None = None
     zone_recovery_applied = ""
 
     if not skip_reason:
@@ -227,6 +230,23 @@ def read_line_with_zone_separation(
                 recovery_applied = strict_open_recovery
         if not recovery_applied and zone_recovery_applied:
             recovery_applied = zone_recovery_applied
+        if bool(getattr(feature_flags, "enable_formula_consensus_reread", False)):
+            from proofs_ocr.pipelines.modal_v2_formula_rereads import maybe_reread_formula_text
+
+            formula_candidate, formula_artifact, formula_recovery = maybe_reread_formula_text(
+                output_dir=output_dir,
+                client=verifier_client,
+                node_id=str(node.id),
+                row_order=row_order,
+                line_crop_img=line_crop_img,
+                parsed_entry=merged,
+                modal_config=modal_config,
+            )
+            if formula_artifact is not None:
+                formula_consensus_reread = formula_artifact
+            if formula_recovery:
+                merged = formula_candidate
+                recovery_applied = formula_recovery
 
     payload = {
         "node_id": node.id,
@@ -258,6 +278,8 @@ def read_line_with_zone_separation(
         payload["tight_justification_reread"] = tight_justification_reread
     if boxed_justification_head_reread is not None:
         payload["boxed_justification_head_reread"] = boxed_justification_head_reread
+    if formula_consensus_reread is not None:
+        payload["formula_consensus_reread"] = formula_consensus_reread
     (output_dir / artifacts.NODE_LINE_RESPONSE_TEMPLATE.format(node_id=node.id, row_order=row_order)).write_text(
         json.dumps(payload, indent=2, ensure_ascii=False),
         encoding="utf-8",

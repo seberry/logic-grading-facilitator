@@ -36,6 +36,11 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--conclusion", default="", help="Optional target conclusion shown in the OCR prompt.")
     parser.add_argument("--vision-base-url", default="", help="LM Studio base URL.")
     parser.add_argument("--vision-model", default="", help="LM Studio model identifier.")
+    parser.add_argument(
+        "--line-vision-model",
+        default="",
+        help="LM Studio model identifier used only for final per-line OCR after structure detection.",
+    )
     parser.add_argument("--verifier-model", default="", help="LM Studio model identifier for the passive unary structured probe.")
     parser.add_argument(
         "--enable-formula-justification-separation",
@@ -61,6 +66,11 @@ def _parse_args() -> argparse.Namespace:
         "--enable-justification-head-reread",
         action="store_true",
         help="Reread suspicious derived-line justifications from a boxed justification-head crop using the verifier model.",
+    )
+    parser.add_argument(
+        "--enable-formula-consensus-reread",
+        action="store_true",
+        help="Reread every visible formula with formula-only crops using the verifier model and apply only on consensus.",
     )
     parser.add_argument(
         "--enable-unary-structured-probe",
@@ -95,6 +105,7 @@ def main() -> int:
         },
         vision_base_url=args.vision_base_url or None,
         vision_model=args.vision_model or None,
+        line_vision_model=args.line_vision_model or None,
         verifier_vision_model=args.verifier_model or None,
         enable_formula_justification_separation=bool(args.enable_formula_justification_separation),
         enable_unary_structured_probe=bool(args.enable_unary_structured_probe),
@@ -104,6 +115,7 @@ def main() -> int:
         enable_sparse_lower_compact_band_recovery=bool(args.enable_sparse_lower_compact_band_recovery),
         enable_contradiction_reread=bool(args.enable_contradiction_reread),
         enable_justification_head_reread=bool(args.enable_justification_head_reread),
+        enable_formula_consensus_reread=bool(args.enable_formula_consensus_reread),
     )
     print(state["run_summary"])
     print(f"Artifacts written to {Path(args.output_dir).resolve()}")
