@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
-from fastapi import APIRouter, BackgroundTasks, File, Form, Request, Response, UploadFile
+from fastapi import APIRouter, File, Form, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
@@ -419,7 +419,6 @@ async def save_modal_proof_state(
 
 @router.post("/debug/modal-proof/run_checker", response_class=HTMLResponse)
 async def run_modal_proof_debug_checker(
-    background_tasks: BackgroundTasks,
     example: str = Form(STARTER_EXAMPLE),
     system: str = Form("K"),
     include_derived_rules: bool = Form(False),
@@ -474,7 +473,7 @@ async def run_modal_proof_debug_checker(
         state["checker_error"] = "; ".join(result.errors) or result.summary
 
     _save_example_state(example_slug, state)
-    background_tasks.add_task(_run_checker_guided_formula_review, example_slug, dict(state))
+    _run_checker_guided_formula_review(example_slug, dict(state))
     return RedirectResponse(
         url=f"/debug/modal-proof?example={quote(example_slug)}&status={quote(str(state.get('status') or ''))}&message={quote(str(state.get('message') or ''))}",
         status_code=303,

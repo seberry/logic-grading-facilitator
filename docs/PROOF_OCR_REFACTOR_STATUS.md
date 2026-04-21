@@ -77,6 +77,12 @@ That is normal and should not be treated as a geometry failure by itself.
   - It is promising on handwritten cases, especially where justification text
     leaks into formulas, but it is not yet ready to become the default OCR
     path.
+  - In this path, justification rescue currently uses the zone-separation
+    module's own tight-justification reread with `verifier_client` when one is
+    provided.
+  - That is separate from the boxed justification-head reread in
+    `modal_v2_line_rereads.py`; the boxed-head reread does not currently run
+    when zone separation is enabled.
 - A narrow false-left-separator filter now exists as a toggleable pre-tree
   experiment:
   - CLI toggle:
@@ -127,7 +133,9 @@ That is normal and should not be treated as a geometry failure by itself.
   `modal_v2 baseline` runs:
   - `app/routes/modal_proof_debug_formula_review.py`
   - `proofs_ocr/pipelines/modal_v2_formula_rereads.py`
-  - it runs after the checker, in the background, against saved line crops
+  - it now runs immediately after the checker in the debug route, before the
+    redirect back to the page, so the first reload already includes the review
+    artifacts
   - it targets:
     - direct checker parse-error lines first
     - then direct checker rule-error lines
