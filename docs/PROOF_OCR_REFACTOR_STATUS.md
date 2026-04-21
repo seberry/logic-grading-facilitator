@@ -167,7 +167,10 @@ That is normal and should not be treated as a geometry failure by itself.
     same changed formula under comparison normalization
   - current 5-case gold verdict:
     - it is materially better than swapping all whole-line OCR to 8b
-    - it improves formula accuracy without regressing justification accuracy
+    - current gold comparison against the ordinary 4b baseline:
+      - formula `27/38 -> 36/38`
+      - both-correct `26/38 -> 32/38`
+      - justification stayed flat at `34/38`
     - the remaining misses are mostly lines where the two formula rereads still
       disagree or where open whole-line justification/assumption policy is
       still wrong

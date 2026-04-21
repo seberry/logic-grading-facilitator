@@ -613,6 +613,50 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
         finally:
             shutil.rmtree(output_dir, ignore_errors=True)
 
+    def test_maybe_reread_formula_text_accepts_boxed_only_rescue_for_rule_head_leak(self) -> None:
+        class FormulaVerifier:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                del image_path, prompt, system_prompt
+                self.calls += 1
+                if self.calls == 1:
+                    return '{"formula_text":"","confidence":"0.98"}'
+                return '{"formula_text":"Q","confidence":"0.95"}'
+
+        image = np.full((52, 420, 3), 255, dtype=np.uint8)
+        cv2.putText(image, "4", (12, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(image, "Q", (82, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 2)
+        cv2.putText(image, "->E 4,5", (250, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        output_dir = Path("working/test_modal_v2_formula_boxed_only_rescue")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            resolved, artifact, recovery = maybe_reread_formula_text(
+                output_dir=output_dir,
+                client=FormulaVerifier(),
+                node_id="2",
+                row_order=4,
+                line_crop_img=image,
+                parsed_entry={
+                    "line_label": "4",
+                    "formula_text": "Q → ¬E",
+                    "justification_text": "→E 4,5",
+                    "scope_role": "derived_line",
+                    "confidence": "0.6",
+                },
+                modal_config={"system": "K", "include_derived_rules": False},
+            )
+
+            self.assertEqual(recovery, "formula_consensus_reread")
+            self.assertEqual(resolved["formula_text"], "Q")
+            self.assertIsNotNone(artifact)
+            self.assertTrue(artifact["applied"])
+            self.assertEqual(artifact["proposed_formula"], "Q")
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
     def test_modal_baseline_artifact_line_reader_can_apply_formula_consensus_reread(self) -> None:
         class SequencedClient:
             def __init__(self) -> None:

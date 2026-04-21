@@ -221,7 +221,7 @@ def _collapse_compare_whitespace(value: Any) -> str:
 
 
 def _normalize_formula_for_compare(value: Any) -> str:
-    return modal.normalize_formula_text(value)
+    return modal.canonicalize_formula_for_comparison(value)
 
 
 def _normalize_justification_for_compare(value: Any) -> str:

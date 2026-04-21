@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -12,6 +13,8 @@ import numpy as np
 from proofs_ocr.common import artifacts
 from proofs_ocr.domains import modal
 from proofs_ocr.pipelines.modal_v2_line_zones import extract_line_zone_crops
+
+_LEAKED_JUSTIFICATION_TOKEN_RE = re.compile(r"(¬E|~E|→E|□E|□I|DN|MC|PR)")
 
 
 def build_formula_crop(line_crop_img: np.ndarray) -> np.ndarray | None:
@@ -121,7 +124,7 @@ def maybe_reread_formula_text(
     if not attempts:
         return resolved, None, ""
 
-    proposed_formula = _select_consensus_formula(
+    proposed_formula = _select_formula_proposal_with_fallback(
         baseline_formula=resolved.get("formula_text") or "",
         attempt_formulas=candidate_formulas,
     )
@@ -158,6 +161,41 @@ def _select_consensus_formula(*, baseline_formula: str, attempt_formulas: list[s
     if first_canonical == normalized_baseline:
         return ""
     return canonical_attempts[0][1]
+
+
+def _select_formula_proposal_with_fallback(
+    *,
+    baseline_formula: str,
+    attempt_formulas: list[str],
+) -> str:
+    consensus = _select_consensus_formula(
+        baseline_formula=baseline_formula,
+        attempt_formulas=attempt_formulas,
+    )
+    if consensus:
+        return consensus
+
+    non_empty = [modal.normalize_formula_text(value) for value in attempt_formulas if modal.normalize_formula_text(value)]
+    if len(non_empty) != 1:
+        return ""
+    candidate = non_empty[0]
+    baseline_normalized = modal.normalize_formula_text(baseline_formula)
+    if not baseline_normalized:
+        return ""
+    if not _looks_like_justification_leak(baseline_normalized):
+        return ""
+    if _looks_like_justification_leak(candidate):
+        return ""
+    if len(modal.canonicalize_formula_for_comparison(candidate)) >= len(modal.canonicalize_formula_for_comparison(baseline_normalized)):
+        return ""
+    return candidate
+
+
+def _looks_like_justification_leak(formula_text: str) -> bool:
+    normalized = modal.normalize_formula_text(formula_text)
+    if not normalized:
+        return False
+    return bool(_LEAKED_JUSTIFICATION_TOKEN_RE.search(normalized))
 
 
 def _resolved_line_entry(entry: Mapping[str, Any]) -> dict[str, str]:
