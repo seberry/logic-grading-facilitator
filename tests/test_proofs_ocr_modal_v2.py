@@ -407,6 +407,114 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
         finally:
             shutil.rmtree(output_dir, ignore_errors=True)
 
+    def test_maybe_reread_justification_head_accepts_later_nonroot_pr_line(self) -> None:
+        class JustificationVerifier:
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                del image_path, prompt, system_prompt
+                return '{"justification_text":"□E 1","confidence":"0.98"}'
+
+        image = np.full((52, 420, 3), 255, dtype=np.uint8)
+        cv2.putText(image, "4", (12, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(image, "P", (82, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 2)
+        cv2.putText(image, "[]E 1", (285, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        output_dir = Path("working/test_modal_v2_justification_head_nonroot_pr")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            resolved, artifact, recovery = maybe_reread_justification_head(
+                output_dir=output_dir,
+                client=JustificationVerifier(),
+                node_id="2",
+                row_order=2,
+                line_crop_img=image,
+                parsed_entry={
+                    "line_label": "4",
+                    "formula_text": "P",
+                    "justification_text": "PR",
+                    "scope_role": "premise",
+                    "confidence": "0.6",
+                },
+            )
+
+            self.assertEqual(recovery, "justification_head_reread")
+            self.assertEqual(resolved["justification_text"], "□E 1")
+            self.assertIsNotNone(artifact)
+            self.assertTrue(artifact["applied"])
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
+    def test_maybe_reread_justification_head_accepts_malformed_rule_fragment(self) -> None:
+        class JustificationVerifier:
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                del image_path, prompt, system_prompt
+                return '{"justification_text":"□E 2","confidence":"0.98"}'
+
+        image = np.full((52, 420, 3), 255, dtype=np.uint8)
+        cv2.putText(image, "4", (12, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(image, "A", (82, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 2)
+        cv2.putText(image, "1, []E", (265, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        output_dir = Path("working/test_modal_v2_justification_head_malformed")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            resolved, artifact, recovery = maybe_reread_justification_head(
+                output_dir=output_dir,
+                client=JustificationVerifier(),
+                node_id="2",
+                row_order=2,
+                line_crop_img=image,
+                parsed_entry={
+                    "line_label": "2",
+                    "formula_text": "A",
+                    "justification_text": "1, □E",
+                    "scope_role": "derived_line",
+                    "confidence": "0.6",
+                },
+            )
+
+            self.assertEqual(recovery, "justification_head_reread")
+            self.assertEqual(resolved["justification_text"], "□E 2")
+            self.assertIsNotNone(artifact)
+            self.assertTrue(artifact["applied"])
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
+    def test_maybe_reread_justification_head_rejects_conflicting_malformed_rule_fragment(self) -> None:
+        class JustificationVerifier:
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                del image_path, prompt, system_prompt
+                return '{"justification_text":"□I 2","confidence":"0.98"}'
+
+        image = np.full((52, 420, 3), 255, dtype=np.uint8)
+        cv2.putText(image, "2", (12, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(image, "A", (82, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 2)
+        cv2.putText(image, "1, []E", (265, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        output_dir = Path("working/test_modal_v2_justification_head_conflicting")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            resolved, artifact, recovery = maybe_reread_justification_head(
+                output_dir=output_dir,
+                client=JustificationVerifier(),
+                node_id="2",
+                row_order=2,
+                line_crop_img=image,
+                parsed_entry={
+                    "line_label": "2",
+                    "formula_text": "A",
+                    "justification_text": "1, □E",
+                    "scope_role": "derived_line",
+                    "confidence": "0.6",
+                },
+            )
+
+            self.assertEqual(recovery, "")
+            self.assertEqual(resolved["justification_text"], "1, □E")
+            self.assertIsNotNone(artifact)
+            self.assertFalse(artifact["applied"])
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
     def test_modal_baseline_artifact_line_reader_can_apply_justification_head_reread(self) -> None:
         class SequencedClient:
             def __init__(self) -> None:

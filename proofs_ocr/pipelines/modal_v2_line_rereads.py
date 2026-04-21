@@ -78,7 +78,7 @@ def maybe_reread_justification_head(
     """Reread a suspicious justification head from a boxed region on the line crop."""
 
     resolved = _resolved_line_entry(parsed_entry)
-    if client is None or not _should_reread_justification_head(resolved):
+    if client is None or not _should_reread_justification_head(resolved, node_id=node_id, row_order=row_order):
         return resolved, None, ""
 
     reread_img = _build_boxed_justification_context_crop(line_crop_img)
@@ -105,7 +105,12 @@ def maybe_reread_justification_head(
     except (ValueError, json.JSONDecodeError) as exc:
         parse_error = str(exc)
 
-    applied = _should_accept_justification_head_reread(original=resolved, candidate=candidate)
+    applied = _should_accept_justification_head_reread(
+        original=resolved,
+        candidate=candidate,
+        node_id=node_id,
+        row_order=row_order,
+    )
     artifact = {
         "crop_filename": reread_crop_path.name,
         "prompt": prompt,
@@ -154,17 +159,32 @@ def _should_reread_contradiction_line(entry: Mapping[str, Any]) -> bool:
     return formula_head in {"¬E", "~E"} or justification_head in {"¬E", "~E"}
 
 
-def _should_reread_justification_head(entry: Mapping[str, Any]) -> bool:
+def _should_reread_justification_head(
+    entry: Mapping[str, Any],
+    *,
+    node_id: str,
+    row_order: int,
+) -> bool:
     scope_role = modal.normalize_scope_role(entry.get("scope_role") or "derived_line")
     formula_text = modal.normalize_formula_text(entry.get("formula_text") or "")
     justification_text = modal.normalize_justification_text(entry.get("justification_text") or "")
-    if scope_role != "derived_line" or not formula_text:
+    if not formula_text:
         return False
-    if justification_text in {"", "PR"}:
+    later_nonroot_row = str(node_id or "").strip() != "ROOT" and int(row_order) > 1
+    malformed_justification = _looks_malformed_justification(justification_text)
+    if scope_role == "derived_line" and justification_text in {"", "PR"}:
         return True
-    if _DIGITS_ONLY_JUSTIFICATION_RE.fullmatch(justification_text):
+    if scope_role == "derived_line" and _DIGITS_ONLY_JUSTIFICATION_RE.fullmatch(justification_text):
         return True
-    return bool(_JUSTIFICATION_TOKEN_RE.search(formula_text))
+    if scope_role == "derived_line" and malformed_justification:
+        return True
+    if bool(_JUSTIFICATION_TOKEN_RE.search(formula_text)):
+        return True
+    if later_nonroot_row and justification_text in {"", "PR"}:
+        return True
+    if later_nonroot_row and malformed_justification:
+        return True
+    return False
 
 
 def _should_accept_contradiction_reread(
@@ -185,8 +205,11 @@ def _should_accept_justification_head_reread(
     *,
     original: Mapping[str, Any],
     candidate: Mapping[str, Any],
+    node_id: str,
+    row_order: int,
 ) -> bool:
     original_formula = modal.normalize_formula_text(original.get("formula_text") or "")
+    original_scope_role = modal.normalize_scope_role(original.get("scope_role") or "derived_line")
     original_justification = modal.normalize_justification_text(original.get("justification_text") or "")
     candidate_justification = modal.normalize_justification_text(candidate.get("justification_text") or "")
     if not candidate_justification or candidate_justification == original_justification:
@@ -194,11 +217,38 @@ def _should_accept_justification_head_reread(
     candidate_head = modal.normalize_justification_head(candidate_justification)
     if candidate_head in {"", "other"}:
         return False
-    if original_justification in {"", "PR"}:
+    later_nonroot_row = str(node_id or "").strip() != "ROOT" and int(row_order) > 1
+    malformed_justification = _looks_malformed_justification(original_justification)
+    if malformed_justification:
+        visible_heads = _extract_visible_justification_heads(original_justification)
+        if visible_heads and candidate_head not in visible_heads:
+            return False
+    if original_scope_role == "derived_line" and original_justification in {"", "PR"}:
         return True
     if _DIGITS_ONLY_JUSTIFICATION_RE.fullmatch(original_justification):
         return True
+    if malformed_justification:
+        return True
+    if later_nonroot_row and original_justification in {"", "PR"}:
+        return True
     return bool(_JUSTIFICATION_TOKEN_RE.search(original_formula))
+
+
+def _looks_malformed_justification(justification_text: str) -> bool:
+    text = modal.normalize_justification_text(justification_text or "")
+    if not text:
+        return False
+    if modal.normalize_justification_head(text) != "other":
+        return False
+    return bool(_JUSTIFICATION_TOKEN_RE.search(text))
+
+
+def _extract_visible_justification_heads(justification_text: str) -> set[str]:
+    heads = {
+        modal.normalize_justification_head(fragment)
+        for fragment in _JUSTIFICATION_TOKEN_RE.findall(justification_text or "")
+    }
+    return {head for head in heads if head not in {"", "other"}}
 
 
 def _resolved_line_entry(entry: Mapping[str, Any]) -> dict[str, str]:

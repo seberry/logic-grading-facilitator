@@ -6,6 +6,8 @@ import argparse
 import difflib
 import inspect
 import json
+import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Sequence
@@ -13,6 +15,11 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Sequence
 import yaml
 
 import proofs_ocr.regression.failed_line_reread as failed_line_reread
+from proofs_ocr.domains import modal
+
+_COMPARE_WS_RE = re.compile(r"\s+")
+_COMPARE_DASH_BETWEEN_DIGITS_RE = re.compile(r"(?<=\d)\s*[-–—]\s*(?=\d)")
+_COMPARE_COMMA_BETWEEN_DIGITS_RE = re.compile(r"(?<=\d)\s*,\s*(?=\d)")
 
 
 @dataclass(frozen=True)
@@ -201,11 +208,28 @@ def canonicalize_proof_structure(value: Any) -> Any:
         return [canonicalize_proof_structure(item) for item in value]
     if isinstance(value, dict):
         normalized: Dict[str, Any] = {}
-        for key in ("wffstr", "jstr"):
-            if key in value:
-                normalized[key] = str(value.get(key) or "").strip()
+        if "wffstr" in value:
+            normalized["wffstr"] = _normalize_formula_for_compare(value.get("wffstr"))
+        if "jstr" in value:
+            normalized["jstr"] = _normalize_justification_for_compare(value.get("jstr"))
         return normalized
     return value
+
+
+def _collapse_compare_whitespace(value: Any) -> str:
+    return _COMPARE_WS_RE.sub(" ", str(value or "")).strip()
+
+
+def _normalize_formula_for_compare(value: Any) -> str:
+    return modal.normalize_formula_text(value)
+
+
+def _normalize_justification_for_compare(value: Any) -> str:
+    normalized = modal.normalize_formula_text(_collapse_compare_whitespace(value))
+    normalized = normalized.replace("–", "-").replace("—", "-")
+    normalized = _COMPARE_DASH_BETWEEN_DIGITS_RE.sub("-", normalized)
+    normalized = _COMPARE_COMMA_BETWEEN_DIGITS_RE.sub(",", normalized)
+    return normalized
 
 
 def render_nesting_path(nesting_path: Sequence[int]) -> str:
@@ -254,8 +278,8 @@ def compare_proof_structures_granular(actual: Any, expected: Any) -> Dict[str, A
     for line_index in range(matched_line_count):
         expected_line = expected_lines[line_index]
         actual_line = actual_lines[line_index]
-        formula_matches = actual_line.wffstr == expected_line.wffstr
-        justification_matches = actual_line.jstr == expected_line.jstr
+        formula_matches = _normalize_formula_for_compare(actual_line.wffstr) == _normalize_formula_for_compare(expected_line.wffstr)
+        justification_matches = _normalize_justification_for_compare(actual_line.jstr) == _normalize_justification_for_compare(expected_line.jstr)
         structure_matches = actual_line.nesting_path == expected_line.nesting_path
         if formula_matches:
             formula_correct_line_count += 1
@@ -414,6 +438,7 @@ def run_gold_regressions(
     enable_false_left_separator_filter: bool = False,
     enable_sparse_lower_compact_band_recovery: bool = False,
     enable_contradiction_reread: bool = False,
+    enable_justification_head_reread: bool = False,
     line_reread_base_url: str | None = None,
     line_reread_model: str | None = None,
     line_reread_modes: Sequence[str] | None = None,
@@ -466,6 +491,7 @@ def run_gold_regressions(
                         "enable_false_left_separator_filter": enable_false_left_separator_filter,
                         "enable_sparse_lower_compact_band_recovery": enable_sparse_lower_compact_band_recovery,
                         "enable_contradiction_reread": enable_contradiction_reread,
+                        "enable_justification_head_reread": enable_justification_head_reread,
                     },
                 )
             )
@@ -640,7 +666,7 @@ def _parse_args() -> argparse.Namespace:
         "--line-reread-mode",
         action="append",
         default=[],
-        help="Failed-line reread crop mode: whole_line or boxed_context. May be repeated.",
+        help="Failed-line reread crop mode: whole_line, boxed_context, or boxed_justification. May be repeated.",
     )
     run_parser.add_argument(
         "--enable-false-left-separator-filter",
@@ -657,8 +683,21 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Enable a narrow verifier reread for suspicious ¬E/~E contradiction lines.",
     )
+    run_parser.add_argument(
+        "--enable-justification-head-reread",
+        action="store_true",
+        help="Enable a boxed justification-head verifier reread for suspicious lines.",
+    )
 
     return parser.parse_args()
+
+
+def _safe_console_print(text: str) -> None:
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        encoded = text.encode(getattr(sys.stdout, "encoding", None) or "utf-8", errors="replace")
+        sys.stdout.buffer.write(encoded + b"\n")
 
 
 def main() -> int:
@@ -666,7 +705,7 @@ def main() -> int:
     manifest = load_manifest()
 
     if args.command in {None, "summary"}:
-        print(render_manifest_summary(manifest))
+        _safe_console_print(render_manifest_summary(manifest))
         return 0
 
     if args.command == "run-gold":
@@ -685,8 +724,9 @@ def main() -> int:
             enable_false_left_separator_filter=bool(args.enable_false_left_separator_filter),
             enable_sparse_lower_compact_band_recovery=bool(args.enable_sparse_lower_compact_band_recovery),
             enable_contradiction_reread=bool(args.enable_contradiction_reread),
+            enable_justification_head_reread=bool(args.enable_justification_head_reread),
         )
-        print(render_gold_regression_summary(results))
+        _safe_console_print(render_gold_regression_summary(results))
         return 0 if all(result.passed for result in results) else 1
 
     raise ValueError(f"Unknown regression command: {args.command}")
