@@ -1135,6 +1135,9 @@
                 <div class="summary-box" style="margin-bottom: 0.75rem;">
                   <strong>Gold fixture {{ gold_comparison.fixture_id }}</strong><br />
                   {{ gold_comparison.summary }}
+                  <div class="muted" style="margin-top: 0.45rem;">
+                    Gold comparison ignores normalization-only differences such as <code>~</code> vs <code>¬</code>, operator spacing, and cosmetic modal-symbol variants.
+                  </div>
                 </div>
                 {% if gold_comparison.issue_count %}
                   <div class="review-summary" style="margin-top: 0; margin-bottom: 0;">
