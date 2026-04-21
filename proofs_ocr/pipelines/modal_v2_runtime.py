@@ -143,7 +143,8 @@ class ModalBaselineArtifactLineReader:
                 if justification_recovery:
                     resolved = justification_resolved
                     recovery_applied = justification_recovery
-            if feature_flags.enable_formula_consensus_reread:
+            contradiction_locked = bool(contradiction_reread and contradiction_reread.get("applied"))
+            if feature_flags.enable_formula_consensus_reread and not contradiction_locked:
                 formula_resolved, formula_consensus_reread, formula_recovery = maybe_reread_formula_text(
                     output_dir=self.output_dir,
                     client=self.verifier_client,

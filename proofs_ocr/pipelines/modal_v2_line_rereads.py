@@ -16,6 +16,9 @@ from proofs_ocr.pipelines.modal_v2_line_zones import extract_line_zone_crops
 
 _JUSTIFICATION_TOKEN_RE = re.compile(r"(¬E|~E|→E|□E|□I|DN|MC|PR)")
 _DIGITS_ONLY_JUSTIFICATION_RE = re.compile(r"[\d,\- ]+")
+_SINGLE_CITATION_TAIL_RE = re.compile(r"^\d+$")
+_RANGE_CITATION_RE = re.compile(r"\d+\s*-\s*\d+")
+_INTRO_JUSTIFICATION_HEADS = {"□I", "¬I", "~I", "IP", "→I"}
 
 
 def maybe_reread_contradiction_line(
@@ -125,6 +128,59 @@ def maybe_reread_justification_head(
     return resolved, artifact, ""
 
 
+def maybe_reread_intro_justification_citation(
+    *,
+    output_dir: Path,
+    client: Any | None,
+    node_id: str,
+    row_order: int,
+    justification_crop_img: np.ndarray,
+    parsed_entry: Mapping[str, Any],
+) -> tuple[dict[str, str], dict[str, Any] | None, str]:
+    """Reread only the citation tail of an introduction-style justification."""
+
+    resolved = _resolved_line_entry(parsed_entry)
+    if client is None or not _should_reread_intro_justification_citation(resolved):
+        return resolved, None, ""
+    if justification_crop_img.size == 0:
+        return resolved, None, ""
+
+    reread_img = _upscale_for_reread(justification_crop_img)
+    reread_crop_path = output_dir / artifacts.NODE_LINE_JUSTIFICATION_CITATION_REREAD_CROP_TEMPLATE.format(
+        node_id=node_id,
+        row_order=row_order,
+    )
+    cv2.imwrite(str(reread_crop_path), reread_img)
+
+    prompt = build_intro_justification_citation_reread_prompt(resolved)
+    raw_response = client.chat_with_image_prompt(reread_crop_path, prompt)
+    parse_error = ""
+    parsed: dict[str, Any] = {}
+    candidate = dict(resolved)
+    try:
+        parsed = modal.parse_json_object_response(raw_response)
+        candidate["justification_text"] = modal.normalize_justification_text(
+            parsed.get("justification_text") or parsed.get("jstr") or ""
+        )
+        candidate["confidence"] = str(parsed.get("confidence") or "").strip()
+    except (ValueError, json.JSONDecodeError) as exc:
+        parse_error = str(exc)
+
+    applied = _should_accept_intro_justification_citation_reread(original=resolved, candidate=candidate)
+    artifact = {
+        "crop_filename": reread_crop_path.name,
+        "prompt": prompt,
+        "raw_response": raw_response,
+        "parse_error": parse_error,
+        "parsed": parsed,
+        "resolved": candidate,
+        "applied": applied,
+    }
+    if applied:
+        return candidate, artifact, "intro_justification_citation_reread"
+    return resolved, artifact, ""
+
+
 def build_contradiction_reread_prompt(current_entry: Mapping[str, Any]) -> str:
     """Build a narrow reread prompt for contradiction lines."""
 
@@ -149,6 +205,25 @@ def build_contradiction_reread_prompt(current_entry: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def build_intro_justification_citation_reread_prompt(current_entry: Mapping[str, Any]) -> str:
+    """Build a narrow reread prompt for intro-rule citation tails."""
+
+    current_justification = modal.normalize_justification_text(current_entry.get("justification_text") or "")
+    current_head = modal.normalize_justification_head(current_justification)
+    lines = [
+        "You are rereading only the justification text from one visible line of a modal Fitch-style proof.",
+        "The crop contains only the justification side of one line.",
+        "Return only JSON with keys: justification_text, confidence.",
+        "Focus on the citation tail for an introduction-style rule such as □I, ¬I, ~I, IP, or →I.",
+        "Do not collapse a visible citation range such as 5-7 to a single line number.",
+        "Keep the visible rule head and recover the cited line range exactly when visible.",
+        "If the citation is unreadable, return the currently visible justification honestly.",
+    ]
+    if current_head:
+        lines.append(f'Current OCR hint: justification_text="{current_justification}". Keep the same head if the image supports it.')
+    return "\n".join(lines)
+
+
 def _should_reread_contradiction_line(entry: Mapping[str, Any]) -> bool:
     formula_text = modal.normalize_formula_text(entry.get("formula_text") or "")
     justification_text = modal.normalize_justification_text(entry.get("justification_text") or "")
@@ -157,6 +232,19 @@ def _should_reread_contradiction_line(entry: Mapping[str, Any]) -> bool:
     formula_head = modal.normalize_justification_head(formula_text)
     justification_head = modal.normalize_justification_head(justification_text)
     return formula_head in {"¬E", "~E"} or justification_head in {"¬E", "~E"}
+
+
+def _should_reread_intro_justification_citation(entry: Mapping[str, Any]) -> bool:
+    justification_text = modal.normalize_justification_text(entry.get("justification_text") or "")
+    head = modal.normalize_justification_head(justification_text)
+    if head not in _INTRO_JUSTIFICATION_HEADS:
+        return False
+    tail = _justification_tail(justification_text)
+    if not tail:
+        return True
+    if _RANGE_CITATION_RE.search(tail):
+        return False
+    return bool(_SINGLE_CITATION_TAIL_RE.fullmatch(tail))
 
 
 def _should_reread_justification_head(
@@ -234,6 +322,30 @@ def _should_accept_justification_head_reread(
     return bool(_JUSTIFICATION_TOKEN_RE.search(original_formula))
 
 
+def _should_accept_intro_justification_citation_reread(
+    *,
+    original: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+) -> bool:
+    original_justification = modal.normalize_justification_text(original.get("justification_text") or "")
+    candidate_justification = modal.normalize_justification_text(candidate.get("justification_text") or "")
+    if not candidate_justification or candidate_justification == original_justification:
+        return False
+    original_head = _canonical_intro_head(modal.normalize_justification_head(original_justification))
+    candidate_head = _canonical_intro_head(modal.normalize_justification_head(candidate_justification))
+    if original_head not in _INTRO_JUSTIFICATION_HEADS or candidate_head != original_head:
+        return False
+    original_tail = _justification_tail(original_justification)
+    candidate_tail = _justification_tail(candidate_justification)
+    if _RANGE_CITATION_RE.search(original_tail):
+        return False
+    if not _RANGE_CITATION_RE.search(candidate_tail):
+        return False
+    return len(modal.canonicalize_justification_for_comparison(candidate_justification)) > len(
+        modal.canonicalize_justification_for_comparison(original_justification)
+    )
+
+
 def _looks_malformed_justification(justification_text: str) -> bool:
     text = modal.normalize_justification_text(justification_text or "")
     if not text:
@@ -249,6 +361,18 @@ def _extract_visible_justification_heads(justification_text: str) -> set[str]:
         for fragment in _JUSTIFICATION_TOKEN_RE.findall(justification_text or "")
     }
     return {head for head in heads if head not in {"", "other"}}
+
+
+def _canonical_intro_head(head: str) -> str:
+    if head == "~I":
+        return "¬I"
+    return head
+
+
+def _justification_tail(justification_text: str) -> str:
+    normalized = modal.normalize_justification_text(justification_text or "")
+    parts = normalized.split(" ", 1)
+    return parts[1].strip() if len(parts) > 1 else ""
 
 
 def _resolved_line_entry(entry: Mapping[str, Any]) -> dict[str, str]:

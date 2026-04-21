@@ -37,6 +37,13 @@ class GoldRegressionResult:
 
 
 @dataclass(frozen=True)
+class GoldRegressionModeResult:
+    mode_name: str
+    output_root: Path
+    results: tuple[GoldRegressionResult, ...]
+
+
+@dataclass(frozen=True)
 class FlattenedProofLine:
     order_index: int
     nesting_path: tuple[int, ...]
@@ -573,38 +580,95 @@ def run_gold_regressions(
     return results
 
 
+def default_gold_regression_mode_specs() -> list[dict[str, Any]]:
+    return [
+        {
+            "name": "baseline",
+            "enable_formula_justification_separation": False,
+            "enable_contradiction_reread": True,
+            "enable_formula_consensus_reread": True,
+        },
+        {
+            "name": "zone",
+            "enable_formula_justification_separation": True,
+            "enable_contradiction_reread": True,
+            "enable_formula_consensus_reread": True,
+        },
+    ]
+
+
+def run_gold_regression_mode_comparison(
+    manifest: Dict[str, Any],
+    *,
+    repo_root: Path | None = None,
+    output_root: Path | None = None,
+    case_ids: Sequence[str] | None = None,
+    kinds: Sequence[str] | None = None,
+    tags: Sequence[str] | None = None,
+    vision_base_url: str | None = None,
+    vision_model: str | None = None,
+    line_vision_model: str | None = None,
+    verifier_vision_model: str | None = None,
+    enable_false_left_separator_filter: bool = False,
+    enable_sparse_lower_compact_band_recovery: bool = False,
+    enable_justification_head_reread: bool = False,
+    line_reread_base_url: str | None = None,
+    line_reread_model: str | None = None,
+    line_reread_modes: Sequence[str] | None = None,
+    line_reread_client: Any | None = None,
+    transcribe_fn: Callable[..., Mapping[str, Any]] | None = None,
+    mode_specs: Sequence[Mapping[str, Any]] | None = None,
+) -> list[GoldRegressionModeResult]:
+    root = repo_root or get_repo_root()
+    destination_root = (output_root or (root / "working" / "modal_v2_gold_regression_compare")).resolve()
+    destination_root.mkdir(parents=True, exist_ok=True)
+
+    runs: list[GoldRegressionModeResult] = []
+    for mode_spec in mode_specs or default_gold_regression_mode_specs():
+        mode_name = str(mode_spec.get("name") or "unnamed").strip() or "unnamed"
+        mode_output_root = destination_root / mode_name
+        mode_output_root.mkdir(parents=True, exist_ok=True)
+        results = run_gold_regressions(
+            manifest,
+            repo_root=root,
+            output_root=mode_output_root,
+            case_ids=case_ids,
+            kinds=kinds,
+            tags=tags,
+            vision_base_url=vision_base_url,
+            vision_model=vision_model,
+            line_vision_model=line_vision_model,
+            verifier_vision_model=verifier_vision_model,
+            enable_formula_justification_separation=bool(mode_spec.get("enable_formula_justification_separation", False)),
+            enable_false_left_separator_filter=enable_false_left_separator_filter,
+            enable_sparse_lower_compact_band_recovery=enable_sparse_lower_compact_band_recovery,
+            enable_contradiction_reread=bool(mode_spec.get("enable_contradiction_reread", False)),
+            enable_justification_head_reread=enable_justification_head_reread,
+            enable_formula_consensus_reread=bool(mode_spec.get("enable_formula_consensus_reread", False)),
+            line_reread_base_url=line_reread_base_url,
+            line_reread_model=line_reread_model,
+            line_reread_modes=line_reread_modes,
+            line_reread_client=line_reread_client,
+            transcribe_fn=transcribe_fn,
+        )
+        runs.append(
+            GoldRegressionModeResult(
+                mode_name=mode_name,
+                output_root=mode_output_root,
+                results=tuple(results),
+            )
+        )
+    return runs
+
+
 def render_gold_regression_summary(results: Iterable[GoldRegressionResult]) -> str:
     materialized = list(results)
-    total = len(materialized)
-    passed_count = sum(1 for result in materialized if result.passed)
-    failed_count = total - passed_count
-    totals = {
-        "matched": 0,
-        "formula": 0,
-        "justification": 0,
-        "both": 0,
-        "expected": 0,
-        "actual": 0,
-        "missing": 0,
-        "extra": 0,
-        "structure": 0,
-    }
-    for result in materialized:
-        metrics = result.granular_metrics or {}
-        totals["matched"] += int(metrics.get("matched_line_count", 0))
-        totals["formula"] += int(metrics.get("formula_correct_line_count", 0))
-        totals["justification"] += int(metrics.get("justification_correct_line_count", 0))
-        totals["both"] += int(metrics.get("both_correct_line_count", 0))
-        totals["expected"] += int(metrics.get("expected_line_count", 0))
-        totals["actual"] += int(metrics.get("actual_line_count", 0))
-        totals["missing"] += int(metrics.get("missing_line_count", 0))
-        totals["extra"] += int(metrics.get("extra_line_count", 0))
-        totals["structure"] += int(metrics.get("structure_mismatch_count", 0))
+    totals = _aggregate_gold_regression_totals(materialized)
 
     lines = [
-        f"Gold cases: {total}",
-        f"Passed: {passed_count}",
-        f"Failed: {failed_count}",
+        f"Gold cases: {totals['total']}",
+        f"Passed: {totals['passed']}",
+        f"Failed: {totals['failed']}",
         (
             "Aggregate lines: "
             f"formula {totals['formula']}/{totals['matched']}, "
@@ -638,6 +702,74 @@ def render_gold_regression_summary(results: Iterable[GoldRegressionResult]) -> s
             if diff_preview.strip():
                 lines.append(diff_preview)
     return "\n".join(lines)
+
+
+def render_gold_regression_mode_comparison(results_by_mode: Sequence[GoldRegressionModeResult]) -> str:
+    lines = [f"Gold mode comparison: {len(results_by_mode)} modes"]
+    for mode_result in results_by_mode:
+        totals = _aggregate_gold_regression_totals(mode_result.results)
+        lines.append(
+            f"- Mode {mode_result.mode_name}: passed {totals['passed']}/{totals['total']}, "
+            f"formula {totals['formula']}/{totals['matched']}, "
+            f"justification {totals['justification']}/{totals['matched']}, "
+            f"both {totals['both']}/{totals['matched']}, "
+            f"missing={totals['missing']}, extra={totals['extra']}, structure mismatches={totals['structure']}"
+        )
+    case_ids = sorted(
+        {
+            result.case_id
+            for mode_result in results_by_mode
+            for result in mode_result.results
+        }
+    )
+    for case_id in case_ids:
+        fragments: list[str] = []
+        for mode_result in results_by_mode:
+            result = next((item for item in mode_result.results if item.case_id == case_id), None)
+            if result is None:
+                continue
+            metrics = result.granular_metrics or {}
+            status = "PASS" if result.passed else "FAIL"
+            fragments.append(
+                f"{mode_result.mode_name}={status} "
+                f"both {int(metrics.get('both_correct_line_count', 0))}/{int(metrics.get('matched_line_count', 0))} "
+                f"just {int(metrics.get('justification_correct_line_count', 0))}/{int(metrics.get('matched_line_count', 0))}"
+            )
+        if fragments:
+            lines.append(f"- {case_id}: " + " | ".join(fragments))
+    return "\n".join(lines)
+
+
+def _aggregate_gold_regression_totals(results: Sequence[GoldRegressionResult]) -> Dict[str, int]:
+    total = len(results)
+    passed_count = sum(1 for result in results if result.passed)
+    failed_count = total - passed_count
+    totals = {
+        "total": total,
+        "passed": passed_count,
+        "failed": failed_count,
+        "matched": 0,
+        "formula": 0,
+        "justification": 0,
+        "both": 0,
+        "expected": 0,
+        "actual": 0,
+        "missing": 0,
+        "extra": 0,
+        "structure": 0,
+    }
+    for result in results:
+        metrics = result.granular_metrics or {}
+        totals["matched"] += int(metrics.get("matched_line_count", 0))
+        totals["formula"] += int(metrics.get("formula_correct_line_count", 0))
+        totals["justification"] += int(metrics.get("justification_correct_line_count", 0))
+        totals["both"] += int(metrics.get("both_correct_line_count", 0))
+        totals["expected"] += int(metrics.get("expected_line_count", 0))
+        totals["actual"] += int(metrics.get("actual_line_count", 0))
+        totals["missing"] += int(metrics.get("missing_line_count", 0))
+        totals["extra"] += int(metrics.get("extra_line_count", 0))
+        totals["structure"] += int(metrics.get("structure_mismatch_count", 0))
+    return totals
 
 
 def _parse_args() -> argparse.Namespace:

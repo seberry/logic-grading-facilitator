@@ -540,6 +540,74 @@ class ProofOcrRegressionRunnerTests(unittest.TestCase):
 
         self.assertTrue(seen["flag"])
 
+    def test_run_gold_regression_mode_comparison_runs_baseline_and_zone_modes(self) -> None:
+        fixtures_dir = self.tmp_dir / "fixtures_compare"
+        fixtures_dir.mkdir(parents=True, exist_ok=True)
+        image_path = fixtures_dir / "compare.png"
+        image_path.write_bytes(b"fake")
+        expected_path = fixtures_dir / "compare_expected.json"
+        expected_path.write_text(json.dumps([{"wffstr": "A", "jstr": "PR", "line": 1}]), encoding="utf-8")
+
+        manifest = {
+            "cases": [
+                {
+                    "id": "case_compare",
+                    "oracle_kind": "gold_curated_from_image",
+                    "image_path": str(image_path.relative_to(self.tmp_dir)).replace("\\", "/"),
+                    "expected_structure_path": str(expected_path.relative_to(self.tmp_dir)).replace("\\", "/"),
+                    "kind": "handwritten",
+                }
+            ]
+        }
+        seen: list[tuple[str, bool, bool, bool]] = []
+
+        def fake_transcribe(
+            *,
+            image_path,
+            output_dir,
+            modal_config,
+            vision_base_url,
+            vision_model,
+            enable_formula_justification_separation=False,
+            enable_contradiction_reread=False,
+            enable_formula_consensus_reread=False,
+        ):
+            del image_path, modal_config, vision_base_url, vision_model
+            seen.append(
+                (
+                    output_dir.parent.name,
+                    bool(enable_formula_justification_separation),
+                    bool(enable_contradiction_reread),
+                    bool(enable_formula_consensus_reread),
+                )
+            )
+            (output_dir / "final_structure_baseline.json").write_text(
+                json.dumps([{"wffstr": "A", "jstr": "PR", "line": 1}], ensure_ascii=False),
+                encoding="utf-8",
+            )
+            return {"run_summary": "ok"}
+
+        comparison = runner.run_gold_regression_mode_comparison(
+            manifest,
+            repo_root=self.tmp_dir,
+            output_root=self.tmp_dir / "out_compare",
+            transcribe_fn=fake_transcribe,
+        )
+
+        self.assertEqual([item.mode_name for item in comparison], ["baseline", "zone"])
+        self.assertEqual(
+            seen,
+            [
+                ("baseline", False, True, True),
+                ("zone", True, True, True),
+            ],
+        )
+        summary = runner.render_gold_regression_mode_comparison(comparison)
+        self.assertIn("Gold mode comparison: 2 modes", summary)
+        self.assertIn("Mode baseline", summary)
+        self.assertIn("Mode zone", summary)
+        self.assertIn("case_compare: baseline=PASS", summary)
+
 
 if __name__ == "__main__":
     unittest.main()

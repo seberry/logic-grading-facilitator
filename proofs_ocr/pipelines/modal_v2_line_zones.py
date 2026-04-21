@@ -110,9 +110,12 @@ def read_line_with_zone_separation(
     tight_justification_geometry: dict[str, int | bool] = {}
     tight_justification_reread: dict[str, Any] | None = None
     contradiction_reread: dict[str, Any] | None = None
+    formula_thin_fallback_reread: dict[str, Any] | None = None
+    intro_justification_citation_reread: dict[str, Any] | None = None
     boxed_justification_head_reread: dict[str, Any] | None = None
     formula_consensus_reread: dict[str, Any] | None = None
     zone_recovery_applied = ""
+    formula_precomputed_attempts: list[dict[str, Any]] = []
 
     if not skip_reason:
         formula_crop, justification_crop, zone_geometry = extract_line_zone_crops(line_crop_img)
@@ -137,6 +140,59 @@ def read_line_with_zone_separation(
             formula_resolved = modal_line_zones.normalize_formula_zone_result(formula_parsed)
         except (ValueError, json.JSONDecodeError) as exc:
             formula_parse_error = str(exc)
+            formula_parsed = {}
+
+        if _should_try_formula_thin_fallback(
+            formula_result=formula_resolved,
+            formula_crop=formula_crop,
+            formula_model_geometry=formula_model_geometry,
+        ):
+            reread_client = verifier_client or client
+            relaxed_formula_crop, relaxed_formula_geometry = extract_relaxed_formula_crop(
+                formula_crop,
+                formula_zone_geometry=formula_model_geometry,
+            )
+            if relaxed_formula_crop.size != 0:
+                thin_formula_crop_name = artifacts.NODE_LINE_FORMULA_THIN_REREAD_CROP_TEMPLATE.format(
+                    node_id=node.id,
+                    row_order=row_order,
+                )
+                thin_formula_crop_path = output_dir / thin_formula_crop_name
+                cv2.imwrite(str(thin_formula_crop_path), relaxed_formula_crop)
+                thin_raw = reread_client.chat_with_image_prompt(thin_formula_crop_path, formula_prompt)
+                thin_parse_error = ""
+                thin_parsed: dict[str, Any] = {}
+                thin_resolved = {"line_label": "", "formula_text": "", "confidence": ""}
+                structured_formula = ""
+                try:
+                    thin_parsed = modal.parse_json_object_response(thin_raw)
+                    thin_resolved = modal_line_zones.normalize_formula_zone_result(thin_parsed)
+                    structured_formula = modal.normalize_formula_text(thin_resolved.get("formula_text") or "")
+                except (ValueError, json.JSONDecodeError) as exc:
+                    thin_parse_error = str(exc)
+                formula_thin_fallback_reread = {
+                    "crop_filename": thin_formula_crop_name,
+                    "geometry": relaxed_formula_geometry,
+                    "raw": thin_raw,
+                    "parsed": thin_parsed,
+                    "resolved": thin_resolved,
+                    "parse_error": thin_parse_error,
+                    "applied": False,
+                    "structured_formula": structured_formula,
+                }
+                formula_precomputed_attempts.append(
+                    {
+                        "attempt_kind": "thin_formula_zone",
+                        "crop_filename": thin_formula_crop_name,
+                        "prompt": formula_prompt,
+                        "raw_response": thin_raw,
+                        "parse_error": thin_parse_error,
+                        "parsed": thin_parsed,
+                        "structured_formula": structured_formula,
+                        "confidence": str(thin_resolved.get("confidence") or "").strip(),
+                        "geometry": relaxed_formula_geometry,
+                    }
+                )
 
         justification_raw = client.chat_with_image_prompt(justification_model_crop_path, justification_prompt)
         try:
@@ -232,6 +288,26 @@ def read_line_with_zone_separation(
                 recovery_applied = strict_open_recovery
         if not recovery_applied and zone_recovery_applied:
             recovery_applied = zone_recovery_applied
+        if verifier_client is not None:
+            from proofs_ocr.pipelines.modal_v2_line_rereads import maybe_reread_intro_justification_citation
+
+            citation_candidate, citation_artifact, citation_recovery = maybe_reread_intro_justification_citation(
+                output_dir=output_dir,
+                client=verifier_client,
+                node_id=str(node.id),
+                row_order=row_order,
+                justification_crop_img=justification_crop,
+                parsed_entry=merged,
+            )
+            if citation_artifact is not None:
+                intro_justification_citation_reread = citation_artifact
+            if citation_recovery:
+                merged = citation_candidate
+                recovery_applied = citation_recovery
+                justification_resolved = {
+                    "justification_text": modal.normalize_justification_text(citation_candidate.get("justification_text") or ""),
+                    "confidence": str(citation_candidate.get("confidence") or "").strip(),
+                }
         if bool(getattr(feature_flags, "enable_contradiction_reread", False)):
             from proofs_ocr.pipelines.modal_v2_line_rereads import maybe_reread_contradiction_line
 
@@ -250,7 +326,8 @@ def read_line_with_zone_separation(
             if contradiction_recovery:
                 merged = contradiction_candidate
                 recovery_applied = contradiction_recovery
-        if bool(getattr(feature_flags, "enable_formula_consensus_reread", False)):
+        contradiction_locked = bool(contradiction_reread and contradiction_reread.get("applied"))
+        if bool(getattr(feature_flags, "enable_formula_consensus_reread", False)) and not contradiction_locked:
             from proofs_ocr.pipelines.modal_v2_formula_rereads import maybe_reread_formula_text
 
             formula_candidate, formula_artifact, formula_recovery = maybe_reread_formula_text(
@@ -261,6 +338,9 @@ def read_line_with_zone_separation(
                 line_crop_img=line_crop_img,
                 parsed_entry=merged,
                 modal_config=modal_config,
+                precomputed_attempts=formula_precomputed_attempts,
+                formula_zone_crop=formula_crop,
+                formula_zone_geometry=formula_model_geometry,
             )
             if formula_artifact is not None:
                 formula_consensus_reread = formula_artifact
@@ -298,6 +378,10 @@ def read_line_with_zone_separation(
         payload["tight_justification_reread"] = tight_justification_reread
     if contradiction_reread is not None:
         payload["contradiction_reread"] = contradiction_reread
+    if formula_thin_fallback_reread is not None:
+        payload["formula_thin_fallback_reread"] = formula_thin_fallback_reread
+    if intro_justification_citation_reread is not None:
+        payload["intro_justification_citation_reread"] = intro_justification_citation_reread
     if boxed_justification_head_reread is not None:
         payload["boxed_justification_head_reread"] = boxed_justification_head_reread
     if formula_consensus_reread is not None:
@@ -502,6 +586,87 @@ def extract_primary_ink_band_crop(crop_img: np.ndarray) -> tuple[np.ndarray, dic
         "height": int(img_h),
         "applied": bool(applied),
     }
+
+
+def extract_relaxed_formula_crop(
+    formula_crop: np.ndarray,
+    *,
+    formula_zone_geometry: Mapping[str, Any] | None = None,
+) -> tuple[np.ndarray, dict[str, int | bool]]:
+    """Return a less aggressively trimmed formula crop for suspicious short-formula rows."""
+
+    if formula_crop.size == 0:
+        empty = formula_crop.copy()
+        return empty, {
+            "y1": 0,
+            "y2": 0,
+            "width": 0,
+            "height": 0,
+            "applied": False,
+        }
+    img_h, img_w = formula_crop.shape[:2]
+    y1 = 0
+    y2 = img_h
+    if formula_zone_geometry:
+        model_y1 = int(formula_zone_geometry.get("y1", 0) or 0)
+        model_y2 = int(formula_zone_geometry.get("y2", img_h) or img_h)
+        band_height = max(1, model_y2 - model_y1)
+        pad_y = max(8, int(band_height * 0.75))
+        y1 = max(0, model_y1 - pad_y)
+        y2 = min(img_h, model_y2 + pad_y)
+    if y2 <= y1:
+        y1 = 0
+        y2 = img_h
+    relaxed = formula_crop[y1:y2, :]
+    if relaxed.size == 0:
+        relaxed = formula_crop.copy()
+        y1 = 0
+        y2 = img_h
+    applied = y1 > 0 or y2 < img_h
+    return relaxed, {
+        "y1": int(y1),
+        "y2": int(y2),
+        "width": int(img_w),
+        "height": int(img_h),
+        "applied": bool(applied),
+    }
+
+
+def should_try_formula_thin_fallback(
+    *,
+    formula_result: Mapping[str, Any],
+    formula_crop: np.ndarray,
+    formula_model_geometry: Mapping[str, Any],
+) -> bool:
+    """Return whether a suspiciously short formula should get a less-trimmed reread."""
+
+    if formula_crop.size == 0:
+        return False
+    formula_text = modal.normalize_formula_text(formula_result.get("formula_text") or "")
+    canonical = modal.canonicalize_formula_for_comparison(formula_text)
+    if len(canonical) != 1 or canonical not in {"□", "⋄", "¬"}:
+        return False
+    crop_height = int(formula_crop.shape[0])
+    y1 = int(formula_model_geometry.get("y1", 0) or 0)
+    y2 = int(formula_model_geometry.get("y2", crop_height) or crop_height)
+    trimmed_height = max(0, y2 - y1)
+    if trimmed_height <= 0 or crop_height <= 0:
+        return False
+    trim_ratio = float(trimmed_height) / float(crop_height)
+    return trim_ratio <= 0.65 or trimmed_height <= 18
+
+
+def _should_try_formula_thin_fallback(
+    *,
+    formula_result: Mapping[str, Any],
+    formula_crop: np.ndarray,
+    formula_model_geometry: Mapping[str, Any],
+) -> bool:
+    return should_try_formula_thin_fallback(
+        formula_result=formula_result,
+        formula_crop=formula_crop,
+        formula_model_geometry=formula_model_geometry,
+    )
 
 
 def _should_tight_reread_justification(

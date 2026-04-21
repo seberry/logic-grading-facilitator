@@ -14,13 +14,19 @@ from proofs_ocr.pipelines import modal_v2
 from proofs_ocr.pipelines import modal_v2_core
 from proofs_ocr.pipelines.modal_v2 import run_modal_baseline_pipeline
 from proofs_ocr.pipelines.modal_v2_core import ModalPipelineFeatureFlags
-from proofs_ocr.pipelines.modal_v2_line_rereads import maybe_reread_contradiction_line, maybe_reread_justification_head
+from proofs_ocr.pipelines.modal_v2_line_rereads import (
+    maybe_reread_contradiction_line,
+    maybe_reread_intro_justification_citation,
+    maybe_reread_justification_head,
+)
 from proofs_ocr.pipelines.modal_v2_formula_rereads import maybe_reread_formula_text
 from proofs_ocr.pipelines.modal_v2_runtime import ModalBaselineArtifactLineReader
 from proofs_ocr.pipelines.modal_v2_line_zones import (
     extract_line_zone_crops,
     extract_primary_ink_band_crop,
+    extract_relaxed_formula_crop,
     extract_tight_justification_crop,
+    should_try_formula_thin_fallback,
 )
 from proofs_ocr.common.types import SubproofNode
 
@@ -325,19 +331,23 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
     def test_modal_baseline_artifact_line_reader_can_apply_contradiction_reread(self) -> None:
         class SequencedClient:
             def __init__(self) -> None:
-                self.calls = 0
+                self.calls = []
 
             def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
-                del image_path, prompt, system_prompt
-                self.calls += 1
-                if self.calls == 1:
+                del prompt, system_prompt
+                self.calls.append(image_path.name)
+                if image_path.name == "node_line_1_7.jpg":
                     return (
                         '{"line_label":"","formula_text":"¬E","justification_text":"",'
                         '"scope_role":"derived_line","confidence":"0.7"}'
                     )
+                if image_path.name == "node_line_contradiction_reread_1_7.jpg":
+                    return (
+                        '{"line_label":"","formula_text":"⊥","justification_text":"¬E 4,8",'
+                        '"scope_role":"derived_line","confidence":"0.99"}'
+                    )
                 return (
-                    '{"line_label":"","formula_text":"⊥","justification_text":"¬E 4,8",'
-                    '"scope_role":"derived_line","confidence":"0.99"}'
+                    '{"formula_text":"□A","confidence":"0.99"}'
                 )
 
         image = np.full((44, 320, 3), 255, dtype=np.uint8)
@@ -362,11 +372,16 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
                 node_crop_img=image,
                 line_crop_img=image,
                 row_record={"row_order": 7, "band_index": 5, "y1": 10, "y2": 30},
-                feature_flags=ModalPipelineFeatureFlags(enable_contradiction_reread=True),
+                feature_flags=ModalPipelineFeatureFlags(
+                    enable_contradiction_reread=True,
+                    enable_formula_consensus_reread=True,
+                ),
             )
 
             self.assertEqual(resolved["formula_text"], "⊥")
             self.assertEqual(resolved["justification_text"], "¬E 4,8")
+            self.assertIn("node_line_contradiction_reread_1_7.jpg", verifier_client.calls)
+            self.assertNotIn("node_line_formula_reread_1_7.jpg", verifier_client.calls)
             payload = (output_dir / "node_line_1_7.json").read_text(encoding="utf-8")
             self.assertIn('"recovery_applied": "contradiction_reread"', payload)
             self.assertIn('"contradiction_reread"', payload)
@@ -657,6 +672,62 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
         finally:
             shutil.rmtree(output_dir, ignore_errors=True)
 
+    def test_maybe_reread_formula_text_accepts_majority_rescue_with_precomputed_thin_attempt(self) -> None:
+        class FormulaVerifier:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                del image_path, prompt, system_prompt
+                self.calls += 1
+                if self.calls == 1:
+                    return '{"formula_text":"□¬A","confidence":"0.98"}'
+                return '{"formula_text":"□A","confidence":"0.95"}'
+
+        image = np.full((52, 420, 3), 255, dtype=np.uint8)
+        cv2.putText(image, "8", (12, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(image, "[]~~A", (82, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 0), 2)
+        cv2.putText(image, "[]I 5-7", (280, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 0), 2)
+        output_dir = Path("working/test_modal_v2_formula_consensus_thin_majority")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            resolved, artifact, recovery = maybe_reread_formula_text(
+                output_dir=output_dir,
+                client=FormulaVerifier(),
+                node_id="1",
+                row_order=8,
+                line_crop_img=image,
+                parsed_entry={
+                    "line_label": "8",
+                    "formula_text": "□",
+                    "justification_text": "□I 1",
+                    "scope_role": "derived_line",
+                    "confidence": "0.6",
+                },
+                modal_config={"system": "K", "include_derived_rules": False},
+                precomputed_attempts=[
+                    {
+                        "attempt_kind": "thin_formula_zone",
+                        "crop_filename": "node_line_formula_thin_reread_1_8.jpg",
+                        "prompt": "zone prompt",
+                        "raw_response": '{"formula_text":"□¬A","confidence":"0.98"}',
+                        "parse_error": "",
+                        "parsed": {"formula_text": "□¬A", "confidence": "0.98"},
+                        "structured_formula": "□¬A",
+                        "confidence": "0.98",
+                    }
+                ],
+            )
+
+            self.assertEqual(recovery, "formula_consensus_reread")
+            self.assertEqual(resolved["formula_text"], "□¬A")
+            self.assertIsNotNone(artifact)
+            self.assertTrue(artifact["applied"])
+            self.assertEqual(len(artifact["candidate_attempts"]), 3)
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
     def test_modal_baseline_artifact_line_reader_can_apply_formula_consensus_reread(self) -> None:
         class SequencedClient:
             def __init__(self) -> None:
@@ -746,6 +817,43 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
         self.assertTrue(geometry["applied"])
         self.assertGreater(geometry["y1"], 0)
         self.assertLess(tight_crop.shape[0], image.shape[0])
+
+    def test_should_try_formula_thin_fallback_flags_short_modal_formula(self) -> None:
+        image = np.full((44, 180, 3), 255, dtype=np.uint8)
+        cv2.putText(image, "[]", (36, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+
+        should_try = should_try_formula_thin_fallback(
+            formula_result={"formula_text": "□"},
+            formula_crop=image,
+            formula_model_geometry={"y1": 14, "y2": 32, "height": 44, "width": 180, "applied": True},
+        )
+
+        self.assertTrue(should_try)
+
+    def test_should_try_formula_thin_fallback_declines_normal_formula(self) -> None:
+        image = np.full((44, 180, 3), 255, dtype=np.uint8)
+        cv2.putText(image, "[]A", (36, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+
+        should_try = should_try_formula_thin_fallback(
+            formula_result={"formula_text": "□A"},
+            formula_crop=image,
+            formula_model_geometry={"y1": 8, "y2": 40, "height": 44, "width": 180, "applied": True},
+        )
+
+        self.assertFalse(should_try)
+
+    def test_extract_relaxed_formula_crop_expands_trimmed_band(self) -> None:
+        image = np.full((44, 180, 3), 255, dtype=np.uint8)
+        cv2.putText(image, "[]~~A", (24, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+
+        relaxed_crop, geometry = extract_relaxed_formula_crop(
+            image,
+            formula_zone_geometry={"y1": 14, "y2": 28, "height": 44, "width": 180, "applied": True},
+        )
+
+        self.assertLessEqual(geometry["y1"], 6)
+        self.assertGreaterEqual(geometry["y2"], 36)
+        self.assertGreaterEqual(relaxed_crop.shape[0], 30)
 
     def test_filter_false_left_separator_bars_removes_top_anchored_left_edge_bar(self) -> None:
         image = _synthetic_false_separator_image()
@@ -1160,10 +1268,102 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
             self.assertEqual(resolved["formula_text"], "□A")
             self.assertEqual(resolved["justification_text"], "∧E 1")
             self.assertEqual(len(primary_client.calls), 2)
-            self.assertEqual(len(verifier_client.calls), 2)
+            self.assertGreaterEqual(len(verifier_client.calls), 2)
             payload = (output_dir / "node_line_1_2.json").read_text(encoding="utf-8")
             self.assertIn('"tight_justification_reread"', payload)
             self.assertIn('"boxed_justification_head_reread"', payload)
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
+    def test_maybe_reread_intro_justification_citation_accepts_range_upgrade(self) -> None:
+        class CitationVerifier:
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                del image_path, prompt, system_prompt
+                return '{"justification_text":"□I 5-7","confidence":"0.98"}'
+
+        image = np.full((40, 180, 3), 255, dtype=np.uint8)
+        cv2.putText(image, "[]I 5-7", (8, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
+        output_dir = Path("working/test_modal_v2_intro_citation_reread")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            resolved, artifact, recovery = maybe_reread_intro_justification_citation(
+                output_dir=output_dir,
+                client=CitationVerifier(),
+                node_id="1",
+                row_order=8,
+                justification_crop_img=image,
+                parsed_entry={
+                    "line_label": "8",
+                    "formula_text": "□",
+                    "justification_text": "□I 1",
+                    "scope_role": "derived_line",
+                    "confidence": "0.7",
+                },
+            )
+
+            self.assertEqual(recovery, "intro_justification_citation_reread")
+            self.assertEqual(resolved["justification_text"], "□I 5-7")
+            self.assertIsNotNone(artifact)
+            self.assertTrue(artifact["applied"])
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
+    def test_maybe_reread_intro_justification_citation_skips_non_intro_head(self) -> None:
+        class FailIfCalledClient:
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                raise AssertionError("client should not be called for non-intro justification")
+
+        image = np.full((40, 180, 3), 255, dtype=np.uint8)
+
+        resolved, artifact, recovery = maybe_reread_intro_justification_citation(
+            output_dir=Path("working"),
+            client=FailIfCalledClient(),
+            node_id="1",
+            row_order=4,
+            justification_crop_img=image,
+            parsed_entry={
+                "line_label": "4",
+                "formula_text": "Q",
+                "justification_text": "∧E 1",
+                "scope_role": "derived_line",
+                "confidence": "0.7",
+            },
+        )
+
+        self.assertEqual(recovery, "")
+        self.assertIsNone(artifact)
+        self.assertEqual(resolved["justification_text"], "∧E 1")
+
+    def test_maybe_reread_intro_justification_citation_skips_valid_range(self) -> None:
+        class CitationVerifier:
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                del image_path, prompt, system_prompt
+                return '{"justification_text":"□I 7","confidence":"0.98"}'
+
+        image = np.full((40, 180, 3), 255, dtype=np.uint8)
+        output_dir = Path("working/test_modal_v2_intro_citation_weaker")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            resolved, artifact, recovery = maybe_reread_intro_justification_citation(
+                output_dir=output_dir,
+                client=CitationVerifier(),
+                node_id="1",
+                row_order=8,
+                justification_crop_img=image,
+                parsed_entry={
+                    "line_label": "8",
+                    "formula_text": "□¬¬A",
+                    "justification_text": "□I 5-7",
+                    "scope_role": "derived_line",
+                    "confidence": "0.7",
+                },
+            )
+
+            self.assertEqual(recovery, "")
+            self.assertIsNone(artifact)
+            self.assertEqual(resolved["justification_text"], "□I 5-7")
         finally:
             shutil.rmtree(output_dir, ignore_errors=True)
 
@@ -1186,9 +1386,13 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
             def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
                 del system_prompt
                 self.calls.append((image_path.name, prompt))
+                if "contradiction_reread" in image_path.name:
+                    return (
+                        '{"line_label":"","formula_text":"⊥","justification_text":"¬E 4,8",'
+                        '"scope_role":"derived_line","confidence":"0.99"}'
+                    )
                 return (
-                    '{"line_label":"","formula_text":"⊥","justification_text":"¬E 4,8",'
-                    '"scope_role":"derived_line","confidence":"0.99"}'
+                    '{"formula_text":"□A","confidence":"0.99"}'
                 )
 
         image = np.full((52, 420, 3), 255, dtype=np.uint8)
@@ -1217,18 +1421,148 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
                 node_crop_img=image,
                 line_crop_img=image,
                 row_record={"row_order": 9, "band_index": 0, "y1": 8, "y2": 42},
-                feature_flags=ModalPipelineFeatureFlags(enable_contradiction_reread=True),
+                feature_flags=ModalPipelineFeatureFlags(
+                    enable_contradiction_reread=True,
+                    enable_formula_consensus_reread=True,
+                ),
             )
 
             self.assertEqual(resolved["formula_text"], "⊥")
             self.assertEqual(resolved["justification_text"], "¬E 4,8")
             self.assertEqual(len(primary_client.calls), 2)
-            self.assertEqual(len(verifier_client.calls), 1)
-            self.assertEqual(verifier_client.calls[0][0], "node_line_contradiction_reread_1_9.jpg")
+            self.assertIn("node_line_contradiction_reread_1_9.jpg", [call[0] for call in verifier_client.calls])
+            self.assertNotIn("node_line_formula_reread_1_9.jpg", [call[0] for call in verifier_client.calls])
             payload = (output_dir / "node_line_1_9.json").read_text(encoding="utf-8")
             self.assertIn('"recovery_applied": "contradiction_reread"', payload)
             self.assertIn('"contradiction_reread"', payload)
             self.assertIn('"formula_text": "⊥"', payload)
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
+    def test_modal_baseline_artifact_line_reader_can_apply_thin_formula_fallback_with_zone_separation(self) -> None:
+        class PrimaryClient:
+            def __init__(self) -> None:
+                self.calls = []
+
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                del system_prompt
+                self.calls.append((image_path.name, prompt))
+                if "formula_model" in image_path.name:
+                    return '{"line_label":"","formula_text":"□","confidence":"high"}'
+                return '{"justification_text":"□I 1","confidence":"high"}'
+
+        class VerifierClient:
+            def __init__(self) -> None:
+                self.calls = []
+
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                del system_prompt
+                self.calls.append((image_path.name, prompt))
+                if "formula_thin_reread" in image_path.name:
+                    return '{"line_label":"","formula_text":"□¬¬A","confidence":"0.98"}'
+                if "formula_reread" in image_path.name and "boxed" not in image_path.name:
+                    return '{"formula_text":"□¬¬A","confidence":"0.98"}'
+                if "formula_boxed_reread" in image_path.name:
+                    return '{"formula_text":"□A","confidence":"0.95"}'
+                return '{"justification_text":"□I 1","confidence":"0.95"}'
+
+        image = np.full((44, 420, 3), 255, dtype=np.uint8)
+        cv2.putText(image, "8", (12, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(image, "[]~~A", (82, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 0), 2)
+        cv2.putText(image, "[]I 5-7", (280, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 0), 2)
+
+        node = SubproofNode("1", (0, 0, 0, 0))
+        output_dir = Path("working/test_modal_v2_runtime_zone_thin_formula_fallback")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            primary_client = PrimaryClient()
+            verifier_client = VerifierClient()
+            reader = ModalBaselineArtifactLineReader(
+                output_dir=output_dir,
+                client=primary_client,
+                verifier_client=verifier_client,
+                prompt="unused",
+                modal_config={"system": "K"},
+                enable_formula_justification_separation=True,
+            )
+
+            resolved = reader(
+                node=node,
+                node_crop_img=image,
+                line_crop_img=image,
+                row_record={"row_order": 8, "band_index": 0, "y1": 8, "y2": 34},
+                feature_flags=ModalPipelineFeatureFlags(enable_formula_consensus_reread=True),
+            )
+
+            self.assertEqual(resolved["formula_text"], "□¬¬A")
+            payload = (output_dir / "node_line_1_8.json").read_text(encoding="utf-8")
+            self.assertIn('"formula_thin_fallback_reread"', payload)
+            self.assertIn('"recovery_applied": "formula_consensus_reread"', payload)
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
+    def test_modal_baseline_artifact_line_reader_can_apply_intro_citation_reread_with_zone_separation(self) -> None:
+        class PrimaryClient:
+            def __init__(self) -> None:
+                self.calls = []
+
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                del system_prompt
+                self.calls.append((image_path.name, prompt))
+                if "formula side" in prompt:
+                    return '{"line_label":"","formula_text":"[]~~A","confidence":"high"}'
+                return '{"justification_text":"[]I 1","confidence":"high"}'
+
+        class VerifierClient:
+            def __init__(self) -> None:
+                self.calls = []
+
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                del system_prompt
+                self.calls.append((image_path.name, prompt))
+                if "citation" in image_path.name:
+                    return '{"justification_text":"□I 5-7","confidence":"0.98"}'
+                if "formula_reread" in image_path.name and "boxed" not in image_path.name:
+                    return '{"formula_text":"□¬¬A","confidence":"0.98"}'
+                if "formula_boxed_reread" in image_path.name:
+                    return '{"formula_text":"□¬¬A","confidence":"0.98"}'
+                return '{"justification_text":"□I 1","confidence":"0.95"}'
+
+        image = np.full((44, 420, 3), 255, dtype=np.uint8)
+        cv2.putText(image, "8", (12, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(image, "[]~~A", (82, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 0), 2)
+        cv2.putText(image, "[]I 5-7", (280, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 0), 2)
+
+        node = SubproofNode("1", (0, 0, 0, 0))
+        output_dir = Path("working/test_modal_v2_runtime_zone_intro_citation")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            primary_client = PrimaryClient()
+            verifier_client = VerifierClient()
+            reader = ModalBaselineArtifactLineReader(
+                output_dir=output_dir,
+                client=primary_client,
+                verifier_client=verifier_client,
+                prompt="unused",
+                modal_config={"system": "K"},
+                enable_formula_justification_separation=True,
+            )
+
+            resolved = reader(
+                node=node,
+                node_crop_img=image,
+                line_crop_img=image,
+                row_record={"row_order": 8, "band_index": 0, "y1": 8, "y2": 34},
+                feature_flags=ModalPipelineFeatureFlags(enable_formula_consensus_reread=True),
+            )
+
+            self.assertEqual(resolved["formula_text"], "□~~A")
+            self.assertEqual(resolved["justification_text"], "□I 5-7")
+            payload = (output_dir / "node_line_1_8.json").read_text(encoding="utf-8")
+            self.assertIn('"intro_justification_citation_reread"', payload)
+            self.assertIn('"justification_text": "□I 5-7"', payload)
         finally:
             shutil.rmtree(output_dir, ignore_errors=True)
 
