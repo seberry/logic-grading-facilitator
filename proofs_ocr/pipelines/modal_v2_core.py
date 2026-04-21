@@ -26,6 +26,7 @@ class ModalPipelineFeatureFlags:
     enable_boundary_repair: bool = False
     enable_sparse_lower_compact_band_recovery: bool = False
     enable_contradiction_reread: bool = False
+    enable_justification_head_reread: bool = False
 
     def enabled_layers(self) -> List[str]:
         enabled: List[str] = []
@@ -157,7 +158,12 @@ def _ensure_baseline_feature_support(feature_flags: ModalPipelineFeatureFlags) -
     enabled_layers = [
         layer
         for layer in feature_flags.enabled_layers()
-        if layer not in {"enable_sparse_lower_compact_band_recovery", "enable_contradiction_reread"}
+        if layer
+        not in {
+            "enable_sparse_lower_compact_band_recovery",
+            "enable_contradiction_reread",
+            "enable_justification_head_reread",
+        }
     ]
     if enabled_layers:
         joined = ", ".join(enabled_layers)

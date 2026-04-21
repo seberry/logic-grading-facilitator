@@ -14,9 +14,9 @@ from proofs_ocr.pipelines import modal_v2
 from proofs_ocr.pipelines import modal_v2_core
 from proofs_ocr.pipelines.modal_v2 import run_modal_baseline_pipeline
 from proofs_ocr.pipelines.modal_v2_core import ModalPipelineFeatureFlags
-from proofs_ocr.pipelines.modal_v2_line_rereads import maybe_reread_contradiction_line
+from proofs_ocr.pipelines.modal_v2_line_rereads import maybe_reread_contradiction_line, maybe_reread_justification_head
 from proofs_ocr.pipelines.modal_v2_runtime import ModalBaselineArtifactLineReader
-from proofs_ocr.pipelines.modal_v2_line_zones import extract_line_zone_crops
+from proofs_ocr.pipelines.modal_v2_line_zones import extract_line_zone_crops, extract_tight_justification_crop
 from proofs_ocr.common.types import SubproofNode
 
 
@@ -369,6 +369,93 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
         finally:
             shutil.rmtree(output_dir, ignore_errors=True)
 
+    def test_maybe_reread_justification_head_accepts_boxed_rule_head_for_digits_only_line(self) -> None:
+        class JustificationVerifier:
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                del image_path, prompt, system_prompt
+                return '{"justification_text":"□E1","confidence":"0.98"}'
+
+        image = np.full((52, 420, 3), 255, dtype=np.uint8)
+        cv2.putText(image, "4", (12, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(image, "P", (82, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 2)
+        cv2.putText(image, "[]E 1", (285, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        output_dir = Path("working/test_modal_v2_justification_head_reread")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            resolved, artifact, recovery = maybe_reread_justification_head(
+                output_dir=output_dir,
+                client=JustificationVerifier(),
+                node_id="2",
+                row_order=2,
+                line_crop_img=image,
+                parsed_entry={
+                    "line_label": "4",
+                    "formula_text": "P",
+                    "justification_text": "1",
+                    "scope_role": "derived_line",
+                    "confidence": "0.6",
+                },
+            )
+
+            self.assertEqual(recovery, "justification_head_reread")
+            self.assertEqual(resolved["formula_text"], "P")
+            self.assertEqual(resolved["justification_text"], "□E 1")
+            self.assertIsNotNone(artifact)
+            self.assertTrue(artifact["applied"])
+            self.assertTrue((output_dir / "node_line_justification_reread_2_2.jpg").exists())
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
+    def test_modal_baseline_artifact_line_reader_can_apply_justification_head_reread(self) -> None:
+        class SequencedClient:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                del image_path, prompt, system_prompt
+                self.calls += 1
+                if self.calls == 1:
+                    return (
+                        '{"line_label":"","formula_text":"P","justification_text":"1",'
+                        '"scope_role":"derived_line","confidence":"0.7"}'
+                    )
+                return '{"justification_text":"□E 1","confidence":"0.99"}'
+
+        image = np.full((52, 420, 3), 255, dtype=np.uint8)
+        cv2.putText(image, "4", (12, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(image, "P", (82, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 2)
+        cv2.putText(image, "[]E 1", (285, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+
+        node = SubproofNode("2", (0, 0, 0, 0))
+        output_dir = Path("working/test_modal_v2_runtime_justification_head_reread")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            verifier_client = SequencedClient()
+            reader = ModalBaselineArtifactLineReader(
+                output_dir=output_dir,
+                client=verifier_client,
+                verifier_client=verifier_client,
+                prompt="prompt",
+            )
+
+            resolved = reader(
+                node=node,
+                node_crop_img=image,
+                line_crop_img=image,
+                row_record={"row_order": 2, "band_index": 0, "y1": 8, "y2": 42},
+                feature_flags=ModalPipelineFeatureFlags(enable_justification_head_reread=True),
+            )
+
+            self.assertEqual(resolved["formula_text"], "P")
+            self.assertEqual(resolved["justification_text"], "□E 1")
+            payload = (output_dir / "node_line_2_2.json").read_text(encoding="utf-8")
+            self.assertIn('"recovery_applied": "justification_head_reread"', payload)
+            self.assertIn('"justification_head_reread"', payload)
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
     def test_extract_line_zone_crops_splits_formula_and_justification_sides(self) -> None:
         image = np.full((52, 420, 3), 255, dtype=np.uint8)
         cv2.putText(image, "4", (12, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
@@ -383,6 +470,19 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
         justification_gray = cv2.cvtColor(justification_crop, cv2.COLOR_BGR2GRAY)
         self.assertGreater(int((formula_gray[:, :180] < 185).sum()), 25)
         self.assertGreater(int((justification_gray[:, -140:] < 185).sum()), 25)
+
+    def test_extract_tight_justification_crop_removes_top_spill(self) -> None:
+        image = np.full((60, 180, 3), 255, dtype=np.uint8)
+        cv2.putText(image, "spill", (6, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0), 1)
+        cv2.putText(image, "[]E 2", (36, 44), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+
+        tight_crop, geometry = extract_tight_justification_crop(image)
+
+        self.assertTrue(geometry["applied"])
+        self.assertGreater(geometry["y1"], 0)
+        self.assertLess(tight_crop.shape[0], image.shape[0])
+        tight_gray = cv2.cvtColor(tight_crop, cv2.COLOR_BGR2GRAY)
+        self.assertGreater(int((tight_gray < 185).sum()), 25)
 
     def test_filter_false_left_separator_bars_removes_top_anchored_left_edge_bar(self) -> None:
         image = _synthetic_false_separator_image()
@@ -574,6 +674,9 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
         self.assertEqual(modal.normalize_justification_text("□I 2–3"), "□I 2-3")
         self.assertEqual(modal.normalize_justification_text("Assum"), "PR")
         self.assertEqual(modal.normalize_justification_text("Assump"), "PR")
+        self.assertEqual(modal.normalize_justification_text("□E1"), "□E 1")
+        self.assertEqual(modal.normalize_justification_text("DE1"), "□E 1")
+        self.assertEqual(modal.normalize_justification_text("OI 3-6"), "□I 3-6")
 
     def test_normalize_justification_head_accepts_tilde_intro_and_legacy_aliases(self) -> None:
         self.assertEqual(modal.normalize_justification_head("~I"), "~I")
@@ -663,6 +766,68 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
             self.assertTrue((output_dir / "node_line_justification_ROOT_4.jpg").exists())
             payload = (output_dir / "node_line_ROOT_4.json").read_text(encoding="utf-8")
             self.assertIn('"mode": "formula_justification_separation"', payload)
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
+    def test_modal_baseline_artifact_line_reader_can_tight_reread_blank_justification_with_verifier(self) -> None:
+        class PrimaryClient:
+            def __init__(self) -> None:
+                self.calls = []
+
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                del system_prompt
+                self.calls.append((image_path.name, prompt))
+                if "formula side" in prompt:
+                    return '{"line_label":"","formula_text":"A","confidence":"high"}'
+                return '{"justification_text":"","confidence":"high"}'
+
+        class VerifierClient:
+            def __init__(self) -> None:
+                self.calls = []
+
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                del system_prompt
+                self.calls.append((image_path.name, prompt))
+                return '{"justification_text":"[]E 2","confidence":"high"}'
+
+        image = np.full((60, 420, 3), 255, dtype=np.uint8)
+        cv2.putText(image, "spill", (210, 16), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (0, 0, 0), 1)
+        cv2.putText(image, "4", (12, 44), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(image, "A", (82, 44), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 2)
+        cv2.putText(image, "[]E 2", (285, 44), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+
+        node = SubproofNode("ROOT", (0, 0, 0, 0))
+        output_dir = Path("working/test_modal_v2_runtime_tight_justification")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            primary_client = PrimaryClient()
+            verifier_client = VerifierClient()
+            reader = ModalBaselineArtifactLineReader(
+                output_dir=output_dir,
+                client=primary_client,
+                verifier_client=verifier_client,
+                prompt="unused",
+                modal_config={"system": "S4"},
+                enable_formula_justification_separation=True,
+            )
+
+            resolved = reader(
+                node=node,
+                node_crop_img=image,
+                line_crop_img=image,
+                row_record={"row_order": 4, "band_index": 0, "y1": 8, "y2": 46},
+                feature_flags=ModalPipelineFeatureFlags(),
+            )
+
+            self.assertEqual(resolved["formula_text"], "A")
+            self.assertEqual(resolved["justification_text"], "□E 2")
+            self.assertEqual(len(primary_client.calls), 2)
+            self.assertEqual(len(verifier_client.calls), 1)
+            self.assertTrue((output_dir / "node_line_justification_tight_ROOT_4.jpg").exists())
+            payload = (output_dir / "node_line_ROOT_4.json").read_text(encoding="utf-8")
+            self.assertIn('"tight_justification_reread"', payload)
+            self.assertIn('"applied": true', payload)
         finally:
             shutil.rmtree(output_dir, ignore_errors=True)
 

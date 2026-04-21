@@ -59,6 +59,7 @@ def read_line_with_zone_separation(
     *,
     output_dir: Path,
     client: Any,
+    verifier_client: Any | None,
     formula_prompt: str,
     justification_prompt: str,
     node: Any,
@@ -98,6 +99,9 @@ def read_line_with_zone_separation(
     }
     formula_crop_name = ""
     justification_crop_name = ""
+    tight_justification_crop_name = ""
+    tight_justification_geometry: dict[str, int | bool] = {}
+    tight_justification_reread: dict[str, Any] | None = None
 
     if not skip_reason:
         formula_crop, justification_crop, zone_geometry = extract_line_zone_crops(line_crop_img)
@@ -128,6 +132,48 @@ def read_line_with_zone_separation(
             is_root_node=str(node.id) == "ROOT",
             is_first_visible_row_of_nonroot=(str(node.id) != "ROOT" and row_order == 1),
         )
+        if verifier_client is not None and _should_tight_reread_justification(
+            merged_entry=merged,
+            justification_result=justification_resolved,
+            justification_crop=justification_crop,
+        ):
+            tight_justification_crop, tight_justification_geometry = extract_tight_justification_crop(justification_crop)
+            if bool(tight_justification_geometry.get("applied")) and tight_justification_crop.size != 0:
+                tight_justification_crop_name = artifacts.NODE_LINE_TIGHT_JUSTIFICATION_CROP_TEMPLATE.format(
+                    node_id=node.id,
+                    row_order=row_order,
+                )
+                tight_justification_crop_path = output_dir / tight_justification_crop_name
+                cv2.imwrite(str(tight_justification_crop_path), tight_justification_crop)
+                reread_client = verifier_client or client
+                tight_raw = reread_client.chat_with_image_prompt(tight_justification_crop_path, justification_prompt)
+                tight_parse_error = ""
+                tight_resolved = {"justification_text": "", "confidence": ""}
+                try:
+                    tight_parsed = modal.parse_json_object_response(tight_raw)
+                    tight_resolved = modal_line_zones.normalize_justification_zone_result(tight_parsed)
+                except (ValueError, json.JSONDecodeError) as exc:
+                    tight_parse_error = str(exc)
+                    tight_parsed = {}
+                tight_candidate_text = modal.normalize_justification_text(tight_resolved.get("justification_text") or "")
+                applied = bool(tight_candidate_text)
+                if applied:
+                    justification_resolved = tight_resolved
+                    merged = modal_line_zones.merge_line_zone_results(
+                        formula_result=formula_resolved,
+                        justification_result=justification_resolved,
+                        is_root_node=str(node.id) == "ROOT",
+                        is_first_visible_row_of_nonroot=(str(node.id) != "ROOT" and row_order == 1),
+                    )
+                tight_justification_reread = {
+                    "crop_filename": tight_justification_crop_name,
+                    "geometry": tight_justification_geometry,
+                    "raw": tight_raw,
+                    "parsed": tight_parsed,
+                    "resolved": tight_resolved,
+                    "parse_error": tight_parse_error,
+                    "applied": applied,
+                }
         merged, recovery_applied = modal.recover_line_entry_from_crop(
             line_crop_img=line_crop_img,
             parsed_entry=merged,
@@ -152,6 +198,8 @@ def read_line_with_zone_separation(
         "zone_geometry": zone_geometry,
         "formula_crop_filename": formula_crop_name,
         "justification_crop_filename": justification_crop_name,
+        "tight_justification_crop_filename": tight_justification_crop_name,
+        "tight_justification_geometry": tight_justification_geometry,
         "formula_raw_response": formula_raw,
         "formula_parse_error": formula_parse_error,
         "formula_resolved": formula_resolved,
@@ -161,6 +209,8 @@ def read_line_with_zone_separation(
         "resolved": merged,
         "recovery_applied": recovery_applied,
     }
+    if tight_justification_reread is not None:
+        payload["tight_justification_reread"] = tight_justification_reread
     (output_dir / artifacts.NODE_LINE_RESPONSE_TEMPLATE.format(node_id=node.id, row_order=row_order)).write_text(
         json.dumps(payload, indent=2, ensure_ascii=False),
         encoding="utf-8",
@@ -210,3 +260,143 @@ def _choose_line_zone_split_x(crop_img: np.ndarray) -> int:
     min_split = max(18, int(img_w * 0.22))
     max_split = max(min_split + 1, int(img_w * 0.62))
     return max(min_split, min(max_split, best_x))
+
+
+def extract_tight_justification_crop(justification_crop: np.ndarray) -> tuple[np.ndarray, dict[str, int | bool]]:
+    """Trim obvious spill above a justification band while preserving the full citation text."""
+
+    if justification_crop.size == 0:
+        empty = justification_crop.copy()
+        return empty, {
+            "x1": 0,
+            "y1": 0,
+            "x2": 0,
+            "y2": 0,
+            "width": 0,
+            "height": 0,
+            "applied": False,
+        }
+
+    img_h, img_w = justification_crop.shape[:2]
+    gray = cv2.cvtColor(justification_crop, cv2.COLOR_BGR2GRAY)
+    dark = (gray < 185).astype(np.uint8)
+    if int(dark.sum()) <= 0:
+        return justification_crop.copy(), {
+            "x1": 0,
+            "y1": 0,
+            "x2": int(img_w),
+            "y2": int(img_h),
+            "width": int(img_w),
+            "height": int(img_h),
+            "applied": False,
+        }
+
+    row_counts = dark.sum(axis=1).astype(np.int32)
+    max_row_count = int(row_counts.max())
+    row_threshold = max(2, int(max_row_count * 0.3))
+    primary_run = _choose_primary_ink_run(row_counts, row_threshold)
+    if primary_run is None:
+        ys, xs = np.where(dark > 0)
+        y1 = int(ys.min())
+        y2 = int(ys.max()) + 1
+        x1 = int(xs.min())
+        x2 = int(xs.max()) + 1
+    else:
+        run_y1, run_y2 = primary_run
+        band = dark[run_y1:run_y2, :]
+        ys, xs = np.where(band > 0)
+        if ys.size == 0 or xs.size == 0:
+            return justification_crop.copy(), {
+                "x1": 0,
+                "y1": 0,
+                "x2": int(img_w),
+                "y2": int(img_h),
+                "width": int(img_w),
+                "height": int(img_h),
+                "applied": False,
+            }
+        y1 = int(run_y1 + ys.min())
+        y2 = int(run_y1 + ys.max()) + 1
+        x1 = int(xs.min())
+        x2 = int(xs.max()) + 1
+
+    pad_left = 3
+    pad_right = 10
+    pad_y = 3
+    x1 = max(0, x1 - pad_left)
+    x2 = min(img_w, x2 + pad_right)
+    y1 = max(0, y1 - pad_y)
+    y2 = min(img_h, y2 + pad_y)
+    if x2 <= x1 or y2 <= y1:
+        return justification_crop.copy(), {
+            "x1": 0,
+            "y1": 0,
+            "x2": int(img_w),
+            "y2": int(img_h),
+            "width": int(img_w),
+            "height": int(img_h),
+            "applied": False,
+        }
+
+    tight_crop = justification_crop[y1:y2, x1:x2]
+    applied = x1 > 0 or y1 > 0 or x2 < img_w or y2 < img_h
+    return tight_crop, {
+        "x1": int(x1),
+        "y1": int(y1),
+        "x2": int(x2),
+        "y2": int(y2),
+        "width": int(img_w),
+        "height": int(img_h),
+        "applied": bool(applied),
+    }
+
+
+def _should_tight_reread_justification(
+    *,
+    merged_entry: Mapping[str, Any],
+    justification_result: Mapping[str, Any],
+    justification_crop: np.ndarray,
+) -> bool:
+    text = modal.normalize_justification_text(merged_entry.get("justification_text") or "")
+    if text:
+        return False
+    del justification_result
+    return _crop_has_visible_ink(justification_crop)
+
+
+def _crop_has_visible_ink(crop_img: np.ndarray) -> bool:
+    if crop_img.size == 0:
+        return False
+    gray = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
+    return int((gray < 185).sum()) > 12
+
+
+def _choose_primary_ink_run(row_counts: np.ndarray, threshold: int) -> tuple[int, int] | None:
+    active_rows = row_counts >= threshold
+    base_runs: list[tuple[int, int, int]] = []
+    start = -1
+    for index, is_active in enumerate(active_rows.tolist()):
+        if is_active and start < 0:
+            start = index
+        elif not is_active and start >= 0:
+            base_runs.append((start, index, int(row_counts[start:index].sum())))
+            start = -1
+    if start >= 0:
+        base_runs.append((start, int(len(row_counts)), int(row_counts[start:].sum())))
+    if not base_runs:
+        return None
+
+    runs: list[tuple[int, int, int]] = []
+    merge_gap = 3
+    for run_start, run_end, run_sum in base_runs:
+        if not runs:
+            runs.append((run_start, run_end, run_sum))
+            continue
+        prev_start, prev_end, prev_sum = runs[-1]
+        if run_start - prev_end <= merge_gap:
+            runs[-1] = (prev_start, run_end, prev_sum + run_sum)
+        else:
+            runs.append((run_start, run_end, run_sum))
+
+    start, end, _ = max(runs, key=lambda item: (item[2], item[0]))
+    return (int(start), int(end))

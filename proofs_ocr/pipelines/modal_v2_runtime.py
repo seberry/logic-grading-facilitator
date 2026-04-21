@@ -11,7 +11,7 @@ import cv2
 from proofs_ocr.common import artifacts
 from proofs_ocr.domains import modal
 from proofs_ocr.pipelines.modal_v2_core import ImagePromptClient, ModalPipelineFeatureFlags
-from proofs_ocr.pipelines.modal_v2_line_rereads import maybe_reread_contradiction_line
+from proofs_ocr.pipelines.modal_v2_line_rereads import maybe_reread_contradiction_line, maybe_reread_justification_head
 from proofs_ocr.pipelines.modal_v2_line_zones import read_line_with_zone_separation
 
 try:
@@ -65,6 +65,7 @@ class ModalBaselineArtifactLineReader:
             return read_line_with_zone_separation(
                 output_dir=self.output_dir,
                 client=self.client,
+                verifier_client=self.verifier_client,
                 formula_prompt=self.formula_prompt,
                 justification_prompt=self.justification_prompt,
                 node=node,
@@ -88,6 +89,7 @@ class ModalBaselineArtifactLineReader:
         }
         recovery_applied = ""
         contradiction_reread = None
+        justification_head_reread = None
         if not skip_reason:
             raw_response = self.client.chat_with_image_prompt(crop_path, self.prompt)
             try:
@@ -120,6 +122,18 @@ class ModalBaselineArtifactLineReader:
                 if contradiction_recovery:
                     resolved = contradiction_resolved
                     recovery_applied = contradiction_recovery
+            if feature_flags.enable_justification_head_reread:
+                justification_resolved, justification_head_reread, justification_recovery = maybe_reread_justification_head(
+                    output_dir=self.output_dir,
+                    client=self.verifier_client,
+                    node_id=str(node.id),
+                    row_order=row_order,
+                    line_crop_img=line_crop_img,
+                    parsed_entry=resolved,
+                )
+                if justification_recovery:
+                    resolved = justification_resolved
+                    recovery_applied = justification_recovery
 
         payload = {
             "node_id": node.id,
@@ -135,6 +149,8 @@ class ModalBaselineArtifactLineReader:
         }
         if not skip_reason and contradiction_reread is not None:
             payload["contradiction_reread"] = contradiction_reread
+        if not skip_reason and justification_head_reread is not None:
+            payload["justification_head_reread"] = justification_head_reread
         (self.output_dir / artifacts.NODE_LINE_RESPONSE_TEMPLATE.format(node_id=node.id, row_order=row_order)).write_text(
             json.dumps(payload, indent=2, ensure_ascii=False),
             encoding="utf-8",

@@ -210,6 +210,7 @@ class ModalV2DebugStateTests(unittest.TestCase):
         )
         verifier_client = FakeImagePromptClient(
             [
+                json.dumps({"justification_text": "", "confidence": "low"}),
                 json.dumps(
                     {
                         "main_modal_operator": "box",

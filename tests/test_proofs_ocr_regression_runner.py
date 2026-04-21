@@ -236,6 +236,8 @@ class ProofOcrRegressionRunnerTests(unittest.TestCase):
             def chat_with_image_prompt(self, image_path: Path, prompt: str, system_prompt: str | None = None) -> str:
                 del prompt, system_prompt
                 self.calls.append(image_path.name)
+                if "boxed_justification" in image_path.name:
+                    return json.dumps({"justification_text": "PR", "confidence": "high"})
                 return json.dumps(
                     {
                         "line_label": "1",
@@ -271,6 +273,7 @@ class ProofOcrRegressionRunnerTests(unittest.TestCase):
             )
             crop_img = np.full((80, 240, 3), 255, dtype=np.uint8)
             cv2.putText(crop_img, "B", (20, 46), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2)
+            cv2.putText(crop_img, "PR", (170, 46), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
             cv2.imwrite(str(output_dir / "crop_ROOT.jpg"), crop_img)
             cv2.imwrite(str(output_dir / "node_line_ROOT_1.jpg"), crop_img)
             (output_dir / "node_line_ROOT_1.json").write_text(
@@ -288,19 +291,23 @@ class ProofOcrRegressionRunnerTests(unittest.TestCase):
             transcribe_fn=fake_transcribe,
             line_reread_client=probe_client,
             line_reread_model="fake-8b",
-            line_reread_modes=["whole_line", "boxed_context"],
+            line_reread_modes=["whole_line", "boxed_context", "boxed_justification"],
         )
 
         self.assertEqual(len(results), 1)
-        self.assertEqual(len(probe_client.calls), 2)
+        self.assertEqual(len(probe_client.calls), 3)
         self.assertTrue((output_root / "case_probe" / "failed_line_rereads.json").exists())
         probe_payload = json.loads((output_root / "case_probe" / "failed_line_rereads.json").read_text(encoding="utf-8"))
         self.assertEqual(len(probe_payload), 1)
-        self.assertEqual([attempt["mode"] for attempt in probe_payload[0]["attempts"]], ["whole_line", "boxed_context"])
+        self.assertEqual(
+            [attempt["mode"] for attempt in probe_payload[0]["attempts"]],
+            ["whole_line", "boxed_context", "boxed_justification"],
+        )
         self.assertEqual(probe_payload[0]["actual"]["source_node_id"], "ROOT")
         self.assertEqual(probe_payload[0]["actual"]["source_row_order"], 1)
         self.assertTrue((output_root / "case_probe" / "failed_line_reread_1_whole_line.jpg").exists())
         self.assertTrue((output_root / "case_probe" / "failed_line_reread_1_boxed_context.jpg").exists())
+        self.assertTrue((output_root / "case_probe" / "failed_line_reread_1_boxed_justification.jpg").exists())
         self.assertIn("Alternate-model reread wrote 1 failed-line probe.", results[0].run_summary)
 
 

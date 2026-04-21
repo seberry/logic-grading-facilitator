@@ -7,9 +7,11 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import cv2
+import numpy as np
 
 from proofs_ocr.common import stitch
 from proofs_ocr.domains import modal
+from proofs_ocr.pipelines.modal_v2_line_zones import extract_line_zone_crops
 
 FAILED_LINE_REREADS_FILENAME = "failed_line_rereads.json"
 FAILED_LINE_REREAD_CROP_TEMPLATE = "failed_line_reread_{order_index}_{mode}.jpg"
@@ -48,7 +50,11 @@ def run_failed_line_rereads(
 
     requested_modes = _normalize_modes(modes)
     prompt_cache = {
-        mode: modal.build_targeted_line_ocr_prompt(modal_config, focus_mode=mode)
+        mode: (
+            modal.build_targeted_justification_ocr_prompt(modal_config)
+            if mode == "boxed_justification"
+            else modal.build_targeted_line_ocr_prompt(modal_config, focus_mode=mode)
+        )
         for mode in requested_modes
     }
     records: list[dict[str, Any]] = []
@@ -82,15 +88,15 @@ def run_failed_line_rereads(
 
             raw_response = client.chat_with_image_prompt(probe_crop_path, prompt_cache[mode])
             parse_error = ""
-            resolved = {
-                "line_label": "",
-                "formula_text": "",
-                "justification_text": "",
-                "scope_role": "derived_line",
-                "confidence": "",
-            }
+            resolved = _default_line_entry(actual)
             try:
-                resolved = modal.parse_line_ocr_response(raw_response)
+                if mode == "boxed_justification":
+                    resolved = _merge_boxed_justification_result(
+                        actual=actual,
+                        parsed=modal.parse_json_object_response(raw_response),
+                    )
+                else:
+                    resolved = modal.parse_line_ocr_response(raw_response)
             except (ValueError, json.JSONDecodeError) as exc:
                 parse_error = str(exc)
 
@@ -138,11 +144,33 @@ def _normalize_modes(modes: Sequence[str]) -> list[str]:
     normalized: list[str] = []
     for mode in modes:
         text = str(mode or "").strip().lower().replace("-", "_")
-        if text not in {"whole_line", "boxed_context"}:
+        if text not in {"whole_line", "boxed_context", "boxed_justification"}:
             continue
         if text not in normalized:
             normalized.append(text)
     return normalized or ["whole_line", "boxed_context"]
+
+
+def _default_line_entry(actual: Mapping[str, Any]) -> dict[str, str]:
+    return {
+        "line_label": str(actual.get("source_line_label") or actual.get("line_label") or "").strip(),
+        "formula_text": modal.normalize_formula_text(actual.get("wffstr") or actual.get("formula_text") or ""),
+        "justification_text": modal.normalize_justification_text(actual.get("jstr") or actual.get("justification_text") or ""),
+        "scope_role": modal.normalize_scope_role(actual.get("scope_role") or "derived_line"),
+        "confidence": "",
+    }
+
+
+def _merge_boxed_justification_result(
+    *,
+    actual: Mapping[str, Any],
+    parsed: Mapping[str, Any],
+) -> dict[str, str]:
+    resolved = _default_line_entry(actual)
+    justification_text = modal.normalize_justification_text(parsed.get("justification_text") or parsed.get("jstr") or "")
+    resolved["justification_text"] = justification_text
+    resolved["confidence"] = str(parsed.get("confidence") or "").strip()
+    return resolved
 
 
 def _load_node_entry_library(output_dir: Path) -> dict[str, list[dict[str, Any]]]:
@@ -185,6 +213,8 @@ def _build_probe_crop(
         crop_img = cv2.imread(str(source_path))
     elif mode == "boxed_context":
         crop_img = _build_boxed_context_crop(output_dir=output_dir, node_id=node_id, row_order=row_order)
+    elif mode == "boxed_justification":
+        crop_img = _build_boxed_justification_crop(output_dir=output_dir, node_id=node_id, row_order=row_order)
     else:
         return None
 
@@ -222,6 +252,91 @@ def _build_boxed_context_crop(*, output_dir: Path, node_id: str, row_order: int)
     box_bottom = min(context.shape[0] - 1, max(box_top + 1, y2 - context_y1 - 1))
     cv2.rectangle(context, (0, box_top), (max(1, context.shape[1] - 1), box_bottom), (0, 0, 255), 2)
     return context
+
+
+def _build_boxed_justification_crop(*, output_dir: Path, node_id: str, row_order: int) -> Any:
+    line_crop_path = output_dir / f"node_line_{node_id}_{row_order}.jpg"
+    line_crop = cv2.imread(str(line_crop_path))
+    if line_crop is None or line_crop.size == 0:
+        return None
+
+    _, justification_crop, zone_geometry = extract_line_zone_crops(line_crop)
+    box = _detect_justification_focus_box(justification_crop)
+    if box is None:
+        return None
+
+    context = line_crop.copy()
+    justification_x1 = int(zone_geometry.get("justification_x1") or 0)
+    x, y, w, h = box
+    abs_x1 = max(0, min(context.shape[1] - 1, justification_x1 + x))
+    abs_y1 = max(0, min(context.shape[0] - 1, y))
+    abs_x2 = max(abs_x1 + 1, min(context.shape[1], justification_x1 + x + w))
+    abs_y2 = max(abs_y1 + 1, min(context.shape[0], y + h))
+    cv2.rectangle(context, (abs_x1, abs_y1), (abs_x2 - 1, abs_y2 - 1), (0, 0, 255), 2)
+    return context
+
+
+def _detect_justification_focus_box(justification_crop: np.ndarray) -> tuple[int, int, int, int] | None:
+    if justification_crop.size == 0:
+        return None
+
+    gray = cv2.cvtColor(justification_crop, cv2.COLOR_BGR2GRAY)
+    dark = (gray < 185).astype(np.uint8)
+    if int(dark.sum()) <= 0:
+        return None
+
+    num_labels, _, stats, _ = cv2.connectedComponentsWithStats(dark, 8)
+    components: list[tuple[int, int, int, int]] = []
+    for label_index in range(1, num_labels):
+        area = int(stats[label_index, cv2.CC_STAT_AREA])
+        left = int(stats[label_index, cv2.CC_STAT_LEFT])
+        top = int(stats[label_index, cv2.CC_STAT_TOP])
+        width = int(stats[label_index, cv2.CC_STAT_WIDTH])
+        height = int(stats[label_index, cv2.CC_STAT_HEIGHT])
+        if area < 12:
+            continue
+        if width <= 2 or height <= 2:
+            continue
+        components.append((left, top, width, height))
+
+    if not components:
+        return None
+
+    components.sort(key=lambda item: (item[0], item[1]))
+    head_components: list[tuple[int, int, int, int]] = [components[0]]
+    right_edge = components[0][0] + components[0][2]
+    head_top = components[0][1]
+    head_bottom = components[0][1] + components[0][3]
+    for component in components[1:]:
+        left, top, width, height = component
+        gap = left - right_edge
+        comp_bottom = top + height
+        vertical_overlap = min(head_bottom, comp_bottom) - max(head_top, top)
+        min_height = max(1, min(head_bottom - head_top, height))
+        same_row = vertical_overlap >= int(0.35 * min_height)
+        if gap > 30 or not same_row:
+            break
+        head_components.append(component)
+        right_edge = max(right_edge, left + width)
+        head_top = min(head_top, top)
+        head_bottom = max(head_bottom, comp_bottom)
+        if len(head_components) >= 5:
+            break
+
+    x1 = min(component[0] for component in head_components)
+    y1 = min(component[1] for component in head_components)
+    x2 = max(component[0] + component[2] for component in head_components)
+    y2 = max(component[1] + component[3] for component in head_components)
+    pad_x = 6
+    pad_y = 4
+    img_h, img_w = justification_crop.shape[:2]
+    x1 = max(0, x1 - pad_x)
+    y1 = max(0, y1 - pad_y)
+    x2 = min(img_w, x2 + pad_x)
+    y2 = min(img_h, y2 + pad_y)
+    if x2 <= x1 or y2 <= y1:
+        return None
+    return (x1, y1, x2 - x1, y2 - y1)
 
 
 def _upscale(crop_img: Any, *, scale: int) -> Any:

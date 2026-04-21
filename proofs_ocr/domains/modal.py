@@ -19,6 +19,9 @@ _WHITESPACE_RE = re.compile(r"\s+")
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 _DASH_BETWEEN_DIGITS_RE = re.compile(r"(?<=\d)\s*[-–—]\s*(?=\d)")
 _COMMA_BETWEEN_DIGITS_RE = re.compile(r"(?<=\d)\s*,\s*(?=\d)")
+_STUCK_JUSTIFICATION_TAIL_RE = re.compile(
+    r"^(PR|R|∧I|∧E|∨I|∨E|→I|→E|↔I|↔E|¬I|¬E|~I|~E|IP|DN|MC|□I|□E|R4|R5|RT|Def⋄|AI|AE|CI|CE|NI|NE|OI|DE|BOXI|BOXE)(\d.*)$"
+)
 _PREMISE_ALIAS_HEADS = {
     "pr",
     "prem",
@@ -60,6 +63,8 @@ _JUSTIFICATION_HEAD_ALIASES = {
     "mc": "MC",
     "boxi": "□I",
     "boxe": "□E",
+    "oi": "□I",
+    "de": "□E",
     "r4": "R4",
     "rfour": "R4",
     "r5": "R5",
@@ -146,6 +151,7 @@ def normalize_justification_text(value: Any) -> str:
     normalized = _collapse_whitespace(value)
     if not normalized:
         return ""
+    normalized = normalized.replace("[]", "□").replace("<>", "⋄").replace("◇", "⋄").replace("◊", "⋄")
     normalized = normalized.replace("–", "-").replace("—", "-")
     normalized = _DASH_BETWEEN_DIGITS_RE.sub("-", normalized)
     normalized = _COMMA_BETWEEN_DIGITS_RE.sub(",", normalized)
@@ -154,6 +160,14 @@ def normalize_justification_text(value: Any) -> str:
     tail = parts[1].strip() if len(parts) > 1 else ""
     if head.lower() in _PREMISE_ALIAS_HEADS:
         head = "PR"
+    elif not tail:
+        stuck_match = _STUCK_JUSTIFICATION_TAIL_RE.match(head)
+        if stuck_match:
+            head = stuck_match.group(1)
+            tail = stuck_match.group(2)
+    alias = _JUSTIFICATION_HEAD_ALIASES.get(head.lower())
+    if alias:
+        head = alias
     normalized = f"{head} {tail}".strip()
     return normalized
 
@@ -248,6 +262,28 @@ def build_targeted_line_ocr_prompt(
     else:
         lines.append("The image is a crop of one proof line.")
     lines.append(build_line_ocr_prompt(config))
+    return "\n".join(lines)
+
+
+def build_targeted_justification_ocr_prompt(config: Mapping[str, Any] | None = None) -> str:
+    """Build a boxed-justification reread prompt for one proof line."""
+
+    canonical = canonical_modal_config(config)
+    lines = [
+        "You are rereading only the boxed justification text from one visible line of a modal Fitch-style proof.",
+        "The full line remains visible for context, but read only the red boxed justification region.",
+        "Return only JSON. Do not include markdown fences or explanation.",
+        'Return exactly one JSON object with these keys: "justification_text", "confidence".',
+        "Return the visible rule head and any visible citations from the box.",
+        "Do not include formula text from elsewhere on the line.",
+        "Prefer Unicode operators in rule names such as ∧E, →E, ¬I, ¬E, □I, and □E.",
+        "If the box does not contain a readable justification, return an empty justification_text.",
+        f"Modal system: {canonical['system']}",
+        f"Include derived rules: {'yes' if canonical['include_derived_rules'] else 'no'}",
+    ]
+    conclusion = canonical.get("conclusion") or ""
+    if conclusion:
+        lines.append(f"Target conclusion: {conclusion}")
     return "\n".join(lines)
 
 
