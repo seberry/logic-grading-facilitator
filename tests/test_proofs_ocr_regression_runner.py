@@ -492,6 +492,54 @@ class ProofOcrRegressionRunnerTests(unittest.TestCase):
 
         self.assertTrue(seen["flag"])
 
+    def test_run_gold_regressions_passes_formula_justification_separation_flag(self) -> None:
+        fixtures_dir = self.tmp_dir / "fixtures_zone_flag"
+        fixtures_dir.mkdir(parents=True, exist_ok=True)
+        image_path = fixtures_dir / "zone_flag.png"
+        image_path.write_bytes(b"fake")
+        expected_path = fixtures_dir / "zone_flag_expected.json"
+        expected_path.write_text(json.dumps([{"wffstr": "A", "jstr": "PR", "line": 1}]), encoding="utf-8")
+
+        manifest = {
+            "cases": [
+                {
+                    "id": "case_zone_flag",
+                    "oracle_kind": "gold_curated_from_image",
+                    "image_path": str(image_path.relative_to(self.tmp_dir)).replace("\\", "/"),
+                    "expected_structure_path": str(expected_path.relative_to(self.tmp_dir)).replace("\\", "/"),
+                    "kind": "handwritten",
+                }
+            ]
+        }
+        seen: dict[str, bool] = {}
+
+        def fake_transcribe(
+            *,
+            image_path,
+            output_dir,
+            modal_config,
+            vision_base_url,
+            vision_model,
+            enable_formula_justification_separation=False,
+        ):
+            del image_path, modal_config, vision_base_url, vision_model
+            seen["flag"] = bool(enable_formula_justification_separation)
+            (output_dir / "final_structure_baseline.json").write_text(
+                json.dumps([{"wffstr": "A", "jstr": "PR", "line": 1}], ensure_ascii=False),
+                encoding="utf-8",
+            )
+            return {"run_summary": "ok"}
+
+        runner.run_gold_regressions(
+            manifest,
+            repo_root=self.tmp_dir,
+            output_root=self.tmp_dir / "out_zone_flag",
+            transcribe_fn=fake_transcribe,
+            enable_formula_justification_separation=True,
+        )
+
+        self.assertTrue(seen["flag"])
+
 
 if __name__ == "__main__":
     unittest.main()

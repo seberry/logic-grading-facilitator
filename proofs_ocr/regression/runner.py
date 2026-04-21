@@ -432,6 +432,7 @@ def run_gold_regressions(
     vision_model: str | None = None,
     line_vision_model: str | None = None,
     verifier_vision_model: str | None = None,
+    enable_formula_justification_separation: bool = False,
     enable_false_left_separator_filter: bool = False,
     enable_sparse_lower_compact_band_recovery: bool = False,
     enable_contradiction_reread: bool = False,
@@ -487,6 +488,7 @@ def run_gold_regressions(
                         "vision_model": vision_model,
                         "line_vision_model": line_vision_model,
                         "verifier_vision_model": verifier_vision_model,
+                        "enable_formula_justification_separation": enable_formula_justification_separation,
                         "enable_false_left_separator_filter": enable_false_left_separator_filter,
                         "enable_sparse_lower_compact_band_recovery": enable_sparse_lower_compact_band_recovery,
                         "enable_contradiction_reread": enable_contradiction_reread,
@@ -674,6 +676,11 @@ def _parse_args() -> argparse.Namespace:
         help="Failed-line reread crop mode: whole_line, boxed_context, or boxed_justification. May be repeated.",
     )
     run_parser.add_argument(
+        "--enable-formula-justification-separation",
+        action="store_true",
+        help="Enable formula/justification zone separation during the slow gold run.",
+    )
+    run_parser.add_argument(
         "--enable-false-left-separator-filter",
         action="store_true",
         help="Enable the pre-tree handwritten false-left-separator verifier experiment.",
@@ -732,6 +739,7 @@ def main() -> int:
             line_reread_base_url=args.line_reread_base_url or None,
             line_reread_model=args.line_reread_model or None,
             line_reread_modes=args.line_reread_mode,
+            enable_formula_justification_separation=bool(args.enable_formula_justification_separation),
             enable_false_left_separator_filter=bool(args.enable_false_left_separator_filter),
             enable_sparse_lower_compact_band_recovery=bool(args.enable_sparse_lower_compact_band_recovery),
             enable_contradiction_reread=bool(args.enable_contradiction_reread),
