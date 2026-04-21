@@ -927,6 +927,9 @@ def render_page(
         "source_image_path": str(state.get("source_image_path") or "").strip(),
         "ocr_pipeline_label": current_pipeline_label,
         "vision_model": str(state.get("vision_model") or "").strip(),
+        "verifier_vision_model": str(state.get("verifier_vision_model") or "").strip(),
+        "enable_formula_justification_separation": bool(state.get("enable_formula_justification_separation", False)),
+        "enable_formula_consensus_reread": bool(state.get("enable_formula_consensus_reread", False)),
         "last_run_at": str(state.get("last_run_at") or "").strip(),
     }
     gold_comparison: Dict[str, Any] = {

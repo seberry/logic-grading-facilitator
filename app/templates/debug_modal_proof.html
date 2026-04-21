@@ -1320,6 +1320,17 @@
               <code>{{ provenance.vision_model or "unset" }}</code>
             </div>
             <div class="provenance-card">
+              <strong>Verifier model</strong>
+              <code>{{ provenance.verifier_vision_model or "unset" }}</code>
+            </div>
+            <div class="provenance-card">
+              <strong>modal_v2 rereads</strong>
+              <code>
+                zones={{ "on" if provenance.enable_formula_justification_separation else "off" }},
+                formula-consensus={{ "on" if provenance.enable_formula_consensus_reread else "off" }}
+              </code>
+            </div>
+            <div class="provenance-card">
               <strong>Source image path</strong>
               <code>{{ provenance.source_image_path or provenance.source_image_name or "unset" }}</code>
             </div>
@@ -1414,7 +1425,7 @@
 
           <div class="two-col" style="margin-top: 1rem;">
             <div>
-              <label for="verifier-vision-model">Unary verifier model</label>
+              <label for="verifier-vision-model">Verifier / reread model</label>
               <input id="verifier-vision-model" name="verifier_vision_model" type="text" value="{{ verifier_vision_model }}" placeholder="qwen/qwen3-vl-8b" />
             </div>
             <div></div>
@@ -1431,6 +1442,19 @@
           </label>
           <div class="muted" style="margin-top: -0.35rem; margin-bottom: 0.7rem;">
             This is what generates the separate formula and justification crop artifacts. The editor crop toggle can only show split crops when the saved OCR run was created with this option enabled.
+          </div>
+
+          <label class="checkbox-row">
+            <input
+              type="checkbox"
+              name="enable_formula_consensus_reread"
+              value="true"
+              {% if enable_formula_consensus_reread %}checked{% endif %}
+            />
+            Enable formula-only consensus reread for modal_v2 OCR
+          </label>
+          <div class="muted" style="margin-top: -0.35rem; margin-bottom: 0.7rem;">
+            This keeps the baseline whole-line read, then asks the verifier model to reread only the formula side and applies the result only when the formula attempts agree.
           </div>
 
           <div style="margin-top: 1rem;">

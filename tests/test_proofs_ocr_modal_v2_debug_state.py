@@ -9,6 +9,7 @@ import numpy as np
 
 from proofs_ocr.common import artifacts
 from proofs_ocr.pipelines.modal_v2 import transcribe_image_to_modal_v2_debug_state
+from proofs_ocr.pipelines.modal_v2_debug import build_modal_v2_state
 
 
 def _synthetic_recursive_modal_image() -> np.ndarray:
@@ -228,6 +229,21 @@ class ModalV2DebugStateTests(unittest.TestCase):
         self.assertEqual(state["vision_model"], "fake-structure-model")
         self.assertEqual(state["line_vision_model"], "fake-content-model")
         self.assertIn("Final line OCR used fake-content-model while structure used fake-structure-model.", state["run_summary"])
+
+    def test_build_modal_v2_state_persists_formula_consensus_flag(self) -> None:
+        state = build_modal_v2_state(
+            modal_config={"system": "S4", "conclusion": "Q"},
+            final_structure=[{"line": 1, "wffstr": "Q", "jstr": "PR"}],
+            run_summary="Formula-only consensus reread was enabled.",
+            vision_base_url="http://127.0.0.1:1234/v1",
+            vision_model="fake-model",
+            verifier_vision_model="fake-8b",
+            enable_formula_consensus_reread=True,
+            source_image_name="source_image.png",
+        )
+
+        self.assertTrue(state["enable_formula_consensus_reread"])
+        self.assertIn("Formula-only consensus reread was enabled.", state["run_summary"])
 
     def test_transcribe_image_to_modal_v2_debug_state_can_write_passive_unary_formula_crop_probe_artifact(self) -> None:
         image_path = self.tmp_dir / "synthetic_formula_probe.png"

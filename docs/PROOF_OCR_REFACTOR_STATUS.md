@@ -174,6 +174,10 @@ That is normal and should not be treated as a geometry failure by itself.
     - the remaining misses are mostly lines where the two formula rereads still
       disagree or where open whole-line justification/assumption policy is
       still wrong
+  - `/debug/modal-proof` now exposes this as a first-pass OCR toggle and keeps
+    the setting in saved state, so the page provenance shows whether a given
+    artifact set came from ordinary baseline OCR or from the formula-consensus
+    runtime path
 - Some handwritten gold cases still reflect difficult OCR targets and should be
   treated as active evaluation targets, not as evidence that the baseline is
   already strong on handwriting.

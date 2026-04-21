@@ -68,6 +68,38 @@ The durable idea is recursive decomposition of a Fitch-style proof image:
 If the code or a proposed heuristic makes this flow harder to see, that is a
 warning sign.
 
+## Current modal_v2 Story
+
+The current `modal_v2` path is no longer just "one OCR prompt per line." It has
+three layers:
+
+1. Structure pass
+   - detect bars
+   - build the recursive subproof tree
+   - segment rows inside each node
+2. Runtime line OCR
+   - do the ordinary whole-line read for each visible row
+   - optionally use the formula/justification split path for the same row
+3. Narrow runtime rereads
+   - contradiction reread for suspicious `¬E` / `~E` rows that may really be
+     `⊥`
+   - boxed justification-head reread for suspicious or blank justifications
+   - formula-only consensus reread, where the verifier model rereads only the
+     formula side and the runtime only rewrites the formula when the reread
+     attempts agree
+
+That distinction matters:
+
+- runtime rereads can change the saved OCR result
+- debugger review tools can only suggest alternatives unless a human applies
+  them
+
+The current best-performing content path is therefore:
+
+- keep structure and baseline line ownership stable
+- keep the baseline whole-line read conservative
+- use stronger verifier rereads only on narrow formula/justification targets
+
 ## Visual ROOT Convention
 
 There are two different "roots" in play:
@@ -116,6 +148,17 @@ the pipeline separately:
   - raw VLM response, parse result, and any recovery/skip reason
 - `final_structure_baseline.json`
   - final nested proof output used for regression comparison
+
+For current `modal_v2` runs, the debugger also has two different review layers:
+
+- runtime artifacts inside `node_line_<id>_<row>.json`
+  - these show what the baseline OCR path actually applied, including
+    `recovery_applied` and any `formula_consensus_reread` or justification
+    reread payloads
+- checker-guided review artifacts
+  - `checker_formula_rereads.json`
+  - these are post-checker suggestions used for human review in the debugger
+  - they do not silently rewrite the proof JSON
 
 Important debugging principle:
 

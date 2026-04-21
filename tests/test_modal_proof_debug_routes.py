@@ -120,6 +120,7 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
                     "vision_model": "qwen/qwen3-vl-4b",
                     "verifier_vision_model": "qwen/qwen3-vl-8b",
                     "ocr_pipeline": "modal_v2_baseline",
+                    "enable_formula_consensus_reread": "true",
                     "proof_json_text": json.dumps([{"wffstr": "A", "jstr": "PR"}]),
                     "draft_comment": "saved comment",
                     "draft_grade": "2",
@@ -138,6 +139,7 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertEqual(saved["vision_model"], "qwen/qwen3-vl-4b")
         self.assertEqual(saved["verifier_vision_model"], "qwen/qwen3-vl-8b")
         self.assertEqual(saved["ocr_pipeline"], "modal_v2_baseline")
+        self.assertTrue(saved["enable_formula_consensus_reread"])
         self.assertEqual(saved["draft_comment"], "saved comment")
         self.assertEqual(saved["draft_grade"], "2")
 
@@ -273,6 +275,7 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
                     "vision_model": "qwen/qwen3-vl-4b",
                     "ocr_pipeline": "modal_v2_baseline",
                     "enable_formula_justification_separation": "true",
+                    "enable_formula_consensus_reread": "true",
                     "proof_json_text": json.dumps([{"wffstr": "A", "jstr": "PR"}]),
                     "draft_comment": "keep me",
                     "draft_grade": "1",
@@ -285,8 +288,10 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertEqual(response.status_code, 303)
         self.assertEqual(saved["ocr_pipeline"], "modal_v2_baseline")
         self.assertTrue(saved["enable_formula_justification_separation"])
+        self.assertTrue(saved["enable_formula_consensus_reread"])
         self.assertEqual(saved["verifier_vision_model"], "")
         self.assertTrue(transcribe_mock.call_args.kwargs["enable_formula_justification_separation"])
+        self.assertTrue(transcribe_mock.call_args.kwargs["enable_formula_consensus_reread"])
         saved_lines = json.loads(saved["proof_json_text"])["lines"]
         self.assertEqual(saved_lines[0]["wffstr"], "□A → □□A")
 

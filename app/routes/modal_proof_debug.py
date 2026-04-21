@@ -299,6 +299,7 @@ def _state_from_form(
     verifier_vision_model: str,
     ocr_pipeline: str,
     enable_formula_justification_separation: bool,
+    enable_formula_consensus_reread: bool,
     fixture_id: str,
     proof_json_text: str,
     review_decisions_json: str,
@@ -315,6 +316,7 @@ def _state_from_form(
         verifier_vision_model=verifier_vision_model,
         ocr_pipeline=ocr_pipeline,
         enable_formula_justification_separation=enable_formula_justification_separation,
+        enable_formula_consensus_reread=enable_formula_consensus_reread,
         fixture_id=fixture_id,
         proof_json_text=proof_json_text,
         review_decisions_json=review_decisions_json,
@@ -385,6 +387,7 @@ async def save_modal_proof_state(
     verifier_vision_model: str = Form(""),
     ocr_pipeline: str = Form("legacy_modal_debug"),
     enable_formula_justification_separation: bool = Form(False),
+    enable_formula_consensus_reread: bool = Form(False),
     fixture_id: str = Form(""),
     proof_json_text: str = Form(...),
     review_decisions_json: str = Form(""),
@@ -401,6 +404,7 @@ async def save_modal_proof_state(
         verifier_vision_model=verifier_vision_model,
         ocr_pipeline=ocr_pipeline,
         enable_formula_justification_separation=enable_formula_justification_separation,
+        enable_formula_consensus_reread=enable_formula_consensus_reread,
         fixture_id=fixture_id,
         proof_json_text=proof_json_text,
         review_decisions_json=review_decisions_json,
@@ -428,6 +432,7 @@ async def run_modal_proof_debug_checker(
     verifier_vision_model: str = Form(""),
     ocr_pipeline: str = Form("legacy_modal_debug"),
     enable_formula_justification_separation: bool = Form(False),
+    enable_formula_consensus_reread: bool = Form(False),
     fixture_id: str = Form(""),
     proof_json_text: str = Form(...),
     review_decisions_json: str = Form(""),
@@ -444,6 +449,7 @@ async def run_modal_proof_debug_checker(
         verifier_vision_model=verifier_vision_model,
         ocr_pipeline=ocr_pipeline,
         enable_formula_justification_separation=enable_formula_justification_separation,
+        enable_formula_consensus_reread=enable_formula_consensus_reread,
         fixture_id=fixture_id,
         proof_json_text=proof_json_text,
         review_decisions_json=review_decisions_json,
@@ -491,6 +497,7 @@ async def run_modal_proof_debug_ocr(
     verifier_vision_model: str = Form(""),
     ocr_pipeline: str = Form("legacy_modal_debug"),
     enable_formula_justification_separation: bool = Form(False),
+    enable_formula_consensus_reread: bool = Form(False),
     fixture_id: str = Form(""),
     proof_json_text: str = Form(DEFAULT_PROOF_JSON_TEXT),
     review_decisions_json: str = Form(""),
@@ -514,6 +521,7 @@ async def run_modal_proof_debug_ocr(
         verifier_vision_model=verifier_vision_model,
         ocr_pipeline=ocr_pipeline,
         enable_formula_justification_separation=enable_formula_justification_separation,
+        enable_formula_consensus_reread=enable_formula_consensus_reread,
         fixture_id=fixture_id,
         proof_json_text=proof_json_text,
         review_decisions_json=review_decisions_json,
@@ -559,6 +567,7 @@ async def run_modal_proof_debug_ocr(
                 enable_formula_justification_separation=bool(
                     state.get("enable_formula_justification_separation", False)
                 ),
+                enable_formula_consensus_reread=bool(state.get("enable_formula_consensus_reread", False)),
             )
         else:
             client = build_legacy_vlm_client(
@@ -583,6 +592,7 @@ async def run_modal_proof_debug_ocr(
         ocr_state["enable_formula_justification_separation"] = bool(
             state.get("enable_formula_justification_separation", False)
         )
+        ocr_state["enable_formula_consensus_reread"] = bool(state.get("enable_formula_consensus_reread", False))
         ocr_state["draft_comment"] = draft_comment
         ocr_state["draft_grade"] = draft_grade
         ocr_state["review_decisions"] = {}
