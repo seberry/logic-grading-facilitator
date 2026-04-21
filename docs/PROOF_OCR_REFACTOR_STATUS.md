@@ -99,6 +99,30 @@ That is normal and should not be treated as a geometry failure by itself.
   - `enable_retry_on_suspicious_line`
   - `enable_unary_verifier`
   - `enable_boundary_repair`
+- A new line-level reread helper module now exists for narrow special-case
+  second looks:
+  - `proofs_ocr/pipelines/modal_v2_line_rereads.py`
+  - keep experiment-specific reread rules there rather than growing
+    `modal_v2_runtime.py` or `domains/modal.py`
+  - the first live rule is an optional contradiction-line reread for suspicious
+    `¬E` / `~E` rows where the formula may actually be a tiny handwritten `⊥`
+  - CLI toggles:
+    - `python -m proofs_ocr.pipelines.modal_v2 --enable-contradiction-reread`
+    - `python -m proofs_ocr.regression run-gold --enable-contradiction-reread`
+- A new regression-side failed-line reread probe now exists for alternate local
+  models:
+  - CLI flags on `python -m proofs_ocr.regression run-gold`:
+    - `--line-reread-model`
+    - `--line-reread-base-url`
+    - `--line-reread-mode whole_line`
+    - `--line-reread-mode boxed_context`
+  - It runs only after the baseline OCR has been compared to gold.
+  - It rereads only mismatched lines, using the saved `node_line_*` artifacts.
+  - `boxed_context` expands back out to the node crop, adds vertical context,
+    and draws a red box around the target row so alternate models can use the
+    nearby handwriting without guessing which line to read.
+  - Per-case outputs are written to `failed_line_rereads.json` plus
+    `failed_line_reread_*_*.jpg` artifacts beside the normal regression output.
 - Some handwritten gold cases still reflect difficult OCR targets and should be
   treated as active evaluation targets, not as evidence that the baseline is
   already strong on handwriting.

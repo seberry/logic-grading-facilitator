@@ -212,6 +212,8 @@ def build_line_ocr_prompt(config: Mapping[str, Any] | None = None) -> str:
         "Use subproof_token only if the crop is entirely a red placeholder token such as <SUBPROOF_ID_2>.",
         'If the line is a strict modal opener, use scope_role "strict_open" and formula_text "□".',
         "Prefer Unicode operators: ¬, ∧, ∨, →, ↔, □, ⋄, ⊥.",
+        "A contradiction line may be written as ⊥, _|_, _ | _, or a short vertical stroke above a horizontal bar; transcribe any of these as ⊥.",
+        "Do not place justification text such as ¬E 4,8 into formula_text.",
         "Preserve repeated unary operators exactly.",
         "Copy the visible line label if present; otherwise return an empty string.",
         "Return an empty justification_text if the crop shows no justification.",
@@ -222,6 +224,30 @@ def build_line_ocr_prompt(config: Mapping[str, Any] | None = None) -> str:
     conclusion = canonical.get("conclusion") or ""
     if conclusion:
         lines.append(f"Target conclusion: {conclusion}")
+    return "\n".join(lines)
+
+
+def build_targeted_line_ocr_prompt(
+    config: Mapping[str, Any] | None = None,
+    *,
+    focus_mode: str = "whole_line",
+) -> str:
+    """Build a one-line OCR prompt for rereads with optional boxed context."""
+
+    lines = [
+        "You are rereading one visible line from a modal Fitch-style proof.",
+    ]
+    if str(focus_mode or "").strip() == "boxed_context":
+        lines.extend(
+            [
+                "The image may include neighboring lines for context.",
+                "Read only the proof line enclosed by the red box.",
+                "Ignore text outside the box except as context for ambiguous symbols.",
+            ]
+        )
+    else:
+        lines.append("The image is a crop of one proof line.")
+    lines.append(build_line_ocr_prompt(config))
     return "\n".join(lines)
 
 

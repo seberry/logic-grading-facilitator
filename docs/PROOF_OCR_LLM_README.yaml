@@ -129,6 +129,7 @@ regression_expectations:
   current_runner:
     - "Use `python -m proofs_ocr.regression summary` for fixture inventory."
     - "Use `python -m proofs_ocr.regression run-gold --output-root working/modal_v2_gold_regressions` for slow end-to-end comparison."
+    - "To try alternate local rereads only on mismatched lines, add `--line-reread-model <model_id>` and optionally repeat `--line-reread-mode whole_line` / `--line-reread-mode boxed_context`."
   quality_bar: >
     The immediate goal is not zero-touch OCR. The goal is to make recursive
     proof structure reliable enough that human correction becomes smaller,

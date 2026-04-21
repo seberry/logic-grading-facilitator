@@ -12,6 +12,8 @@ from typing import Any, Callable, Dict, Iterable, List, Mapping, Sequence
 
 import yaml
 
+import proofs_ocr.regression.failed_line_reread as failed_line_reread
+
 
 @dataclass(frozen=True)
 class GoldRegressionResult:
@@ -33,6 +35,9 @@ class FlattenedProofLine:
     nesting_path: tuple[int, ...]
     wffstr: str
     jstr: str
+    source_node_id: str = ""
+    source_row_order: int = 0
+    source_line_label: str = ""
 
     def to_json(self) -> Dict[str, Any]:
         return {
@@ -41,6 +46,9 @@ class FlattenedProofLine:
             "nesting_path_text": render_nesting_path(self.nesting_path),
             "wffstr": self.wffstr,
             "jstr": self.jstr,
+            "source_node_id": self.source_node_id,
+            "source_row_order": int(self.source_row_order),
+            "source_line_label": self.source_line_label,
         }
 
 
@@ -223,6 +231,9 @@ def flatten_proof_structure(value: Any) -> List[FlattenedProofLine]:
                         nesting_path=nesting_path,
                         wffstr=str(item.get("wffstr") or "").strip(),
                         jstr=str(item.get("jstr") or "").strip(),
+                        source_node_id=str(item.get("source_node_id") or "").strip(),
+                        source_row_order=int(item.get("source_row_order") or 0),
+                        source_line_label=str(item.get("source_line_label") or "").strip(),
                     )
                 )
 
@@ -231,8 +242,8 @@ def flatten_proof_structure(value: Any) -> List[FlattenedProofLine]:
 
 
 def compare_proof_structures_granular(actual: Any, expected: Any) -> Dict[str, Any]:
-    actual_lines = flatten_proof_structure(canonicalize_proof_structure(actual))
-    expected_lines = flatten_proof_structure(canonicalize_proof_structure(expected))
+    actual_lines = flatten_proof_structure(actual)
+    expected_lines = flatten_proof_structure(expected)
     matched_line_count = min(len(actual_lines), len(expected_lines))
     line_records: List[Dict[str, Any]] = []
     formula_correct_line_count = 0
@@ -402,6 +413,11 @@ def run_gold_regressions(
     verifier_vision_model: str | None = None,
     enable_false_left_separator_filter: bool = False,
     enable_sparse_lower_compact_band_recovery: bool = False,
+    enable_contradiction_reread: bool = False,
+    line_reread_base_url: str | None = None,
+    line_reread_model: str | None = None,
+    line_reread_modes: Sequence[str] | None = None,
+    line_reread_client: Any | None = None,
     transcribe_fn: Callable[..., Mapping[str, Any]] | None = None,
 ) -> List[GoldRegressionResult]:
     root = repo_root or get_repo_root()
@@ -418,6 +434,15 @@ def run_gold_regressions(
         from proofs_ocr.pipelines.modal_v2 import transcribe_image_to_modal_v2_debug_state
 
         transcribe_fn = transcribe_image_to_modal_v2_debug_state
+
+    probe_client = line_reread_client
+    if probe_client is None and str(line_reread_model or "").strip():
+        from proofs_ocr.pipelines.modal_v2_runtime import build_vlm_client
+
+        probe_client = build_vlm_client(
+            base_url=line_reread_base_url or vision_base_url,
+            model=line_reread_model,
+        )
 
     results: List[GoldRegressionResult] = []
     for case in selected:
@@ -440,14 +465,33 @@ def run_gold_regressions(
                         "verifier_vision_model": verifier_vision_model,
                         "enable_false_left_separator_filter": enable_false_left_separator_filter,
                         "enable_sparse_lower_compact_band_recovery": enable_sparse_lower_compact_band_recovery,
+                        "enable_contradiction_reread": enable_contradiction_reread,
                     },
                 )
             )
             actual = _load_actual_final_structure(output_dir)
+            actual_with_source = failed_line_reread.load_source_aware_structure(output_dir)
+            if not actual_with_source:
+                actual_with_source = actual
             expected = load_expected_structure(case, repo_root=root)
             passed, diff_text = compare_proof_structures(actual, expected)
-            granular_metrics = compare_proof_structures_granular(actual, expected)
+            granular_metrics = compare_proof_structures_granular(actual_with_source, expected)
             run_summary = str(state.get("run_summary") or "").strip()
+            if probe_client is not None:
+                line_records = granular_metrics.get("line_records") or []
+                probe_records = failed_line_reread.run_failed_line_rereads(
+                    output_dir=output_dir,
+                    line_records=line_records if isinstance(line_records, list) else [],
+                    client=probe_client,
+                    modal_config=modal_config,
+                    modes=line_reread_modes or ("whole_line", "boxed_context"),
+                    model_name=str(line_reread_model or getattr(probe_client, "model", "") or "").strip(),
+                )
+                if probe_records:
+                    run_summary = (
+                        f"{run_summary} Alternate-model reread wrote {len(probe_records)} failed-line probe"
+                        f"{'' if len(probe_records) == 1 else 's'}."
+                    ).strip()
             _write_regression_report(
                 output_dir=output_dir,
                 case=case,
@@ -583,6 +627,22 @@ def _parse_args() -> argparse.Namespace:
     run_parser.add_argument("--vision-model", default="", help="LM Studio model override.")
     run_parser.add_argument("--verifier-model", default="", help="LM Studio verifier model override.")
     run_parser.add_argument(
+        "--line-reread-base-url",
+        default="",
+        help="Base URL override for alternate failed-line rereads. Defaults to --vision-base-url.",
+    )
+    run_parser.add_argument(
+        "--line-reread-model",
+        default="",
+        help="Alternate local vision model used to reread only mismatched lines after the baseline run.",
+    )
+    run_parser.add_argument(
+        "--line-reread-mode",
+        action="append",
+        default=[],
+        help="Failed-line reread crop mode: whole_line or boxed_context. May be repeated.",
+    )
+    run_parser.add_argument(
         "--enable-false-left-separator-filter",
         action="store_true",
         help="Enable the pre-tree handwritten false-left-separator verifier experiment.",
@@ -591,6 +651,11 @@ def _parse_args() -> argparse.Namespace:
         "--enable-sparse-lower-compact-band-recovery",
         action="store_true",
         help="Enable a narrow handwritten row-band rescue for tiny lower-half formula symbols.",
+    )
+    run_parser.add_argument(
+        "--enable-contradiction-reread",
+        action="store_true",
+        help="Enable a narrow verifier reread for suspicious ¬E/~E contradiction lines.",
     )
 
     return parser.parse_args()
@@ -614,8 +679,12 @@ def main() -> int:
             vision_base_url=args.vision_base_url or None,
             vision_model=args.vision_model or None,
             verifier_vision_model=args.verifier_model or None,
+            line_reread_base_url=args.line_reread_base_url or None,
+            line_reread_model=args.line_reread_model or None,
+            line_reread_modes=args.line_reread_mode,
             enable_false_left_separator_filter=bool(args.enable_false_left_separator_filter),
             enable_sparse_lower_compact_band_recovery=bool(args.enable_sparse_lower_compact_band_recovery),
+            enable_contradiction_reread=bool(args.enable_contradiction_reread),
         )
         print(render_gold_regression_summary(results))
         return 0 if all(result.passed for result in results) else 1

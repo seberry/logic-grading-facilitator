@@ -4,6 +4,9 @@ import unittest
 from pathlib import Path
 from uuid import uuid4
 
+import cv2
+import numpy as np
+
 from proofs_ocr.regression import runner
 
 
@@ -57,6 +60,18 @@ class ProofOcrRegressionRunnerTests(unittest.TestCase):
 
         self.assertEqual([line.wffstr for line in flattened], ["P", "A", "B", "Q"])
         self.assertEqual([line.nesting_path for line in flattened], [(), (2,), (2,), ()])
+
+    def test_flatten_proof_structure_preserves_source_metadata(self) -> None:
+        structure = [
+            {"wffstr": "A", "jstr": "PR", "source_node_id": "ROOT", "source_row_order": 3, "source_line_label": "1"}
+        ]
+
+        flattened = runner.flatten_proof_structure(structure)
+
+        self.assertEqual(len(flattened), 1)
+        self.assertEqual(flattened[0].source_node_id, "ROOT")
+        self.assertEqual(flattened[0].source_row_order, 3)
+        self.assertEqual(flattened[0].source_line_label, "1")
 
     def test_compare_proof_structures_granular_reports_exact_match(self) -> None:
         structure = [
@@ -192,6 +207,101 @@ class ProofOcrRegressionRunnerTests(unittest.TestCase):
         self.assertIn("Aggregate lines: formula 1/2, justification 2/2, both 1/2", summary)
         self.assertIn("FAIL case_b", summary)
         self.assertIn("formula 0/1, justification 1/1, both 0/1", summary)
+
+    def test_run_gold_regressions_can_write_failed_line_rereads(self) -> None:
+        fixtures_dir = self.tmp_dir / "fixtures_probe"
+        fixtures_dir.mkdir(parents=True, exist_ok=True)
+        image_path = fixtures_dir / "probe.png"
+        image_path.write_bytes(b"fake")
+        expected_path = fixtures_dir / "probe_expected.json"
+        expected_path.write_text(json.dumps([{"wffstr": "A", "jstr": "PR", "line": 1}]), encoding="utf-8")
+
+        manifest = {
+            "cases": [
+                {
+                    "id": "case_probe",
+                    "oracle_kind": "gold_curated_from_image",
+                    "image_path": str(image_path.relative_to(self.tmp_dir)).replace("\\", "/"),
+                    "expected_structure_path": str(expected_path.relative_to(self.tmp_dir)).replace("\\", "/"),
+                    "kind": "handwritten",
+                }
+            ]
+        }
+
+        class FakeProbeClient:
+            def __init__(self) -> None:
+                self.model = "fake-8b"
+                self.calls: list[str] = []
+
+            def chat_with_image_prompt(self, image_path: Path, prompt: str, system_prompt: str | None = None) -> str:
+                del prompt, system_prompt
+                self.calls.append(image_path.name)
+                return json.dumps(
+                    {
+                        "line_label": "1",
+                        "formula_text": "A",
+                        "justification_text": "PR",
+                        "scope_role": "premise",
+                        "confidence": "high",
+                    }
+                )
+
+        def fake_transcribe(*, image_path, output_dir, modal_config, vision_base_url, vision_model):
+            del image_path, modal_config, vision_base_url, vision_model
+            (output_dir / "final_structure_baseline.json").write_text(
+                json.dumps([{"wffstr": "B", "jstr": "PR", "line": 1}], ensure_ascii=False),
+                encoding="utf-8",
+            )
+            (output_dir / "node_entries_ROOT.json").write_text(
+                json.dumps(
+                    [
+                        {
+                            "line_label": "1",
+                            "formula_text": "B",
+                            "justification_text": "PR",
+                            "scope_role": "premise",
+                            "confidence": "low",
+                            "_ocr_node_id": "ROOT",
+                            "_ocr_row_order": 1,
+                        }
+                    ],
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            crop_img = np.full((80, 240, 3), 255, dtype=np.uint8)
+            cv2.putText(crop_img, "B", (20, 46), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 0), 2)
+            cv2.imwrite(str(output_dir / "crop_ROOT.jpg"), crop_img)
+            cv2.imwrite(str(output_dir / "node_line_ROOT_1.jpg"), crop_img)
+            (output_dir / "node_line_ROOT_1.json").write_text(
+                json.dumps({"y1": 18, "y2": 46}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            return {"run_summary": "baseline mismatch"}
+
+        output_root = self.tmp_dir / "out_probe"
+        probe_client = FakeProbeClient()
+        results = runner.run_gold_regressions(
+            manifest,
+            repo_root=self.tmp_dir,
+            output_root=output_root,
+            transcribe_fn=fake_transcribe,
+            line_reread_client=probe_client,
+            line_reread_model="fake-8b",
+            line_reread_modes=["whole_line", "boxed_context"],
+        )
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(len(probe_client.calls), 2)
+        self.assertTrue((output_root / "case_probe" / "failed_line_rereads.json").exists())
+        probe_payload = json.loads((output_root / "case_probe" / "failed_line_rereads.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(probe_payload), 1)
+        self.assertEqual([attempt["mode"] for attempt in probe_payload[0]["attempts"]], ["whole_line", "boxed_context"])
+        self.assertEqual(probe_payload[0]["actual"]["source_node_id"], "ROOT")
+        self.assertEqual(probe_payload[0]["actual"]["source_row_order"], 1)
+        self.assertTrue((output_root / "case_probe" / "failed_line_reread_1_whole_line.jpg").exists())
+        self.assertTrue((output_root / "case_probe" / "failed_line_reread_1_boxed_context.jpg").exists())
+        self.assertIn("Alternate-model reread wrote 1 failed-line probe.", results[0].run_summary)
 
 
 if __name__ == "__main__":

@@ -75,6 +75,7 @@ def transcribe_image_to_modal_v2_debug_state(
     enable_unary_blob_probe: bool = False,
     enable_false_left_separator_filter: bool = False,
     enable_sparse_lower_compact_band_recovery: bool = False,
+    enable_contradiction_reread: bool = False,
 ) -> dict[str, Any]:
     """Run the modal_v2 baseline end to end and write debug artifacts."""
 
@@ -89,6 +90,7 @@ def transcribe_image_to_modal_v2_debug_state(
         enable_unary_structured_probe
         or enable_unary_structured_formula_crop_probe
         or enable_false_left_separator_filter
+        or enable_contradiction_reread
     ) and verifier_client is None:
         verifier_client = build_vlm_client(
             base_url=vision_base_url,
@@ -115,9 +117,11 @@ def transcribe_image_to_modal_v2_debug_state(
             prompt=prompt,
             modal_config=modal_config,
             enable_formula_justification_separation=enable_formula_justification_separation,
+            verifier_client=verifier_client,
         ),
         feature_flags=ModalPipelineFeatureFlags(
             enable_sparse_lower_compact_band_recovery=enable_sparse_lower_compact_band_recovery,
+            enable_contradiction_reread=enable_contradiction_reread,
         ),
         enable_false_left_separator_filter=enable_false_left_separator_filter,
         false_left_separator_verifier_client=verifier_client if enable_false_left_separator_filter else None,
@@ -233,6 +237,8 @@ def transcribe_image_to_modal_v2_debug_state(
         )
     if enable_sparse_lower_compact_band_recovery:
         run_summary += " Sparse lower-half compact-band recovery was enabled."
+    if enable_contradiction_reread:
+        run_summary += " Contradiction-line reread was enabled."
     if enable_unary_blob_probe:
         flagged_count = sum(1 for record in unary_blob_probe_records if bool(record.get("any_blob_flagged")))
         run_summary += (

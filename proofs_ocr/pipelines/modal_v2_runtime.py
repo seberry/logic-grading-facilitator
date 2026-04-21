@@ -11,6 +11,7 @@ import cv2
 from proofs_ocr.common import artifacts
 from proofs_ocr.domains import modal
 from proofs_ocr.pipelines.modal_v2_core import ImagePromptClient, ModalPipelineFeatureFlags
+from proofs_ocr.pipelines.modal_v2_line_rereads import maybe_reread_contradiction_line
 from proofs_ocr.pipelines.modal_v2_line_zones import read_line_with_zone_separation
 
 try:
@@ -36,11 +37,13 @@ class ModalBaselineArtifactLineReader:
         prompt: str,
         modal_config: Mapping[str, object] | None = None,
         enable_formula_justification_separation: bool = False,
+        verifier_client: ImagePromptClient | None = None,
     ) -> None:
         self.output_dir = output_dir
         self.client = client
         self.prompt = prompt
         self.enable_formula_justification_separation = enable_formula_justification_separation
+        self.verifier_client = verifier_client
         self.formula_prompt = ""
         self.justification_prompt = ""
         if enable_formula_justification_separation:
@@ -58,7 +61,6 @@ class ModalBaselineArtifactLineReader:
         row_record,
         feature_flags: ModalPipelineFeatureFlags,
     ) -> Mapping[str, str]:
-        del node_crop_img, feature_flags
         if self.enable_formula_justification_separation:
             return read_line_with_zone_separation(
                 output_dir=self.output_dir,
@@ -85,6 +87,7 @@ class ModalBaselineArtifactLineReader:
             "confidence": "",
         }
         recovery_applied = ""
+        contradiction_reread = None
         if not skip_reason:
             raw_response = self.client.chat_with_image_prompt(crop_path, self.prompt)
             try:
@@ -103,6 +106,20 @@ class ModalBaselineArtifactLineReader:
                 if strict_open_recovery:
                     resolved = strict_open_resolved
                     recovery_applied = strict_open_recovery
+            if feature_flags.enable_contradiction_reread:
+                contradiction_resolved, contradiction_reread, contradiction_recovery = maybe_reread_contradiction_line(
+                    output_dir=self.output_dir,
+                    client=self.verifier_client,
+                    node_id=str(node.id),
+                    row_order=row_order,
+                    node_crop_img=node_crop_img,
+                    row_record=row_record,
+                    line_crop_img=line_crop_img,
+                    parsed_entry=resolved,
+                )
+                if contradiction_recovery:
+                    resolved = contradiction_resolved
+                    recovery_applied = contradiction_recovery
 
         payload = {
             "node_id": node.id,
@@ -116,6 +133,8 @@ class ModalBaselineArtifactLineReader:
             "recovery_applied": recovery_applied,
             "skip_reason": skip_reason,
         }
+        if not skip_reason and contradiction_reread is not None:
+            payload["contradiction_reread"] = contradiction_reread
         (self.output_dir / artifacts.NODE_LINE_RESPONSE_TEMPLATE.format(node_id=node.id, row_order=row_order)).write_text(
             json.dumps(payload, indent=2, ensure_ascii=False),
             encoding="utf-8",

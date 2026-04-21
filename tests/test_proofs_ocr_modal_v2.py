@@ -14,6 +14,7 @@ from proofs_ocr.pipelines import modal_v2
 from proofs_ocr.pipelines import modal_v2_core
 from proofs_ocr.pipelines.modal_v2 import run_modal_baseline_pipeline
 from proofs_ocr.pipelines.modal_v2_core import ModalPipelineFeatureFlags
+from proofs_ocr.pipelines.modal_v2_line_rereads import maybe_reread_contradiction_line
 from proofs_ocr.pipelines.modal_v2_runtime import ModalBaselineArtifactLineReader
 from proofs_ocr.pipelines.modal_v2_line_zones import extract_line_zone_crops
 from proofs_ocr.common.types import SubproofNode
@@ -271,6 +272,100 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
             self.assertEqual(resolved["justification_text"], "")
             payload = (output_dir / "node_line_2_1.json").read_text(encoding="utf-8")
             self.assertIn('"recovery_applied": "first_nonroot_strict_open_band"', payload)
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
+    def test_maybe_reread_contradiction_line_accepts_bottom_for_negation_elim_signal(self) -> None:
+        class ContradictionVerifier:
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                del image_path, prompt, system_prompt
+                return (
+                    '{"line_label":"","formula_text":"⊥","justification_text":"¬E 4,8",'
+                    '"scope_role":"derived_line","confidence":"0.99"}'
+                )
+
+        image = np.full((40, 260, 3), 255, dtype=np.uint8)
+        cv2.putText(image, "1", (12, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
+        cv2.putText(image, "~E 4,8", (150, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
+        output_dir = Path("working/test_modal_v2_contradiction_reread")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            resolved, artifact, recovery = maybe_reread_contradiction_line(
+                output_dir=output_dir,
+                client=ContradictionVerifier(),
+                node_id="1",
+                row_order=7,
+                node_crop_img=image,
+                row_record={"row_order": 7, "band_index": 5, "y1": 10, "y2": 30},
+                line_crop_img=image,
+                parsed_entry={
+                    "line_label": "",
+                    "formula_text": "¬E",
+                    "justification_text": "",
+                    "scope_role": "derived_line",
+                    "confidence": "0.6",
+                },
+            )
+
+            self.assertEqual(recovery, "contradiction_reread")
+            self.assertEqual(resolved["formula_text"], "⊥")
+            self.assertEqual(resolved["justification_text"], "¬E 4,8")
+            self.assertIsNotNone(artifact)
+            self.assertTrue(artifact["applied"])
+            self.assertTrue((output_dir / "node_line_contradiction_reread_1_7.jpg").exists())
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
+    def test_modal_baseline_artifact_line_reader_can_apply_contradiction_reread(self) -> None:
+        class SequencedClient:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                del image_path, prompt, system_prompt
+                self.calls += 1
+                if self.calls == 1:
+                    return (
+                        '{"line_label":"","formula_text":"¬E","justification_text":"",'
+                        '"scope_role":"derived_line","confidence":"0.7"}'
+                    )
+                return (
+                    '{"line_label":"","formula_text":"⊥","justification_text":"¬E 4,8",'
+                    '"scope_role":"derived_line","confidence":"0.99"}'
+                )
+
+        image = np.full((44, 320, 3), 255, dtype=np.uint8)
+        cv2.putText(image, "1", (14, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
+        cv2.putText(image, "~E 4,8", (180, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
+
+        node = SubproofNode("1", (0, 0, 0, 0))
+        output_dir = Path("working/test_modal_v2_runtime_contradiction_reread")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            verifier_client = SequencedClient()
+            reader = ModalBaselineArtifactLineReader(
+                output_dir=output_dir,
+                client=verifier_client,
+                verifier_client=verifier_client,
+                prompt="prompt",
+            )
+
+            resolved = reader(
+                node=node,
+                node_crop_img=image,
+                line_crop_img=image,
+                row_record={"row_order": 7, "band_index": 5, "y1": 10, "y2": 30},
+                feature_flags=ModalPipelineFeatureFlags(enable_contradiction_reread=True),
+            )
+
+            self.assertEqual(resolved["formula_text"], "⊥")
+            self.assertEqual(resolved["justification_text"], "¬E 4,8")
+            payload = (output_dir / "node_line_1_7.json").read_text(encoding="utf-8")
+            self.assertIn('"recovery_applied": "contradiction_reread"', payload)
+            self.assertIn('"contradiction_reread"', payload)
+            self.assertIn('"formula_text": "⊥"', payload)
         finally:
             shutil.rmtree(output_dir, ignore_errors=True)
 
