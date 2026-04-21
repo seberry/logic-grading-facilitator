@@ -87,7 +87,7 @@ from modal_ocr.verifier import (
 try:
     from app.modal_proof_deduct import build_modal_proof_request, run_modal_proof_checker
     from app.storage import DEBUG_MODAL_PROOF_DIR, RAW_SCANS_DIR
-    from app.vlm_client import LMStudioQwenClient, default_lmstudio_base_url, default_lmstudio_model
+    from app.vlm_client import LMStudioQwenClient, default_lmstudio_base_url, default_lmstudio_model, default_lmstudio_timeout
 
     vlm_client = LMStudioQwenClient()
 except ImportError as exc:  # pragma: no cover - fallback for standalone use
@@ -102,6 +102,14 @@ except ImportError as exc:  # pragma: no cover - fallback for standalone use
     def default_lmstudio_model() -> str:
         return os.getenv("LMSTUDIO_MODEL_ID", "qwen/qwen3-vl-4b").strip() or "qwen/qwen3-vl-4b"
 
+    def default_lmstudio_timeout() -> int:
+        raw = (os.getenv("LMSTUDIO_TIMEOUT_SECONDS", "180") or "").strip()
+        try:
+            timeout = int(raw)
+        except ValueError:
+            timeout = 180
+        return max(1, timeout)
+
 
 def default_unary_verifier_model() -> str:
     return os.getenv("LMSTUDIO_VERIFIER_MODEL_ID", "qwen/qwen3-vl-8b").strip() or "qwen/qwen3-vl-8b"
@@ -111,12 +119,12 @@ def build_vlm_client(
     *,
     base_url: str | None = None,
     model: str | None = None,
-    timeout: int = 60,
+    timeout: int | None = None,
 ) -> LMStudioQwenClient:
     return LMStudioQwenClient(
         base_url=(base_url or default_lmstudio_base_url()).strip(),
         model=(model or default_lmstudio_model()).strip(),
-        timeout=timeout,
+        timeout=default_lmstudio_timeout() if timeout is None else timeout,
     )
 
 

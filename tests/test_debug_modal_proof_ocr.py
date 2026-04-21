@@ -969,6 +969,16 @@ class DebugModalProofOcrTests(unittest.TestCase):
 
         self.assertEqual(client.base_url, "http://127.0.0.1:4321/v1")
         self.assertEqual(client.model, "google/gemma-3-12b-it")
+        self.assertEqual(client.timeout, 180)
+
+    def test_build_vlm_client_uses_timeout_env_override(self) -> None:
+        with patch.dict("os.environ", {"LMSTUDIO_TIMEOUT_SECONDS": "240"}):
+            client = debug_modal_proof_ocr.build_vlm_client(
+                base_url="http://127.0.0.1:4321/v1",
+                model="google/gemma-3-12b-it",
+            )
+
+        self.assertEqual(client.timeout, 240)
 
 
 if __name__ == "__main__":

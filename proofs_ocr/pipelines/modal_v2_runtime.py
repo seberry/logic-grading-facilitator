@@ -15,7 +15,7 @@ from proofs_ocr.pipelines.modal_v2_line_rereads import maybe_reread_contradictio
 from proofs_ocr.pipelines.modal_v2_line_zones import read_line_with_zone_separation
 
 try:
-    from app.vlm_client import LMStudioQwenClient, default_lmstudio_base_url, default_lmstudio_model
+    from app.vlm_client import LMStudioQwenClient, default_lmstudio_base_url, default_lmstudio_model, default_lmstudio_timeout
 except ImportError:  # pragma: no cover - standalone fallback
     LMStudioQwenClient = None  # type: ignore[assignment]
 
@@ -24,6 +24,9 @@ except ImportError:  # pragma: no cover - standalone fallback
 
     def default_lmstudio_model() -> str:
         return "qwen/qwen3-vl-4b"
+
+    def default_lmstudio_timeout() -> int:
+        return 180
 
 
 class ModalBaselineArtifactLineReader:
@@ -162,7 +165,7 @@ def build_vlm_client(
     *,
     base_url: str | None = None,
     model: str | None = None,
-    timeout: int = 60,
+    timeout: int | None = None,
 ) -> LMStudioQwenClient:
     """Build the LM Studio client used by the baseline harness."""
 
@@ -171,5 +174,5 @@ def build_vlm_client(
     return LMStudioQwenClient(
         base_url=(base_url or default_lmstudio_base_url()).strip(),
         model=(model or default_lmstudio_model()).strip(),
-        timeout=timeout,
+        timeout=default_lmstudio_timeout() if timeout is None else timeout,
     )

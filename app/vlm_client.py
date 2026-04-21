@@ -107,11 +107,11 @@ class LMStudioQwenClient:
         self,
         base_url: str | None = None,
         model: str | None = None,
-        timeout: int = 60,
+        timeout: int | None = None,
     ) -> None:
         self.base_url = (base_url or default_lmstudio_base_url()).rstrip("/")
         self.model = model or default_lmstudio_model()
-        self.timeout = timeout
+        self.timeout = default_lmstudio_timeout() if timeout is None else timeout
         self.max_image_dim = 1500
         self.max_data_uri_len = 2_500_000
 
@@ -225,7 +225,17 @@ class LMStudioQwenClient:
             print(data)
             raise RuntimeError("LM Studio response missing 'choices' key")
 
-        return data["choices"][0]["message"]["content"]
+        message = data["choices"][0].get("message") or {}
+        content = str(message.get("content") or "")
+        if content:
+            return content
+
+        usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+        raise RuntimeError(
+            "LM Studio returned an empty completion content "
+            f"(model={self.model}, usage={usage}). "
+            "This often means the request was cancelled or the server/runtime produced an empty response."
+        )
 
 
 
@@ -317,3 +327,12 @@ def default_lmstudio_base_url() -> str:
 
 def default_lmstudio_model() -> str:
     return os.getenv("LMSTUDIO_MODEL_ID", "qwen/qwen3-vl-4b").strip() or "qwen/qwen3-vl-4b"
+
+
+def default_lmstudio_timeout() -> int:
+    raw = (os.getenv("LMSTUDIO_TIMEOUT_SECONDS", "180") or "").strip()
+    try:
+        timeout = int(raw)
+    except ValueError:
+        timeout = 180
+    return max(1, timeout)
