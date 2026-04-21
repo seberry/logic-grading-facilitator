@@ -1,0 +1,36 @@
+{
+  "case_id": "negated_conjunction_line4",
+  "crop_path": "working\\modal_v2_mode_compare_handwritten_20260421b\\zone\\modal_handwritten_user_negated_modal_conjunction\\node_line_formula_model_1_4.jpg",
+  "model": "qwen/qwen3-vl-4b",
+  "current_formula": "¬□¬A",
+  "expected_formula": "¬□¬¬A",
+  "justification": "MC 3",
+  "plain_raw": "{\n  \"formula_text\": \"\",\n  \"confidence\": 0.0\n}",
+  "plain_parsed": {
+    "formula_text": "",
+    "confidence": 0.0
+  },
+  "plain_formula": "",
+  "structured_parsed": {
+    "main_modal_operator": "box",
+    "negations_before_modal": 1,
+    "negations_before_final_atom": 1,
+    "confidence": 0.98
+  },
+  "structured_formula": "¬□¬A",
+  "forced_choice_parsed": {
+    "selected_formula": "¬□¬A",
+    "confidence": 0.98,
+    "negations_before_modal": 1,
+    "negations_before_final_atom": 1
+  },
+  "forced_formula": "¬□¬A",
+  "candidates": [
+    "¬□¬A",
+    "□A",
+    "□¬A",
+    "□¬¬A",
+    "¬□A",
+    "¬□¬¬A"
+  ]
+}

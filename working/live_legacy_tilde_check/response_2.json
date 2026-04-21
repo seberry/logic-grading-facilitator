@@ -1,0 +1,191 @@
+{
+  "node_id": "2",
+  "row_records": [
+    {
+      "kind": "line",
+      "band_index": 0,
+      "y1": 22,
+      "y2": 35,
+      "center_y": 28.5,
+      "row_order": 1
+    },
+    {
+      "kind": "line",
+      "band_index": 1,
+      "y1": 44,
+      "y2": 58,
+      "center_y": 51.0,
+      "row_order": 2
+    },
+    {
+      "kind": "line",
+      "band_index": 2,
+      "y1": 77,
+      "y2": 88,
+      "center_y": 82.5,
+      "row_order": 3
+    }
+  ],
+  "line_artifacts": [
+    {
+      "kind": "strict_open_consumed",
+      "row_order": 1,
+      "resolved_from": {
+        "kind": "strict_open",
+        "formula_text": "□",
+        "confidence": "high"
+      }
+    },
+    {
+      "node_id": "2",
+      "row_order": 2,
+      "band_index": 1,
+      "y1": 44,
+      "y2": 58,
+      "zone_geometry": {
+        "split_x": 197,
+        "formula_x1": 0,
+        "formula_x2": 207,
+        "justification_x1": 187,
+        "justification_x2": 483,
+        "width": 483,
+        "height": 38
+      },
+      "formula_crop_filename": "node_line_2_2_formula.jpg",
+      "justification_crop_filename": "node_line_2_2_justification.jpg",
+      "initial_raw": {
+        "formula": "{\n  \"line_label\": \"\",\n  \"formula_text\": \"A\",\n  \"confidence\": \"high\"\n}",
+        "justification": "{\n  \"justification_text\": \"\",\n  \"confidence\": \"high\"\n}"
+      },
+      "initial_parsed": {
+        "formula": {
+          "line_label": "",
+          "formula_text": "A",
+          "confidence": "high"
+        },
+        "justification": {
+          "justification_text": "",
+          "confidence": "high"
+        }
+      },
+      "initial_resolved_zones": {
+        "formula": {
+          "formula_text": "A",
+          "line_label": "",
+          "confidence": "high"
+        },
+        "justification": {
+          "justification_head": "",
+          "justification_tail": "",
+          "raw_justification_text": "",
+          "confidence": "high"
+        }
+      },
+      "resolved": {
+        "formula_text": "A",
+        "justification_head": "",
+        "justification_tail": "",
+        "justification_text": "",
+        "line_label": "",
+        "scope_role": "derived_line",
+        "confidence": "high"
+      },
+      "retry_used": false
+    },
+    {
+      "node_id": "2",
+      "row_order": 3,
+      "band_index": 2,
+      "y1": 77,
+      "y2": 88,
+      "zone_geometry": {
+        "split_x": 198,
+        "formula_x1": 0,
+        "formula_x2": 208,
+        "justification_x1": 188,
+        "justification_x2": 483,
+        "width": 483,
+        "height": 39
+      },
+      "formula_crop_filename": "node_line_2_3_formula.jpg",
+      "justification_crop_filename": "node_line_2_3_justification.jpg",
+      "initial_raw": {
+        "formula": "{\n  \"line_label\": \"\",\n  \"formula_text\": \"¬A\",\n  \"confidence\": \"high\"\n}",
+        "justification": "{\n  \"justification_text\": \"DN 6\",\n  \"confidence\": \"high\"\n}"
+      },
+      "initial_parsed": {
+        "formula": {
+          "line_label": "",
+          "formula_text": "¬A",
+          "confidence": "high"
+        },
+        "justification": {
+          "justification_text": "DN 6",
+          "confidence": "high"
+        }
+      },
+      "initial_resolved_zones": {
+        "formula": {
+          "formula_text": "¬A",
+          "line_label": "",
+          "confidence": "high"
+        },
+        "justification": {
+          "justification_head": "DN",
+          "justification_tail": "6",
+          "raw_justification_text": "DN 6",
+          "confidence": "high"
+        }
+      },
+      "resolved": {
+        "formula_text": "¬¬A",
+        "justification_head": "DN",
+        "justification_tail": "6",
+        "justification_text": "DN 6",
+        "line_label": "",
+        "scope_role": "derived_line",
+        "confidence": "high"
+      },
+      "retry_used": false,
+      "formula_reread": {
+        "crop_filename": "node_line_2_3_formula_reread.jpg",
+        "prompt": "This image shows one handwritten modal logic formula from a single proof line.\nReturn only JSON with keys: formula_text and confidence.\nCopy exactly the formula or symbol you see.\nPreserve unary operators exactly: ¬, □, ⋄.\nShort formulas such as Q, □Q, ¬Q, ¬□¬A, or □ are common.\nDo not include justification text, line numbers, or explanation.\nCurrent OCR formula: ¬A\nCurrent OCR justification: DN 6\nIf you cannot tell, return {\"formula_text\":\"\",\"confidence\":\"uncertain\"}.",
+        "raw": "{\n  \"formula_text\": \"¬¬A\",\n  \"confidence\": \"high\"\n}",
+        "parsed": {
+          "formula_text": "¬¬A",
+          "confidence": "high"
+        },
+        "resolved": {
+          "formula_text": "¬¬A",
+          "confidence": "high"
+        },
+        "applied": true
+      }
+    }
+  ],
+  "opener_result": {
+    "kind": "strict_open",
+    "formula_text": "□",
+    "confidence": "high"
+  },
+  "entries": [
+    {
+      "formula_text": "□",
+      "justification_text": "",
+      "scope_role": "strict_open",
+      "line_label": ""
+    },
+    {
+      "formula_text": "A",
+      "justification_text": "",
+      "scope_role": "derived_line",
+      "line_label": ""
+    },
+    {
+      "formula_text": "¬¬A",
+      "justification_text": "DN 6",
+      "scope_role": "derived_line",
+      "line_label": ""
+    }
+  ]
+}

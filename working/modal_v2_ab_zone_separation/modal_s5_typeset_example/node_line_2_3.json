@@ -1,0 +1,41 @@
+{
+  "node_id": "2",
+  "row_order": 3,
+  "band_index": 1,
+  "y1": 265,
+  "y2": 293,
+  "mode": "formula_justification_separation",
+  "skip_reason": "",
+  "zone_geometry": {
+    "split_x": 303,
+    "formula_x1": 0,
+    "formula_x2": 320,
+    "justification_x1": 286,
+    "justification_x2": 850,
+    "width": 850,
+    "height": 52
+  },
+  "formula_crop_filename": "node_line_formula_2_3.jpg",
+  "justification_crop_filename": "node_line_justification_2_3.jpg",
+  "formula_raw_response": "{\n  \"line_label\": \"4\",\n  \"formula_text\": \"□→□A\",\n  \"confidence\": \"high\"\n}",
+  "formula_parse_error": "",
+  "formula_resolved": {
+    "line_label": "4",
+    "formula_text": "□→□A",
+    "confidence": "high"
+  },
+  "justification_raw_response": "{\n  \"justification_text\": \"-5\",\n  \"confidence\": \"medium\"\n}",
+  "justification_parse_error": "",
+  "justification_resolved": {
+    "justification_text": "-5",
+    "confidence": "medium"
+  },
+  "resolved": {
+    "line_label": "4",
+    "formula_text": "□→□A",
+    "justification_text": "-5",
+    "scope_role": "derived_line",
+    "confidence": "medium"
+  },
+  "recovery_applied": ""
+}

@@ -1,0 +1,13 @@
+[
+  {
+    "formula_text": "<SUBPROOF_ID_1>",
+    "scope_role": "subproof_token",
+    "line_label": ""
+  },
+  {
+    "formula_text": "¬(□A ∧ ⋄¬A)",
+    "justification_text": "~I 1-9",
+    "scope_role": "derived_line",
+    "line_label": "1"
+  }
+]

@@ -1,0 +1,41 @@
+{
+  "node_id": "2",
+  "row_order": 3,
+  "band_index": 1,
+  "y1": 263,
+  "y2": 292,
+  "mode": "formula_justification_separation",
+  "skip_reason": "",
+  "zone_geometry": {
+    "split_x": 238,
+    "formula_x1": 0,
+    "formula_x2": 255,
+    "justification_x1": 221,
+    "justification_x2": 867,
+    "width": 867,
+    "height": 53
+  },
+  "formula_crop_filename": "node_line_formula_2_3.jpg",
+  "justification_crop_filename": "node_line_justification_2_3.jpg",
+  "formula_raw_response": "{\n  \"line_label\": \"□□A\",\n  \"formula_text\": \"□□A\",\n  \"confidence\": \"high\"\n}",
+  "formula_parse_error": "",
+  "formula_resolved": {
+    "line_label": "□□A",
+    "formula_text": "□□A",
+    "confidence": "high"
+  },
+  "justification_raw_response": "{\n  \"justification_text\": \"□I 2-3\",\n  \"confidence\": \"high\"\n}",
+  "justification_parse_error": "",
+  "justification_resolved": {
+    "justification_text": "□I 2-3",
+    "confidence": "high"
+  },
+  "resolved": {
+    "line_label": "",
+    "formula_text": "□□A",
+    "justification_text": "□I 2-3",
+    "scope_role": "derived_line",
+    "confidence": "high"
+  },
+  "recovery_applied": ""
+}

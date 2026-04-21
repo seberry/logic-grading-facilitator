@@ -1,0 +1,79 @@
+{
+  "raw_detected_bands": [
+    {
+      "y1": 7,
+      "y2": 29,
+      "height": 23,
+      "kept_after_textlike_filter": true,
+      "rejection_reason": ""
+    },
+    {
+      "y1": 43,
+      "y2": 67,
+      "height": 25,
+      "kept_after_textlike_filter": true,
+      "rejection_reason": ""
+    },
+    {
+      "y1": 141,
+      "y2": 157,
+      "height": 17,
+      "kept_after_textlike_filter": true,
+      "rejection_reason": ""
+    },
+    {
+      "y1": 235,
+      "y2": 265,
+      "height": 31,
+      "kept_after_textlike_filter": true,
+      "rejection_reason": ""
+    }
+  ],
+  "merged_bands": [
+    {
+      "y1": 7,
+      "y2": 29,
+      "height": 23
+    },
+    {
+      "y1": 43,
+      "y2": 67,
+      "height": 25
+    },
+    {
+      "y1": 141,
+      "y2": 157,
+      "height": 17
+    },
+    {
+      "y1": 235,
+      "y2": 265,
+      "height": 31
+    }
+  ],
+  "final_bands": [
+    {
+      "y1": 7,
+      "y2": 29,
+      "height": 23
+    },
+    {
+      "y1": 43,
+      "y2": 67,
+      "height": 25
+    },
+    {
+      "y1": 235,
+      "y2": 265,
+      "height": 31
+    }
+  ],
+  "rejected_after_merge": [
+    {
+      "y1": 141,
+      "y2": 157,
+      "height": 17,
+      "rejection_reason": "child_token_overlap"
+    }
+  ]
+}

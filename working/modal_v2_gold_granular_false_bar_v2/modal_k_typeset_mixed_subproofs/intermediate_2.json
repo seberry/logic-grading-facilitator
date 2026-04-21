@@ -1,0 +1,38 @@
+{
+  "node_id": "2",
+  "box": [
+    564,
+    106,
+    2,
+    473
+  ],
+  "child_ids": [
+    "3"
+  ],
+  "row_records": [
+    {
+      "kind": "line",
+      "band_index": 0,
+      "y1": 24,
+      "y2": 44,
+      "center_y": 34.0,
+      "row_order": 1
+    },
+    {
+      "kind": "subproof_token",
+      "child_id": "3",
+      "y1": 216,
+      "y2": 254,
+      "center_y": 235.0,
+      "row_order": 2
+    },
+    {
+      "kind": "line",
+      "band_index": 1,
+      "y1": 432,
+      "y2": 455,
+      "center_y": 443.5,
+      "row_order": 3
+    }
+  ]
+}

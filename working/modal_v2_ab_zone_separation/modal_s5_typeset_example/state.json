@@ -1,0 +1,17 @@
+{
+  "system": "S5",
+  "include_derived_rules": false,
+  "conclusion": "",
+  "vision_base_url": "http://127.0.0.1:1234/v1",
+  "vision_model": "qwen/qwen3-vl-4b",
+  "verifier_vision_model": "",
+  "source_image_name": "source_image.png",
+  "proof_json_text": "{\n  \"lines\": [\n    {\n      \"wffstr\": \"◇□A\",\n      \"jstr\": \"PR\",\n      \"line\": 1\n    },\n    {\n      \"wffstr\": \"¬□□A\",\n      \"jstr\": \"\",\n      \"line_label\": \"1\",\n      \"line\": 2\n    },\n    [\n      {\n        \"wffstr\": \"□A\",\n        \"jstr\": \"PR\",\n        \"line_label\": \"1\",\n        \"line\": 3\n      },\n      [\n        {\n          \"wffstr\": \"□\",\n          \"jstr\": \"PR\",\n          \"line\": 4\n        },\n        {\n          \"wffstr\": \"→□A\",\n          \"jstr\": \"R5 3\",\n          \"line\": 5\n        }\n      ],\n      {\n        \"wffstr\": \"□→□A\",\n        \"jstr\": \"-5\",\n        \"line_label\": \"4\",\n        \"line\": 6\n      },\n      {\n        \"wffstr\": \"¬E 2\",\n        \"jstr\": \"→E 2, 6\",\n        \"line\": 7\n      }\n    ],\n    {\n      \"wffstr\": \"□A\",\n      \"jstr\": \"→E 3-7\",\n      \"line\": 8\n    }\n  ],\n  \"meta\": {}\n}",
+  "original_proof_json_text": "{\n  \"lines\": [\n    {\n      \"wffstr\": \"◇□A\",\n      \"jstr\": \"PR\",\n      \"line\": 1\n    },\n    {\n      \"wffstr\": \"¬□□A\",\n      \"jstr\": \"\",\n      \"line_label\": \"1\",\n      \"line\": 2\n    },\n    [\n      {\n        \"wffstr\": \"□A\",\n        \"jstr\": \"PR\",\n        \"line_label\": \"1\",\n        \"line\": 3\n      },\n      [\n        {\n          \"wffstr\": \"□\",\n          \"jstr\": \"PR\",\n          \"line\": 4\n        },\n        {\n          \"wffstr\": \"→□A\",\n          \"jstr\": \"R5 3\",\n          \"line\": 5\n        }\n      ],\n      {\n        \"wffstr\": \"□→□A\",\n        \"jstr\": \"-5\",\n        \"line_label\": \"4\",\n        \"line\": 6\n      },\n      {\n        \"wffstr\": \"¬E 2\",\n        \"jstr\": \"→E 2, 6\",\n        \"line\": 7\n      }\n    ],\n    {\n      \"wffstr\": \"□A\",\n      \"jstr\": \"→E 3-7\",\n      \"line\": 8\n    }\n  ],\n  \"meta\": {}\n}",
+  "verifier_rewrite_summary": [],
+  "draft_comment": "",
+  "draft_grade": "",
+  "checker_request": null,
+  "checker_response": null,
+  "run_summary": "modal_v2 baseline OCR produced 8 visible lines across 4 nodes and detected 3 subproof bars. Formula/justification separation was enabled."
+}

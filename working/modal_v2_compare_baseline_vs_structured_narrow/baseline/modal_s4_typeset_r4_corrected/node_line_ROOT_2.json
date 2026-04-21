@@ -1,0 +1,18 @@
+{
+  "node_id": "ROOT",
+  "row_order": 2,
+  "band_index": 1,
+  "y1": 113,
+  "y2": 140,
+  "raw_response": "",
+  "parse_error": "",
+  "resolved": {
+    "line_label": "",
+    "formula_text": "",
+    "justification_text": "",
+    "scope_role": "derived_line",
+    "confidence": ""
+  },
+  "recovery_applied": "",
+  "skip_reason": "label_only_crop"
+}

@@ -1,0 +1,142 @@
+{
+  "node_id": "2",
+  "row_order": 3,
+  "band_index": 1,
+  "y1": 265,
+  "y2": 293,
+  "mode": "formula_justification_separation",
+  "skip_reason": "",
+  "zone_geometry": {
+    "split_x": 303,
+    "formula_x1": 0,
+    "formula_x2": 320,
+    "justification_x1": 286,
+    "justification_x2": 850,
+    "width": 850,
+    "height": 52
+  },
+  "formula_crop_filename": "node_line_formula_2_3.jpg",
+  "justification_crop_filename": "node_line_justification_2_3.jpg",
+  "formula_model_crop_filename": "node_line_formula_model_2_3.jpg",
+  "justification_model_crop_filename": "node_line_justification_model_2_3.jpg",
+  "formula_model_geometry": {
+    "y1": 13,
+    "y2": 41,
+    "width": 320,
+    "height": 52,
+    "applied": true
+  },
+  "justification_model_geometry": {
+    "y1": 25,
+    "y2": 41,
+    "width": 564,
+    "height": 52,
+    "applied": true
+  },
+  "tight_justification_crop_filename": "node_line_justification_tight_2_3.jpg",
+  "tight_justification_geometry": {
+    "x1": 0,
+    "y1": 0,
+    "x2": 58,
+    "y2": 16,
+    "width": 564,
+    "height": 16,
+    "applied": true
+  },
+  "formula_raw_response": "{\n  \"line_label\": \"14\",\n  \"formula_text\": \"□¬A\",\n  \"confidence\": \"high\"\n}",
+  "formula_parse_error": "",
+  "formula_resolved": {
+    "line_label": "14",
+    "formula_text": "□¬A",
+    "confidence": "high"
+  },
+  "justification_raw_response": "{\n  \"justification_text\": \"\",\n  \"confidence\": \"low\"\n}",
+  "justification_parse_error": "",
+  "justification_resolved": {
+    "justification_text": "□I 4-5",
+    "confidence": "0.98"
+  },
+  "resolved": {
+    "line_label": "14",
+    "formula_text": "□¬A",
+    "justification_text": "□I 4-5",
+    "scope_role": "derived_line",
+    "confidence": "0.98"
+  },
+  "recovery_applied": "justification_head_reread",
+  "tight_justification_reread": {
+    "crop_filename": "node_line_justification_tight_2_3.jpg",
+    "geometry": {
+      "x1": 0,
+      "y1": 0,
+      "x2": 58,
+      "y2": 16,
+      "width": 564,
+      "height": 16,
+      "applied": true
+    },
+    "raw": "{\n  \"justification_text\": \"\",\n  \"confidence\": \"low\"\n}",
+    "parsed": {
+      "justification_text": "",
+      "confidence": "low"
+    },
+    "resolved": {
+      "justification_text": "",
+      "confidence": "low"
+    },
+    "parse_error": "",
+    "applied": false
+  },
+  "boxed_justification_head_reread": {
+    "crop_filename": "node_line_justification_reread_2_3.jpg",
+    "prompt": "You are rereading only the boxed justification text from one visible line of a modal Fitch-style proof.\nThe full line remains visible for context, but read only the red boxed justification region.\nReturn only JSON. Do not include markdown fences or explanation.\nReturn exactly one JSON object with these keys: \"justification_text\", \"confidence\".\nReturn the visible rule head and any visible citations from the box.\nDo not include formula text from elsewhere on the line.\nPrefer Unicode operators in rule names such as ∧E, →E, ¬I, ¬E, □I, and □E.\nIf the box does not contain a readable justification, return an empty justification_text.\nModal system: K\nInclude derived rules: no",
+    "raw_response": "{\n  \"justification_text\": \"□I 4–5\",\n  \"confidence\": 0.98\n}",
+    "parse_error": "",
+    "parsed": {
+      "justification_text": "□I 4–5",
+      "confidence": 0.98
+    },
+    "resolved": {
+      "line_label": "14",
+      "formula_text": "□¬A",
+      "justification_text": "□I 4-5",
+      "scope_role": "derived_line",
+      "confidence": "0.98"
+    },
+    "applied": true
+  },
+  "formula_consensus_reread": {
+    "attempt_kind": "formula_consensus_reread",
+    "baseline_formula": "□¬A",
+    "proposed_formula": "",
+    "candidate_attempts": [
+      {
+        "attempt_kind": "formula_crop",
+        "crop_filename": "node_line_formula_reread_2_3.jpg",
+        "prompt": "You are rereading only the formula from one visible line of a modal Fitch-style proof.\nThe image is cropped to the formula side of one proof line.\nReturn only JSON. Do not include markdown fences or explanation.\nReturn exactly one JSON object with these keys: \"formula_text\", \"confidence\".\nDo not include line numbers or justification text.\nPrefer Unicode operators: ¬, ∧, ∨, →, ↔, □, ⋄, ⊥.\nPreserve repeated unary operators exactly.\nIf the formula is unreadable, return an empty formula_text.\nModal system: S5\nInclude derived rules: no",
+        "raw_response": "{\n  \"formula_text\": \"□¬□A\",\n  \"confidence\": 0.98\n}",
+        "parse_error": "",
+        "parsed": {
+          "formula_text": "□¬□A",
+          "confidence": 0.98
+        },
+        "structured_formula": "□¬□A",
+        "confidence": "0.98"
+      },
+      {
+        "attempt_kind": "boxed_formula",
+        "crop_filename": "node_line_formula_boxed_reread_2_3.jpg",
+        "prompt": "You are rereading only the formula from one visible line of a modal Fitch-style proof.\nThe full line remains visible for context, but read only the red boxed formula region.\nIgnore justification text outside the box.\nReturn only JSON. Do not include markdown fences or explanation.\nReturn exactly one JSON object with these keys: \"formula_text\", \"confidence\".\nDo not include line numbers or justification text.\nPrefer Unicode operators: ¬, ∧, ∨, →, ↔, □, ⋄, ⊥.\nPreserve repeated unary operators exactly.\nIf the formula is unreadable, return an empty formula_text.\nModal system: S5\nInclude derived rules: no",
+        "raw_response": "{\n  \"formula_text\": \"□→□A\",\n  \"confidence\": 0.98\n}",
+        "parse_error": "",
+        "parsed": {
+          "formula_text": "□→□A",
+          "confidence": 0.98
+        },
+        "structured_formula": "□→□A",
+        "confidence": "0.98"
+      }
+    ],
+    "applied": false
+  }
+}

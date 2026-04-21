@@ -1,0 +1,74 @@
+{
+  "node_id": "1",
+  "row_order": 1,
+  "band_index": 0,
+  "y1": 23,
+  "y2": 32,
+  "mode": "formula_justification_separation",
+  "skip_reason": "",
+  "zone_geometry": {
+    "split_x": 44,
+    "formula_x1": 0,
+    "formula_x2": 54,
+    "justification_x1": 34,
+    "justification_x2": 189,
+    "width": 189,
+    "height": 41
+  },
+  "formula_crop_filename": "node_line_formula_1_1.jpg",
+  "justification_crop_filename": "node_line_justification_1_1.jpg",
+  "tight_justification_crop_filename": "node_line_justification_tight_1_1.jpg",
+  "tight_justification_geometry": {
+    "x1": 0,
+    "y1": 7,
+    "x2": 23,
+    "y2": 31,
+    "width": 155,
+    "height": 41,
+    "applied": true
+  },
+  "formula_raw_response": "{\"line_label\": \"\", \"formula_text\": \"A\", \"confidence\": \"high\"}",
+  "formula_parse_error": "",
+  "formula_resolved": {
+    "line_label": "",
+    "formula_text": "A",
+    "confidence": "high"
+  },
+  "justification_raw_response": "{\"justification_text\": \"\", \"confidence\": \"high\"}",
+  "justification_parse_error": "",
+  "justification_resolved": {
+    "justification_text": "",
+    "confidence": "high"
+  },
+  "resolved": {
+    "line_label": "",
+    "formula_text": "A",
+    "justification_text": "",
+    "scope_role": "ordinary_assumption",
+    "confidence": "high"
+  },
+  "recovery_applied": "",
+  "tight_justification_reread": {
+    "crop_filename": "node_line_justification_tight_1_1.jpg",
+    "geometry": {
+      "x1": 0,
+      "y1": 7,
+      "x2": 23,
+      "y2": 31,
+      "width": 155,
+      "height": 41,
+      "applied": true
+    },
+    "raw": "{\"justification_text\": \"\", \"confidence\": \"low\"}",
+    "parsed": {
+      "justification_text": "",
+      "confidence": "low"
+    },
+    "resolved": {
+      "justification_text": "",
+      "confidence": "low"
+    },
+    "parse_error": "",
+    "applied": false
+  }
+}

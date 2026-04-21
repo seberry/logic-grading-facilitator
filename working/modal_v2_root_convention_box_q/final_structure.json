@@ -1,0 +1,41 @@
+[
+  {
+    "wffstr": "□",
+    "jstr": "PR",
+    "line": 1
+  },
+  {
+    "wffstr": "□(P→Q)",
+    "jstr": "PR",
+    "line_label": "1",
+    "line": 2
+  },
+  [
+    {
+      "wffstr": "□",
+      "jstr": "PR",
+      "line": 3
+    },
+    {
+      "wffstr": "P",
+      "jstr": "PR",
+      "line": 4
+    },
+    {
+      "wffstr": "P→Q",
+      "jstr": "DE 2",
+      "line": 5
+    },
+    {
+      "wffstr": "Q → ¬E",
+      "jstr": "PR",
+      "line_label": "1",
+      "line": 6
+    }
+  ],
+  {
+    "wffstr": "□(P → Q)",
+    "jstr": "",
+    "line": 7
+  }
+]

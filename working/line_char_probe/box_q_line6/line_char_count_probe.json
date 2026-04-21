@@ -1,0 +1,490 @@
+{
+  "image_path": "working\\alt_line_reread_box_q\\qwen8b\\modal_handwritten_user_box_q\\node_line_2_4.jpg",
+  "line_label": "4",
+  "formula_text": "Q → ¬E",
+  "justification_text": "4,5",
+  "zone_geometry": {
+    "split_x": 82,
+    "formula_x1": 0,
+    "formula_x2": 92,
+    "justification_x1": 72,
+    "justification_x2": 196,
+    "width": 196,
+    "height": 36
+  },
+  "label_geometry": {
+    "x1": 0,
+    "x2": 20,
+    "width": 20,
+    "height": 36
+  },
+  "zones": {
+    "whole_line": {
+      "zone_name": "whole_line",
+      "expected_text": "4Q → ¬E4,5",
+      "expected_char_count": 8,
+      "min_component_count": 6,
+      "max_component_count": 7,
+      "component_count_gap_min": -2,
+      "component_count_gap_max": -1,
+      "any_excess_flagged": false,
+      "any_large_excess_flagged": false,
+      "all_below_expected": true,
+      "variants": [
+        {
+          "name": "strict170",
+          "dark_threshold": 170,
+          "min_area": 15,
+          "close_kernel": 0,
+          "component_count": 7,
+          "components": [
+            {
+              "area": 114,
+              "x": 10,
+              "y": 0,
+              "w": 5,
+              "h": 36
+            },
+            {
+              "area": 178,
+              "x": 32,
+              "y": 9,
+              "w": 19,
+              "h": 24
+            },
+            {
+              "area": 84,
+              "x": 95,
+              "y": 19,
+              "w": 16,
+              "h": 11
+            },
+            {
+              "area": 124,
+              "x": 117,
+              "y": 13,
+              "w": 14,
+              "h": 22
+            },
+            {
+              "area": 18,
+              "x": 123,
+              "y": 32,
+              "w": 8,
+              "h": 3
+            },
+            {
+              "area": 88,
+              "x": 145,
+              "y": 18,
+              "w": 13,
+              "h": 18
+            },
+            {
+              "area": 79,
+              "x": 168,
+              "y": 20,
+              "w": 16,
+              "h": 16
+            }
+          ]
+        },
+        {
+          "name": "balanced185",
+          "dark_threshold": 185,
+          "min_area": 15,
+          "close_kernel": 0,
+          "component_count": 7,
+          "components": [
+            {
+              "area": 125,
+              "x": 9,
+              "y": 0,
+              "w": 6,
+              "h": 36
+            },
+            {
+              "area": 189,
+              "x": 32,
+              "y": 9,
+              "w": 19,
+              "h": 24
+            },
+            {
+              "area": 92,
+              "x": 95,
+              "y": 19,
+              "w": 16,
+              "h": 12
+            },
+            {
+              "area": 152,
+              "x": 116,
+              "y": 13,
+              "w": 15,
+              "h": 22
+            },
+            {
+              "area": 97,
+              "x": 145,
+              "y": 17,
+              "w": 13,
+              "h": 19
+            },
+            {
+              "area": 16,
+              "x": 162,
+              "y": 30,
+              "w": 4,
+              "h": 6
+            },
+            {
+              "area": 82,
+              "x": 168,
+              "y": 20,
+              "w": 16,
+              "h": 16
+            }
+          ]
+        },
+        {
+          "name": "closed185",
+          "dark_threshold": 185,
+          "min_area": 15,
+          "close_kernel": 2,
+          "component_count": 6,
+          "components": [
+            {
+              "area": 125,
+              "x": 10,
+              "y": 0,
+              "w": 6,
+              "h": 36
+            },
+            {
+              "area": 195,
+              "x": 33,
+              "y": 10,
+              "w": 19,
+              "h": 24
+            },
+            {
+              "area": 96,
+              "x": 96,
+              "y": 20,
+              "w": 16,
+              "h": 12
+            },
+            {
+              "area": 154,
+              "x": 117,
+              "y": 14,
+              "w": 15,
+              "h": 22
+            },
+            {
+              "area": 96,
+              "x": 146,
+              "y": 18,
+              "w": 13,
+              "h": 18
+            },
+            {
+              "area": 80,
+              "x": 169,
+              "y": 21,
+              "w": 16,
+              "h": 15
+            }
+          ]
+        }
+      ]
+    },
+    "label": {
+      "zone_name": "label",
+      "expected_text": "4",
+      "expected_char_count": 1,
+      "min_component_count": 1,
+      "max_component_count": 1,
+      "component_count_gap_min": 0,
+      "component_count_gap_max": 0,
+      "any_excess_flagged": false,
+      "any_large_excess_flagged": false,
+      "all_below_expected": false,
+      "variants": [
+        {
+          "name": "strict170",
+          "dark_threshold": 170,
+          "min_area": 15,
+          "close_kernel": 0,
+          "component_count": 1,
+          "components": [
+            {
+              "area": 114,
+              "x": 10,
+              "y": 0,
+              "w": 5,
+              "h": 36
+            }
+          ]
+        },
+        {
+          "name": "balanced185",
+          "dark_threshold": 185,
+          "min_area": 15,
+          "close_kernel": 0,
+          "component_count": 1,
+          "components": [
+            {
+              "area": 125,
+              "x": 9,
+              "y": 0,
+              "w": 6,
+              "h": 36
+            }
+          ]
+        },
+        {
+          "name": "closed185",
+          "dark_threshold": 185,
+          "min_area": 15,
+          "close_kernel": 2,
+          "component_count": 1,
+          "components": [
+            {
+              "area": 125,
+              "x": 10,
+              "y": 0,
+              "w": 6,
+              "h": 36
+            }
+          ]
+        }
+      ]
+    },
+    "formula": {
+      "zone_name": "formula",
+      "expected_text": "Q → ¬E",
+      "expected_char_count": 4,
+      "min_component_count": 2,
+      "max_component_count": 2,
+      "component_count_gap_min": -2,
+      "component_count_gap_max": -2,
+      "any_excess_flagged": false,
+      "any_large_excess_flagged": false,
+      "all_below_expected": true,
+      "variants": [
+        {
+          "name": "strict170",
+          "dark_threshold": 170,
+          "min_area": 15,
+          "close_kernel": 0,
+          "component_count": 2,
+          "components": [
+            {
+              "area": 114,
+              "x": 10,
+              "y": 0,
+              "w": 5,
+              "h": 36
+            },
+            {
+              "area": 178,
+              "x": 32,
+              "y": 9,
+              "w": 19,
+              "h": 24
+            }
+          ]
+        },
+        {
+          "name": "balanced185",
+          "dark_threshold": 185,
+          "min_area": 15,
+          "close_kernel": 0,
+          "component_count": 2,
+          "components": [
+            {
+              "area": 125,
+              "x": 9,
+              "y": 0,
+              "w": 6,
+              "h": 36
+            },
+            {
+              "area": 189,
+              "x": 32,
+              "y": 9,
+              "w": 19,
+              "h": 24
+            }
+          ]
+        },
+        {
+          "name": "closed185",
+          "dark_threshold": 185,
+          "min_area": 15,
+          "close_kernel": 2,
+          "component_count": 2,
+          "components": [
+            {
+              "area": 125,
+              "x": 10,
+              "y": 0,
+              "w": 6,
+              "h": 36
+            },
+            {
+              "area": 195,
+              "x": 33,
+              "y": 10,
+              "w": 19,
+              "h": 24
+            }
+          ]
+        }
+      ]
+    },
+    "justification": {
+      "zone_name": "justification",
+      "expected_text": "4,5",
+      "expected_char_count": 3,
+      "min_component_count": 4,
+      "max_component_count": 5,
+      "component_count_gap_min": 1,
+      "component_count_gap_max": 2,
+      "any_excess_flagged": true,
+      "any_large_excess_flagged": true,
+      "all_below_expected": false,
+      "variants": [
+        {
+          "name": "strict170",
+          "dark_threshold": 170,
+          "min_area": 15,
+          "close_kernel": 0,
+          "component_count": 5,
+          "components": [
+            {
+              "area": 84,
+              "x": 23,
+              "y": 19,
+              "w": 16,
+              "h": 11
+            },
+            {
+              "area": 124,
+              "x": 45,
+              "y": 13,
+              "w": 14,
+              "h": 22
+            },
+            {
+              "area": 18,
+              "x": 51,
+              "y": 32,
+              "w": 8,
+              "h": 3
+            },
+            {
+              "area": 88,
+              "x": 73,
+              "y": 18,
+              "w": 13,
+              "h": 18
+            },
+            {
+              "area": 79,
+              "x": 96,
+              "y": 20,
+              "w": 16,
+              "h": 16
+            }
+          ]
+        },
+        {
+          "name": "balanced185",
+          "dark_threshold": 185,
+          "min_area": 15,
+          "close_kernel": 0,
+          "component_count": 5,
+          "components": [
+            {
+              "area": 92,
+              "x": 23,
+              "y": 19,
+              "w": 16,
+              "h": 12
+            },
+            {
+              "area": 152,
+              "x": 44,
+              "y": 13,
+              "w": 15,
+              "h": 22
+            },
+            {
+              "area": 97,
+              "x": 73,
+              "y": 17,
+              "w": 13,
+              "h": 19
+            },
+            {
+              "area": 16,
+              "x": 90,
+              "y": 30,
+              "w": 4,
+              "h": 6
+            },
+            {
+              "area": 82,
+              "x": 96,
+              "y": 20,
+              "w": 16,
+              "h": 16
+            }
+          ]
+        },
+        {
+          "name": "closed185",
+          "dark_threshold": 185,
+          "min_area": 15,
+          "close_kernel": 2,
+          "component_count": 4,
+          "components": [
+            {
+              "area": 96,
+              "x": 24,
+              "y": 20,
+              "w": 16,
+              "h": 12
+            },
+            {
+              "area": 154,
+              "x": 45,
+              "y": 14,
+              "w": 15,
+              "h": 22
+            },
+            {
+              "area": 96,
+              "x": 74,
+              "y": 18,
+              "w": 13,
+              "h": 18
+            },
+            {
+              "area": 80,
+              "x": 97,
+              "y": 21,
+              "w": 16,
+              "h": 15
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "any_zone_excess_flagged": true,
+  "any_zone_large_excess_flagged": true
+}

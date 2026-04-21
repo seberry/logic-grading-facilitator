@@ -1,0 +1,34 @@
+{
+  "raw_bars": [
+    [
+      19,
+      0,
+      8,
+      262
+    ],
+    [
+      46,
+      87,
+      4,
+      132
+    ]
+  ],
+  "filtered_bars": [
+    [
+      46,
+      87,
+      4,
+      132
+    ]
+  ],
+  "rejected_bars": [
+    [
+      19,
+      0,
+      8,
+      262
+    ]
+  ],
+  "applied": true,
+  "reason": "removed_false_left_separator_candidate"
+}

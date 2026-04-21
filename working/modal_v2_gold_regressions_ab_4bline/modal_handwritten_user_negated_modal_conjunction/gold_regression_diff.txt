@@ -1,0 +1,53 @@
+--- expected
++++ actual
+@@ -1,8 +1,8 @@
+ [
+   [
+     {
+-      "jstr": "Assum",
+-      "wffstr": "□A ∧ ⋄¬A"
++      "jstr": "PR",
++      "wffstr": "A ⊢ A"
+     },
+     {
+       "jstr": "∧E 1",
+@@ -14,16 +14,16 @@
+     },
+     {
+       "jstr": "MC 3",
+-      "wffstr": "¬□¬¬A"
++      "wffstr": "¬□A"
+     },
+     [
+       {
+-        "jstr": "Assum",
++        "jstr": "PR",
+         "wffstr": "□"
+       },
+       {
+-        "jstr": "□E 2",
+-        "wffstr": "A"
++        "jstr": "1, □E",
++        "wffstr": "□A"
+       },
+       {
+         "jstr": "DN 6",
+@@ -32,7 +32,7 @@
+     ],
+     {
+       "jstr": "□I 5-7",
+-      "wffstr": "□¬¬A"
++      "wffstr": "¬A"
+     },
+     {
+       "jstr": "¬E 4,8",
+@@ -40,7 +40,7 @@
+     }
+   ],
+   {
+-    "jstr": "¬I 1-9",
+-    "wffstr": "¬(□A ∧ ⋄¬A)"
++    "jstr": "~I 1-9",
++    "wffstr": "¬(□A ∧ ⊢A)"
+   }
+ ]

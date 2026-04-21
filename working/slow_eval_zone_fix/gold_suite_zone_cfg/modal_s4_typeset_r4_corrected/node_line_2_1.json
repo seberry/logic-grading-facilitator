@@ -1,0 +1,93 @@
+{
+  "node_id": "2",
+  "row_order": 1,
+  "band_index": 0,
+  "y1": 16,
+  "y2": 44,
+  "mode": "formula_justification_separation",
+  "skip_reason": "",
+  "zone_geometry": {
+    "split_x": 364,
+    "formula_x1": 0,
+    "formula_x2": 381,
+    "justification_x1": 347,
+    "justification_x2": 867,
+    "width": 867,
+    "height": 52
+  },
+  "formula_crop_filename": "node_line_formula_2_1.jpg",
+  "justification_crop_filename": "node_line_justification_2_1.jpg",
+  "formula_model_crop_filename": "node_line_formula_model_2_1.jpg",
+  "justification_model_crop_filename": "node_line_justification_model_2_1.jpg",
+  "formula_model_geometry": {
+    "y1": 16,
+    "y2": 44,
+    "width": 381,
+    "height": 52,
+    "applied": true
+  },
+  "justification_model_geometry": {
+    "y1": 0,
+    "y2": 52,
+    "width": 520,
+    "height": 52,
+    "applied": false
+  },
+  "tight_justification_crop_filename": "",
+  "tight_justification_geometry": {},
+  "formula_raw_response": "{\n  \"line_label\": \"\",\n  \"formula_text\": \"□A\",\n  \"confidence\": \"high\"\n}",
+  "formula_parse_error": "",
+  "formula_resolved": {
+    "line_label": "",
+    "formula_text": "□A",
+    "confidence": "high"
+  },
+  "justification_raw_response": "{\n  \"justification_text\": \"\",\n  \"confidence\": \"high\"\n}",
+  "justification_parse_error": "",
+  "justification_resolved": {
+    "justification_text": "",
+    "confidence": "high"
+  },
+  "resolved": {
+    "line_label": "",
+    "formula_text": "□A",
+    "justification_text": "",
+    "scope_role": "ordinary_assumption",
+    "confidence": "high"
+  },
+  "recovery_applied": "",
+  "formula_consensus_reread": {
+    "attempt_kind": "formula_consensus_reread",
+    "baseline_formula": "□A",
+    "proposed_formula": "",
+    "candidate_attempts": [
+      {
+        "attempt_kind": "formula_crop",
+        "crop_filename": "node_line_formula_reread_2_1.jpg",
+        "prompt": "You are rereading only the formula from one visible line of a modal Fitch-style proof.\nThe image is cropped to the formula side of one proof line.\nReturn only JSON. Do not include markdown fences or explanation.\nReturn exactly one JSON object with these keys: \"formula_text\", \"confidence\".\nDo not include line numbers or justification text.\nPrefer Unicode operators: ¬, ∧, ∨, →, ↔, □, ⋄, ⊥.\nPreserve repeated unary operators exactly.\nIf the formula is unreadable, return an empty formula_text.\nModal system: S4\nInclude derived rules: no",
+        "raw_response": "{\n  \"formula_text\": \"□A\",\n  \"confidence\": 0.98\n}",
+        "parse_error": "",
+        "parsed": {
+          "formula_text": "□A",
+          "confidence": 0.98
+        },
+        "structured_formula": "□A",
+        "confidence": "0.98"
+      },
+      {
+        "attempt_kind": "boxed_formula",
+        "crop_filename": "node_line_formula_boxed_reread_2_1.jpg",
+        "prompt": "You are rereading only the formula from one visible line of a modal Fitch-style proof.\nThe full line remains visible for context, but read only the red boxed formula region.\nIgnore justification text outside the box.\nReturn only JSON. Do not include markdown fences or explanation.\nReturn exactly one JSON object with these keys: \"formula_text\", \"confidence\".\nDo not include line numbers or justification text.\nPrefer Unicode operators: ¬, ∧, ∨, →, ↔, □, ⋄, ⊥.\nPreserve repeated unary operators exactly.\nIf the formula is unreadable, return an empty formula_text.\nModal system: S4\nInclude derived rules: no",
+        "raw_response": "{\n  \"formula_text\": \"□A\",\n  \"confidence\": 1.0\n}",
+        "parse_error": "",
+        "parsed": {
+          "formula_text": "□A",
+          "confidence": 1.0
+        },
+        "structured_formula": "□A",
+        "confidence": "1.0"
+      }
+    ],
+    "applied": false
+  }
+}

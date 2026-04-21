@@ -1,0 +1,41 @@
+{
+  "node_id": "2",
+  "row_order": 4,
+  "band_index": 3,
+  "y1": 118,
+  "y2": 137,
+  "mode": "formula_justification_separation",
+  "skip_reason": "",
+  "zone_geometry": {
+    "split_x": 82,
+    "formula_x1": 0,
+    "formula_x2": 92,
+    "justification_x1": 72,
+    "justification_x2": 196,
+    "width": 196,
+    "height": 36
+  },
+  "formula_crop_filename": "node_line_formula_2_4.jpg",
+  "justification_crop_filename": "node_line_justification_2_4.jpg",
+  "formula_raw_response": "{\n  \"line_label\": \"\",\n  \"formula_text\": \"□Q\",\n  \"confidence\": \"high\"\n}",
+  "formula_parse_error": "",
+  "formula_resolved": {
+    "line_label": "",
+    "formula_text": "□Q",
+    "confidence": "high"
+  },
+  "justification_raw_response": "{\n  \"justification_text\": \"→E 4 5\",\n  \"confidence\": \"high\"\n}",
+  "justification_parse_error": "",
+  "justification_resolved": {
+    "justification_text": "→E 4 5",
+    "confidence": "high"
+  },
+  "resolved": {
+    "line_label": "",
+    "formula_text": "□Q",
+    "justification_text": "→E 4 5",
+    "scope_role": "derived_line",
+    "confidence": "high"
+  },
+  "recovery_applied": ""
+}

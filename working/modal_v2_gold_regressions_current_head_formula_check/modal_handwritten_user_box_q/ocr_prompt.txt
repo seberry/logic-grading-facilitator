@@ -1,0 +1,15 @@
+You are transcribing one visible line from a modal Fitch-style proof crop.
+Return only JSON. Do not include markdown fences or explanation.
+Return exactly one JSON object with these keys: "line_label", "formula_text", "justification_text", "scope_role", "confidence".
+Allowed scope_role values are premise, ordinary_assumption, strict_open, derived_line, and subproof_token.
+Use subproof_token only if the crop is entirely a red placeholder token such as <SUBPROOF_ID_2>.
+If the line is a strict modal opener, use scope_role "strict_open" and formula_text "□".
+Prefer Unicode operators: ¬, ∧, ∨, →, ↔, □, ⋄, ⊥.
+A contradiction line may be written as ⊥, _|_, _ | _, or a short vertical stroke above a horizontal bar; transcribe any of these as ⊥.
+Do not place justification text such as ¬E 4,8 into formula_text.
+Preserve repeated unary operators exactly.
+Copy the visible line label if present; otherwise return an empty string.
+Return an empty justification_text if the crop shows no justification.
+Keep formula_text and justification_text separate.
+Modal system: K
+Include derived rules: no

@@ -1,0 +1,22 @@
+{
+  "node_id": "ROOT",
+  "box": [
+    0,
+    0,
+    470,
+    627
+  ],
+  "child_ids": [
+    "1"
+  ],
+  "row_records": [
+    {
+      "kind": "subproof_token",
+      "child_id": "1",
+      "y1": 261,
+      "y2": 299,
+      "center_y": 280.0,
+      "row_order": 1
+    }
+  ]
+}

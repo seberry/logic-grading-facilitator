@@ -1,0 +1,52 @@
+[
+  {
+    "line_label": "",
+    "formula_text": "□(A ∧ ◊¬A)",
+    "justification_text": "",
+    "scope_role": "ordinary_assumption",
+    "confidence": "medium",
+    "_ocr_node_id": "1",
+    "_ocr_row_order": 1
+  },
+  {
+    "line_label": "",
+    "formula_text": "□A",
+    "justification_text": "",
+    "scope_role": "derived_line",
+    "confidence": "high",
+    "_ocr_node_id": "1",
+    "_ocr_row_order": 2
+  },
+  {
+    "line_label": "",
+    "formula_text": "⋄¬A",
+    "justification_text": "",
+    "scope_role": "derived_line",
+    "confidence": "medium",
+    "_ocr_node_id": "1",
+    "_ocr_row_order": 3
+  },
+  {
+    "line_label": "1",
+    "formula_text": "□A",
+    "justification_text": "MC 3",
+    "scope_role": "derived_line",
+    "confidence": "medium",
+    "_ocr_node_id": "1",
+    "_ocr_row_order": 4
+  },
+  {
+    "scope_role": "subproof_token",
+    "formula_text": "<SUBPROOF_ID_2>",
+    "justification_text": ""
+  },
+  {
+    "line_label": "1",
+    "formula_text": "□¬A",
+    "justification_text": "□I 3-6",
+    "scope_role": "derived_line",
+    "confidence": "high",
+    "_ocr_node_id": "1",
+    "_ocr_row_order": 6
+  }
+]

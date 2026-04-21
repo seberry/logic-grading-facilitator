@@ -1,0 +1,29 @@
+[
+  {
+    "line_label": "",
+    "formula_text": "Assum",
+    "justification_text": "",
+    "scope_role": "ordinary_assumption",
+    "confidence": "0.98",
+    "_ocr_node_id": "2",
+    "_ocr_row_order": 1
+  },
+  {
+    "line_label": "",
+    "formula_text": "A",
+    "justification_text": "",
+    "scope_role": "premise",
+    "confidence": "1",
+    "_ocr_node_id": "2",
+    "_ocr_row_order": 2
+  },
+  {
+    "line_label": "",
+    "formula_text": "¬A",
+    "justification_text": "DN 6",
+    "scope_role": "derived_line",
+    "confidence": "0.98",
+    "_ocr_node_id": "2",
+    "_ocr_row_order": 3
+  }
+]

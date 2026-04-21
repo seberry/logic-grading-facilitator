@@ -1,0 +1,104 @@
+{
+  "node_id": "2",
+  "row_order": 4,
+  "band_index": 2,
+  "y1": 347,
+  "y2": 376,
+  "mode": "formula_justification_separation",
+  "skip_reason": "",
+  "zone_geometry": {
+    "split_x": 316,
+    "formula_x1": 0,
+    "formula_x2": 333,
+    "justification_x1": 299,
+    "justification_x2": 850,
+    "width": 850,
+    "height": 53
+  },
+  "formula_crop_filename": "node_line_formula_2_4.jpg",
+  "justification_crop_filename": "node_line_justification_2_4.jpg",
+  "formula_model_crop_filename": "node_line_formula_model_2_4.jpg",
+  "justification_model_crop_filename": "node_line_justification_model_2_4.jpg",
+  "formula_model_geometry": {
+    "y1": 17,
+    "y2": 42,
+    "width": 333,
+    "height": 53,
+    "applied": true
+  },
+  "justification_model_geometry": {
+    "y1": 8,
+    "y2": 43,
+    "width": 551,
+    "height": 53,
+    "applied": true
+  },
+  "tight_justification_crop_filename": "node_line_justification_tight_2_4.jpg",
+  "tight_justification_geometry": {
+    "x1": 0,
+    "y1": 0,
+    "x2": 59,
+    "y2": 35,
+    "width": 551,
+    "height": 35,
+    "applied": true
+  },
+  "formula_raw_response": "{\n  \"line_label\": \"1\",\n  \"formula_text\": \"¬E 2\",\n  \"confidence\": \"medium\"\n}",
+  "formula_parse_error": "",
+  "formula_resolved": {
+    "line_label": "1",
+    "formula_text": "¬E 2",
+    "confidence": "medium"
+  },
+  "justification_raw_response": "{\n  \"justification_text\": \"\",\n  \"confidence\": \"high\"\n}",
+  "justification_parse_error": "",
+  "justification_resolved": {
+    "justification_text": "→E 2,6",
+    "confidence": "high"
+  },
+  "resolved": {
+    "line_label": "1",
+    "formula_text": "⊥",
+    "justification_text": "→E 2,6",
+    "scope_role": "derived_line",
+    "confidence": "1.0"
+  },
+  "recovery_applied": "contradiction_reread",
+  "tight_justification_reread": {
+    "crop_filename": "node_line_justification_tight_2_4.jpg",
+    "geometry": {
+      "x1": 0,
+      "y1": 0,
+      "x2": 59,
+      "y2": 35,
+      "width": 551,
+      "height": 35,
+      "applied": true
+    },
+    "raw": "{\n  \"justification_text\": \"→E 2,6\",\n  \"confidence\": \"high\"\n}",
+    "parsed": {
+      "justification_text": "→E 2,6",
+      "confidence": "high"
+    },
+    "resolved": {
+      "justification_text": "→E 2,6",
+      "confidence": "high"
+    },
+    "parse_error": "",
+    "applied": true
+  },
+  "contradiction_reread": {
+    "crop_filename": "node_line_contradiction_reread_2_4.jpg",
+    "prompt": "You are rereading one visible line from a modal Fitch-style proof.\nThis line is suspicious because negation-elimination text may have been placed into the formula field.\nReturn only JSON with keys: line_label, formula_text, justification_text, scope_role, confidence.\nIf the formula is a contradiction symbol, return formula_text as ⊥.\nA contradiction line may be written as ⊥, _|_, _ | _, or a short vertical stroke above a short horizontal bar.\nDo not place justification text such as ¬E 4,8 or ~E 4,8 into formula_text.\nKeep the rule and citations in justification_text.\nIf the crop shows no contradiction symbol, return the visible formula honestly.\nCurrent OCR hint: formula_text=\"¬E 2\", justification_text=\"→E 2,6\". Use this only as a weak hint and prefer the image.",
+    "raw_response": "{\n  \"line_label\": \"1\",\n  \"formula_text\": \"⊥\",\n  \"justification_text\": \"→E 2,6\",\n  \"scope_role\": \"contradiction\",\n  \"confidence\": 1.0\n}",
+    "parse_error": "",
+    "resolved": {
+      "line_label": "1",
+      "formula_text": "⊥",
+      "justification_text": "→E 2,6",
+      "scope_role": "derived_line",
+      "confidence": "1.0"
+    },
+    "applied": true
+  }
+}

@@ -1,0 +1,147 @@
+{
+  "raw_detected_bands": [
+    {
+      "y1": 12,
+      "y2": 29,
+      "height": 18,
+      "kept_after_textlike_filter": true,
+      "rejection_reason": ""
+    },
+    {
+      "y1": 40,
+      "y2": 51,
+      "height": 12,
+      "kept_after_textlike_filter": true,
+      "rejection_reason": ""
+    },
+    {
+      "y1": 76,
+      "y2": 103,
+      "height": 28,
+      "kept_after_textlike_filter": true,
+      "rejection_reason": ""
+    },
+    {
+      "y1": 121,
+      "y2": 136,
+      "height": 16,
+      "kept_after_textlike_filter": true,
+      "rejection_reason": ""
+    },
+    {
+      "y1": 157,
+      "y2": 164,
+      "height": 8,
+      "kept_after_textlike_filter": true,
+      "rejection_reason": ""
+    },
+    {
+      "y1": 204,
+      "y2": 234,
+      "height": 31,
+      "kept_after_textlike_filter": true,
+      "rejection_reason": ""
+    },
+    {
+      "y1": 292,
+      "y2": 312,
+      "height": 21,
+      "kept_after_textlike_filter": true,
+      "rejection_reason": ""
+    },
+    {
+      "y1": 317,
+      "y2": 338,
+      "height": 22,
+      "kept_after_textlike_filter": true,
+      "rejection_reason": ""
+    }
+  ],
+  "merged_bands": [
+    {
+      "y1": 12,
+      "y2": 29,
+      "height": 18
+    },
+    {
+      "y1": 40,
+      "y2": 51,
+      "height": 12
+    },
+    {
+      "y1": 76,
+      "y2": 103,
+      "height": 28
+    },
+    {
+      "y1": 121,
+      "y2": 136,
+      "height": 16
+    },
+    {
+      "y1": 157,
+      "y2": 164,
+      "height": 8
+    },
+    {
+      "y1": 204,
+      "y2": 234,
+      "height": 31
+    },
+    {
+      "y1": 292,
+      "y2": 312,
+      "height": 21
+    },
+    {
+      "y1": 317,
+      "y2": 338,
+      "height": 22
+    }
+  ],
+  "final_bands": [
+    {
+      "y1": 12,
+      "y2": 29,
+      "height": 18
+    },
+    {
+      "y1": 40,
+      "y2": 51,
+      "height": 12
+    },
+    {
+      "y1": 76,
+      "y2": 103,
+      "height": 28
+    },
+    {
+      "y1": 121,
+      "y2": 136,
+      "height": 16
+    },
+    {
+      "y1": 157,
+      "y2": 164,
+      "height": 8
+    },
+    {
+      "y1": 292,
+      "y2": 312,
+      "height": 21
+    },
+    {
+      "y1": 317,
+      "y2": 338,
+      "height": 22
+    }
+  ],
+  "rejected_after_merge": [
+    {
+      "y1": 204,
+      "y2": 234,
+      "height": 31,
+      "rejection_reason": "child_token_overlap"
+    }
+  ]
+}

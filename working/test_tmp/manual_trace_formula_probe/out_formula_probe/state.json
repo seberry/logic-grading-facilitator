@@ -1,0 +1,18 @@
+{
+  "system": "S4",
+  "include_derived_rules": false,
+  "conclusion": "Q",
+  "vision_base_url": "http://127.0.0.1:1234/v1",
+  "vision_model": "fake-model",
+  "verifier_vision_model": "fake-8b",
+  "enable_formula_justification_separation": true,
+  "source_image_name": "source_image.png",
+  "proof_json_text": "{\n  \"lines\": [\n    {\n      \"wffstr\": \"□¬A\",\n      \"jstr\": \"PR\",\n      \"line\": 1\n    },\n    [\n      {\n        \"wffstr\": \"A\",\n        \"jstr\": \"PR\",\n        \"line\": 2\n      },\n      {\n        \"wffstr\": \"B\",\n        \"jstr\": \"R 1\",\n        \"line\": 3\n      }\n    ],\n    {\n      \"wffstr\": \"Q\",\n      \"jstr\": \"R 2\",\n      \"line\": 4\n    }\n  ],\n  \"meta\": {}\n}",
+  "original_proof_json_text": "{\n  \"lines\": [\n    {\n      \"wffstr\": \"□¬A\",\n      \"jstr\": \"PR\",\n      \"line\": 1\n    },\n    [\n      {\n        \"wffstr\": \"A\",\n        \"jstr\": \"PR\",\n        \"line\": 2\n      },\n      {\n        \"wffstr\": \"B\",\n        \"jstr\": \"R 1\",\n        \"line\": 3\n      }\n    ],\n    {\n      \"wffstr\": \"Q\",\n      \"jstr\": \"R 2\",\n      \"line\": 4\n    }\n  ],\n  \"meta\": {}\n}",
+  "verifier_rewrite_summary": [],
+  "draft_comment": "",
+  "draft_grade": "",
+  "checker_request": null,
+  "checker_response": null,
+  "run_summary": "modal_v2 baseline OCR produced 4 visible lines across 2 nodes and detected 1 subproof bars. Passive unary structured formula-crop probe inspected 1 line. Formula/justification separation was enabled."
+}

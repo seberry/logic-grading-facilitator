@@ -36,6 +36,7 @@ NODE_LINE_JUSTIFICATION_CITATION_REREAD_CROP_TEMPLATE = "node_line_justification
 NODE_LINE_FORMULA_REREAD_CROP_TEMPLATE = "node_line_formula_reread_{node_id}_{row_order}.jpg"
 NODE_LINE_FORMULA_BOXED_REREAD_CROP_TEMPLATE = "node_line_formula_boxed_reread_{node_id}_{row_order}.jpg"
 NODE_LINE_FORMULA_THIN_REREAD_CROP_TEMPLATE = "node_line_formula_thin_reread_{node_id}_{row_order}.jpg"
+NODE_LINE_FORMULA_UNARY_REREAD_CROP_TEMPLATE = "node_line_formula_unary_reread_{node_id}_{row_order}.jpg"
 NODE_LINE_RESPONSE_TEMPLATE = "node_line_{node_id}_{row_order}.json"
 BAR_FILTER_DEBUG_FILENAME = "bar_filter_debug.json"
 FALSE_LEFT_SEPARATOR_VERIFIER_CROP_FILENAME = "false_left_separator_candidate.jpg"

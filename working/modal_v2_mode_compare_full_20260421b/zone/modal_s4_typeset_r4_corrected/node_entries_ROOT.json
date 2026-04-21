@@ -1,0 +1,43 @@
+[
+  {
+    "line_label": "",
+    "formula_text": "",
+    "justification_text": "",
+    "scope_role": "derived_line",
+    "confidence": "",
+    "_ocr_node_id": "ROOT",
+    "_ocr_row_order": 1
+  },
+  {
+    "line_label": "",
+    "formula_text": "",
+    "justification_text": "",
+    "scope_role": "derived_line",
+    "confidence": "",
+    "_ocr_node_id": "ROOT",
+    "_ocr_row_order": 2
+  },
+  {
+    "scope_role": "subproof_token",
+    "formula_text": "<SUBPROOF_ID_1>",
+    "justification_text": ""
+  },
+  {
+    "line_label": "",
+    "formula_text": "",
+    "justification_text": "",
+    "scope_role": "derived_line",
+    "confidence": "",
+    "_ocr_node_id": "ROOT",
+    "_ocr_row_order": 4
+  },
+  {
+    "line_label": "",
+    "formula_text": "",
+    "justification_text": "",
+    "scope_role": "derived_line",
+    "confidence": "",
+    "_ocr_node_id": "ROOT",
+    "_ocr_row_order": 5
+  }
+]

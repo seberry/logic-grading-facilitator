@@ -1,0 +1,34 @@
+[
+  {
+    "line_label": "",
+    "formula_text": "◇□A",
+    "justification_text": "",
+    "scope_role": "derived_line",
+    "confidence": "1",
+    "_ocr_node_id": "1",
+    "_ocr_row_order": 1
+  },
+  {
+    "line_label": "",
+    "formula_text": "¬□¬□A",
+    "justification_text": "Def◇ 1",
+    "scope_role": "derived_line",
+    "confidence": "1",
+    "_ocr_node_id": "1",
+    "_ocr_row_order": 2
+  },
+  {
+    "scope_role": "subproof_token",
+    "formula_text": "<SUBPROOF_ID_2>",
+    "justification_text": ""
+  },
+  {
+    "line_label": "",
+    "formula_text": "□A",
+    "justification_text": "IP 3-7",
+    "scope_role": "derived_line",
+    "confidence": "1",
+    "_ocr_node_id": "1",
+    "_ocr_row_order": 4
+  }
+]

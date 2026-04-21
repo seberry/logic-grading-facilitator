@@ -1,0 +1,124 @@
+{
+  "node_id": "2",
+  "row_order": 1,
+  "band_index": 0,
+  "y1": 22,
+  "y2": 35,
+  "mode": "formula_justification_separation",
+  "skip_reason": "",
+  "zone_geometry": {
+    "split_x": 197,
+    "formula_x1": 0,
+    "formula_x2": 207,
+    "justification_x1": 187,
+    "justification_x2": 483,
+    "width": 483,
+    "height": 41
+  },
+  "formula_crop_filename": "node_line_formula_2_1.jpg",
+  "justification_crop_filename": "node_line_justification_2_1.jpg",
+  "formula_model_crop_filename": "node_line_formula_model_2_1.jpg",
+  "justification_model_crop_filename": "node_line_justification_model_2_1.jpg",
+  "formula_model_geometry": {
+    "y1": 26,
+    "y2": 35,
+    "width": 207,
+    "height": 41,
+    "applied": true
+  },
+  "justification_model_geometry": {
+    "y1": 12,
+    "y2": 34,
+    "width": 296,
+    "height": 41,
+    "applied": true
+  },
+  "tight_justification_crop_filename": "node_line_justification_tight_2_1.jpg",
+  "tight_justification_geometry": {
+    "x1": 25,
+    "y1": 0,
+    "x2": 99,
+    "y2": 22,
+    "width": 296,
+    "height": 22,
+    "applied": true
+  },
+  "formula_raw_response": "{\n  \"line_label\": \"\",\n  \"formula_text\": \"\",\n  \"confidence\": \"low\"\n}",
+  "formula_parse_error": "",
+  "formula_resolved": {
+    "line_label": "",
+    "formula_text": "",
+    "confidence": "low"
+  },
+  "justification_raw_response": "{\n  \"justification_text\": \"\",\n  \"confidence\": \"low\"\n}",
+  "justification_parse_error": "",
+  "justification_resolved": {
+    "justification_text": "",
+    "confidence": "low"
+  },
+  "resolved": {
+    "line_label": "",
+    "formula_text": "□",
+    "justification_text": "",
+    "scope_role": "strict_open",
+    "confidence": "low"
+  },
+  "recovery_applied": "first_nonroot_strict_open_band",
+  "tight_justification_reread": {
+    "crop_filename": "node_line_justification_tight_2_1.jpg",
+    "geometry": {
+      "x1": 25,
+      "y1": 0,
+      "x2": 99,
+      "y2": 22,
+      "width": 296,
+      "height": 22,
+      "applied": true
+    },
+    "raw": "{\n  \"justification_text\": \"\",\n  \"confidence\": \"low\"\n}",
+    "parsed": {
+      "justification_text": "",
+      "confidence": "low"
+    },
+    "resolved": {
+      "justification_text": "",
+      "confidence": "low"
+    },
+    "parse_error": "",
+    "applied": false
+  },
+  "formula_consensus_reread": {
+    "attempt_kind": "formula_consensus_reread",
+    "baseline_formula": "□",
+    "proposed_formula": "",
+    "candidate_attempts": [
+      {
+        "attempt_kind": "formula_crop",
+        "crop_filename": "node_line_formula_reread_2_1.jpg",
+        "prompt": "You are rereading only the formula from one visible line of a modal Fitch-style proof.\nThe image is cropped to the formula side of one proof line.\nReturn only JSON. Do not include markdown fences or explanation.\nReturn exactly one JSON object with these keys: \"formula_text\", \"confidence\".\nDo not include line numbers or justification text.\nPrefer Unicode operators: ¬, ∧, ∨, →, ↔, □, ⋄, ⊥.\nPreserve repeated unary operators exactly.\nIf the formula is unreadable, return an empty formula_text.\nModal system: K\nInclude derived rules: no",
+        "raw_response": "{\n  \"formula_text\": \"□\",\n  \"confidence\": 0.95\n}",
+        "parse_error": "",
+        "parsed": {
+          "formula_text": "□",
+          "confidence": 0.95
+        },
+        "structured_formula": "□",
+        "confidence": "0.95"
+      },
+      {
+        "attempt_kind": "boxed_formula",
+        "crop_filename": "node_line_formula_boxed_reread_2_1.jpg",
+        "prompt": "You are rereading only the formula from one visible line of a modal Fitch-style proof.\nThe full line remains visible for context, but read only the red boxed formula region.\nIgnore justification text outside the box.\nReturn only JSON. Do not include markdown fences or explanation.\nReturn exactly one JSON object with these keys: \"formula_text\", \"confidence\".\nDo not include line numbers or justification text.\nPrefer Unicode operators: ¬, ∧, ∨, →, ↔, □, ⋄, ⊥.\nPreserve repeated unary operators exactly.\nIf the formula is unreadable, return an empty formula_text.\nModal system: K\nInclude derived rules: no",
+        "raw_response": "{\n  \"formula_text\": \"□\",\n  \"confidence\": 0.98\n}",
+        "parse_error": "",
+        "parsed": {
+          "formula_text": "□",
+          "confidence": 0.98
+        },
+        "structured_formula": "□",
+        "confidence": "0.98"
+      }
+    ],
+    "applied": false
+  }
+}

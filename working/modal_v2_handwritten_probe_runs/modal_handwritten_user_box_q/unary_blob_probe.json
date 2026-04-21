@@ -1,0 +1,284 @@
+[
+  {
+    "node_id": "1",
+    "row_order": 2,
+    "line_label": "1",
+    "scope_role": "premise",
+    "baseline_formula": "□(P→Q)",
+    "ocr_symbol_count": 2,
+    "max_component_count": 7,
+    "any_blob_flagged": true,
+    "window": {
+      "x1": 20,
+      "x2": 80,
+      "width": 60,
+      "height": 76
+    },
+    "formula_window_filename": "unary_blob_line_1_2.jpg",
+    "line_crop_filename": "node_line_1_2.jpg",
+    "variants": [
+      {
+        "name": "strict170",
+        "dark_threshold": 170,
+        "min_area": 15,
+        "close_kernel": 0,
+        "component_count": 7,
+        "components": [
+          {
+            "area": 179,
+            "x": 0,
+            "y": 41,
+            "w": 60,
+            "h": 6
+          },
+          {
+            "area": 128,
+            "x": 8,
+            "y": 17,
+            "w": 15,
+            "h": 18
+          },
+          {
+            "area": 27,
+            "x": 16,
+            "y": 56,
+            "w": 4,
+            "h": 11
+          },
+          {
+            "area": 67,
+            "x": 24,
+            "y": 14,
+            "w": 9,
+            "h": 26
+          },
+          {
+            "area": 107,
+            "x": 35,
+            "y": 15,
+            "w": 12,
+            "h": 20
+          },
+          {
+            "area": 94,
+            "x": 35,
+            "y": 54,
+            "w": 17,
+            "h": 13
+          },
+          {
+            "area": 22,
+            "x": 51,
+            "y": 24,
+            "w": 9,
+            "h": 4
+          }
+        ],
+        "blob_count_exceeds_ocr": true
+      },
+      {
+        "name": "balanced185",
+        "dark_threshold": 185,
+        "min_area": 15,
+        "close_kernel": 0,
+        "component_count": 7,
+        "components": [
+          {
+            "area": 186,
+            "x": 0,
+            "y": 41,
+            "w": 60,
+            "h": 6
+          },
+          {
+            "area": 133,
+            "x": 8,
+            "y": 17,
+            "w": 15,
+            "h": 18
+          },
+          {
+            "area": 29,
+            "x": 16,
+            "y": 56,
+            "w": 4,
+            "h": 11
+          },
+          {
+            "area": 70,
+            "x": 24,
+            "y": 14,
+            "w": 9,
+            "h": 26
+          },
+          {
+            "area": 115,
+            "x": 35,
+            "y": 15,
+            "w": 12,
+            "h": 21
+          },
+          {
+            "area": 98,
+            "x": 35,
+            "y": 54,
+            "w": 17,
+            "h": 13
+          },
+          {
+            "area": 27,
+            "x": 51,
+            "y": 24,
+            "w": 9,
+            "h": 4
+          }
+        ],
+        "blob_count_exceeds_ocr": true
+      },
+      {
+        "name": "closed185",
+        "dark_threshold": 185,
+        "min_area": 15,
+        "close_kernel": 2,
+        "component_count": 6,
+        "components": [
+          {
+            "area": 186,
+            "x": 0,
+            "y": 42,
+            "w": 60,
+            "h": 6
+          },
+          {
+            "area": 204,
+            "x": 9,
+            "y": 15,
+            "w": 25,
+            "h": 26
+          },
+          {
+            "area": 29,
+            "x": 17,
+            "y": 57,
+            "w": 4,
+            "h": 11
+          },
+          {
+            "area": 116,
+            "x": 36,
+            "y": 16,
+            "w": 12,
+            "h": 21
+          },
+          {
+            "area": 98,
+            "x": 36,
+            "y": 55,
+            "w": 17,
+            "h": 13
+          },
+          {
+            "area": 24,
+            "x": 52,
+            "y": 25,
+            "w": 8,
+            "h": 4
+          }
+        ],
+        "blob_count_exceeds_ocr": true
+      }
+    ]
+  },
+  {
+    "node_id": "1",
+    "row_order": 4,
+    "line_label": "",
+    "scope_role": "derived_line",
+    "baseline_formula": "□(φ → ψ)",
+    "ocr_symbol_count": 2,
+    "max_component_count": 2,
+    "any_blob_flagged": false,
+    "window": {
+      "x1": 20,
+      "x2": 80,
+      "width": 60,
+      "height": 39
+    },
+    "formula_window_filename": "unary_blob_line_1_4.jpg",
+    "line_crop_filename": "node_line_1_4.jpg",
+    "variants": [
+      {
+        "name": "strict170",
+        "dark_threshold": 170,
+        "min_area": 15,
+        "close_kernel": 0,
+        "component_count": 2,
+        "components": [
+          {
+            "area": 184,
+            "x": 6,
+            "y": 13,
+            "w": 19,
+            "h": 23
+          },
+          {
+            "area": 194,
+            "x": 27,
+            "y": 13,
+            "w": 21,
+            "h": 26
+          }
+        ],
+        "blob_count_exceeds_ocr": false
+      },
+      {
+        "name": "balanced185",
+        "dark_threshold": 185,
+        "min_area": 15,
+        "close_kernel": 0,
+        "component_count": 2,
+        "components": [
+          {
+            "area": 194,
+            "x": 6,
+            "y": 13,
+            "w": 19,
+            "h": 23
+          },
+          {
+            "area": 210,
+            "x": 27,
+            "y": 13,
+            "w": 22,
+            "h": 26
+          }
+        ],
+        "blob_count_exceeds_ocr": false
+      },
+      {
+        "name": "closed185",
+        "dark_threshold": 185,
+        "min_area": 15,
+        "close_kernel": 2,
+        "component_count": 2,
+        "components": [
+          {
+            "area": 195,
+            "x": 7,
+            "y": 14,
+            "w": 19,
+            "h": 23
+          },
+          {
+            "area": 192,
+            "x": 28,
+            "y": 14,
+            "w": 19,
+            "h": 25
+          }
+        ],
+        "blob_count_exceeds_ocr": false
+      }
+    ]
+  }
+]

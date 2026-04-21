@@ -1,0 +1,36 @@
+--- expected
++++ actual
+@@ -1,11 +1,11 @@
+ [
+   {
+     "jstr": "PR",
+-    "wffstr": "□P"
++    "wffstr": "□"
+   },
+   {
+     "jstr": "PR",
+-    "wffstr": "□(P→Q)"
++    "wffstr": "□(P → Q)"
+   },
+   [
+     {
+@@ -18,15 +18,15 @@
+     },
+     {
+       "jstr": "□E 2",
+-      "wffstr": "P→Q"
++      "wffstr": "P → Q"
+     },
+     {
+-      "jstr": "→E 4,5",
+-      "wffstr": "Q"
++      "jstr": "4,5",
++      "wffstr": "Q → E"
+     }
+   ],
+   {
+     "jstr": "□I 3-6",
+-    "wffstr": "□Q"
++    "wffstr": "□G"
+   }
+ ]

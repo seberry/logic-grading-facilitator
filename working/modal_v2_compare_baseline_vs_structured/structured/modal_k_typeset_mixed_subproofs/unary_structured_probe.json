@@ -1,0 +1,78 @@
+[
+  {
+    "node_id": "1",
+    "row_order": 1,
+    "line_label": "",
+    "scope_role": "derived_line",
+    "baseline_formula": "□(A → B)",
+    "baseline_justification": "",
+    "structured_counts": {
+      "main_modal_operator": "box",
+      "negations_before_modal": 0,
+      "negations_before_final_atom": 0,
+      "confidence": 1.0
+    },
+    "structured_formula": "□(A → B)",
+    "would_change_formula": false,
+    "line_crop_filename": "node_line_1_1.jpg",
+    "probe_crop_filename": "unary_structured_line_1_1.jpg",
+    "raw_response": "{\n  \"main_modal_operator\": \"box\",\n  \"negations_before_modal\": 0,\n  \"negations_before_final_atom\": 0,\n  \"confidence\": 1.0\n}"
+  },
+  {
+    "node_id": "2",
+    "row_order": 1,
+    "line_label": "1",
+    "scope_role": "premise",
+    "baseline_formula": "□A",
+    "baseline_justification": "",
+    "structured_counts": {
+      "main_modal_operator": "box",
+      "negations_before_modal": 0,
+      "negations_before_final_atom": 0,
+      "confidence": 1.0
+    },
+    "structured_formula": "□A",
+    "would_change_formula": false,
+    "line_crop_filename": "node_line_2_1.jpg",
+    "probe_crop_filename": "unary_structured_line_2_1.jpg",
+    "raw_response": "{\n  \"main_modal_operator\": \"box\",\n  \"negations_before_modal\": 0,\n  \"negations_before_final_atom\": 0,\n  \"confidence\": 1.0\n}"
+  },
+  {
+    "node_id": "2",
+    "row_order": 3,
+    "line_label": "",
+    "scope_role": "derived_line",
+    "baseline_formula": "□B",
+    "baseline_justification": "",
+    "structured_counts": {
+      "main_modal_operator": "box",
+      "negations_before_modal": 0,
+      "negations_before_final_atom": 0,
+      "confidence": 1.0
+    },
+    "structured_formula": "□B",
+    "would_change_formula": false,
+    "line_crop_filename": "node_line_2_3.jpg",
+    "probe_crop_filename": "unary_structured_line_2_3.jpg",
+    "raw_response": "{\n  \"main_modal_operator\": \"box\",\n  \"negations_before_modal\": 0,\n  \"negations_before_final_atom\": 0,\n  \"confidence\": 1.0\n}"
+  },
+  {
+    "node_id": "3",
+    "row_order": 2,
+    "line_label": "",
+    "scope_role": "ordinary_assumption",
+    "baseline_formula": "A",
+    "baseline_justification": "□E 2",
+    "structured_counts": {
+      "main_modal_operator": "box",
+      "negations_before_modal": 0,
+      "negations_before_final_atom": 0,
+      "confidence": 1.0
+    },
+    "structured_formula": "□A",
+    "would_change_formula": true,
+    "line_crop_filename": "node_line_3_2.jpg",
+    "probe_crop_filename": "unary_structured_line_3_2.jpg",
+    "raw_response": "{\n  \"main_modal_operator\": \"box\",\n  \"negations_before_modal\": 0,\n  \"negations_before_final_atom\": 0,\n  \"confidence\": 1.0\n}"
+  }
+]

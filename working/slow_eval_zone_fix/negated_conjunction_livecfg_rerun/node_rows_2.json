@@ -1,0 +1,26 @@
+[
+  {
+    "kind": "line",
+    "band_index": 0,
+    "y1": 22,
+    "y2": 35,
+    "center_y": 28.5,
+    "row_order": 1
+  },
+  {
+    "kind": "line",
+    "band_index": 1,
+    "y1": 44,
+    "y2": 58,
+    "center_y": 51.0,
+    "row_order": 2
+  },
+  {
+    "kind": "line",
+    "band_index": 2,
+    "y1": 77,
+    "y2": 88,
+    "center_y": 82.5,
+    "row_order": 3
+  }
+]

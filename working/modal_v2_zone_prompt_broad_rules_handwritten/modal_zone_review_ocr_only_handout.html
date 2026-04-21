@@ -1,0 +1,62 @@
+<!doctype html><html><head><meta charset='utf-8'><title>Modal Zone OCR Review - OCR Only Handout</title><style>
+body { font-family: Georgia, 'Times New Roman', serif; background: #f5f1e8; color: #1f1c18; margin: 0; }
+.page { max-width: 1500px; margin: 0 auto; padding: 24px; }
+h1, h2 { margin: 0 0 12px; }
+.intro { margin-bottom: 24px; color: #4a423a; }
+.case { margin: 28px 0 36px; }
+.card { background: #fffdf8; border: 1px solid #d7cdbf; border-radius: 14px; padding: 16px; margin: 14px 0; box-shadow: 0 2px 8px rgba(55, 42, 25, 0.06); }
+.meta { margin-bottom: 10px; font-size: 14px; color: #5d544a; }
+.flags { margin: 8px 0 0; }
+.flag { display: inline-block; margin-right: 8px; margin-bottom: 6px; padding: 4px 8px; border-radius: 999px; background: #f3dfc4; color: #6b3f16; font-size: 12px; }
+.grid { display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 14px; align-items: start; }
+.panel { border: 1px solid #e3d9ca; border-radius: 10px; background: #fff; padding: 10px; }
+.panel h3 { margin: 0 0 8px; font-size: 15px; }
+.imgwrap { background: #faf8f3; border: 1px solid #ece3d7; border-radius: 8px; padding: 8px; min-height: 70px; display: flex; align-items: center; justify-content: center; }
+.imgwrap img { max-width: 100%; height: auto; display: block; }
+.missing { color: #8a7d70; font-style: italic; }
+pre { margin: 10px 0 0; padding: 10px; border-radius: 8px; background: #f8f4ed; overflow-x: auto; white-space: pre-wrap; word-break: break-word; font-size: 12px; }
+.ocr { font-size: 14px; line-height: 1.45; }
+.ocr code { background: #f5efe5; padding: 1px 4px; border-radius: 4px; }
+</style></head><body><div class='page'><h1>Modal Zone OCR Review - OCR Only Handout</h1><p class='intro'>Each row shows the crop sent to the model beside what the model returned. Highlighted flags call out suspicious blank reads, parse issues, or formula/justification spill.</p><section class='case'><h2>modal_handwritten_user_box_q</h2><p class='intro'>Artifacts from <code>C:\Users\seber\logic-grading-facilitator-MAIN\working\modal_v2_zone_prompt_broad_rules_handwritten\modal_handwritten_user_box_q</code></p></section><section class='case'><h2>modal_handwritten_user_negated_modal_conjunction</h2><p class='intro'>Artifacts from <code>C:\Users\seber\logic-grading-facilitator-MAIN\working\modal_v2_zone_prompt_broad_rules_handwritten\modal_handwritten_user_negated_modal_conjunction</code></p><article class='card'><div class='meta'>node=<code>1</code> row=<code>1</code> scope_role=<code>ordinary_assumption</code></div><div class='flags'><span class='flag'>blank_justification_with_ink</span></div><div class='grid'><section class='panel'><h3>Full line crop</h3><div class='imgwrap'><img src='modal_handwritten_user_negated_modal_conjunction/node_line_1_1.jpg' alt='Full line crop'></div><div class='ocr'>resolved formula: <code>□(A ∧ ◊¬A)</code></div><div class='ocr'>resolved justification: <code></code></div></section><section class='panel'><h3>Formula crop</h3><div class='imgwrap'><img src='modal_handwritten_user_negated_modal_conjunction/node_line_formula_1_1.jpg' alt='Formula crop'></div><div class='ocr'>confidence: <code>medium</code></div><div class='ocr'>raw response:</div><div class='ocr'><pre>{
+  &quot;line_label&quot;: &quot;&quot;,
+  &quot;formula_text&quot;: &quot;□(A ∧ ◊¬A)&quot;,
+  &quot;confidence&quot;: &quot;medium&quot;
+}</pre></div></section><section class='panel'><h3>Justification crop</h3><div class='imgwrap'><img src='modal_handwritten_user_negated_modal_conjunction/node_line_justification_1_1.jpg' alt='Justification crop'></div><div class='ocr'>confidence: <code>high</code></div><div class='ocr'>raw response:</div><div class='ocr'><pre>{
+  &quot;justification_text&quot;: &quot;&quot;,
+  &quot;confidence&quot;: &quot;high&quot;
+}</pre></div></section></div></article><article class='card'><div class='meta'>node=<code>1</code> row=<code>2</code> scope_role=<code>derived_line</code></div><div class='flags'><span class='flag'>blank_justification_with_ink</span></div><div class='grid'><section class='panel'><h3>Full line crop</h3><div class='imgwrap'><img src='modal_handwritten_user_negated_modal_conjunction/node_line_1_2.jpg' alt='Full line crop'></div><div class='ocr'>resolved formula: <code>□A</code></div><div class='ocr'>resolved justification: <code></code></div></section><section class='panel'><h3>Formula crop</h3><div class='imgwrap'><img src='modal_handwritten_user_negated_modal_conjunction/node_line_formula_1_2.jpg' alt='Formula crop'></div><div class='ocr'>confidence: <code>high</code></div><div class='ocr'>raw response:</div><div class='ocr'><pre>{
+  &quot;line_label&quot;: &quot;&quot;,
+  &quot;formula_text&quot;: &quot;□A&quot;,
+  &quot;confidence&quot;: &quot;high&quot;
+}</pre></div></section><section class='panel'><h3>Justification crop</h3><div class='imgwrap'><img src='modal_handwritten_user_negated_modal_conjunction/node_line_justification_1_2.jpg' alt='Justification crop'></div><div class='ocr'>confidence: <code>low</code></div><div class='ocr'>raw response:</div><div class='ocr'><pre>{
+  &quot;justification_text&quot;: &quot;&quot;,
+  &quot;confidence&quot;: &quot;low&quot;
+}</pre></div></section></div></article><article class='card'><div class='meta'>node=<code>1</code> row=<code>4</code> scope_role=<code>derived_line</code></div><div class='grid'><section class='panel'><h3>Full line crop</h3><div class='imgwrap'><img src='modal_handwritten_user_negated_modal_conjunction/node_line_1_4.jpg' alt='Full line crop'></div><div class='ocr'>resolved formula: <code>□A</code></div><div class='ocr'>resolved justification: <code>MC 3</code></div></section><section class='panel'><h3>Formula crop</h3><div class='imgwrap'><img src='modal_handwritten_user_negated_modal_conjunction/node_line_formula_1_4.jpg' alt='Formula crop'></div><div class='ocr'>confidence: <code>high</code></div><div class='ocr'>raw response:</div><div class='ocr'><pre>{
+  &quot;line_label&quot;: &quot;1&quot;,
+  &quot;formula_text&quot;: &quot;□A&quot;,
+  &quot;confidence&quot;: &quot;high&quot;
+}</pre></div></section><section class='panel'><h3>Justification crop</h3><div class='imgwrap'><img src='modal_handwritten_user_negated_modal_conjunction/node_line_justification_1_4.jpg' alt='Justification crop'></div><div class='ocr'>confidence: <code>high</code></div><div class='ocr'>raw response:</div><div class='ocr'><pre>{
+  &quot;justification_text&quot;: &quot;MC 3&quot;,
+  &quot;confidence&quot;: &quot;high&quot;
+}</pre></div></section></div></article><article class='card'><div class='meta'>node=<code>1</code> row=<code>6</code> scope_role=<code>derived_line</code></div><div class='grid'><section class='panel'><h3>Full line crop</h3><div class='imgwrap'><img src='modal_handwritten_user_negated_modal_conjunction/node_line_1_6.jpg' alt='Full line crop'></div><div class='ocr'>resolved formula: <code>□¬A</code></div><div class='ocr'>resolved justification: <code>□I 3-6</code></div></section><section class='panel'><h3>Formula crop</h3><div class='imgwrap'><img src='modal_handwritten_user_negated_modal_conjunction/node_line_formula_1_6.jpg' alt='Formula crop'></div><div class='ocr'>confidence: <code>high</code></div><div class='ocr'>raw response:</div><div class='ocr'><pre>{
+  &quot;line_label&quot;: &quot;1&quot;,
+  &quot;formula_text&quot;: &quot;□¬A&quot;,
+  &quot;confidence&quot;: &quot;high&quot;
+}</pre></div></section><section class='panel'><h3>Justification crop</h3><div class='imgwrap'><img src='modal_handwritten_user_negated_modal_conjunction/node_line_justification_1_6.jpg' alt='Justification crop'></div><div class='ocr'>confidence: <code>high</code></div><div class='ocr'>raw response:</div><div class='ocr'><pre>{
+  &quot;justification_text&quot;: &quot;□I 3-6&quot;,
+  &quot;confidence&quot;: &quot;high&quot;
+}</pre></div></section></div></article><article class='card'><div class='meta'>node=<code>2</code> row=<code>2</code> scope_role=<code>derived_line</code></div><div class='flags'><span class='flag'>blank_justification_with_ink</span></div><div class='grid'><section class='panel'><h3>Full line crop</h3><div class='imgwrap'><img src='modal_handwritten_user_negated_modal_conjunction/node_line_2_2.jpg' alt='Full line crop'></div><div class='ocr'>resolved formula: <code>A</code></div><div class='ocr'>resolved justification: <code></code></div></section><section class='panel'><h3>Formula crop</h3><div class='imgwrap'><img src='modal_handwritten_user_negated_modal_conjunction/node_line_formula_2_2.jpg' alt='Formula crop'></div><div class='ocr'>confidence: <code>medium</code></div><div class='ocr'>raw response:</div><div class='ocr'><pre>{
+  &quot;line_label&quot;: &quot;&quot;,
+  &quot;formula_text&quot;: &quot;A&quot;,
+  &quot;confidence&quot;: &quot;medium&quot;
+}</pre></div></section><section class='panel'><h3>Justification crop</h3><div class='imgwrap'><img src='modal_handwritten_user_negated_modal_conjunction/node_line_justification_2_2.jpg' alt='Justification crop'></div><div class='ocr'>confidence: <code>high</code></div><div class='ocr'>raw response:</div><div class='ocr'><pre>{
+  &quot;justification_text&quot;: &quot;&quot;,
+  &quot;confidence&quot;: &quot;high&quot;
+}</pre></div></section></div></article><article class='card'><div class='meta'>node=<code>ROOT</code> row=<code>2</code> scope_role=<code>derived_line</code></div><div class='grid'><section class='panel'><h3>Full line crop</h3><div class='imgwrap'><img src='modal_handwritten_user_negated_modal_conjunction/node_line_ROOT_2.jpg' alt='Full line crop'></div><div class='ocr'>resolved formula: <code>¬(□A ∧ □¬A)</code></div><div class='ocr'>resolved justification: <code>~I 1-9</code></div></section><section class='panel'><h3>Formula crop</h3><div class='imgwrap'><img src='modal_handwritten_user_negated_modal_conjunction/node_line_formula_ROOT_2.jpg' alt='Formula crop'></div><div class='ocr'>confidence: <code>medium</code></div><div class='ocr'>raw response:</div><div class='ocr'><pre>{
+  &quot;line_label&quot;: &quot;1&quot;,
+  &quot;formula_text&quot;: &quot;¬(□A ∧ □¬A)&quot;,
+  &quot;confidence&quot;: &quot;medium&quot;
+}</pre></div></section><section class='panel'><h3>Justification crop</h3><div class='imgwrap'><img src='modal_handwritten_user_negated_modal_conjunction/node_line_justification_ROOT_2.jpg' alt='Justification crop'></div><div class='ocr'>confidence: <code>high</code></div><div class='ocr'>raw response:</div><div class='ocr'><pre>{
+  &quot;justification_text&quot;: &quot;~I 1-9&quot;,
+  &quot;confidence&quot;: &quot;high&quot;
+}</pre></div></section></div></article></section></div></body></html>

@@ -1,0 +1,15 @@
+Unary probe cases: 7
+Structured-count reconstruction passed: 5
+Structured-count reconstruction failed: 2
+Structured-count reconstruction changed OCR on: 3
+Forced choice passed: 3
+Forced choice failed: 4
+Forced choice changed OCR on: 2
+CV blob-count flags (image > OCR symbols): 5
+- atom_double_negation: expected ¬¬A, structured=¬A (FAIL), forced=¬¬A (PASS), blobs=3, ocr_symbols=2, blob_flag=yes
+- atom_triple_negation: expected ¬¬¬A, structured=¬¬A (FAIL), forced=¬¬A (FAIL), blobs=4, ocr_symbols=3, blob_flag=yes
+- box_inner_double_negation: expected □¬¬A, structured=□¬¬A (PASS), forced=□¬A (FAIL), blobs=4, ocr_symbols=3, blob_flag=yes
+- negated_box_inner_double_negation: expected ¬□¬¬A, structured=¬□¬¬A (PASS), forced=¬□¬A (FAIL), blobs=5, ocr_symbols=3, blob_flag=yes
+- diamond_inner_double_negation: expected ⋄¬¬A, structured=⋄¬¬A (PASS), forced=⋄¬A (FAIL), blobs=4, ocr_symbols=3, blob_flag=yes
+- control_single_negation: expected ¬A, structured=¬A (PASS), forced=¬A (PASS), blobs=2, ocr_symbols=2, blob_flag=no
+- control_box_single_inner_negation: expected □¬A, structured=□¬A (PASS), forced=□¬A (PASS), blobs=3, ocr_symbols=3, blob_flag=no

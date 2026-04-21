@@ -1,0 +1,38 @@
+{
+  "node_id": "ROOT",
+  "box": [
+    0,
+    0,
+    220,
+    220
+  ],
+  "child_ids": [
+    "1"
+  ],
+  "row_records": [
+    {
+      "kind": "line",
+      "band_index": 0,
+      "y1": 14,
+      "y2": 25,
+      "center_y": 19.5,
+      "row_order": 1
+    },
+    {
+      "kind": "subproof_token",
+      "child_id": "1",
+      "y1": 86,
+      "y2": 111,
+      "center_y": 98.5,
+      "row_order": 2
+    },
+    {
+      "kind": "line",
+      "band_index": 1,
+      "y1": 173,
+      "y2": 189,
+      "center_y": 181.0,
+      "row_order": 3
+    }
+  ]
+}

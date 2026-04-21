@@ -1,0 +1,59 @@
+{
+  "raw_bars": [
+    [
+      549,
+      23,
+      2,
+      639
+    ],
+    [
+      593,
+      188,
+      2,
+      391
+    ],
+    [
+      637,
+      270,
+      2,
+      145
+    ]
+  ],
+  "filtered_bars": [
+    [
+      549,
+      23,
+      2,
+      639
+    ],
+    [
+      593,
+      188,
+      2,
+      391
+    ],
+    [
+      637,
+      270,
+      2,
+      145
+    ]
+  ],
+  "rejected_bars": [],
+  "applied": false,
+  "reason": "leftmost_not_near_edge",
+  "candidate_bar": [
+    549,
+    23,
+    2,
+    639
+  ],
+  "code_signals": {
+    "leftmost_near_edge": false,
+    "leftmost_top_anchored": true,
+    "leftmost_tall_enough": true,
+    "has_right_bar": true,
+    "right_bar_count": 2
+  },
+  "verifier": {}
+}

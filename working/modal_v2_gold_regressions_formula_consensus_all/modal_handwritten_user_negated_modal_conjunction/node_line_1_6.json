@@ -1,0 +1,70 @@
+{
+  "node_id": "1",
+  "row_order": 6,
+  "band_index": 4,
+  "y1": 292,
+  "y2": 312,
+  "raw_response": "{\n  \"line_label\": \"\",\n  \"formula_text\": \"¬A\",\n  \"justification_text\": \"\",\n  \"scope_role\": \"derived_line\",\n  \"confidence\": 0.98\n}",
+  "parse_error": "",
+  "resolved": {
+    "line_label": "",
+    "formula_text": "□¬¬A",
+    "justification_text": "□I 5-7",
+    "scope_role": "derived_line",
+    "confidence": "1.0"
+  },
+  "recovery_applied": "formula_consensus_reread",
+  "skip_reason": "",
+  "justification_head_reread": {
+    "crop_filename": "node_line_justification_reread_1_6.jpg",
+    "prompt": "You are rereading only the boxed justification text from one visible line of a modal Fitch-style proof.\nThe full line remains visible for context, but read only the red boxed justification region.\nReturn only JSON. Do not include markdown fences or explanation.\nReturn exactly one JSON object with these keys: \"justification_text\", \"confidence\".\nReturn the visible rule head and any visible citations from the box.\nDo not include formula text from elsewhere on the line.\nPrefer Unicode operators in rule names such as ∧E, →E, ¬I, ¬E, □I, and □E.\nIf the box does not contain a readable justification, return an empty justification_text.\nModal system: K\nInclude derived rules: no",
+    "raw_response": "{\n  \"justification_text\": \"□I 5-7\",\n  \"confidence\": 1.0\n}",
+    "parse_error": "",
+    "parsed": {
+      "justification_text": "□I 5-7",
+      "confidence": 1.0
+    },
+    "resolved": {
+      "line_label": "",
+      "formula_text": "¬A",
+      "justification_text": "□I 5-7",
+      "scope_role": "derived_line",
+      "confidence": "1.0"
+    },
+    "applied": true
+  },
+  "formula_consensus_reread": {
+    "attempt_kind": "formula_consensus_reread",
+    "baseline_formula": "¬A",
+    "proposed_formula": "□¬¬A",
+    "candidate_attempts": [
+      {
+        "attempt_kind": "formula_crop",
+        "crop_filename": "node_line_formula_reread_1_6.jpg",
+        "prompt": "You are rereading only the formula from one visible line of a modal Fitch-style proof.\nThe image is cropped to the formula side of one proof line.\nReturn only JSON. Do not include markdown fences or explanation.\nReturn exactly one JSON object with these keys: \"formula_text\", \"confidence\".\nDo not include line numbers or justification text.\nPrefer Unicode operators: ¬, ∧, ∨, →, ↔, □, ⋄, ⊥.\nPreserve repeated unary operators exactly.\nIf the formula is unreadable, return an empty formula_text.\nModal system: K\nInclude derived rules: no",
+        "raw_response": "{\"formula_text\": \"□¬¬A\", \"confidence\": 0.98}",
+        "parse_error": "",
+        "parsed": {
+          "formula_text": "□¬¬A",
+          "confidence": 0.98
+        },
+        "structured_formula": "□¬¬A",
+        "confidence": "0.98"
+      },
+      {
+        "attempt_kind": "boxed_formula",
+        "crop_filename": "node_line_formula_boxed_reread_1_6.jpg",
+        "prompt": "You are rereading only the formula from one visible line of a modal Fitch-style proof.\nThe full line remains visible for context, but read only the red boxed formula region.\nIgnore justification text outside the box.\nReturn only JSON. Do not include markdown fences or explanation.\nReturn exactly one JSON object with these keys: \"formula_text\", \"confidence\".\nDo not include line numbers or justification text.\nPrefer Unicode operators: ¬, ∧, ∨, →, ↔, □, ⋄, ⊥.\nPreserve repeated unary operators exactly.\nIf the formula is unreadable, return an empty formula_text.\nModal system: K\nInclude derived rules: no",
+        "raw_response": "{\n  \"formula_text\": \"□~~A\",\n  \"confidence\": 1.0\n}",
+        "parse_error": "",
+        "parsed": {
+          "formula_text": "□~~A",
+          "confidence": 1.0
+        },
+        "structured_formula": "□~~A",
+        "confidence": "1.0"
+      }
+    ],
+    "applied": true
+  }
+}

@@ -1,0 +1,38 @@
+[
+  {
+    "line_label": "",
+    "formula_text": "□",
+    "justification_text": "",
+    "scope_role": "strict_open",
+    "confidence": "high",
+    "_ocr_node_id": "3",
+    "_ocr_row_order": 1
+  },
+  {
+    "line_label": "",
+    "formula_text": "A",
+    "justification_text": "□E 2",
+    "scope_role": "derived_line",
+    "confidence": "1",
+    "_ocr_node_id": "3",
+    "_ocr_row_order": 2
+  },
+  {
+    "line_label": "1",
+    "formula_text": "A → B",
+    "justification_text": "∧E 1",
+    "scope_role": "derived_line",
+    "confidence": "high",
+    "_ocr_node_id": "3",
+    "_ocr_row_order": 3
+  },
+  {
+    "line_label": "4",
+    "formula_text": "B",
+    "justification_text": "5",
+    "scope_role": "derived_line",
+    "confidence": "medium",
+    "_ocr_node_id": "3",
+    "_ocr_row_order": 4
+  }
+]

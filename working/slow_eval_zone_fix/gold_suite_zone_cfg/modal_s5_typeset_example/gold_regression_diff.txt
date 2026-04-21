@@ -1,0 +1,20 @@
+--- expected
++++ actual
+@@ -4,7 +4,7 @@
+     "wffstr": "⋄□A"
+   },
+   {
+-    "jstr": "Def⋄ 1",
++    "jstr": "Def⋄",
+     "wffstr": "¬□¬□A"
+   },
+   [
+@@ -24,7 +24,7 @@
+     ],
+     {
+       "jstr": "□I 4-5",
+-      "wffstr": "□¬□A"
++      "wffstr": "□¬A"
+     },
+     {
+       "jstr": "¬E 2,6",

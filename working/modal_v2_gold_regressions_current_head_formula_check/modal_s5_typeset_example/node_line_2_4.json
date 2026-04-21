@@ -1,0 +1,18 @@
+{
+  "node_id": "2",
+  "row_order": 4,
+  "band_index": 2,
+  "y1": 347,
+  "y2": 376,
+  "raw_response": "{\n  \"line_label\": \"\",\n  \"formula_text\": \"⊥\",\n  \"justification_text\": \"¬E 2, 6\",\n  \"scope_role\": \"derived_line\",\n  \"confidence\": 1\n}",
+  "parse_error": "",
+  "resolved": {
+    "line_label": "",
+    "formula_text": "⊥",
+    "justification_text": "¬E 2,6",
+    "scope_role": "derived_line",
+    "confidence": "1"
+  },
+  "recovery_applied": "",
+  "skip_reason": ""
+}

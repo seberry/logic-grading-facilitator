@@ -1,0 +1,17 @@
+{
+  "node_id": "ROOT",
+  "row_order": 1,
+  "band_index": 0,
+  "y1": 30,
+  "y2": 57,
+  "raw_response": "{\n  \"line_label\": \"1\",\n  \"formula_text\": \"\",\n  \"justification_text\": \"\",\n  \"scope_role\": \"premise\",\n  \"confidence\": 1\n}",
+  "parse_error": "",
+  "resolved": {
+    "line_label": "1",
+    "formula_text": "",
+    "justification_text": "",
+    "scope_role": "premise",
+    "confidence": "1"
+  },
+  "recovery_applied": ""
+}

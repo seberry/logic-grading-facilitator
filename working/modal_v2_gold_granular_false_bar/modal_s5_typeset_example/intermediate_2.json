@@ -1,0 +1,46 @@
+{
+  "node_id": "2",
+  "box": [
+    593,
+    188,
+    2,
+    391
+  ],
+  "child_ids": [
+    "3"
+  ],
+  "row_records": [
+    {
+      "kind": "line",
+      "band_index": 0,
+      "y1": 24,
+      "y2": 44,
+      "center_y": 34.0,
+      "row_order": 1
+    },
+    {
+      "kind": "subproof_token",
+      "child_id": "3",
+      "y1": 134,
+      "y2": 172,
+      "center_y": 153.0,
+      "row_order": 2
+    },
+    {
+      "kind": "line",
+      "band_index": 1,
+      "y1": 265,
+      "y2": 293,
+      "center_y": 279.0,
+      "row_order": 3
+    },
+    {
+      "kind": "line",
+      "band_index": 2,
+      "y1": 347,
+      "y2": 376,
+      "center_y": 361.5,
+      "row_order": 4
+    }
+  ]
+}

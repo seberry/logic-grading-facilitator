@@ -1,0 +1,16 @@
+{
+  "node_id": "1",
+  "row_order": 2,
+  "band_index": 1,
+  "y1": 305,
+  "y2": 334,
+  "raw_response": "{\n  \"line_label\": \"\",\n  \"formula_text\": \"\",\n  \"justification_text\": \"\",\n  \"scope_role\": \"subproof_token\",\n  \"confidence\": 1\n}",
+  "parse_error": "",
+  "resolved": {
+    "line_label": "",
+    "formula_text": "",
+    "justification_text": "",
+    "scope_role": "subproof_token",
+    "confidence": "1"
+  }
+}

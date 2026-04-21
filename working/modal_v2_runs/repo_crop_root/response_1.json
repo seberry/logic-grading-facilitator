@@ -1,0 +1,20 @@
+[
+  {
+    "line_label": "1.",
+    "formula_text": "FK ⊢ (□A ∧ ¬A)",
+    "justification_text": "",
+    "scope_role": "premise",
+    "confidence": "1",
+    "_ocr_node_id": "1",
+    "_ocr_row_order": 1
+  },
+  {
+    "line_label": "",
+    "formula_text": "",
+    "justification_text": "",
+    "scope_role": "subproof_token",
+    "confidence": "1",
+    "_ocr_node_id": "1",
+    "_ocr_row_order": 2
+  }
+]

@@ -1,0 +1,26 @@
+{
+  "raw_detected_bands": [
+    {
+      "y1": 12,
+      "y2": 90,
+      "height": 79,
+      "kept_after_textlike_filter": true,
+      "rejection_reason": ""
+    }
+  ],
+  "merged_bands": [
+    {
+      "y1": 12,
+      "y2": 90,
+      "height": 79
+    }
+  ],
+  "final_bands": [
+    {
+      "y1": 12,
+      "y2": 90,
+      "height": 79
+    }
+  ],
+  "rejected_after_merge": []
+}

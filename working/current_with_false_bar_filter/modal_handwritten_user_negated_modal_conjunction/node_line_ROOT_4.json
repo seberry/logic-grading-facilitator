@@ -1,0 +1,18 @@
+{
+  "node_id": "ROOT",
+  "row_order": 4,
+  "band_index": 3,
+  "y1": 121,
+  "y2": 139,
+  "raw_response": "{\n  \"line_label\": \"4\",\n  \"formula_text\": \"¬□A\",\n  \"justification_text\": \"MC 3\",\n  \"scope_role\": \"derived_line\",\n  \"confidence\": 1\n}",
+  "parse_error": "",
+  "resolved": {
+    "line_label": "4",
+    "formula_text": "¬□A",
+    "justification_text": "MC 3",
+    "scope_role": "derived_line",
+    "confidence": "1"
+  },
+  "recovery_applied": "",
+  "skip_reason": ""
+}

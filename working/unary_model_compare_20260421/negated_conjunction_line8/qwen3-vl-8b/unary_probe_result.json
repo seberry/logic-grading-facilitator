@@ -1,0 +1,36 @@
+{
+  "image_path": "working\\modal_v2_mode_compare_handwritten_20260421b\\zone\\modal_handwritten_user_negated_modal_conjunction\\node_line_formula_model_1_6.jpg",
+  "probe_crop_path": "working\\unary_model_compare_20260421\\negated_conjunction_line8\\qwen3-vl-8b\\probe_crop.jpg",
+  "entry": {
+    "formula_text": "□¬A",
+    "justification_text": "□I 5-7",
+    "scope_role": "derived_line"
+  },
+  "candidates": [
+    "□¬A",
+    "□A",
+    "□¬¬A",
+    "¬□A",
+    "¬□¬A",
+    "¬□¬¬A"
+  ],
+  "structured_prompt": "This image shows one handwritten modal logic proof formula on a single line.\nReturn only JSON with keys: main_modal_operator, negations_before_modal, negations_before_final_atom, confidence.\nSet main_modal_operator to \"box\", \"diamond\", or \"none\".\nCount exactly how many negation marks (¬) appear immediately before the main modal operator, if any.\nCount exactly how many negation marks (¬) appear immediately before the final propositional letter.\nDo not guess from proof validity. Report only what the handwriting shows.\nCurrent OCR formula: □¬A\nCurrent OCR justification: □I 5-7",
+  "structured_raw_response": "{\n  \"main_modal_operator\": \"box\",\n  \"negations_before_modal\": 0,\n  \"negations_before_final_atom\": 2,\n  \"confidence\": 0.95\n}",
+  "structured_parsed": {
+    "main_modal_operator": "box",
+    "negations_before_modal": 0,
+    "negations_before_final_atom": 2,
+    "confidence": 0.95
+  },
+  "structured_formula": "□¬¬A",
+  "forced_choice_prompt": "This image shows one handwritten modal logic formula on a single line.\nReturn only JSON with keys: selected_formula, confidence, negations_before_modal, negations_before_final_atom.\nCount exactly how many negation marks (¬) appear immediately to the LEFT of the box symbol (□).\nCount exactly how many negation marks (¬) appear immediately to the RIGHT of the box symbol before the final propositional letter.\nThen choose the exact candidate that best matches the handwriting.\nDo not invent a formula outside the candidate list.\nCurrent OCR formula: □¬A\nCurrent OCR justification: □I 5-7\nCandidates: □¬A ; □A ; □¬¬A ; ¬□A ; ¬□¬A ; ¬□¬¬A\nIf you cannot tell, return \"selected_formula\": \"uncertain\".",
+  "forced_choice_raw_response": "{\n  \"selected_formula\": \"□¬¬A\",\n  \"confidence\": 0.98,\n  \"negations_before_modal\": 0,\n  \"negations_before_final_atom\": 2\n}",
+  "forced_choice_parsed": {
+    "selected_formula": "□¬¬A",
+    "confidence": 0.98,
+    "negations_before_modal": 0,
+    "negations_before_final_atom": 2
+  },
+  "verifier_model": "qwen/qwen3-vl-8b",
+  "verifier_base_url": "http://127.0.0.1:1234/v1"
+}

@@ -1,0 +1,31 @@
+{
+  "image_path": "working\\unary_probe_suite\\atom_triple_negation\\source_formula.png",
+  "probe_crop_path": "working\\unary_probe_suite\\atom_triple_negation\\probe_crop.jpg",
+  "entry": {
+    "formula_text": "¬¬A",
+    "justification_text": "",
+    "scope_role": "derived_line"
+  },
+  "candidates": [
+    "¬¬A",
+    "¬¬¬A"
+  ],
+  "structured_prompt": "This image shows one handwritten modal logic proof formula on a single line.\nReturn only JSON with keys: main_modal_operator, negations_before_modal, negations_before_final_atom, confidence.\nSet main_modal_operator to \"box\", \"diamond\", or \"none\".\nCount exactly how many negation marks (¬) appear immediately before the main modal operator, if any.\nCount exactly how many negation marks (¬) appear immediately before the final propositional letter.\nDo not guess from proof validity. Report only what the handwriting shows.\nCurrent OCR formula: ¬¬A",
+  "structured_raw_response": "{\n  \"main_modal_operator\": \"none\",\n  \"negations_before_modal\": 0,\n  \"negations_before_final_atom\": 2,\n  \"confidence\": 1.0\n}",
+  "structured_parsed": {
+    "main_modal_operator": "none",
+    "negations_before_modal": 0,
+    "negations_before_final_atom": 2,
+    "confidence": 1.0
+  },
+  "structured_formula": "¬¬A",
+  "forced_choice_prompt": "This image shows one handwritten modal logic formula on a single line.\nReturn only JSON with keys: selected_formula, confidence, negations_before_final_atom.\nCount exactly how many negation marks (¬) appear immediately before the final propositional letter.\nThen choose the exact candidate that best matches the handwriting.\nDo not invent a formula outside the candidate list.\nCurrent OCR formula: ¬¬A\nCandidates: ¬¬A ; ¬¬¬A\nIf you cannot tell, return \"selected_formula\": \"uncertain\".",
+  "forced_choice_raw_response": "{\n  \"selected_formula\": \"¬¬A\",\n  \"confidence\": 0.95,\n  \"negations_before_final_atom\": 2\n}",
+  "forced_choice_parsed": {
+    "selected_formula": "¬¬A",
+    "confidence": 0.95,
+    "negations_before_final_atom": 2
+  },
+  "verifier_model": "qwen/qwen3-vl-8b",
+  "verifier_base_url": "http://127.0.0.1:1234/v1"
+}

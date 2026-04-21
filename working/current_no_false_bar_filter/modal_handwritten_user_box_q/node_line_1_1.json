@@ -1,0 +1,18 @@
+{
+  "node_id": "1",
+  "row_order": 1,
+  "band_index": 0,
+  "y1": 7,
+  "y2": 29,
+  "raw_response": "{\n  \"line_label\": \"\",\n  \"formula_text\": \"□P\",\n  \"justification_text\": \"\",\n  \"scope_role\": \"strict_open\",\n  \"confidence\": 1\n}",
+  "parse_error": "",
+  "resolved": {
+    "line_label": "",
+    "formula_text": "□P",
+    "justification_text": "",
+    "scope_role": "strict_open",
+    "confidence": "1"
+  },
+  "recovery_applied": "",
+  "skip_reason": ""
+}

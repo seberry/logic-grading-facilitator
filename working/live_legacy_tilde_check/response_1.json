@@ -1,0 +1,523 @@
+{
+  "node_id": "1",
+  "row_records": [
+    {
+      "kind": "line",
+      "band_index": 0,
+      "y1": 4,
+      "y2": 29,
+      "center_y": 16.5,
+      "row_order": 1
+    },
+    {
+      "kind": "line",
+      "band_index": 1,
+      "y1": 40,
+      "y2": 58,
+      "center_y": 49.0,
+      "row_order": 2
+    },
+    {
+      "kind": "line",
+      "band_index": 2,
+      "y1": 83,
+      "y2": 99,
+      "center_y": 91.0,
+      "row_order": 3
+    },
+    {
+      "kind": "line",
+      "band_index": 3,
+      "y1": 120,
+      "y2": 164,
+      "center_y": 142.0,
+      "row_order": 4
+    },
+    {
+      "kind": "subproof_token",
+      "child_id": "2",
+      "y1": 199,
+      "y2": 237,
+      "center_y": 218.0,
+      "row_order": 5
+    },
+    {
+      "kind": "line",
+      "band_index": 4,
+      "y1": 292,
+      "y2": 312,
+      "center_y": 302.0,
+      "row_order": 6
+    },
+    {
+      "kind": "line",
+      "band_index": 5,
+      "y1": 317,
+      "y2": 338,
+      "center_y": 327.5,
+      "row_order": 7
+    }
+  ],
+  "line_artifacts": [
+    {
+      "node_id": "1",
+      "row_order": 1,
+      "band_index": 0,
+      "y1": 4,
+      "y2": 29,
+      "zone_geometry": {
+        "split_x": 211,
+        "formula_x1": 0,
+        "formula_x2": 221,
+        "justification_x1": 201,
+        "justification_x2": 499,
+        "width": 499,
+        "height": 41
+      },
+      "formula_crop_filename": "node_line_1_1_formula.jpg",
+      "justification_crop_filename": "node_line_1_1_justification.jpg",
+      "initial_raw": {
+        "formula": "{\n  \"line_label\": \"\",\n  \"formula_text\": \"□A ∧ ◊¬A\",\n  \"confidence\": \"high\"\n}",
+        "justification": "{\n  \"justification_text\": \"\",\n  \"confidence\": \"high\"\n}"
+      },
+      "initial_parsed": {
+        "formula": {
+          "line_label": "",
+          "formula_text": "□A ∧ ◊¬A",
+          "confidence": "high"
+        },
+        "justification": {
+          "justification_text": "",
+          "confidence": "high"
+        }
+      },
+      "initial_resolved_zones": {
+        "formula": {
+          "formula_text": "□A ∧ ◊¬A",
+          "line_label": "",
+          "confidence": "high"
+        },
+        "justification": {
+          "justification_head": "",
+          "justification_tail": "",
+          "raw_justification_text": "",
+          "confidence": "high"
+        }
+      },
+      "resolved": {
+        "formula_text": "□A ∧ ◊¬A",
+        "justification_head": "",
+        "justification_tail": "",
+        "justification_text": "",
+        "line_label": "",
+        "scope_role": "ordinary_assumption",
+        "confidence": "high"
+      },
+      "retry_used": false
+    },
+    {
+      "node_id": "1",
+      "row_order": 2,
+      "band_index": 1,
+      "y1": 40,
+      "y2": 58,
+      "zone_geometry": {
+        "split_x": 211,
+        "formula_x1": 0,
+        "formula_x2": 221,
+        "justification_x1": 201,
+        "justification_x2": 499,
+        "width": 499,
+        "height": 50
+      },
+      "formula_crop_filename": "node_line_1_2_formula.jpg",
+      "justification_crop_filename": "node_line_1_2_justification.jpg",
+      "initial_raw": {
+        "formula": "{\n  \"line_label\": \"\",\n  \"formula_text\": \"□A\",\n  \"confidence\": \"high\"\n}",
+        "justification": "{\n  \"justification_text\": \"∧E 1\",\n  \"confidence\": \"high\"\n}"
+      },
+      "initial_parsed": {
+        "formula": {
+          "line_label": "",
+          "formula_text": "□A",
+          "confidence": "high"
+        },
+        "justification": {
+          "justification_text": "∧E 1",
+          "confidence": "high"
+        }
+      },
+      "initial_resolved_zones": {
+        "formula": {
+          "formula_text": "□A",
+          "line_label": "",
+          "confidence": "high"
+        },
+        "justification": {
+          "justification_head": "∧E",
+          "justification_tail": "1",
+          "raw_justification_text": "∧E 1",
+          "confidence": "high"
+        }
+      },
+      "resolved": {
+        "formula_text": "□A",
+        "justification_head": "∧E",
+        "justification_tail": "1",
+        "justification_text": "∧E 1",
+        "line_label": "",
+        "scope_role": "derived_line",
+        "confidence": "high"
+      },
+      "retry_used": false,
+      "formula_reread": {
+        "crop_filename": "node_line_1_2_formula_reread.jpg",
+        "prompt": "This image shows one handwritten modal logic formula from a single proof line.\nReturn only JSON with keys: formula_text and confidence.\nCopy exactly the formula or symbol you see.\nPreserve unary operators exactly: ¬, □, ⋄.\nShort formulas such as Q, □Q, ¬Q, ¬□¬A, or □ are common.\nDo not include justification text, line numbers, or explanation.\nCurrent OCR formula: □A\nCurrent OCR justification: ∧E 1\nIf you cannot tell, return {\"formula_text\":\"\",\"confidence\":\"uncertain\"}.",
+        "raw": "{\n  \"formula_text\": \"□A\",\n  \"confidence\": \"high\"\n}",
+        "parsed": {
+          "formula_text": "□A",
+          "confidence": "high"
+        },
+        "resolved": {
+          "formula_text": "□A",
+          "confidence": "high"
+        },
+        "applied": false
+      }
+    },
+    {
+      "node_id": "1",
+      "row_order": 3,
+      "band_index": 2,
+      "y1": 83,
+      "y2": 99,
+      "zone_geometry": {
+        "split_x": 210,
+        "formula_x1": 0,
+        "formula_x2": 220,
+        "justification_x1": 200,
+        "justification_x2": 499,
+        "width": 499,
+        "height": 48
+      },
+      "formula_crop_filename": "node_line_1_3_formula.jpg",
+      "justification_crop_filename": "node_line_1_3_justification.jpg",
+      "initial_raw": {
+        "formula": "{\n  \"line_label\": \"\",\n  \"formula_text\": \"⋄¬A\",\n  \"confidence\": \"high\"\n}",
+        "justification": "{\n  \"justification_text\": \"∧E 1\",\n  \"confidence\": \"high\"\n}"
+      },
+      "initial_parsed": {
+        "formula": {
+          "line_label": "",
+          "formula_text": "⋄¬A",
+          "confidence": "high"
+        },
+        "justification": {
+          "justification_text": "∧E 1",
+          "confidence": "high"
+        }
+      },
+      "initial_resolved_zones": {
+        "formula": {
+          "formula_text": "⋄¬A",
+          "line_label": "",
+          "confidence": "high"
+        },
+        "justification": {
+          "justification_head": "∧E",
+          "justification_tail": "1",
+          "raw_justification_text": "∧E 1",
+          "confidence": "high"
+        }
+      },
+      "resolved": {
+        "formula_text": "⋄¬A",
+        "justification_head": "∧E",
+        "justification_tail": "1",
+        "justification_text": "∧E 1",
+        "line_label": "",
+        "scope_role": "derived_line",
+        "confidence": "high"
+      },
+      "retry_used": false,
+      "formula_reread": {
+        "crop_filename": "node_line_1_3_formula_reread.jpg",
+        "prompt": "This image shows one handwritten modal logic formula from a single proof line.\nReturn only JSON with keys: formula_text and confidence.\nCopy exactly the formula or symbol you see.\nPreserve unary operators exactly: ¬, □, ⋄.\nShort formulas such as Q, □Q, ¬Q, ¬□¬A, or □ are common.\nDo not include justification text, line numbers, or explanation.\nCurrent OCR formula: ⋄¬A\nCurrent OCR justification: ∧E 1\nIf you cannot tell, return {\"formula_text\":\"\",\"confidence\":\"uncertain\"}.",
+        "raw": "{\n  \"formula_text\": \"⋄¬A\",\n  \"confidence\": \"high\"\n}",
+        "parsed": {
+          "formula_text": "⋄¬A",
+          "confidence": "high"
+        },
+        "resolved": {
+          "formula_text": "⋄¬A",
+          "confidence": "high"
+        },
+        "applied": false
+      }
+    },
+    {
+      "node_id": "1",
+      "row_order": 4,
+      "band_index": 3,
+      "y1": 120,
+      "y2": 164,
+      "zone_geometry": {
+        "split_x": 210,
+        "formula_x1": 0,
+        "formula_x2": 220,
+        "justification_x1": 200,
+        "justification_x2": 499,
+        "width": 499,
+        "height": 68
+      },
+      "formula_crop_filename": "node_line_1_4_formula.jpg",
+      "justification_crop_filename": "node_line_1_4_justification.jpg",
+      "initial_raw": {
+        "formula": "{\n  \"line_label\": \"\",\n  \"formula_text\": \"□A\",\n  \"confidence\": \"high\"\n}",
+        "justification": "{\n  \"justification_text\": \"MC 3\",\n  \"confidence\": \"high\"\n}"
+      },
+      "initial_parsed": {
+        "formula": {
+          "line_label": "",
+          "formula_text": "□A",
+          "confidence": "high"
+        },
+        "justification": {
+          "justification_text": "MC 3",
+          "confidence": "high"
+        }
+      },
+      "initial_resolved_zones": {
+        "formula": {
+          "formula_text": "□A",
+          "line_label": "",
+          "confidence": "high"
+        },
+        "justification": {
+          "justification_head": "MC",
+          "justification_tail": "3",
+          "raw_justification_text": "MC 3",
+          "confidence": "high"
+        }
+      },
+      "resolved": {
+        "formula_text": "¬□¬¬A",
+        "justification_head": "MC",
+        "justification_tail": "3",
+        "justification_text": "MC 3",
+        "line_label": "",
+        "scope_role": "derived_line",
+        "confidence": "high"
+      },
+      "retry_used": false,
+      "formula_reread": {
+        "crop_filename": "node_line_1_4_formula_reread.jpg",
+        "prompt": "This image shows one handwritten modal logic formula from a single proof line.\nReturn only JSON with keys: formula_text and confidence.\nCopy exactly the formula or symbol you see.\nPreserve unary operators exactly: ¬, □, ⋄.\nShort formulas such as Q, □Q, ¬Q, ¬□¬A, or □ are common.\nDo not include justification text, line numbers, or explanation.\nCurrent OCR formula: □A\nCurrent OCR justification: MC 3\nIf you cannot tell, return {\"formula_text\":\"\",\"confidence\":\"uncertain\"}.",
+        "raw": "{\n  \"formula_text\": \"¬□¬¬A\",\n  \"confidence\": \"high\"\n}",
+        "parsed": {
+          "formula_text": "¬□¬¬A",
+          "confidence": "high"
+        },
+        "resolved": {
+          "formula_text": "¬□¬¬A",
+          "confidence": "high"
+        },
+        "applied": true
+      }
+    },
+    {
+      "kind": "subproof_token",
+      "row_order": 5,
+      "child_id": "2",
+      "center_y": 218.0
+    },
+    {
+      "node_id": "1",
+      "row_order": 6,
+      "band_index": 4,
+      "y1": 292,
+      "y2": 312,
+      "zone_geometry": {
+        "split_x": 210,
+        "formula_x1": 0,
+        "formula_x2": 220,
+        "justification_x1": 200,
+        "justification_x2": 499,
+        "width": 499,
+        "height": 44
+      },
+      "formula_crop_filename": "node_line_1_6_formula.jpg",
+      "justification_crop_filename": "node_line_1_6_justification.jpg",
+      "initial_raw": {
+        "formula": "{\n  \"line_label\": \"\",\n  \"formula_text\": \"□¬A\",\n  \"confidence\": \"high\"\n}",
+        "justification": "{\n  \"justification_text\": \"\",\n  \"confidence\": \"high\"\n}"
+      },
+      "initial_parsed": {
+        "formula": {
+          "line_label": "",
+          "formula_text": "□¬A",
+          "confidence": "high"
+        },
+        "justification": {
+          "justification_text": "",
+          "confidence": "high"
+        }
+      },
+      "initial_resolved_zones": {
+        "formula": {
+          "formula_text": "□¬A",
+          "line_label": "",
+          "confidence": "high"
+        },
+        "justification": {
+          "justification_head": "",
+          "justification_tail": "",
+          "raw_justification_text": "",
+          "confidence": "high"
+        }
+      },
+      "resolved": {
+        "formula_text": "□¬A",
+        "justification_head": "",
+        "justification_tail": "",
+        "justification_text": "",
+        "line_label": "",
+        "scope_role": "derived_line",
+        "confidence": "high"
+      },
+      "retry_used": false,
+      "formula_reread": {
+        "crop_filename": "node_line_1_6_formula_reread.jpg",
+        "prompt": "This image shows one handwritten modal logic formula from a single proof line.\nReturn only JSON with keys: formula_text and confidence.\nCopy exactly the formula or symbol you see.\nPreserve unary operators exactly: ¬, □, ⋄.\nShort formulas such as Q, □Q, ¬Q, ¬□¬A, or □ are common.\nDo not include justification text, line numbers, or explanation.\nCurrent OCR formula: □¬A\nIf you cannot tell, return {\"formula_text\":\"\",\"confidence\":\"uncertain\"}.",
+        "raw": "{\n  \"formula_text\": \"□¬A\",\n  \"confidence\": \"high\"\n}",
+        "parsed": {
+          "formula_text": "□¬A",
+          "confidence": "high"
+        },
+        "resolved": {
+          "formula_text": "□¬A",
+          "confidence": "high"
+        },
+        "applied": false
+      }
+    },
+    {
+      "node_id": "1",
+      "row_order": 7,
+      "band_index": 5,
+      "y1": 317,
+      "y2": 338,
+      "zone_geometry": {
+        "split_x": 210,
+        "formula_x1": 0,
+        "formula_x2": 220,
+        "justification_x1": 200,
+        "justification_x2": 499,
+        "width": 499,
+        "height": 45
+      },
+      "formula_crop_filename": "node_line_1_7_formula.jpg",
+      "justification_crop_filename": "node_line_1_7_justification.jpg",
+      "initial_raw": {
+        "formula": "{\n  \"line_label\": \"1\",\n  \"formula_text\": \"¬A\",\n  \"confidence\": \"high\"\n}",
+        "justification": "{\n  \"justification_text\": \"\",\n  \"confidence\": \"low\"\n}"
+      },
+      "initial_parsed": {
+        "formula": {
+          "line_label": "1",
+          "formula_text": "¬A",
+          "confidence": "high"
+        },
+        "justification": {
+          "justification_text": "",
+          "confidence": "low"
+        }
+      },
+      "initial_resolved_zones": {
+        "formula": {
+          "formula_text": "¬A",
+          "line_label": "1",
+          "confidence": "high"
+        },
+        "justification": {
+          "justification_head": "",
+          "justification_tail": "",
+          "raw_justification_text": "",
+          "confidence": "low"
+        }
+      },
+      "resolved": {
+        "formula_text": "¬□A",
+        "justification_head": "",
+        "justification_tail": "",
+        "justification_text": "",
+        "line_label": "1",
+        "scope_role": "derived_line",
+        "confidence": "high"
+      },
+      "retry_used": false,
+      "formula_reread": {
+        "crop_filename": "node_line_1_7_formula_reread.jpg",
+        "prompt": "This image shows one handwritten modal logic formula from a single proof line.\nReturn only JSON with keys: formula_text and confidence.\nCopy exactly the formula or symbol you see.\nPreserve unary operators exactly: ¬, □, ⋄.\nShort formulas such as Q, □Q, ¬Q, ¬□¬A, or □ are common.\nDo not include justification text, line numbers, or explanation.\nCurrent OCR formula: ¬A\nIf you cannot tell, return {\"formula_text\":\"\",\"confidence\":\"uncertain\"}.",
+        "raw": "{\n  \"formula_text\": \"¬□A\",\n  \"confidence\": \"high\"\n}",
+        "parsed": {
+          "formula_text": "¬□A",
+          "confidence": "high"
+        },
+        "resolved": {
+          "formula_text": "¬□A",
+          "confidence": "high"
+        },
+        "applied": true
+      }
+    }
+  ],
+  "opener_result": {
+    "kind": "ordinary_assumption",
+    "formula_text": "A ∧ □ ~A",
+    "confidence": "high"
+  },
+  "entries": [
+    {
+      "formula_text": "□A ∧ ◊¬A",
+      "justification_text": "",
+      "scope_role": "ordinary_assumption",
+      "line_label": ""
+    },
+    {
+      "formula_text": "□A",
+      "justification_text": "∧E 1",
+      "scope_role": "derived_line",
+      "line_label": ""
+    },
+    {
+      "formula_text": "⋄¬A",
+      "justification_text": "∧E 1",
+      "scope_role": "derived_line",
+      "line_label": ""
+    },
+    {
+      "formula_text": "¬□¬¬A",
+      "justification_text": "MC 3",
+      "scope_role": "derived_line",
+      "line_label": ""
+    },
+    {
+      "formula_text": "<SUBPROOF_ID_2>",
+      "scope_role": "subproof_token",
+      "line_label": ""
+    },
+    {
+      "formula_text": "□¬A",
+      "justification_text": "",
+      "scope_role": "derived_line",
+      "line_label": ""
+    },
+    {
+      "formula_text": "¬□A",
+      "justification_text": "",
+      "scope_role": "derived_line",
+      "line_label": "1"
+    }
+  ]
+}

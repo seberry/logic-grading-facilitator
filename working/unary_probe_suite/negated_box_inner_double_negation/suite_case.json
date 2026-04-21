@@ -1,0 +1,8 @@
+{
+  "case_id": "negated_box_inner_double_negation",
+  "image_formula": "¬□¬¬A",
+  "current_ocr_formula": "¬□A",
+  "expected_formula": "¬□¬¬A",
+  "justification_text": "MC 3",
+  "notes": "Matches the handwritten outer negated-box failure shape."
+}

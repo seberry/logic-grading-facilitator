@@ -1,0 +1,608 @@
+[
+  {
+    "node_id": "1",
+    "row_order": 2,
+    "line_label": "",
+    "scope_role": "derived_line",
+    "baseline_formula": "□A",
+    "ocr_symbol_count": 2,
+    "max_component_count": 4,
+    "any_blob_flagged": true,
+    "window": {
+      "x1": 45,
+      "x2": 180,
+      "width": 135,
+      "height": 50
+    },
+    "formula_window_filename": "unary_blob_line_1_2.jpg",
+    "line_crop_filename": "node_line_1_2.jpg",
+    "variants": [
+      {
+        "name": "strict170",
+        "dark_threshold": 170,
+        "min_area": 15,
+        "close_kernel": 0,
+        "component_count": 4,
+        "components": [
+          {
+            "area": 303,
+            "x": 0,
+            "y": 0,
+            "w": 135,
+            "h": 8
+          },
+          {
+            "area": 59,
+            "x": 0,
+            "y": 16,
+            "w": 5,
+            "h": 23
+          },
+          {
+            "area": 101,
+            "x": 12,
+            "y": 16,
+            "w": 17,
+            "h": 20
+          },
+          {
+            "area": 24,
+            "x": 74,
+            "y": 0,
+            "w": 11,
+            "h": 4
+          }
+        ],
+        "blob_count_exceeds_ocr": true
+      },
+      {
+        "name": "balanced185",
+        "dark_threshold": 185,
+        "min_area": 15,
+        "close_kernel": 0,
+        "component_count": 4,
+        "components": [
+          {
+            "area": 305,
+            "x": 0,
+            "y": 0,
+            "w": 135,
+            "h": 8
+          },
+          {
+            "area": 61,
+            "x": 0,
+            "y": 16,
+            "w": 5,
+            "h": 23
+          },
+          {
+            "area": 110,
+            "x": 12,
+            "y": 16,
+            "w": 17,
+            "h": 20
+          },
+          {
+            "area": 26,
+            "x": 74,
+            "y": 0,
+            "w": 11,
+            "h": 4
+          }
+        ],
+        "blob_count_exceeds_ocr": true
+      },
+      {
+        "name": "closed185",
+        "dark_threshold": 185,
+        "min_area": 15,
+        "close_kernel": 2,
+        "component_count": 4,
+        "components": [
+          {
+            "area": 319,
+            "x": 0,
+            "y": 0,
+            "w": 135,
+            "h": 9
+          },
+          {
+            "area": 65,
+            "x": 0,
+            "y": 17,
+            "w": 6,
+            "h": 23
+          },
+          {
+            "area": 121,
+            "x": 13,
+            "y": 17,
+            "w": 17,
+            "h": 20
+          },
+          {
+            "area": 34,
+            "x": 75,
+            "y": 0,
+            "w": 11,
+            "h": 5
+          }
+        ],
+        "blob_count_exceeds_ocr": true
+      }
+    ]
+  },
+  {
+    "node_id": "1",
+    "row_order": 4,
+    "line_label": "",
+    "scope_role": "derived_line",
+    "baseline_formula": "¬□A",
+    "ocr_symbol_count": 3,
+    "max_component_count": 5,
+    "any_blob_flagged": true,
+    "window": {
+      "x1": 45,
+      "x2": 180,
+      "width": 135,
+      "height": 68
+    },
+    "formula_window_filename": "unary_blob_line_1_4.jpg",
+    "line_crop_filename": "node_line_1_4.jpg",
+    "variants": [
+      {
+        "name": "strict170",
+        "dark_threshold": 170,
+        "min_area": 15,
+        "close_kernel": 0,
+        "component_count": 5,
+        "components": [
+          {
+            "area": 107,
+            "x": 0,
+            "y": 11,
+            "w": 15,
+            "h": 23
+          },
+          {
+            "area": 38,
+            "x": 0,
+            "y": 49,
+            "w": 13,
+            "h": 8
+          },
+          {
+            "area": 53,
+            "x": 19,
+            "y": 19,
+            "w": 18,
+            "h": 9
+          },
+          {
+            "area": 46,
+            "x": 38,
+            "y": 18,
+            "w": 14,
+            "h": 9
+          },
+          {
+            "area": 92,
+            "x": 55,
+            "y": 12,
+            "w": 12,
+            "h": 21
+          }
+        ],
+        "blob_count_exceeds_ocr": true
+      },
+      {
+        "name": "balanced185",
+        "dark_threshold": 185,
+        "min_area": 15,
+        "close_kernel": 0,
+        "component_count": 5,
+        "components": [
+          {
+            "area": 116,
+            "x": 0,
+            "y": 11,
+            "w": 15,
+            "h": 23
+          },
+          {
+            "area": 38,
+            "x": 0,
+            "y": 49,
+            "w": 13,
+            "h": 8
+          },
+          {
+            "area": 56,
+            "x": 19,
+            "y": 19,
+            "w": 18,
+            "h": 9
+          },
+          {
+            "area": 47,
+            "x": 38,
+            "y": 18,
+            "w": 14,
+            "h": 9
+          },
+          {
+            "area": 95,
+            "x": 55,
+            "y": 12,
+            "w": 12,
+            "h": 21
+          }
+        ],
+        "blob_count_exceeds_ocr": true
+      },
+      {
+        "name": "closed185",
+        "dark_threshold": 185,
+        "min_area": 15,
+        "close_kernel": 2,
+        "component_count": 5,
+        "components": [
+          {
+            "area": 121,
+            "x": 0,
+            "y": 12,
+            "w": 16,
+            "h": 23
+          },
+          {
+            "area": 40,
+            "x": 0,
+            "y": 50,
+            "w": 14,
+            "h": 8
+          },
+          {
+            "area": 56,
+            "x": 20,
+            "y": 20,
+            "w": 18,
+            "h": 9
+          },
+          {
+            "area": 50,
+            "x": 39,
+            "y": 19,
+            "w": 15,
+            "h": 9
+          },
+          {
+            "area": 97,
+            "x": 56,
+            "y": 13,
+            "w": 12,
+            "h": 21
+          }
+        ],
+        "blob_count_exceeds_ocr": true
+      }
+    ]
+  },
+  {
+    "node_id": "1",
+    "row_order": 6,
+    "line_label": "1",
+    "scope_role": "premise",
+    "baseline_formula": "□¬A",
+    "ocr_symbol_count": 3,
+    "max_component_count": 4,
+    "any_blob_flagged": true,
+    "window": {
+      "x1": 45,
+      "x2": 180,
+      "width": 135,
+      "height": 51
+    },
+    "formula_window_filename": "unary_blob_line_1_6.jpg",
+    "line_crop_filename": "node_line_1_6.jpg",
+    "variants": [
+      {
+        "name": "strict170",
+        "dark_threshold": 170,
+        "min_area": 15,
+        "close_kernel": 0,
+        "component_count": 4,
+        "components": [
+          {
+            "area": 29,
+            "x": 0,
+            "y": 19,
+            "w": 3,
+            "h": 18
+          },
+          {
+            "area": 55,
+            "x": 9,
+            "y": 23,
+            "w": 18,
+            "h": 8
+          },
+          {
+            "area": 49,
+            "x": 27,
+            "y": 24,
+            "w": 19,
+            "h": 6
+          },
+          {
+            "area": 96,
+            "x": 50,
+            "y": 15,
+            "w": 14,
+            "h": 20
+          }
+        ],
+        "blob_count_exceeds_ocr": true
+      },
+      {
+        "name": "balanced185",
+        "dark_threshold": 185,
+        "min_area": 15,
+        "close_kernel": 0,
+        "component_count": 3,
+        "components": [
+          {
+            "area": 35,
+            "x": 0,
+            "y": 19,
+            "w": 3,
+            "h": 18
+          },
+          {
+            "area": 109,
+            "x": 9,
+            "y": 23,
+            "w": 37,
+            "h": 8
+          },
+          {
+            "area": 98,
+            "x": 50,
+            "y": 15,
+            "w": 14,
+            "h": 20
+          }
+        ],
+        "blob_count_exceeds_ocr": false
+      },
+      {
+        "name": "closed185",
+        "dark_threshold": 185,
+        "min_area": 15,
+        "close_kernel": 2,
+        "component_count": 3,
+        "components": [
+          {
+            "area": 53,
+            "x": 0,
+            "y": 20,
+            "w": 4,
+            "h": 18
+          },
+          {
+            "area": 113,
+            "x": 10,
+            "y": 24,
+            "w": 37,
+            "h": 8
+          },
+          {
+            "area": 100,
+            "x": 51,
+            "y": 16,
+            "w": 14,
+            "h": 20
+          }
+        ],
+        "blob_count_exceeds_ocr": false
+      }
+    ]
+  },
+  {
+    "node_id": "ROOT",
+    "row_order": 2,
+    "line_label": "",
+    "scope_role": "derived_line",
+    "baseline_formula": "¬(□A ∧ ⊢A)",
+    "ocr_symbol_count": 2,
+    "max_component_count": 7,
+    "any_blob_flagged": true,
+    "window": {
+      "x1": 47,
+      "x2": 190,
+      "width": 143,
+      "height": 47
+    },
+    "formula_window_filename": "unary_blob_line_ROOT_2.jpg",
+    "line_crop_filename": "node_line_ROOT_2.jpg",
+    "variants": [
+      {
+        "name": "strict170",
+        "dark_threshold": 170,
+        "min_area": 15,
+        "close_kernel": 0,
+        "component_count": 7,
+        "components": [
+          {
+            "area": 37,
+            "x": 0,
+            "y": 13,
+            "w": 11,
+            "h": 10
+          },
+          {
+            "area": 48,
+            "x": 13,
+            "y": 12,
+            "w": 7,
+            "h": 19
+          },
+          {
+            "area": 142,
+            "x": 23,
+            "y": 15,
+            "w": 19,
+            "h": 19
+          },
+          {
+            "area": 93,
+            "x": 45,
+            "y": 17,
+            "w": 13,
+            "h": 19
+          },
+          {
+            "area": 77,
+            "x": 73,
+            "y": 15,
+            "w": 15,
+            "h": 18
+          },
+          {
+            "area": 129,
+            "x": 102,
+            "y": 14,
+            "w": 23,
+            "h": 23
+          },
+          {
+            "area": 37,
+            "x": 129,
+            "y": 20,
+            "w": 14,
+            "h": 8
+          }
+        ],
+        "blob_count_exceeds_ocr": true
+      },
+      {
+        "name": "balanced185",
+        "dark_threshold": 185,
+        "min_area": 15,
+        "close_kernel": 0,
+        "component_count": 7,
+        "components": [
+          {
+            "area": 42,
+            "x": 0,
+            "y": 13,
+            "w": 11,
+            "h": 10
+          },
+          {
+            "area": 50,
+            "x": 13,
+            "y": 12,
+            "w": 7,
+            "h": 19
+          },
+          {
+            "area": 148,
+            "x": 23,
+            "y": 15,
+            "w": 19,
+            "h": 19
+          },
+          {
+            "area": 96,
+            "x": 45,
+            "y": 16,
+            "w": 13,
+            "h": 20
+          },
+          {
+            "area": 83,
+            "x": 73,
+            "y": 15,
+            "w": 15,
+            "h": 18
+          },
+          {
+            "area": 133,
+            "x": 101,
+            "y": 14,
+            "w": 24,
+            "h": 23
+          },
+          {
+            "area": 39,
+            "x": 129,
+            "y": 20,
+            "w": 14,
+            "h": 8
+          }
+        ],
+        "blob_count_exceeds_ocr": true
+      },
+      {
+        "name": "closed185",
+        "dark_threshold": 185,
+        "min_area": 15,
+        "close_kernel": 2,
+        "component_count": 7,
+        "components": [
+          {
+            "area": 45,
+            "x": 0,
+            "y": 14,
+            "w": 12,
+            "h": 10
+          },
+          {
+            "area": 50,
+            "x": 14,
+            "y": 13,
+            "w": 7,
+            "h": 19
+          },
+          {
+            "area": 149,
+            "x": 24,
+            "y": 16,
+            "w": 19,
+            "h": 19
+          },
+          {
+            "area": 103,
+            "x": 46,
+            "y": 17,
+            "w": 13,
+            "h": 20
+          },
+          {
+            "area": 84,
+            "x": 74,
+            "y": 16,
+            "w": 15,
+            "h": 18
+          },
+          {
+            "area": 136,
+            "x": 102,
+            "y": 15,
+            "w": 24,
+            "h": 23
+          },
+          {
+            "area": 37,
+            "x": 130,
+            "y": 21,
+            "w": 13,
+            "h": 8
+          }
+        ],
+        "blob_count_exceeds_ocr": true
+      }
+    ]
+  }
+]

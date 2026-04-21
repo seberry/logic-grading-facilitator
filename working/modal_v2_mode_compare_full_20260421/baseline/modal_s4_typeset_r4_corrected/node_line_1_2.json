@@ -1,0 +1,52 @@
+{
+  "node_id": "1",
+  "row_order": 2,
+  "band_index": 0,
+  "y1": 347,
+  "y2": 377,
+  "raw_response": "{\n  \"line_label\": \"\",\n  \"formula_text\": \"□A → □□A\",\n  \"justification_text\": \"→I 1-4\",\n  \"scope_role\": \"derived_line\",\n  \"confidence\": 1\n}",
+  "parse_error": "",
+  "resolved": {
+    "line_label": "",
+    "formula_text": "□A → □□A",
+    "justification_text": "→I 1-4",
+    "scope_role": "derived_line",
+    "confidence": "1"
+  },
+  "recovery_applied": "",
+  "skip_reason": "",
+  "formula_consensus_reread": {
+    "attempt_kind": "formula_consensus_reread",
+    "baseline_formula": "□A → □□A",
+    "proposed_formula": "",
+    "candidate_attempts": [
+      {
+        "attempt_kind": "formula_crop",
+        "crop_filename": "node_line_formula_reread_1_2.jpg",
+        "prompt": "You are rereading only the formula from one visible line of a modal Fitch-style proof.\nThe image is cropped to the formula side of one proof line.\nReturn only JSON. Do not include markdown fences or explanation.\nReturn exactly one JSON object with these keys: \"formula_text\", \"confidence\".\nDo not include line numbers or justification text.\nPrefer Unicode operators: ¬, ∧, ∨, →, ↔, □, ⋄, ⊥.\nPreserve repeated unary operators exactly.\nIf the formula is unreadable, return an empty formula_text.\nModal system: S4\nInclude derived rules: no",
+        "raw_response": "{\n  \"formula_text\": \"□A → □□A\",\n  \"confidence\": 0.98\n}",
+        "parse_error": "",
+        "parsed": {
+          "formula_text": "□A → □□A",
+          "confidence": 0.98
+        },
+        "structured_formula": "□A → □□A",
+        "confidence": "0.98"
+      },
+      {
+        "attempt_kind": "boxed_formula",
+        "crop_filename": "node_line_formula_boxed_reread_1_2.jpg",
+        "prompt": "You are rereading only the formula from one visible line of a modal Fitch-style proof.\nThe full line remains visible for context, but read only the red boxed formula region.\nIgnore justification text outside the box.\nReturn only JSON. Do not include markdown fences or explanation.\nReturn exactly one JSON object with these keys: \"formula_text\", \"confidence\".\nDo not include line numbers or justification text.\nPrefer Unicode operators: ¬, ∧, ∨, →, ↔, □, ⋄, ⊥.\nPreserve repeated unary operators exactly.\nIf the formula is unreadable, return an empty formula_text.\nModal system: S4\nInclude derived rules: no",
+        "raw_response": "{\n  \"formula_text\": \"□A → □□A\",\n  \"confidence\": 0.98\n}",
+        "parse_error": "",
+        "parsed": {
+          "formula_text": "□A → □□A",
+          "confidence": 0.98
+        },
+        "structured_formula": "□A → □□A",
+        "confidence": "0.98"
+      }
+    ],
+    "applied": false
+  }
+}

@@ -1,0 +1,25 @@
+[
+  {
+    "line_label": "",
+    "formula_text": "□A",
+    "justification_text": "",
+    "scope_role": "ordinary_assumption",
+    "confidence": "high",
+    "_ocr_node_id": "2",
+    "_ocr_row_order": 1
+  },
+  {
+    "scope_role": "subproof_token",
+    "formula_text": "<SUBPROOF_ID_3>",
+    "justification_text": ""
+  },
+  {
+    "line_label": "",
+    "formula_text": "□B",
+    "justification_text": "",
+    "scope_role": "derived_line",
+    "confidence": "high",
+    "_ocr_node_id": "2",
+    "_ocr_row_order": 3
+  }
+]

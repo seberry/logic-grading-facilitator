@@ -1,0 +1,29 @@
+--- expected
++++ actual
+@@ -1,7 +1,7 @@
+ [
+   {
+     "jstr": "PR",
+-    "wffstr": "◇□A"
++    "wffstr": "⋄□A"
+   },
+   {
+     "jstr": "Def◇ 1",
+@@ -10,7 +10,7 @@
+   [
+     {
+       "jstr": "PR",
+-      "wffstr": "¬□A"
++      "wffstr": "□A"
+     },
+     [
+       {
+@@ -24,7 +24,7 @@
+     ],
+     {
+       "jstr": "□I 4-5",
+-      "wffstr": "□¬□A"
++      "wffstr": "□→□A"
+     },
+     {
+       "jstr": "¬E 2,6",

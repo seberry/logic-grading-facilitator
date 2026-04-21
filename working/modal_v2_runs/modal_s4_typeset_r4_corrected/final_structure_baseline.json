@@ -1,0 +1,39 @@
+[
+  [
+    [
+      {
+        "wffstr": "□A",
+        "jstr": "",
+        "line": 1
+      },
+      [
+        {
+          "wffstr": "□",
+          "jstr": "PR",
+          "line": 2
+        },
+        {
+          "wffstr": "□A",
+          "jstr": "R4 1",
+          "line": 3
+        }
+      ],
+      {
+        "wffstr": "□□A",
+        "jstr": "□I 2–3",
+        "line": 4
+      }
+    ],
+    {
+      "wffstr": "□A → □□A",
+      "jstr": "→I 1-4",
+      "line": 5
+    }
+  ],
+  {
+    "wffstr": "⊥",
+    "jstr": "",
+    "line_label": "5",
+    "line": 6
+  }
+]

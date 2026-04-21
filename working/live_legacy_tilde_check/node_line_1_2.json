@@ -1,0 +1,70 @@
+{
+  "node_id": "1",
+  "row_order": 2,
+  "band_index": 1,
+  "y1": 40,
+  "y2": 58,
+  "zone_geometry": {
+    "split_x": 211,
+    "formula_x1": 0,
+    "formula_x2": 221,
+    "justification_x1": 201,
+    "justification_x2": 499,
+    "width": 499,
+    "height": 50
+  },
+  "formula_crop_filename": "node_line_1_2_formula.jpg",
+  "justification_crop_filename": "node_line_1_2_justification.jpg",
+  "initial_raw": {
+    "formula": "{\n  \"line_label\": \"\",\n  \"formula_text\": \"□A\",\n  \"confidence\": \"high\"\n}",
+    "justification": "{\n  \"justification_text\": \"∧E 1\",\n  \"confidence\": \"high\"\n}"
+  },
+  "initial_parsed": {
+    "formula": {
+      "line_label": "",
+      "formula_text": "□A",
+      "confidence": "high"
+    },
+    "justification": {
+      "justification_text": "∧E 1",
+      "confidence": "high"
+    }
+  },
+  "initial_resolved_zones": {
+    "formula": {
+      "formula_text": "□A",
+      "line_label": "",
+      "confidence": "high"
+    },
+    "justification": {
+      "justification_head": "∧E",
+      "justification_tail": "1",
+      "raw_justification_text": "∧E 1",
+      "confidence": "high"
+    }
+  },
+  "resolved": {
+    "formula_text": "□A",
+    "justification_head": "∧E",
+    "justification_tail": "1",
+    "justification_text": "∧E 1",
+    "line_label": "",
+    "scope_role": "derived_line",
+    "confidence": "high"
+  },
+  "retry_used": false,
+  "formula_reread": {
+    "crop_filename": "node_line_1_2_formula_reread.jpg",
+    "prompt": "This image shows one handwritten modal logic formula from a single proof line.\nReturn only JSON with keys: formula_text and confidence.\nCopy exactly the formula or symbol you see.\nPreserve unary operators exactly: ¬, □, ⋄.\nShort formulas such as Q, □Q, ¬Q, ¬□¬A, or □ are common.\nDo not include justification text, line numbers, or explanation.\nCurrent OCR formula: □A\nCurrent OCR justification: ∧E 1\nIf you cannot tell, return {\"formula_text\":\"\",\"confidence\":\"uncertain\"}.",
+    "raw": "{\n  \"formula_text\": \"□A\",\n  \"confidence\": \"high\"\n}",
+    "parsed": {
+      "formula_text": "□A",
+      "confidence": "high"
+    },
+    "resolved": {
+      "formula_text": "□A",
+      "confidence": "high"
+    },
+    "applied": false
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "node_id": "1",
+  "row_order": 3,
+  "band_index": 1,
+  "y1": 591,
+  "y2": 623,
+  "raw_response": "{\n  \"line_label\": \"\",\n  \"formula_text\": \"□A → □B\",\n  \"justification_text\": \"→I 2-7\",\n  \"scope_role\": \"derived_line\",\n  \"confidence\": 1\n}",
+  "parse_error": "",
+  "resolved": {
+    "line_label": "",
+    "formula_text": "□A → □B",
+    "justification_text": "→I 2-7",
+    "scope_role": "derived_line",
+    "confidence": "1"
+  },
+  "recovery_applied": ""
+}

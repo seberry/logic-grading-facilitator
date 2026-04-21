@@ -1,0 +1,120 @@
+{
+  "raw_detected_bands": [
+    {
+      "y1": 4,
+      "y2": 29,
+      "height": 26,
+      "kept_after_textlike_filter": true,
+      "rejection_reason": ""
+    },
+    {
+      "y1": 40,
+      "y2": 58,
+      "height": 19,
+      "kept_after_textlike_filter": true,
+      "rejection_reason": ""
+    },
+    {
+      "y1": 83,
+      "y2": 99,
+      "height": 17,
+      "kept_after_textlike_filter": true,
+      "rejection_reason": ""
+    },
+    {
+      "y1": 120,
+      "y2": 139,
+      "height": 20,
+      "kept_after_textlike_filter": true,
+      "rejection_reason": ""
+    },
+    {
+      "y1": 157,
+      "y2": 164,
+      "height": 8,
+      "kept_after_textlike_filter": true,
+      "rejection_reason": ""
+    },
+    {
+      "y1": 204,
+      "y2": 233,
+      "height": 30,
+      "kept_after_textlike_filter": true,
+      "rejection_reason": ""
+    },
+    {
+      "y1": 295,
+      "y2": 314,
+      "height": 20,
+      "kept_after_textlike_filter": true,
+      "rejection_reason": ""
+    }
+  ],
+  "merged_bands": [
+    {
+      "y1": 4,
+      "y2": 29,
+      "height": 26
+    },
+    {
+      "y1": 40,
+      "y2": 58,
+      "height": 19
+    },
+    {
+      "y1": 83,
+      "y2": 99,
+      "height": 17
+    },
+    {
+      "y1": 120,
+      "y2": 164,
+      "height": 45
+    },
+    {
+      "y1": 204,
+      "y2": 233,
+      "height": 30
+    },
+    {
+      "y1": 295,
+      "y2": 314,
+      "height": 20
+    }
+  ],
+  "final_bands": [
+    {
+      "y1": 4,
+      "y2": 29,
+      "height": 26
+    },
+    {
+      "y1": 40,
+      "y2": 58,
+      "height": 19
+    },
+    {
+      "y1": 83,
+      "y2": 99,
+      "height": 17
+    },
+    {
+      "y1": 120,
+      "y2": 164,
+      "height": 45
+    },
+    {
+      "y1": 295,
+      "y2": 314,
+      "height": 20
+    }
+  ],
+  "rejected_after_merge": [
+    {
+      "y1": 204,
+      "y2": 233,
+      "height": 30,
+      "rejection_reason": "child_token_overlap"
+    }
+  ]
+}

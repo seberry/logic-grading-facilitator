@@ -1,0 +1,18 @@
+[
+  {
+    "kind": "subproof_token",
+    "child_id": "1",
+    "y1": 180,
+    "y2": 218,
+    "center_y": 199.0,
+    "row_order": 1
+  },
+  {
+    "kind": "line",
+    "band_index": 0,
+    "y1": 420,
+    "y2": 443,
+    "center_y": 431.5,
+    "row_order": 2
+  }
+]

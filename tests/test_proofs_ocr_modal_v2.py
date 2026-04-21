@@ -728,6 +728,116 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
         finally:
             shutil.rmtree(output_dir, ignore_errors=True)
 
+    def test_maybe_reread_formula_text_can_apply_unary_formula_reread(self) -> None:
+        class FormulaVerifier:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                del image_path, system_prompt
+                self.calls += 1
+                if self.calls == 1:
+                    return '{"formula_text":"¬□¬A","confidence":"0.95"}'
+                if self.calls == 2:
+                    return '{"formula_text":"¬□¬A","confidence":"0.98"}'
+                if "main_modal_operator" in prompt:
+                    return (
+                        '{"main_modal_operator":"box","negations_before_modal":1,'
+                        '"negations_before_final_atom":2,"confidence":"0.95"}'
+                    )
+                return (
+                    '{"selected_formula":"¬□¬¬A","confidence":"0.98",'
+                    '"negations_before_modal":1,"negations_before_final_atom":2}'
+                )
+
+        image = np.full((52, 420, 3), 255, dtype=np.uint8)
+        cv2.putText(image, "4", (12, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(image, "~[]~~A", (82, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.72, (0, 0, 0), 2)
+        cv2.putText(image, "MC 3", (285, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 0), 2)
+        output_dir = Path("working/test_modal_v2_formula_unary_reread")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            resolved, artifact, recovery = maybe_reread_formula_text(
+                output_dir=output_dir,
+                client=FormulaVerifier(),
+                node_id="1",
+                row_order=4,
+                line_crop_img=image,
+                parsed_entry={
+                    "line_label": "",
+                    "formula_text": "A",
+                    "justification_text": "MC 3",
+                    "scope_role": "derived_line",
+                    "confidence": "0.6",
+                },
+                modal_config={"system": "K", "include_derived_rules": False},
+            )
+
+            self.assertEqual(recovery, "formula_consensus_reread")
+            self.assertEqual(resolved["formula_text"], "¬□¬¬A")
+            self.assertIsNotNone(artifact)
+            self.assertTrue(artifact["applied"])
+            self.assertIn("unary_formula_reread", artifact)
+            self.assertTrue(artifact["unary_formula_reread"]["applied"])
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
+    def test_maybe_reread_formula_text_rejects_unary_formula_reread_without_agreement(self) -> None:
+        class FormulaVerifier:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                del image_path, system_prompt
+                self.calls += 1
+                if self.calls == 1:
+                    return '{"formula_text":"□¬A","confidence":"0.95"}'
+                if self.calls == 2:
+                    return '{"formula_text":"□¬A","confidence":"0.98"}'
+                if "main_modal_operator" in prompt:
+                    return (
+                        '{"main_modal_operator":"box","negations_before_modal":0,'
+                        '"negations_before_final_atom":2,"confidence":"0.95"}'
+                    )
+                return (
+                    '{"selected_formula":"□¬A","confidence":"0.98",'
+                    '"negations_before_modal":0,"negations_before_final_atom":1}'
+                )
+
+        image = np.full((52, 420, 3), 255, dtype=np.uint8)
+        cv2.putText(image, "8", (12, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(image, "[]~~A", (82, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 0), 2)
+        cv2.putText(image, "[]I 5-7", (280, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.75, (0, 0, 0), 2)
+        output_dir = Path("working/test_modal_v2_formula_unary_reread_reject")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            resolved, artifact, recovery = maybe_reread_formula_text(
+                output_dir=output_dir,
+                client=FormulaVerifier(),
+                node_id="1",
+                row_order=8,
+                line_crop_img=image,
+                parsed_entry={
+                    "line_label": "",
+                    "formula_text": "□",
+                    "justification_text": "□I 5-7",
+                    "scope_role": "derived_line",
+                    "confidence": "0.6",
+                },
+                modal_config={"system": "K", "include_derived_rules": False},
+            )
+
+            self.assertEqual(recovery, "formula_consensus_reread")
+            self.assertEqual(resolved["formula_text"], "□¬A")
+            self.assertIsNotNone(artifact)
+            self.assertTrue(artifact["applied"])
+            self.assertIn("unary_formula_reread", artifact)
+            self.assertFalse(artifact["unary_formula_reread"]["applied"])
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
     def test_modal_baseline_artifact_line_reader_can_apply_formula_consensus_reread(self) -> None:
         class SequencedClient:
             def __init__(self) -> None:

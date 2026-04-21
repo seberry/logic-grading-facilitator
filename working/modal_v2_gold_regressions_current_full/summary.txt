@@ -1,0 +1,69 @@
+Gold cases: 5
+Passed: 2
+Failed: 3
+Aggregate lines: formula 24/38, justification 33/38, both 21/38, expected=38, actual=38, missing=0, extra=0, structural mismatches=0
+- PASS modal_k_typeset_mixed_subproofs (gold_from_source_tex) modal_v2 baseline OCR produced 8 visible lines across 4 nodes and detected 3 subproof bars. Contradiction-line reread was enabled. Boxed justification-head reread was enabled. | formula 8/8, justification 8/8, both 8/8, structure mismatches=0, missing=0, extra=0
+- PASS modal_s4_typeset_r4_corrected (gold_from_source_tex) modal_v2 baseline OCR produced 5 visible lines across 4 nodes and detected 3 subproof bars. Contradiction-line reread was enabled. Boxed justification-head reread was enabled. | formula 5/5, justification 5/5, both 5/5, structure mismatches=0, missing=0, extra=0
+- FAIL modal_s5_typeset_example (gold_from_source_tex) modal_v2 baseline OCR produced 8 visible lines across 4 nodes and detected 3 subproof bars. Contradiction-line reread was enabled. Boxed justification-head reread was enabled. | formula 5/8, justification 7/8, both 4/8, structure mismatches=0, missing=0, extra=0
+--- expected
++++ actual
+@@ -1,16 +1,16 @@
+ [
+   {
+     "jstr": "PR",
+-    "wffstr": "◇□A"
++    "wffstr": "⋄□A"
+   },
+   {
+-    "jstr": "Def◇ 1",
++    "jstr": "Def⋄ 1",
+     "wffstr": "¬□¬□A"
+   },
+   [
+     {
+       "jstr": "PR",
+-      "wffstr": "¬□A"
++      "wffstr": "□A"
+     },
+- FAIL modal_handwritten_user_box_q (gold_curated_from_image) modal_v2 baseline OCR produced 7 visible lines across 3 nodes and detected 2 subproof bars. Contradiction-line reread was enabled. Boxed justification-head reread was enabled. | formula 3/7, justification 6/7, both 2/7, structure mismatches=0, missing=0, extra=0
+--- expected
++++ actual
+@@ -1,7 +1,7 @@
+ [
+   {
+     "jstr": "PR",
+-    "wffstr": "□P"
++    "wffstr": "□"
+   },
+   {
+     "jstr": "PR",
+@@ -13,20 +13,20 @@
+       "wffstr": "□"
+     },
+     {
+-      "jstr": "□E 1",
++      "jstr": "PR",
+       "wffstr": "P"
+     },
+     {
+- FAIL modal_handwritten_user_negated_modal_conjunction (gold_curated_from_image) modal_v2 baseline OCR produced 10 visible lines across 3 nodes and detected 2 subproof bars. Contradiction-line reread was enabled. Boxed justification-head reread was enabled. | formula 3/10, justification 7/10, both 2/10, structure mismatches=0, missing=0, extra=0
+--- expected
++++ actual
+@@ -1,8 +1,8 @@
+ [
+   [
+     {
+-      "jstr": "Assum",
+-      "wffstr": "□A ∧ ◇¬A"
++      "jstr": "PR",
++      "wffstr": "A ⊢ A"
+     },
+     {
+       "jstr": "∧E 1",
+@@ -10,29 +10,29 @@
+     },
+     {
+       "jstr": "∧E 1",
+-      "wffstr": "◇¬A"
++      "wffstr": "⋄¬A"
+     },

@@ -1,0 +1,57 @@
+{
+  "system": "K",
+  "include_derived_rules": false,
+  "conclusion": "A",
+  "lines": [
+    {
+      "depth": 1,
+      "sentence": "□A ∧ ⋄¬A",
+      "citation": "PR"
+    },
+    {
+      "depth": 1,
+      "sentence": "□A",
+      "citation": "∧E 1"
+    },
+    {
+      "depth": 1,
+      "sentence": "⋄¬A",
+      "citation": "∧E 1"
+    },
+    {
+      "depth": 1,
+      "sentence": "¬□¬¬A",
+      "citation": "MC 3"
+    },
+    {
+      "depth": 2,
+      "sentence": "□",
+      "citation": "PR"
+    },
+    {
+      "depth": 2,
+      "sentence": "A",
+      "citation": ""
+    },
+    {
+      "depth": 2,
+      "sentence": "¬¬A",
+      "citation": "DN 6"
+    },
+    {
+      "depth": 1,
+      "sentence": "□¬A",
+      "citation": ""
+    },
+    {
+      "depth": 1,
+      "sentence": "¬□A",
+      "citation": ""
+    },
+    {
+      "depth": 0,
+      "sentence": "¬(□A ∧ ⋄¬A)",
+      "citation": "~I 1-9"
+    }
+  ]
+}

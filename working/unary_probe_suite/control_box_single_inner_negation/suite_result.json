@@ -1,0 +1,17 @@
+{
+  "case_id": "control_box_single_inner_negation",
+  "expected_formula": "□¬A",
+  "current_ocr_formula": "□¬A",
+  "structured_formula": "□¬A",
+  "forced_choice_formula": "□¬A",
+  "structured_passed": true,
+  "forced_choice_passed": true,
+  "structured_changed": false,
+  "forced_choice_changed": false,
+  "image_blob_count": 3,
+  "current_ocr_symbol_count": 3,
+  "blob_count_exceeds_ocr": false,
+  "confidence": "1.0",
+  "result_path": "working\\unary_probe_suite\\control_box_single_inner_negation\\unary_probe_result.json",
+  "notes": "Control: should keep a one-negation box formula stable."
+}

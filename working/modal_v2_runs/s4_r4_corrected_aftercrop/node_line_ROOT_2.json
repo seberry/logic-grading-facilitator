@@ -1,0 +1,16 @@
+{
+  "node_id": "ROOT",
+  "row_order": 2,
+  "band_index": 1,
+  "y1": 113,
+  "y2": 140,
+  "raw_response": "{\n  \"line_label\": \"2\",\n  \"formula_text\": \"\",\n  \"justification_text\": \"\",\n  \"scope_role\": \"ordinary_assumption\",\n  \"confidence\": 1\n}",
+  "parse_error": "",
+  "resolved": {
+    "line_label": "2",
+    "formula_text": "",
+    "justification_text": "",
+    "scope_role": "ordinary_assumption",
+    "confidence": "1"
+  }
+}

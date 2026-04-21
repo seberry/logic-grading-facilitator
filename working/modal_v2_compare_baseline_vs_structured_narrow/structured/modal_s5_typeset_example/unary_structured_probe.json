@@ -1,0 +1,21 @@
+[
+  {
+    "node_id": "3",
+    "row_order": 2,
+    "line_label": "",
+    "scope_role": "derived_line",
+    "baseline_formula": "¬□A",
+    "baseline_justification": "R5 3",
+    "structured_counts": {
+      "main_modal_operator": "box",
+      "negations_before_modal": 1,
+      "negations_before_final_atom": 0,
+      "confidence": 1.0
+    },
+    "structured_formula": "¬□A",
+    "would_change_formula": false,
+    "line_crop_filename": "node_line_3_2.jpg",
+    "probe_crop_filename": "unary_structured_line_3_2.jpg",
+    "raw_response": "{\n  \"main_modal_operator\": \"box\",\n  \"negations_before_modal\": 1,\n  \"negations_before_final_atom\": 0,\n  \"confidence\": 1.0\n}"
+  }
+]

@@ -1,0 +1,121 @@
+{
+  "raw_bars": [
+    [
+      19,
+      0,
+      8,
+      262
+    ],
+    [
+      46,
+      87,
+      4,
+      132
+    ]
+  ],
+  "filtered_bars": [
+    [
+      46,
+      87,
+      4,
+      132
+    ]
+  ],
+  "rejected_bars": [
+    [
+      19,
+      0,
+      8,
+      262
+    ]
+  ],
+  "applied": true,
+  "reason": "code_only_rejected_false_left_separator",
+  "candidate_bar": [
+    19,
+    0,
+    8,
+    262
+  ],
+  "code_signals": {
+    "leftmost_near_edge": true,
+    "leftmost_top_anchored": true,
+    "leftmost_tall_enough": true,
+    "has_right_bar": true,
+    "right_bar_count": 1,
+    "kept_root_ownership": {
+      "node_count": 3,
+      "root_child_count": 1,
+      "root_row_records": [
+        {
+          "kind": "subproof_token",
+          "child_id": "1",
+          "y1": 111,
+          "y2": 139,
+          "center_y": 125.0,
+          "row_order": 1
+        }
+      ],
+      "root_line_count": 0,
+      "root_token_count": 1,
+      "root_rows_before_first_child_token": 0,
+      "first_root_row_kind": "subproof_token"
+    },
+    "removed_root_ownership": {
+      "node_count": 2,
+      "root_child_count": 1,
+      "root_row_records": [
+        {
+          "kind": "line",
+          "band_index": 0,
+          "y1": 7,
+          "y2": 29,
+          "center_y": 18.0,
+          "row_order": 1
+        },
+        {
+          "kind": "line",
+          "band_index": 1,
+          "y1": 43,
+          "y2": 67,
+          "center_y": 55.0,
+          "row_order": 2
+        },
+        {
+          "kind": "subproof_token",
+          "child_id": "1",
+          "y1": 136,
+          "y2": 161,
+          "center_y": 148.5,
+          "row_order": 3
+        },
+        {
+          "kind": "line",
+          "band_index": 2,
+          "y1": 235,
+          "y2": 265,
+          "center_y": 250.0,
+          "row_order": 4
+        }
+      ],
+      "root_line_count": 3,
+      "root_token_count": 1,
+      "root_rows_before_first_child_token": 2,
+      "first_root_row_kind": "line"
+    },
+    "suspicious_root_ownership": true,
+    "restores_root_rows_above_first_child": true,
+    "strong_code_only_drop": true
+  },
+  "verifier": {
+    "attempted": true,
+    "candidate_crop_filename": "false_left_separator_candidate.jpg",
+    "candidate_crop_path": "C:\\Users\\seber\\logic-grading-facilitator-MAIN\\working\\modal_v2_gold_granular_false_bar_v2\\modal_handwritten_user_box_q\\false_left_separator_candidate.jpg",
+    "prompt": "You are classifying the leftmost vertical mark in a handwritten Fitch-style proof image.\nReturn only JSON. Do not include markdown fences or explanation.\nReturn one JSON object with exactly these keys: \"classification\", \"confidence\", and \"reason\".\nAllowed classification values: \"scope_bar\", \"number_formula_separator\", \"margin_artifact_or_stamp\", \"uncertain\".\nThe candidate leftmost vertical mark is highlighted in red.\nAny next bar to its right is highlighted in blue.\n\"scope_bar\" means the red mark is a real proof/subproof scope bar that organizes proof lines to its right.\n\"number_formula_separator\" means the red mark is just a left separator beside line numbers or margin content, not a real scope bar.\n\"margin_artifact_or_stamp\" means the red mark is unrelated page junk, a stamp, or another artifact.\n\"uncertain\" means the crop is too ambiguous to trust.\nDo not transcribe the proof. Focus only on the role of the red vertical mark.\nUse confidence values high, medium, low, or uncertain.",
+    "raw_response": "{\n  \"classification\": \"scope_bar\",\n  \"confidence\": \"high\",\n  \"reason\": \"The red mark is a vertical line that aligns with the start of a subproof (line 3), and the blue mark to its right is a continuation of the same scope bar, indicating it is a formal proof scope bar organizing the lines to its right.\"\n}",
+    "classification": "scope_bar",
+    "confidence": "high",
+    "reason": "The red mark is a vertical line that aligns with the start of a subproof (line 3), and the blue mark to its right is a continuation of the same scope bar, indicating it is a formal proof scope bar organizing the lines to its right.",
+    "error": ""
+  }
+}
