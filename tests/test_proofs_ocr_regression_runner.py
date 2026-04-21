@@ -136,6 +136,18 @@ class ProofOcrRegressionRunnerTests(unittest.TestCase):
         self.assertEqual(metrics["formula_correct_line_count"], 1)
         self.assertEqual(metrics["both_correct_line_count"], 1)
 
+    def test_compare_proof_structures_normalizes_justification_tilde_variants(self) -> None:
+        expected = [{"wffstr": "A", "jstr": "~E 1, 2"}]
+        actual = [{"wffstr": "A", "jstr": "¬E 1,2"}]
+
+        passed, diff_text = runner.compare_proof_structures(actual, expected)
+        metrics = runner.compare_proof_structures_granular(actual, expected)
+
+        self.assertTrue(passed)
+        self.assertEqual(diff_text, "")
+        self.assertEqual(metrics["justification_correct_line_count"], 1)
+        self.assertEqual(metrics["both_correct_line_count"], 1)
+
     def test_compare_proof_structures_granular_reports_missing_and_extra_lines(self) -> None:
         expected = [{"wffstr": "A", "jstr": "PR"}, {"wffstr": "B", "jstr": "R 1"}]
         actual = [{"wffstr": "A", "jstr": "PR"}]

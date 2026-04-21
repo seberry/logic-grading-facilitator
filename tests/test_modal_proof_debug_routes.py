@@ -638,6 +638,20 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertIn("formula mismatch: expected □P", comparison["line_issues"][1]["reasons"])
         self.assertIn("missing line from current proof", comparison["line_issues"][2]["reasons"])
 
+    def test_build_gold_comparison_ignores_regularization_only_formula_and_justification_differences(self) -> None:
+        comparison = modal_proof_debug_routes.page_helpers.build_gold_comparison(
+            expected_structure=[
+                {"line": 1, "wffstr": "□~P → Q", "jstr": "~E 1, 2"},
+            ],
+            current_lines={
+                1: {"formula": "□¬P→Q", "citation": "¬E 1,2", "depth": 0},
+            },
+        )
+
+        self.assertTrue(comparison["enabled"])
+        self.assertEqual(comparison["issue_count"], 0)
+        self.assertEqual(comparison["mismatch_count"], 0)
+
     def test_modal_proof_debug_page_shows_gold_mismatch_summary_for_fixture(self) -> None:
         fixture_root = self.debug_dir / "fixtures" / "modal"
         fixture_root.mkdir(parents=True, exist_ok=True)

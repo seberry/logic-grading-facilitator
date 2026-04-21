@@ -252,9 +252,13 @@ def build_gold_comparison(
             current_citation = str(current.get("citation") or "").strip()
             expected_depth = expected.get("depth")
             current_depth = current.get("depth")
-            if expected_formula != current_formula:
+            if modal.canonicalize_formula_for_comparison(expected_formula) != modal.canonicalize_formula_for_comparison(
+                current_formula
+            ):
                 reasons.append(f"formula mismatch: expected {expected_formula or 'blank'}")
-            if expected_citation != current_citation:
+            if modal.canonicalize_justification_for_comparison(
+                expected_citation
+            ) != modal.canonicalize_justification_for_comparison(current_citation):
                 reasons.append(f"citation mismatch: expected {expected_citation or 'blank'}")
             if expected_depth != current_depth:
                 reasons.append(f"depth mismatch: expected depth {expected_depth}")

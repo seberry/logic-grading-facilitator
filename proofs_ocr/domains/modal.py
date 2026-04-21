@@ -157,6 +157,22 @@ def canonicalize_formula_for_comparison(value: Any) -> str:
     return normalized
 
 
+def canonicalize_justification_for_comparison(value: Any) -> str:
+    """Canonicalize a justification for equality checks without changing display text."""
+
+    normalized = normalize_justification_text(value)
+    if not normalized:
+        return ""
+    parts = normalized.split(" ", 1)
+    head = parts[0].strip()
+    tail = parts[1].strip() if len(parts) > 1 else ""
+    if head == "~I":
+        head = "¬I"
+    elif head == "~E":
+        head = "¬E"
+    return f"{head} {tail}".strip()
+
+
 def normalize_justification_text(value: Any) -> str:
     """Normalize modal justifications without applying repair heuristics."""
 

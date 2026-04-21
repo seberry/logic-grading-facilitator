@@ -225,11 +225,7 @@ def _normalize_formula_for_compare(value: Any) -> str:
 
 
 def _normalize_justification_for_compare(value: Any) -> str:
-    normalized = modal.normalize_formula_text(_collapse_compare_whitespace(value))
-    normalized = normalized.replace("–", "-").replace("—", "-")
-    normalized = _COMPARE_DASH_BETWEEN_DIGITS_RE.sub("-", normalized)
-    normalized = _COMPARE_COMMA_BETWEEN_DIGITS_RE.sub(",", normalized)
-    return normalized
+    return modal.canonicalize_justification_for_comparison(_collapse_compare_whitespace(value))
 
 
 def render_nesting_path(nesting_path: Sequence[int]) -> str:
