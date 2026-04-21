@@ -80,9 +80,15 @@ That is normal and should not be treated as a geometry failure by itself.
   - In this path, justification rescue currently uses the zone-separation
     module's own tight-justification reread with `verifier_client` when one is
     provided.
+  - The primary formula-side and justification-side OCR in this path now uses
+    vertically trimmed model crops internally, while still writing the raw zone
+    crops as the visible debug artifacts.
   - That is separate from the boxed justification-head reread in
     `modal_v2_line_rereads.py`; the boxed-head reread does not currently run
-    when zone separation is enabled.
+    as the main path when zone separation is enabled.
+  - When the zone-separation tight-justification reread still comes back blank,
+    the flow now falls through to the same boxed justification-head reread
+    helper used by the non-zone path.
 - A narrow false-left-separator filter now exists as a toggleable pre-tree
   experiment:
   - CLI toggle:

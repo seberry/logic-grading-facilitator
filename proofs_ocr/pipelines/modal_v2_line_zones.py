@@ -99,27 +99,41 @@ def read_line_with_zone_separation(
     }
     formula_crop_name = ""
     justification_crop_name = ""
+    formula_model_crop_name = ""
+    justification_model_crop_name = ""
+    formula_model_geometry: dict[str, int | bool] = {}
+    justification_model_geometry: dict[str, int | bool] = {}
     tight_justification_crop_name = ""
     tight_justification_geometry: dict[str, int | bool] = {}
     tight_justification_reread: dict[str, Any] | None = None
+    boxed_justification_head_reread: dict[str, Any] | None = None
+    zone_recovery_applied = ""
 
     if not skip_reason:
         formula_crop, justification_crop, zone_geometry = extract_line_zone_crops(line_crop_img)
         formula_crop_name = artifacts.NODE_LINE_FORMULA_CROP_TEMPLATE.format(node_id=node.id, row_order=row_order)
         justification_crop_name = artifacts.NODE_LINE_JUSTIFICATION_CROP_TEMPLATE.format(node_id=node.id, row_order=row_order)
+        formula_model_crop_name = artifacts.NODE_LINE_FORMULA_MODEL_CROP_TEMPLATE.format(node_id=node.id, row_order=row_order)
+        justification_model_crop_name = artifacts.NODE_LINE_JUSTIFICATION_MODEL_CROP_TEMPLATE.format(node_id=node.id, row_order=row_order)
         formula_crop_path = output_dir / formula_crop_name
         justification_crop_path = output_dir / justification_crop_name
+        formula_model_crop_path = output_dir / formula_model_crop_name
+        justification_model_crop_path = output_dir / justification_model_crop_name
         cv2.imwrite(str(formula_crop_path), formula_crop)
         cv2.imwrite(str(justification_crop_path), justification_crop)
+        formula_model_crop, formula_model_geometry = extract_primary_ink_band_crop(formula_crop)
+        justification_model_crop, justification_model_geometry = extract_primary_ink_band_crop(justification_crop)
+        cv2.imwrite(str(formula_model_crop_path), formula_model_crop)
+        cv2.imwrite(str(justification_model_crop_path), justification_model_crop)
 
-        formula_raw = client.chat_with_image_prompt(formula_crop_path, formula_prompt)
+        formula_raw = client.chat_with_image_prompt(formula_model_crop_path, formula_prompt)
         try:
             formula_parsed = modal.parse_json_object_response(formula_raw)
             formula_resolved = modal_line_zones.normalize_formula_zone_result(formula_parsed)
         except (ValueError, json.JSONDecodeError) as exc:
             formula_parse_error = str(exc)
 
-        justification_raw = client.chat_with_image_prompt(justification_crop_path, justification_prompt)
+        justification_raw = client.chat_with_image_prompt(justification_model_crop_path, justification_prompt)
         try:
             justification_parsed = modal.parse_json_object_response(justification_raw)
             justification_resolved = modal_line_zones.normalize_justification_zone_result(justification_parsed)
@@ -132,12 +146,14 @@ def read_line_with_zone_separation(
             is_root_node=str(node.id) == "ROOT",
             is_first_visible_row_of_nonroot=(str(node.id) != "ROOT" and row_order == 1),
         )
+        should_try_boxed_fallback = False
         if verifier_client is not None and _should_tight_reread_justification(
             merged_entry=merged,
             justification_result=justification_resolved,
-            justification_crop=justification_crop,
+            justification_crop=justification_model_crop,
         ):
-            tight_justification_crop, tight_justification_geometry = extract_tight_justification_crop(justification_crop)
+            should_try_boxed_fallback = True
+            tight_justification_crop, tight_justification_geometry = extract_tight_justification_crop(justification_model_crop)
             if bool(tight_justification_geometry.get("applied")) and tight_justification_crop.size != 0:
                 tight_justification_crop_name = artifacts.NODE_LINE_TIGHT_JUSTIFICATION_CROP_TEMPLATE.format(
                     node_id=node.id,
@@ -165,6 +181,9 @@ def read_line_with_zone_separation(
                         is_root_node=str(node.id) == "ROOT",
                         is_first_visible_row_of_nonroot=(str(node.id) != "ROOT" and row_order == 1),
                     )
+                    should_try_boxed_fallback = False
+                else:
+                    should_try_boxed_fallback = True
                 tight_justification_reread = {
                     "crop_filename": tight_justification_crop_name,
                     "geometry": tight_justification_geometry,
@@ -173,6 +192,26 @@ def read_line_with_zone_separation(
                     "resolved": tight_resolved,
                     "parse_error": tight_parse_error,
                     "applied": applied,
+                }
+        if verifier_client is not None and should_try_boxed_fallback:
+            from proofs_ocr.pipelines.modal_v2_line_rereads import maybe_reread_justification_head
+
+            boxed_candidate, boxed_artifact, boxed_recovery = maybe_reread_justification_head(
+                output_dir=output_dir,
+                client=verifier_client,
+                node_id=str(node.id),
+                row_order=row_order,
+                line_crop_img=line_crop_img,
+                parsed_entry=merged,
+            )
+            if boxed_artifact is not None:
+                boxed_justification_head_reread = boxed_artifact
+            if boxed_recovery:
+                merged = boxed_candidate
+                zone_recovery_applied = boxed_recovery
+                justification_resolved = {
+                    "justification_text": modal.normalize_justification_text(boxed_candidate.get("justification_text") or ""),
+                    "confidence": str(boxed_candidate.get("confidence") or "").strip(),
                 }
         merged, recovery_applied = modal.recover_line_entry_from_crop(
             line_crop_img=line_crop_img,
@@ -186,6 +225,8 @@ def read_line_with_zone_separation(
             if strict_open_recovery:
                 merged = strict_open_resolved
                 recovery_applied = strict_open_recovery
+        if not recovery_applied and zone_recovery_applied:
+            recovery_applied = zone_recovery_applied
 
     payload = {
         "node_id": node.id,
@@ -198,6 +239,10 @@ def read_line_with_zone_separation(
         "zone_geometry": zone_geometry,
         "formula_crop_filename": formula_crop_name,
         "justification_crop_filename": justification_crop_name,
+        "formula_model_crop_filename": formula_model_crop_name,
+        "justification_model_crop_filename": justification_model_crop_name,
+        "formula_model_geometry": formula_model_geometry,
+        "justification_model_geometry": justification_model_geometry,
         "tight_justification_crop_filename": tight_justification_crop_name,
         "tight_justification_geometry": tight_justification_geometry,
         "formula_raw_response": formula_raw,
@@ -211,6 +256,8 @@ def read_line_with_zone_separation(
     }
     if tight_justification_reread is not None:
         payload["tight_justification_reread"] = tight_justification_reread
+    if boxed_justification_head_reread is not None:
+        payload["boxed_justification_head_reread"] = boxed_justification_head_reread
     (output_dir / artifacts.NODE_LINE_RESPONSE_TEMPLATE.format(node_id=node.id, row_order=row_order)).write_text(
         json.dumps(payload, indent=2, ensure_ascii=False),
         encoding="utf-8",
@@ -344,6 +391,68 @@ def extract_tight_justification_crop(justification_crop: np.ndarray) -> tuple[np
         "x1": int(x1),
         "y1": int(y1),
         "x2": int(x2),
+        "y2": int(y2),
+        "width": int(img_w),
+        "height": int(img_h),
+        "applied": bool(applied),
+    }
+
+
+def extract_primary_ink_band_crop(crop_img: np.ndarray) -> tuple[np.ndarray, dict[str, int | bool]]:
+    """Trim irrelevant top/bottom spill while keeping the full zone width."""
+
+    if crop_img.size == 0:
+        empty = crop_img.copy()
+        return empty, {
+            "y1": 0,
+            "y2": 0,
+            "width": 0,
+            "height": 0,
+            "applied": False,
+        }
+
+    img_h, img_w = crop_img.shape[:2]
+    gray = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
+    dark = (gray < 185).astype(np.uint8)
+    if int(dark.sum()) <= 0:
+        return crop_img.copy(), {
+            "y1": 0,
+            "y2": int(img_h),
+            "width": int(img_w),
+            "height": int(img_h),
+            "applied": False,
+        }
+
+    row_counts = dark.sum(axis=1).astype(np.int32)
+    max_row_count = int(row_counts.max())
+    row_threshold = max(2, int(max_row_count * 0.3))
+    primary_run = _choose_primary_ink_run(row_counts, row_threshold)
+    if primary_run is None:
+        return crop_img.copy(), {
+            "y1": 0,
+            "y2": int(img_h),
+            "width": int(img_w),
+            "height": int(img_h),
+            "applied": False,
+        }
+
+    run_y1, run_y2 = primary_run
+    pad_y = 3
+    y1 = max(0, int(run_y1) - pad_y)
+    y2 = min(img_h, int(run_y2) + pad_y)
+    if y2 <= y1:
+        return crop_img.copy(), {
+            "y1": 0,
+            "y2": int(img_h),
+            "width": int(img_w),
+            "height": int(img_h),
+            "applied": False,
+        }
+
+    tight_crop = crop_img[y1:y2, :]
+    applied = y1 > 0 or y2 < img_h
+    return tight_crop, {
+        "y1": int(y1),
         "y2": int(y2),
         "width": int(img_w),
         "height": int(img_h),
