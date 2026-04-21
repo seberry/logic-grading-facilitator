@@ -35,6 +35,7 @@ def build_modal_v2_state(
     vision_base_url: str | None = None,
     vision_model: str | None = None,
     verifier_vision_model: str | None = None,
+    enable_formula_justification_separation: bool = False,
     source_image_name: str = "",
 ) -> dict[str, Any]:
     """Build the minimal state.json payload for baseline debug runs."""
@@ -47,6 +48,7 @@ def build_modal_v2_state(
         "vision_base_url": (vision_base_url or default_lmstudio_base_url()).strip(),
         "vision_model": (vision_model or default_lmstudio_model()).strip(),
         "verifier_vision_model": (verifier_vision_model or "").strip(),
+        "enable_formula_justification_separation": bool(enable_formula_justification_separation),
         "source_image_name": source_image_name,
         "proof_json_text": json.dumps({"lines": final_structure, "meta": {}}, indent=2, ensure_ascii=False),
         "original_proof_json_text": json.dumps({"lines": final_structure, "meta": {}}, indent=2, ensure_ascii=False),
@@ -252,6 +254,7 @@ def transcribe_image_to_modal_v2_debug_state(
         vision_base_url=vision_base_url,
         vision_model=vision_model,
         verifier_vision_model=verifier_vision_model or vision_model,
+        enable_formula_justification_separation=enable_formula_justification_separation,
         source_image_name=source_copy_name,
     )
     (output_dir / artifacts.STATE_FILENAME).write_text(

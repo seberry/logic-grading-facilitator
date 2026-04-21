@@ -262,7 +262,7 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         with (
             patch.object(modal_proof_debug_routes, "DEBUG_MODAL_PROOF_DIR", self.debug_dir),
             patch.object(modal_proof_debug_routes, "build_modal_v2_vlm_client", return_value=object()),
-            patch.object(modal_proof_debug_routes, "transcribe_image_to_modal_v2_debug_state", return_value=ocr_state),
+            patch.object(modal_proof_debug_routes, "transcribe_image_to_modal_v2_debug_state", return_value=ocr_state) as transcribe_mock,
         ):
             response = self.client.post(
                 "/debug/modal-proof/run_ocr",
@@ -272,6 +272,7 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
                     "vision_base_url": "http://127.0.0.1:1234/v1",
                     "vision_model": "qwen/qwen3-vl-4b",
                     "ocr_pipeline": "modal_v2_baseline",
+                    "enable_formula_justification_separation": "true",
                     "proof_json_text": json.dumps([{"wffstr": "A", "jstr": "PR"}]),
                     "draft_comment": "keep me",
                     "draft_grade": "1",
@@ -283,7 +284,9 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         saved = json.loads((self.debug_dir / "starter" / "state.json").read_text(encoding="utf-8"))
         self.assertEqual(response.status_code, 303)
         self.assertEqual(saved["ocr_pipeline"], "modal_v2_baseline")
+        self.assertTrue(saved["enable_formula_justification_separation"])
         self.assertEqual(saved["verifier_vision_model"], "")
+        self.assertTrue(transcribe_mock.call_args.kwargs["enable_formula_justification_separation"])
         saved_lines = json.loads(saved["proof_json_text"])["lines"]
         self.assertEqual(saved_lines[0]["wffstr"], "□A → □□A")
 
@@ -559,6 +562,26 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertEqual(artifacts["9"]["expected_line_text"], "⊥    ¬E 4,8")
         self.assertIn("gold: formula mismatch: expected ⊥", artifacts["9"]["reasons"])
         self.assertEqual(artifacts["9"]["status"], "gold_formula")
+
+    def test_attach_line_stage_crop_metadata_uses_row_payload_fallback(self) -> None:
+        stage = {}
+
+        modal_proof_debug_routes.page_helpers.attach_line_stage_crop_metadata(
+            stage=stage,
+            parsed_response={
+                "mode": "formula_justification_separation",
+                "formula_crop_filename": "node_line_formula_ROOT_1.jpg",
+                "justification_crop_filename": "node_line_justification_ROOT_1.jpg",
+            },
+            artifact_record={"kind": "line", "row_order": 1},
+            selected="sample",
+            artifact_url=lambda example, filename: f"/debug_modal_proof_assets/{example}/{filename}",
+        )
+
+        self.assertEqual(stage["formula_image_filename"], "node_line_formula_ROOT_1.jpg")
+        self.assertEqual(stage["justification_image_filename"], "node_line_justification_ROOT_1.jpg")
+        self.assertEqual(stage["formula_image_url"], "/debug_modal_proof_assets/sample/node_line_formula_ROOT_1.jpg")
+        self.assertEqual(stage["justification_image_url"], "/debug_modal_proof_assets/sample/node_line_justification_ROOT_1.jpg")
 
     def test_build_gold_comparison_flags_formula_and_missing_lines(self) -> None:
         comparison = modal_proof_debug_routes.page_helpers.build_gold_comparison(

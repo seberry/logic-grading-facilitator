@@ -766,6 +766,35 @@ def build_editor_line_artifacts(
     return artifacts
 
 
+def attach_line_stage_crop_metadata(
+    *,
+    stage: Dict[str, Any],
+    parsed_response: Any,
+    artifact_record: Optional[Dict[str, Any]],
+    selected: str,
+    artifact_url: Callable[[str, str], str],
+) -> None:
+    """Populate split-crop URLs from either row payloads or older node response artifacts."""
+
+    formula_crop_filename = ""
+    justification_crop_filename = ""
+    if isinstance(parsed_response, dict):
+        formula_crop_filename = str(parsed_response.get("formula_crop_filename") or "").strip()
+        justification_crop_filename = str(parsed_response.get("justification_crop_filename") or "").strip()
+
+    if not formula_crop_filename and isinstance(artifact_record, dict):
+        formula_crop_filename = str(artifact_record.get("formula_crop_filename") or "").strip()
+    if not justification_crop_filename and isinstance(artifact_record, dict):
+        justification_crop_filename = str(artifact_record.get("justification_crop_filename") or "").strip()
+
+    if formula_crop_filename:
+        stage["formula_image_filename"] = formula_crop_filename
+        stage["formula_image_url"] = artifact_url(selected, formula_crop_filename)
+    if justification_crop_filename:
+        stage["justification_image_filename"] = justification_crop_filename
+        stage["justification_image_url"] = artifact_url(selected, justification_crop_filename)
+
+
 def _editor_artifact_status(*, gold_issue_reasons: List[str], has_attention: bool) -> str:
     lower_reasons = [reason.lower() for reason in gold_issue_reasons]
     has_formula = any("formula mismatch" in reason for reason in lower_reasons)
@@ -1147,20 +1176,19 @@ def render_page(
                 stage["parsed_response"] = parsed_response
             node_response = deps.load_node_response(example_dir, node_id)
             artifact_record = deps.find_line_artifact(node_response, row_order)
+            attach_line_stage_crop_metadata(
+                stage=stage,
+                parsed_response=parsed_response,
+                artifact_record=artifact_record,
+                selected=selected,
+                artifact_url=deps.artifact_url,
+            )
             if artifact_record:
                 artifact_kind = str(artifact_record.get("kind") or "").strip()
                 if artifact_kind:
                     stage["artifact_kind"] = artifact_kind
                 if artifact_record.get("skipped_reason"):
                     stage["skipped_reason"] = str(artifact_record.get("skipped_reason") or "").strip()
-                formula_crop_filename = str(artifact_record.get("formula_crop_filename") or "").strip()
-                if formula_crop_filename:
-                    stage["formula_image_filename"] = formula_crop_filename
-                    stage["formula_image_url"] = deps.artifact_url(selected, formula_crop_filename)
-                justification_crop_filename = str(artifact_record.get("justification_crop_filename") or "").strip()
-                if justification_crop_filename:
-                    stage["justification_image_filename"] = justification_crop_filename
-                    stage["justification_image_url"] = deps.artifact_url(selected, justification_crop_filename)
                 resolved = artifact_record.get("resolved")
                 if isinstance(resolved, dict):
                     stage["resolved_scope_role"] = str(resolved.get("scope_role") or "").strip()

@@ -543,6 +543,25 @@
       overflow-y: auto;
     }
 
+    #table-editor table {
+      table-layout: fixed;
+    }
+
+    #table-editor th:nth-child(3),
+    #table-editor td.formula-cell {
+      width: 18%;
+    }
+
+    #table-editor th:nth-child(4),
+    #table-editor td.citation-cell {
+      width: 13%;
+    }
+
+    #table-editor th:nth-child(5),
+    #table-editor td.editor-crop-cell {
+      width: 440px;
+    }
+
     .depth-cell {
       width: 140px;
     }
@@ -599,8 +618,8 @@
     }
 
     .editor-crop-cell {
-      width: 280px;
-      min-width: 280px;
+      width: 440px;
+      min-width: 440px;
     }
 
     .editor-crop-box {
@@ -615,7 +634,7 @@
 
     .editor-crop-box img {
       display: block;
-      width: 220px;
+      width: 100%;
       max-width: 100%;
       border-radius: 0.4rem;
       border: 1px solid #cbd5e1;
@@ -638,7 +657,7 @@
 
     .editor-crop-pair {
       display: grid;
-      grid-template-columns: 1fr;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 0.35rem;
     }
 
@@ -657,7 +676,20 @@
     }
 
     .editor-crop-split img {
-      width: 220px;
+      width: 100%;
+    }
+
+    @media (max-width: 1400px) {
+      .editor-crop-cell {
+        width: 360px;
+        min-width: 360px;
+      }
+    }
+
+    @media (max-width: 1180px) {
+      .editor-crop-pair {
+        grid-template-columns: 1fr;
+      }
     }
 
     .editor-crop-meta {
@@ -1227,7 +1259,7 @@
                   <option value="both" selected>Both</option>
                 </select>
               </label>
-              <span class="editor-note">Line numbers are automatic; change depth, formula, and citation directly in the grid.</span>
+              <span class="editor-note">Split crops only appear after rerunning OCR with formula / justification separation enabled above.</span>
               <label class="toggle">
                 <input type="checkbox" id="raw-toggle">
                 Raw JSON
@@ -1386,6 +1418,19 @@
               <input id="verifier-vision-model" name="verifier_vision_model" type="text" value="{{ verifier_vision_model }}" placeholder="qwen/qwen3-vl-8b" />
             </div>
             <div></div>
+          </div>
+
+          <label class="checkbox-row">
+            <input
+              type="checkbox"
+              name="enable_formula_justification_separation"
+              value="true"
+              {% if enable_formula_justification_separation %}checked{% endif %}
+            />
+            Enable formula / justification separation for modal_v2 OCR
+          </label>
+          <div class="muted" style="margin-top: -0.35rem; margin-bottom: 0.7rem;">
+            This is what generates the separate formula and justification crop artifacts. The editor crop toggle can only show split crops when the saved OCR run was created with this option enabled.
           </div>
 
           <div style="margin-top: 1rem;">
@@ -2550,6 +2595,7 @@
           tr.appendChild(depthTd);
 
           const formulaTd = document.createElement("td");
+          formulaTd.className = "formula-cell";
           const formulaInput = document.createElement("input");
           formulaInput.value = row.formula || "";
           formulaInput.placeholder = "Formula";
@@ -2568,6 +2614,7 @@
           tr.appendChild(formulaTd);
 
           const citationTd = document.createElement("td");
+          citationTd.className = "citation-cell";
           const citationInput = document.createElement("input");
           citationInput.value = row.citation || "";
           citationInput.placeholder = "Citation";
