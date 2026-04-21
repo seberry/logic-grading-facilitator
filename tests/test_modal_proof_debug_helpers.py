@@ -106,6 +106,59 @@ class ModalProofDebugHelperTests(unittest.TestCase):
             attempt["line_crop_url"],
         )
 
+    def test_formula_review_results_add_asset_urls(self) -> None:
+        example_dir = self.tmp_dir / "sample"
+        example_dir.mkdir(parents=True, exist_ok=True)
+        (example_dir / "checker_formula_rereads.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "line_number": 4,
+                        "line_crop_path": "working\\sample\\checker_formula_line_4_formula_crop.jpg",
+                        "candidate_attempts": [
+                            {
+                                "line_crop_path": "working\\sample\\checker_formula_line_4_boxed_formula.jpg",
+                            }
+                        ],
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        results = artifact_helpers.load_formula_review_results(self.tmp_dir, "sample", "starter")
+
+        self.assertEqual(results[0]["line_crop_filename"], "checker_formula_line_4_formula_crop.jpg")
+        self.assertIn("/debug_modal_proof_assets/sample/checker_formula_line_4_formula_crop.jpg", results[0]["line_crop_url"])
+        attempt = results[0]["candidate_attempts"][0]
+        self.assertEqual(attempt["line_crop_filename"], "checker_formula_line_4_boxed_formula.jpg")
+
+    def test_build_line_number_source_lookup_maps_stitched_lines_to_saved_crops(self) -> None:
+        example_dir = self.tmp_dir / "sample"
+        example_dir.mkdir(parents=True, exist_ok=True)
+        (example_dir / "node_entries_ROOT.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "formula_text": "□P",
+                        "justification_text": "PR",
+                        "scope_role": "premise",
+                        "_ocr_node_id": "ROOT",
+                        "_ocr_row_order": 1,
+                        "line": 1,
+                    }
+                ],
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+
+        lookup = artifact_helpers.build_line_number_source_lookup(example_dir)
+
+        self.assertEqual(lookup[1]["node_id"], "ROOT")
+        self.assertEqual(lookup[1]["row_order"], 1)
+        self.assertTrue(lookup[1]["line_crop_path"].endswith("node_line_ROOT_1.jpg"))
+
     def test_legacy_response_list_still_maps_row_order_to_visible_line_order(self) -> None:
         example_dir = self.tmp_dir / "sample"
         example_dir.mkdir(parents=True, exist_ok=True)

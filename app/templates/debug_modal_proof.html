@@ -2097,6 +2097,8 @@
                               {% if attempt.attempt_kind == "margin_anchor" %}
                                 margin anchor,
                                 y {{ attempt.strip_y1 if attempt.strip_y1 is not none else "?" }}-{{ attempt.strip_y2 if attempt.strip_y2 is not none else "?" }},
+                              {% elif attempt.attempt_kind in ["formula_crop", "boxed_formula"] %}
+                                {{ attempt.attempt_kind | replace("_", " ") }},
                               {% else %}
                                 band {{ attempt.band_index + 1 if attempt.band_index is not none else "?" }},
                                 dist {{ attempt.band_distance if attempt.band_distance is not none else "?" }},
@@ -2105,7 +2107,7 @@
                               forced {{ attempt.forced_choice or "n/a" }}
                               {% if attempt.line_crop_filename %}
                                 <div><a href="{{ attempt.line_crop_url }}">{{ attempt.line_crop_filename }}</a></div>
-                                <img src="{{ attempt.line_crop_url }}" alt="Alternate verifier crop {{ attempt.band_index + 1 if attempt.band_index is not none else '?' }}" class="crop-thumb" />
+                                <img src="{{ attempt.line_crop_url }}" alt="Alternate verifier crop {{ attempt.attempt_kind or (attempt.band_index + 1 if attempt.band_index is not none else '?') }}" class="crop-thumb" />
                               {% endif %}
                             </div>
                           {% endfor %}
@@ -2161,7 +2163,7 @@
                   <td>
                     {{ item.line_number or item.line_label or "?" }}
                     <div class="muted">editor/checker numbering</div>
-                    {% if item.node_line_order is not none %}
+                    {% if item.node_line_order is defined and item.node_line_order is not none %}
                       <div class="muted">node slot {{ item.node_line_order + 1 }}</div>
                     {% endif %}
                   </td>
@@ -2220,6 +2222,8 @@
                                 {% if attempt.attempt_kind == "margin_anchor" %}
                                   margin anchor,
                                   y {{ attempt.strip_y1 if attempt.strip_y1 is not none else "?" }}-{{ attempt.strip_y2 if attempt.strip_y2 is not none else "?" }},
+                                {% elif attempt.attempt_kind in ["formula_crop", "boxed_formula"] %}
+                                  {{ attempt.attempt_kind | replace("_", " ") }},
                                 {% else %}
                                   band {{ attempt.band_index + 1 if attempt.band_index is not none else "?" }},
                                   dist {{ attempt.band_distance if attempt.band_distance is not none else "?" }},
@@ -2228,7 +2232,7 @@
                                 forced {{ attempt.forced_choice or "n/a" }}
                                 {% if attempt.line_crop_filename %}
                                   <div><a href="{{ attempt.line_crop_url }}">{{ attempt.line_crop_filename }}</a></div>
-                                <img src="{{ attempt.line_crop_url }}" alt="Alternate verifier crop {{ attempt.band_index + 1 if attempt.band_index is not none else '?' }}" class="crop-thumb" />
+                                <img src="{{ attempt.line_crop_url }}" alt="Alternate verifier crop {{ attempt.attempt_kind or (attempt.band_index + 1 if attempt.band_index is not none else '?') }}" class="crop-thumb" />
                               {% endif %}
                             </div>
                           {% endfor %}

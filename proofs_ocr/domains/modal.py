@@ -287,6 +287,44 @@ def build_targeted_justification_ocr_prompt(config: Mapping[str, Any] | None = N
     return "\n".join(lines)
 
 
+def build_targeted_formula_ocr_prompt(
+    config: Mapping[str, Any] | None = None,
+    *,
+    focus_mode: str = "formula_crop",
+) -> str:
+    """Build a targeted formula-only reread prompt."""
+
+    canonical = canonical_modal_config(config)
+    lines = [
+        "You are rereading only the formula from one visible line of a modal Fitch-style proof.",
+    ]
+    if str(focus_mode or "").strip() == "boxed_formula":
+        lines.extend(
+            [
+                "The full line remains visible for context, but read only the red boxed formula region.",
+                "Ignore justification text outside the box.",
+            ]
+        )
+    else:
+        lines.append("The image is cropped to the formula side of one proof line.")
+    lines.extend(
+        [
+            "Return only JSON. Do not include markdown fences or explanation.",
+            'Return exactly one JSON object with these keys: "formula_text", "confidence".',
+            "Do not include line numbers or justification text.",
+            "Prefer Unicode operators: ¬, ∧, ∨, →, ↔, □, ⋄, ⊥.",
+            "Preserve repeated unary operators exactly.",
+            "If the formula is unreadable, return an empty formula_text.",
+            f"Modal system: {canonical['system']}",
+            f"Include derived rules: {'yes' if canonical['include_derived_rules'] else 'no'}",
+        ]
+    )
+    conclusion = canonical.get("conclusion") or ""
+    if conclusion:
+        lines.append(f"Target conclusion: {conclusion}")
+    return "\n".join(lines)
+
+
 def build_subproof_token_entry(child_id: str) -> dict[str, str]:
     """Return the synthetic OCR entry used to stand in for a child scope."""
 

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
-from fastapi import APIRouter, File, Form, Request, Response, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, Form, Request, Response, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
@@ -23,6 +23,7 @@ from scripts.debug_modal_proof_ocr import (
 )
 
 from . import modal_proof_debug_artifacts as artifact_helpers
+from . import modal_proof_debug_formula_review as formula_review
 from . import modal_proof_debug_fixtures as fixture_helpers
 from . import modal_proof_debug_page as page_helpers
 from . import modal_proof_debug_state as state_helpers
@@ -56,6 +57,7 @@ OCR_TEXT_ARTIFACTS = (
     "unary_structured_probe.json",
     "unary_structured_formula_probe.json",
     "unary_blob_probe.json",
+    "checker_formula_rereads.json",
     "final_structure_baseline.json",
     "final_structure.json",
     "unary_verifier.json",
@@ -209,7 +211,33 @@ def _build_review_panel(
 
 
 def _load_unary_verifier_results(example_slug: str) -> List[Dict[str, Any]]:
-    return artifact_helpers.load_unary_verifier_results(DEBUG_MODAL_PROOF_DIR, example_slug, STARTER_EXAMPLE)
+    unary_results = artifact_helpers.load_unary_verifier_results(DEBUG_MODAL_PROOF_DIR, example_slug, STARTER_EXAMPLE)
+    formula_results = artifact_helpers.load_formula_review_results(DEBUG_MODAL_PROOF_DIR, example_slug, STARTER_EXAMPLE)
+    return unary_results + formula_results
+
+
+def _run_checker_guided_formula_review(example_slug: str, state: Dict[str, Any]) -> None:
+    if str(state.get("ocr_pipeline") or "").strip() != "modal_v2_baseline":
+        return
+    checker_response = state.get("checker_response")
+    if not isinstance(checker_response, dict):
+        return
+    verifier_model = str(state.get("verifier_vision_model") or state.get("vision_model") or "").strip()
+    if not verifier_model:
+        return
+    example_dir = DEBUG_MODAL_PROOF_DIR / example_slug
+    if not example_dir.exists():
+        return
+    client = build_modal_v2_vlm_client(
+        base_url=state.get("vision_base_url") or None,
+        model=verifier_model,
+    )
+    formula_review.run_checker_guided_formula_review(
+        example_dir=example_dir,
+        state=state,
+        client=client,
+        modal_config=_build_autograde_config(state),
+    )
 
 
 def _render_checker_request_preview(checker_request: Any) -> str:
@@ -391,6 +419,7 @@ async def save_modal_proof_state(
 
 @router.post("/debug/modal-proof/run_checker", response_class=HTMLResponse)
 async def run_modal_proof_debug_checker(
+    background_tasks: BackgroundTasks,
     example: str = Form(STARTER_EXAMPLE),
     system: str = Form("K"),
     include_derived_rules: bool = Form(False),
@@ -445,6 +474,7 @@ async def run_modal_proof_debug_checker(
         state["checker_error"] = "; ".join(result.errors) or result.summary
 
     _save_example_state(example_slug, state)
+    background_tasks.add_task(_run_checker_guided_formula_review, example_slug, dict(state))
     return RedirectResponse(
         url=f"/debug/modal-proof?example={quote(example_slug)}&status={quote(str(state.get('status') or ''))}&message={quote(str(state.get('message') or ''))}",
         status_code=303,

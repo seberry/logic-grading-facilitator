@@ -446,6 +446,37 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        (example_dir / "checker_formula_rereads.json").write_text(
+            json.dumps(
+                [
+                    {
+                        "line_number": 4,
+                        "baseline_formula": "¬□¬A",
+                        "structured_formula": "¬□¬¬A",
+                        "forced_choice": "¬□¬¬A",
+                        "proposed_correction": "¬□¬¬A",
+                        "attempt_kind": "checker_guided_formula",
+                        "line_crop_path": "working\\sample\\checker_formula_line_4_formula_crop.jpg",
+                        "candidate_attempts": [
+                            {
+                                "attempt_kind": "formula_crop",
+                                "structured_formula": "¬□¬¬A",
+                                "line_crop_path": "working\\sample\\checker_formula_line_4_formula_crop.jpg",
+                            },
+                            {
+                                "attempt_kind": "boxed_formula",
+                                "structured_formula": "¬□¬¬A",
+                                "line_crop_path": "working\\sample\\checker_formula_line_4_boxed_formula.jpg",
+                            },
+                        ],
+                    }
+                ],
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+        (example_dir / "checker_formula_line_4_formula_crop.jpg").write_bytes(b"fakejpg")
+        (example_dir / "checker_formula_line_4_boxed_formula.jpg").write_bytes(b"fakejpg")
         (example_dir / "verifier_line_1_4.jpg").write_bytes(b"fakejpg")
         (example_dir / "verifier_line_1_4_band3.jpg").write_bytes(b"fakejpg")
 
@@ -458,6 +489,7 @@ class ModalProofDebugRoutesTests(unittest.TestCase):
         self.assertIn("Proof editor", response.text)
         self.assertIn("modal_v2 baseline first pass", response.text)
         self.assertIn("Flagged stitched lines: 1", response.text)
+        self.assertIn("checker guided formula", response.text.lower())
         self.assertIn("Line 4", response.text)
         self.assertIn("Detected bars", response.text)
         self.assertIn("Open image file", response.text)

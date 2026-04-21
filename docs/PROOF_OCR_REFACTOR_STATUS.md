@@ -123,6 +123,23 @@ That is normal and should not be treated as a geometry failure by itself.
     nearby handwriting without guessing which line to read.
   - Per-case outputs are written to `failed_line_rereads.json` plus
     `failed_line_reread_*_*.jpg` artifacts beside the normal regression output.
+- `/debug/modal-proof` now also has a checker-guided formula-review path for
+  `modal_v2 baseline` runs:
+  - `app/routes/modal_proof_debug_formula_review.py`
+  - `proofs_ocr/pipelines/modal_v2_formula_rereads.py`
+  - it runs after the checker, in the background, against saved line crops
+  - it targets:
+    - direct checker parse-error lines first
+    - then direct checker rule-error lines
+    - then cited dependency lines, with short citation ranges expanded
+    - plus immediate neighbors of parse-error lines
+  - strict-open dependency rows are skipped unless they are themselves direct
+    checker issues
+  - acceptance remains conservative:
+    - a formula is only surfaced as a proposed correction when both formula
+      reread attempts agree on the same changed formula
+    - mixed rereads remain review evidence only and must not silently rewrite
+      the proof JSON
 - Some handwritten gold cases still reflect difficult OCR targets and should be
   treated as active evaluation targets, not as evidence that the baseline is
   already strong on handwriting.

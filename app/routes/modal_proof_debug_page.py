@@ -339,6 +339,10 @@ def attempt_source_label(attempt: Dict[str, Any], result_kind: str) -> str:
     attempt_kind = str(attempt.get("attempt_kind") or "local_band").strip()
     if attempt_kind == "margin_anchor":
         prefix = "Margin-anchor"
+    elif attempt_kind == "formula_crop":
+        prefix = "Formula-crop"
+    elif attempt_kind == "boxed_formula":
+        prefix = "Boxed-formula"
     else:
         band_index = attempt.get("band_index")
         if isinstance(band_index, int):
@@ -367,7 +371,8 @@ def build_review_panel(
             if raw_label.isdigit():
                 line_number = int(raw_label)
         if isinstance(line_number, int):
-            verifier_by_line[line_number] = item
+            existing = verifier_by_line.get(line_number)
+            verifier_by_line[line_number] = _merge_verifier_record(existing, item) if isinstance(existing, dict) else dict(item)
     saved_decisions = parse_review_decisions(state.get("review_decisions"))
 
     flagged_lines = sorted(set(current_lines.keys()) | set(checker_issue_map.keys()) | set(verifier_by_line.keys()))
@@ -521,6 +526,32 @@ def build_review_panel(
         "resolved_count": resolved_count,
         "unresolved_count": max(0, len(review_items) - resolved_count),
     }
+
+
+def _merge_verifier_record(existing: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
+    merged = dict(existing)
+    for key in (
+        "baseline_formula",
+        "structured_formula",
+        "forced_choice",
+        "proposed_correction",
+        "attempt_kind",
+        "line_crop_path",
+        "line_crop_filename",
+        "line_crop_url",
+    ):
+        if not str(merged.get(key) or "").strip() and str(incoming.get(key) or "").strip():
+            merged[key] = incoming.get(key)
+    merged_attempts: List[Dict[str, Any]] = []
+    for attempt in (existing.get("candidate_attempts") or []):
+        if isinstance(attempt, dict):
+            merged_attempts.append(dict(attempt))
+    for attempt in (incoming.get("candidate_attempts") or []):
+        if isinstance(attempt, dict):
+            merged_attempts.append(dict(attempt))
+    if merged_attempts:
+        merged["candidate_attempts"] = merged_attempts
+    return merged
 
 
 def _stage_suspicious_reasons(stage: Dict[str, Any]) -> List[str]:

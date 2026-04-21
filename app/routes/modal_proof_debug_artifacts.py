@@ -163,8 +163,33 @@ def build_stitched_line_lookup(example_dir: Path) -> Dict[Tuple[str, int], Dict[
             "formula": str(line.get("wffstr") or "").strip(),
             "citation": str(line.get("jstr") or "").strip(),
             "scope_role": str(line.get("scope_role") or "").strip(),
+            "source_node_id": node_id,
+            "source_row_order": int(row_order) if isinstance(row_order, int) else 0,
+            "visible_line_order": int(line_order),
         }
     return lookup
+
+
+def build_line_number_source_lookup(example_dir: Path) -> Dict[int, Dict[str, Any]]:
+    stitched_lookup = build_stitched_line_lookup(example_dir)
+    result: Dict[int, Dict[str, Any]] = {}
+    for stitched in stitched_lookup.values():
+        line_number = int(stitched.get("line_number") or 0)
+        node_id = str(stitched.get("source_node_id") or "").strip()
+        row_order = int(stitched.get("source_row_order") or 0)
+        if line_number <= 0 or not node_id or row_order <= 0:
+            continue
+        result[line_number] = {
+            "line_number": line_number,
+            "node_id": node_id,
+            "row_order": row_order,
+            "formula": str(stitched.get("formula") or "").strip(),
+            "citation": str(stitched.get("citation") or "").strip(),
+            "scope_role": str(stitched.get("scope_role") or "").strip(),
+            "line_crop_path": str((example_dir / f"node_line_{node_id}_{row_order}.jpg").resolve()),
+            "formula_crop_path": str((example_dir / f"node_line_formula_{node_id}_{row_order}.jpg").resolve()),
+        }
+    return result
 
 
 def load_node_response(example_dir: Path, node_id: str) -> Dict[str, Any]:
@@ -261,16 +286,7 @@ def row_order_to_visible_line_order(node_response: Dict[str, Any], row_order: in
     return None
 
 
-def load_unary_verifier_results(debug_dir: Path, example_slug: str, starter_example: str) -> List[Dict[str, Any]]:
-    if not example_slug or example_slug == starter_example:
-        return []
-    path = debug_dir / example_slug / "unary_verifier.json"
-    if not path.exists():
-        return []
-    try:
-        parsed = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return []
+def _annotate_review_result_assets(parsed: Any, *, example_slug: str) -> List[Dict[str, Any]]:
     if not isinstance(parsed, list):
         return []
 
@@ -301,3 +317,29 @@ def load_unary_verifier_results(debug_dir: Path, example_slug: str, starter_exam
             record["candidate_attempts"] = annotated_attempts
         annotated.append(record)
     return annotated
+
+
+def load_unary_verifier_results(debug_dir: Path, example_slug: str, starter_example: str) -> List[Dict[str, Any]]:
+    if not example_slug or example_slug == starter_example:
+        return []
+    path = debug_dir / example_slug / "unary_verifier.json"
+    if not path.exists():
+        return []
+    try:
+        parsed = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    return _annotate_review_result_assets(parsed, example_slug=example_slug)
+
+
+def load_formula_review_results(debug_dir: Path, example_slug: str, starter_example: str) -> List[Dict[str, Any]]:
+    if not example_slug or example_slug == starter_example:
+        return []
+    path = debug_dir / example_slug / "checker_formula_rereads.json"
+    if not path.exists():
+        return []
+    try:
+        parsed = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    return _annotate_review_result_assets(parsed, example_slug=example_slug)
