@@ -74,6 +74,7 @@ class ModalBaselineArtifactLineReader:
                 formula_prompt=self.formula_prompt,
                 justification_prompt=self.justification_prompt,
                 node=node,
+                node_crop_img=node_crop_img,
                 line_crop_img=line_crop_img,
                 row_record=row_record,
                 feature_flags=feature_flags,

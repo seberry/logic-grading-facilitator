@@ -63,6 +63,7 @@ def read_line_with_zone_separation(
     formula_prompt: str,
     justification_prompt: str,
     node: Any,
+    node_crop_img: np.ndarray,
     line_crop_img: np.ndarray,
     row_record: Mapping[str, Any],
     feature_flags: Any | None = None,
@@ -108,6 +109,7 @@ def read_line_with_zone_separation(
     tight_justification_crop_name = ""
     tight_justification_geometry: dict[str, int | bool] = {}
     tight_justification_reread: dict[str, Any] | None = None
+    contradiction_reread: dict[str, Any] | None = None
     boxed_justification_head_reread: dict[str, Any] | None = None
     formula_consensus_reread: dict[str, Any] | None = None
     zone_recovery_applied = ""
@@ -230,6 +232,24 @@ def read_line_with_zone_separation(
                 recovery_applied = strict_open_recovery
         if not recovery_applied and zone_recovery_applied:
             recovery_applied = zone_recovery_applied
+        if bool(getattr(feature_flags, "enable_contradiction_reread", False)):
+            from proofs_ocr.pipelines.modal_v2_line_rereads import maybe_reread_contradiction_line
+
+            contradiction_candidate, contradiction_artifact, contradiction_recovery = maybe_reread_contradiction_line(
+                output_dir=output_dir,
+                client=verifier_client,
+                node_id=str(node.id),
+                row_order=row_order,
+                node_crop_img=node_crop_img,
+                row_record=row_record,
+                line_crop_img=line_crop_img,
+                parsed_entry=merged,
+            )
+            if contradiction_artifact is not None:
+                contradiction_reread = contradiction_artifact
+            if contradiction_recovery:
+                merged = contradiction_candidate
+                recovery_applied = contradiction_recovery
         if bool(getattr(feature_flags, "enable_formula_consensus_reread", False)):
             from proofs_ocr.pipelines.modal_v2_formula_rereads import maybe_reread_formula_text
 
@@ -276,6 +296,8 @@ def read_line_with_zone_separation(
     }
     if tight_justification_reread is not None:
         payload["tight_justification_reread"] = tight_justification_reread
+    if contradiction_reread is not None:
+        payload["contradiction_reread"] = contradiction_reread
     if boxed_justification_head_reread is not None:
         payload["boxed_justification_head_reread"] = boxed_justification_head_reread
     if formula_consensus_reread is not None:

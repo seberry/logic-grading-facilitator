@@ -1167,6 +1167,71 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
         finally:
             shutil.rmtree(output_dir, ignore_errors=True)
 
+    def test_modal_baseline_artifact_line_reader_can_apply_contradiction_reread_with_zone_separation(self) -> None:
+        class PrimaryClient:
+            def __init__(self) -> None:
+                self.calls = []
+
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                del system_prompt
+                self.calls.append((image_path.name, prompt))
+                if "formula side" in prompt:
+                    return '{"line_label":"","formula_text":"¬E","confidence":"high"}'
+                return '{"justification_text":"4,8","confidence":"high"}'
+
+        class VerifierClient:
+            def __init__(self) -> None:
+                self.calls = []
+
+            def chat_with_image_prompt(self, image_path, prompt, system_prompt=None):
+                del system_prompt
+                self.calls.append((image_path.name, prompt))
+                return (
+                    '{"line_label":"","formula_text":"⊥","justification_text":"¬E 4,8",'
+                    '"scope_role":"derived_line","confidence":"0.99"}'
+                )
+
+        image = np.full((52, 420, 3), 255, dtype=np.uint8)
+        cv2.putText(image, "9", (12, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(image, "_|_", (82, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+        cv2.putText(image, "~E 4,8", (285, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+
+        node = SubproofNode("1", (0, 0, 0, 0))
+        output_dir = Path("working/test_modal_v2_runtime_zone_contradiction_reread")
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            primary_client = PrimaryClient()
+            verifier_client = VerifierClient()
+            reader = ModalBaselineArtifactLineReader(
+                output_dir=output_dir,
+                client=primary_client,
+                verifier_client=verifier_client,
+                prompt="unused",
+                modal_config={"system": "S4"},
+                enable_formula_justification_separation=True,
+            )
+
+            resolved = reader(
+                node=node,
+                node_crop_img=image,
+                line_crop_img=image,
+                row_record={"row_order": 9, "band_index": 0, "y1": 8, "y2": 42},
+                feature_flags=ModalPipelineFeatureFlags(enable_contradiction_reread=True),
+            )
+
+            self.assertEqual(resolved["formula_text"], "⊥")
+            self.assertEqual(resolved["justification_text"], "¬E 4,8")
+            self.assertEqual(len(primary_client.calls), 2)
+            self.assertEqual(len(verifier_client.calls), 1)
+            self.assertEqual(verifier_client.calls[0][0], "node_line_contradiction_reread_1_9.jpg")
+            payload = (output_dir / "node_line_1_9.json").read_text(encoding="utf-8")
+            self.assertIn('"recovery_applied": "contradiction_reread"', payload)
+            self.assertIn('"contradiction_reread"', payload)
+            self.assertIn('"formula_text": "⊥"', payload)
+        finally:
+            shutil.rmtree(output_dir, ignore_errors=True)
+
     def test_run_structured_unary_probe_can_use_formula_zone_crops_only(self) -> None:
         class FixedVerifierClient:
             def __init__(self) -> None:
