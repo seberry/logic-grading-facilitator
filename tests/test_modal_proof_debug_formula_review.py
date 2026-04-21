@@ -130,6 +130,44 @@ class ModalProofDebugFormulaReviewTests(unittest.TestCase):
                 source_record={"scope_role": "strict_open"},
             )
         )
+
+    def test_select_formula_proposal_accepts_spacing_and_tilde_only_differences(self) -> None:
+        self.assertEqual(
+            formula_review._select_formula_proposal(
+                baseline_formula="□(P→Q)",
+                attempt_formulas=["P → Q", "P→Q"],
+                target_reasons=["cited_by_7"],
+            ),
+            "P → Q",
+        )
+        self.assertEqual(
+            formula_review._select_formula_proposal(
+                baseline_formula="~A",
+                attempt_formulas=["~~A", "¬¬A"],
+                target_reasons=["parse_error"],
+            ),
+            "~~A",
+        )
+
+    def test_select_formula_proposal_rejects_mixed_formula_candidates(self) -> None:
+        self.assertEqual(
+            formula_review._select_formula_proposal(
+                baseline_formula="Q → ¬E",
+                attempt_formulas=["□Q", "Q"],
+                target_reasons=["cited_by_7"],
+            ),
+            "",
+        )
+
+    def test_select_formula_proposal_rejects_large_dependency_only_hallucination(self) -> None:
+        self.assertEqual(
+            formula_review._select_formula_proposal(
+                baseline_formula="⊥",
+                attempt_formulas=["¬□¬¬A", "~□~~A"],
+                target_reasons=["cited_by_10"],
+            ),
+            "",
+        )
         self.assertTrue(
             formula_review._should_review_line(
                 line_number=3,

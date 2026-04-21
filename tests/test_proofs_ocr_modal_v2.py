@@ -802,6 +802,12 @@ class ModalV2BaselinePipelineTests(unittest.TestCase):
         self.assertEqual(modal.normalize_formula_text("◊A"), "⋄A")
         self.assertEqual(modal.normalize_formula_text("<>A"), "⋄A")
 
+    def test_canonicalize_formula_for_comparison_collapses_spacing_and_tilde_variants(self) -> None:
+        self.assertEqual(modal.canonicalize_formula_for_comparison("P → Q"), "P→Q")
+        self.assertEqual(modal.canonicalize_formula_for_comparison("P→Q"), "P→Q")
+        self.assertEqual(modal.canonicalize_formula_for_comparison("~~A"), "¬¬A")
+        self.assertEqual(modal.canonicalize_formula_for_comparison("~ ~ A"), "¬¬A")
+
     def test_resolve_modal_ocr_entry_fills_blank_first_line_as_pr(self) -> None:
         resolved = modal.resolve_modal_ocr_entry(
             {

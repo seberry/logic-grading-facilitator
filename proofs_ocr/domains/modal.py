@@ -19,6 +19,7 @@ _WHITESPACE_RE = re.compile(r"\s+")
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 _DASH_BETWEEN_DIGITS_RE = re.compile(r"(?<=\d)\s*[-–—]\s*(?=\d)")
 _COMMA_BETWEEN_DIGITS_RE = re.compile(r"(?<=\d)\s*,\s*(?=\d)")
+_FORMULA_COMPARE_SPACE_RE = re.compile(r"\s+")
 _STUCK_JUSTIFICATION_TAIL_RE = re.compile(
     r"^(PR|R|∧I|∧E|∨I|∨E|→I|→E|↔I|↔E|¬I|¬E|~I|~E|IP|DN|MC|□I|□E|R4|R5|RT|Def⋄|AI|AE|CI|CE|NI|NE|OI|DE|BOXI|BOXE)(\d.*)$"
 )
@@ -142,6 +143,17 @@ def normalize_formula_text(value: Any) -> str:
     normalized = _collapse_whitespace(value)
     for source, target in (("<->", "↔"), ("->", "→"), ("[]", "□"), ("<>", "⋄"), ("◇", "⋄"), ("◊", "⋄")):
         normalized = normalized.replace(source, target)
+    return normalized
+
+
+def canonicalize_formula_for_comparison(value: Any) -> str:
+    """Canonicalize a formula for equality checks without changing display text."""
+
+    normalized = normalize_formula_text(value)
+    if not normalized:
+        return ""
+    normalized = normalized.replace("~", "¬")
+    normalized = _FORMULA_COMPARE_SPACE_RE.sub("", normalized)
     return normalized
 
 

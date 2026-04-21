@@ -73,6 +73,7 @@ def run_checker_guided_formula_review(
         proposed_correction = _select_formula_proposal(
             baseline_formula=current_formula,
             attempt_formulas=[str(item.get("structured_formula") or "").strip() for item in attempts],
+            target_reasons=reasons,
         )
         records.append(
             {
@@ -227,14 +228,40 @@ def _run_formula_attempts(
     return attempts
 
 
-def _select_formula_proposal(*, baseline_formula: str, attempt_formulas: Sequence[str]) -> str:
-    normalized_baseline = modal.normalize_formula_text(baseline_formula)
-    changed = [modal.normalize_formula_text(value) for value in attempt_formulas if modal.normalize_formula_text(value) and modal.normalize_formula_text(value) != normalized_baseline]
-    if not changed:
+def _select_formula_proposal(
+    *,
+    baseline_formula: str,
+    attempt_formulas: Sequence[str],
+    target_reasons: Sequence[str] | None = None,
+) -> str:
+    normalized_baseline = modal.canonicalize_formula_for_comparison(baseline_formula)
+    changed_pairs: list[tuple[str, str]] = []
+    for value in attempt_formulas:
+        display_formula = modal.normalize_formula_text(value)
+        canonical_formula = modal.canonicalize_formula_for_comparison(value)
+        if not display_formula or not canonical_formula or canonical_formula == normalized_baseline:
+            continue
+        changed_pairs.append((canonical_formula, display_formula))
+    if not changed_pairs:
         return ""
-    counts = Counter(changed)
-    if len(counts) == 1 and max(counts.values()) >= 2:
-        return changed[0]
-    if not normalized_baseline and len(counts) == 1:
-        return changed[0]
+    counts = Counter(canonical for canonical, _display in changed_pairs)
+    if len(counts) != 1:
+        return ""
+    canonical_value = next(iter(counts))
+    if max(counts.values()) < 2 and normalized_baseline:
+        return ""
+    direct_issue = any(reason in {"parse_error", "check_error"} for reason in (target_reasons or []))
+    if normalized_baseline and not direct_issue and not _looks_like_minor_formula_change(normalized_baseline, canonical_value):
+        return ""
+    for canonical_formula, display_formula in changed_pairs:
+        if canonical_formula == canonical_value:
+            return display_formula
     return ""
+
+
+def _looks_like_minor_formula_change(baseline_formula: str, candidate_formula: str) -> bool:
+    if not baseline_formula or not candidate_formula:
+        return False
+    if baseline_formula in candidate_formula or candidate_formula in baseline_formula:
+        return True
+    return False
