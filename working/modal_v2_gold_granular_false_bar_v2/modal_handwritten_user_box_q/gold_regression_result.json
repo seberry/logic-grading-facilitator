@@ -1,9 +1,0 @@
-{
-  "case_id": "modal_handwritten_user_box_q",
-  "oracle_kind": "gold_curated_from_image",
-  "image_path": "C:\\Users\\seber\\logic-grading-facilitator-MAIN\\proofs_ocr\\regression\\fixtures\\modal\\handwritten\\user_box_q\\image.jpg",
-  "expected_structure_path": "C:\\Users\\seber\\logic-grading-facilitator-MAIN\\proofs_ocr\\regression\\fixtures\\modal\\handwritten\\user_box_q\\expected_structure.json",
-  "passed": false,
-  "run_summary": "modal_v2 baseline OCR produced 7 visible lines across 2 nodes and detected 1 subproof bars. False-left-separator filtering was enabled and removed one candidate bar.",
-  "error": ""
-}

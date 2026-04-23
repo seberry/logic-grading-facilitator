@@ -1,0 +1,12 @@
+[
+  {"line": 1, "wffstr": "(P∧Q)→R", "jstr": "Pr"},
+  {"line": 2, "wffstr": "P→Q", "jstr": "Pr"},
+  [
+    {"line": 3, "wffstr": "P∧S", "jstr": "Hyp"},
+    {"line": 4, "wffstr": "P", "jstr": "∧E 3"},
+    {"line": 5, "wffstr": "Q", "jstr": "→E 2,4"},
+    {"line": 6, "wffstr": "P∧Q", "jstr": "∧I 4,5"},
+    {"line": 7, "wffstr": "R", "jstr": "→E 1,6"}
+  ],
+  {"line": 8, "wffstr": "(P∧S)→R", "jstr": "→I 3-7"}
+]

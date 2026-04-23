@@ -1,8 +1,0 @@
-task_kind: truth_value
-default_score_correct: 2
-default_score_incorrect: 0
-prompt_data:
-  formulas:
-    - "Pa"
-    - "∃x Rxa"
-    - "∀x (Px → Qx)"

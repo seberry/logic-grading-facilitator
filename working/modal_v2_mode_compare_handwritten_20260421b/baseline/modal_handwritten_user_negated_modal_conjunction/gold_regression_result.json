@@ -1,9 +1,0 @@
-{
-  "case_id": "modal_handwritten_user_negated_modal_conjunction",
-  "oracle_kind": "gold_curated_from_image",
-  "image_path": "C:\\Users\\seber\\logic-grading-facilitator-MAIN\\proofs_ocr\\regression\\fixtures\\modal\\handwritten\\user_negated_modal_conjunction\\image.jpg",
-  "expected_structure_path": "C:\\Users\\seber\\logic-grading-facilitator-MAIN\\proofs_ocr\\regression\\fixtures\\modal\\handwritten\\user_negated_modal_conjunction\\expected_structure.json",
-  "passed": false,
-  "run_summary": "modal_v2 baseline OCR produced 10 visible lines across 3 nodes and detected 2 subproof bars. Contradiction-line reread was enabled. Formula-only consensus reread was enabled.",
-  "error": ""
-}

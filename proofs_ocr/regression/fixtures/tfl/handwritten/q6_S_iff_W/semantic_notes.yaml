@@ -1,0 +1,20 @@
+notes:
+  - line: 6
+    field: "jstr"
+    description: >
+      Intentional student error: ∧I 4,5 combines line 4 (S) and line 5 (W),
+      which would give S∧W, not W∧A as claimed. Student skipped deriving A
+      from line 3 (S∧A). Transcribing what is written, not what is correct.
+    as_written: "∧I 4,5"
+    expected_conclusion: "S∧W"
+    actual_wffstr: "W∧A"
+    error_kind: "invalid_rule_application"
+  - line: 10
+    field: "jstr"
+    description: >
+      Same pattern as line 6: ∧I 8,9 combines W (line 8) and S (line 9),
+      giving W∧S not S∧A. Student skipped deriving A from line 7 (W∧A).
+    as_written: "∧I 8,9"
+    expected_conclusion: "W∧S"
+    actual_wffstr: "S∧A"
+    error_kind: "invalid_rule_application"

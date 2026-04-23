@@ -1,9 +1,0 @@
-{
-  "case_id": "modal_k_typeset_mixed_subproofs",
-  "oracle_kind": "gold_from_source_tex",
-  "image_path": "C:\\Users\\seber\\logic-grading-facilitator-MAIN\\proofs_ocr\\regression\\fixtures\\modal\\typeset\\k_mixed_subproofs\\image.png",
-  "expected_structure_path": "C:\\Users\\seber\\logic-grading-facilitator-MAIN\\proofs_ocr\\regression\\fixtures\\modal\\typeset\\k_mixed_subproofs\\expected_structure.json",
-  "passed": true,
-  "run_summary": "modal_v2 baseline OCR produced 8 visible lines across 4 nodes and detected 3 subproof bars. Contradiction-line reread was enabled. Boxed justification-head reread was enabled. Formula-only consensus reread was enabled.",
-  "error": ""
-}

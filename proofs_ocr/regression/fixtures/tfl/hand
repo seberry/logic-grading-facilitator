@@ -1,0 +1,17 @@
+[
+  {"line": 1, "wffstr": "S→W", "jstr": "Pr"},
+  {"line": 2, "wffstr": "W→S", "jstr": "Pr"},
+  [
+    {"line": 3, "wffstr": "S∧A", "jstr": "Hyp"},
+    {"line": 4, "wffstr": "S", "jstr": "∧E 3"},
+    {"line": 5, "wffstr": "W", "jstr": "→E 1,4"},
+    {"line": 6, "wffstr": "W∧A", "jstr": "∧I 4,5"}
+  ],
+  [
+    {"line": 7, "wffstr": "W∧A", "jstr": "Hyp"},
+    {"line": 8, "wffstr": "W", "jstr": "∧E 7"},
+    {"line": 9, "wffstr": "S", "jstr": "→E 2,8"},
+    {"line": 10, "wffstr": "S∧A", "jstr": "∧I 8,9"}
+  ],
+  {"line": 11, "wffstr": "(S∧A)↔(W∧A)", "jstr": "↔I 3-6,7-10"}
+]

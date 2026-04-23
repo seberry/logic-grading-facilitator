@@ -1,5 +1,0 @@
-{
-  "case_id": "modal_handwritten_user_negated_modal_conjunction",
-  "oracle_kind": "gold_curated_from_image",
-  "error": "HTTPConnectionPool(host='127.0.0.1', port=1234): Read timed out. (read timeout=60)"
-}

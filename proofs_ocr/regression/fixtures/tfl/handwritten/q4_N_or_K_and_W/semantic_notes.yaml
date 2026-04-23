@@ -1,0 +1,6 @@
+notes:
+  - line: 4
+    field: jstr
+    description: Image shows F 2,3 normalized to E 2,3
+    as_written: "F 2,3"
+    normalized_to: "E 2,3"

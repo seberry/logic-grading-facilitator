@@ -1,0 +1,8 @@
+notes:
+  - line: 4
+    field: "jstr"
+    description: >
+      Image shows '↔F 2,3' — the E likely has a missing bottom stroke in
+      handwriting. Treating as ↔E for verification purposes.
+    as_written: "↔F 2,3"
+    normalized_to: "↔E 2,3"

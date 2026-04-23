@@ -1,0 +1,7 @@
+[
+  {"line": 1, "wffstr": "(P∨K)↔(Z∧W)", "jstr": "Pr"},
+  {"line": 2, "wffstr": "P", "jstr": "Pr"},
+  {"line": 3, "wffstr": "P∨K", "jstr": "∨I 2"},
+  {"line": 4, "wffstr": "Z∧W", "jstr": "↔E 1,4"},
+  {"line": 5, "wffstr": "W", "jstr": "∧E 4"}
+]

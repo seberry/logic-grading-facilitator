@@ -454,7 +454,7 @@ The repo is intentionally split into:
   - `SCHEMA.md` – JSON schema for sessions / work units
   - `FUTURE_AUTOMATION.md` – roadmap for more automation
 
-- `data/` – **live quiz data** (FERPA-sensitive)
+- `data/` – **live quiz data** (FERPA-sensitive) [note: real data is now stored in a seprate folder]
   - `roster.csv` – canonical roster for the *current* run
   - `rubric/quiz1.yaml` – rubric / grading key (OK to share)
   - `raw_scans/` – raw scanned PDFs/JPGs from the current quiz
