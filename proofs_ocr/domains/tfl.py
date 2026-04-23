@@ -55,6 +55,7 @@ def canonicalize_formula_for_comparison(value: Any) -> str:
 
 _DASH_BETWEEN_DIGITS_RE = re.compile(r"(?<=\d)\s*[-–—]\s*(?=\d)")
 _COMMA_BETWEEN_DIGITS_RE = re.compile(r"(?<=\d)\s*,\s*(?=\d)")
+_SPACE_BETWEEN_DIGITS_RE = re.compile(r"(?<=\d)\s+(?=\d)")
 
 # Justification head aliases (lowercase → canonical head)
 _JUSTIFICATION_HEAD_ALIASES: dict[str, str] = {
@@ -126,6 +127,12 @@ def canonicalize_justification_for_comparison(value: Any) -> str:
     parts = normalized.split(" ", 1)
     head = parts[0].strip()
     tail = parts[1].strip() if len(parts) > 1 else ""
+
+    # Convert bare spaces between digits in the tail to commas.
+    # Handles OCR output like "1, 3-4 5-6" → "1,3-4,5-6" where the VLM
+    # omits a comma between citation groups.
+    if tail:
+        tail = _SPACE_BETWEEN_DIGITS_RE.sub(",", tail)
 
     # Alias lookup (case-insensitive)
     alias = _JUSTIFICATION_HEAD_ALIASES.get(head.lower())
