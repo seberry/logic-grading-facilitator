@@ -31,6 +31,32 @@ class ProofOcrRegressionRunnerTests(unittest.TestCase):
 
         self.assertEqual([case["id"] for case in selected], ["gold_a", "gold_b"])
 
+    def test_case_lookup_indexes_manifest_cases_by_id(self) -> None:
+        manifest = {
+            "cases": [
+                {"id": "case_a", "oracle_kind": "gold_from_source_tex"},
+                {"id": "case_b", "oracle_kind": "gold_curated_from_image"},
+            ]
+        }
+
+        lookup = runner.case_lookup(manifest)
+
+        self.assertEqual(sorted(lookup.keys()), ["case_a", "case_b"])
+        self.assertEqual(lookup["case_b"]["oracle_kind"], "gold_curated_from_image")
+
+    def test_get_case_returns_requested_case(self) -> None:
+        manifest = {"cases": [{"id": "case_a", "kind": "typeset"}]}
+
+        case = runner.get_case(manifest, "case_a")
+
+        self.assertEqual(case["kind"], "typeset")
+
+    def test_get_case_raises_for_unknown_case(self) -> None:
+        manifest = {"cases": [{"id": "case_a", "kind": "typeset"}]}
+
+        with self.assertRaises(KeyError):
+            runner.get_case(manifest, "missing")
+
     def test_compare_proof_structures_ignores_line_metadata(self) -> None:
         expected = [
             {"line_label": "1", "wffstr": "□A", "jstr": "PR", "line": 1},

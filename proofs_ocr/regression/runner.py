@@ -89,6 +89,22 @@ def manifest_cases(manifest: Dict[str, Any]) -> List[Dict[str, Any]]:
     return [case for case in cases if isinstance(case, dict)]
 
 
+def case_lookup(manifest: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    return {
+        str(case.get("id") or "").strip(): case
+        for case in manifest_cases(manifest)
+        if str(case.get("id") or "").strip()
+    }
+
+
+def get_case(manifest: Dict[str, Any], case_id: str) -> Dict[str, Any]:
+    lookup = case_lookup(manifest)
+    normalized = str(case_id or "").strip()
+    if normalized not in lookup:
+        raise KeyError(f"Unknown proof OCR regression case: {normalized}")
+    return lookup[normalized]
+
+
 def _check_case_paths(case: Dict[str, Any], repo_root: Path) -> Dict[str, bool]:
     image_path = repo_root / str(case.get("image_path") or "")
     expected_path = repo_root / str(case.get("expected_structure_path") or "")

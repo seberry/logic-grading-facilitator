@@ -1,6 +1,135 @@
 """TFL-proof OCR adapter layer.
 
-This starts as a placeholder because the current TFL OCR path remains in the
-existing debug script until the new shared architecture is proven out.
+Owns TFL-specific prompts, normalization, and comparison policy for the Fitch
+OCR pipeline.  This started as a placeholder and now provides the canonical
+comparison helpers needed by the TFL gold-regression runner.
 """
 
+from __future__ import annotations
+
+import re
+from typing import Any
+
+_WHITESPACE_RE = re.compile(r"\s+")
+
+# ── Symbol normalisation ─────────────────────────────────────────────
+
+# Order matters: replace multi-character tokens before single characters.
+_SYMBOL_REPLACEMENTS = (
+    ("<->", "↔"),
+    ("->", "→"),
+    ("=>", "→"),
+    ("<→", "↔"),
+    ("~", "¬"),
+    ("&", "∧"),
+    ("v", "∨"),
+    ("V", "∨"),
+    ("_|_", "⊥"),
+)
+
+# ── Whitespace / cosmetic helpers ────────────────────────────────────
+
+def _collapse_whitespace(value: Any) -> str:
+    return _WHITESPACE_RE.sub(" ", str(value or "")).strip()
+
+
+# ── Canonical comparison helpers ─────────────────────────────────────
+
+def canonicalize_formula_for_comparison(value: Any) -> str:
+    """Canonicalize a TFL formula for equality checks.
+
+    Collapses whitespace, normalises ASCII logic symbols to Unicode, and
+    strips remaining spaces so that e.g. ``P ∧ Q`` matches ``P∧Q``.
+    """
+
+    normalized = _collapse_whitespace(value)
+    if not normalized:
+        return ""
+    # Multi-char operators first to avoid partial replacements
+    for src, tgt in _SYMBOL_REPLACEMENTS:
+        normalized = normalized.replace(src, tgt)
+    # Strip all remaining spaces for comparison
+    normalized = _WHITESPACE_RE.sub("", normalized)
+    return normalized
+
+
+_DASH_BETWEEN_DIGITS_RE = re.compile(r"(?<=\d)\s*[-–—]\s*(?=\d)")
+_COMMA_BETWEEN_DIGITS_RE = re.compile(r"(?<=\d)\s*,\s*(?=\d)")
+
+# Justification head aliases (lowercase → canonical head)
+_JUSTIFICATION_HEAD_ALIASES: dict[str, str] = {
+    "pr": "Pr",
+    "premise": "Pr",
+    "prem": "Pr",
+    "hyp": "Hyp",
+    "assumption": "Hyp",
+    "assume": "Hyp",
+    "h": "Hyp",
+    # Standard TFL rules
+    "∧i": "∧I",
+    "∧e": "∧E",
+    "&i": "∧I",
+    "&e": "∧E",
+    "∨i": "∨I",
+    "∨e": "∨E",
+    "vi": "∨I",
+    "ve": "∨E",
+    "→i": "→I",
+    "→e": "→E",
+    "↔i": "↔I",
+    "↔e": "↔E",
+    "¬i": "¬I",
+    "¬e": "¬E",
+    "~i": "¬I",
+    "~e": "¬E",
+    "-i": "¬I",
+    "-e": "¬E",
+    # Explosion / falsum
+    "⊥i": "⊥I",
+    "⊥e": "⊥E",
+    "xi": "⊥I",
+    "xe": "⊥E",
+    "boti": "⊥I",
+    "bote": "⊥E",
+    # Derived / shorthand
+    "ip": "IP",
+    "r": "R",
+    "mt": "MT",
+    "ds": "DS",
+    "dne": "DNE",
+    "dem": "DeM",
+    "lem": "LEM",
+}
+
+
+def canonicalize_justification_for_comparison(value: Any) -> str:
+    """Canonicalize a TFL justification for equality checks.
+
+    Normalises the rule head, standardises dash/comma formatting in
+    citations, and collapses whitespace.
+    """
+
+    normalized = _collapse_whitespace(value)
+    if not normalized:
+        return ""
+
+    # Normalise arrows / symbols that may appear in rule heads
+    for src, tgt in _SYMBOL_REPLACEMENTS:
+        normalized = normalized.replace(src, tgt)
+
+    # Normalise dash/comma between digit citations
+    normalized = normalized.replace("–", "-").replace("—", "-")
+    normalized = _DASH_BETWEEN_DIGITS_RE.sub("-", normalized)
+    normalized = _COMMA_BETWEEN_DIGITS_RE.sub(",", normalized)
+
+    # Split into rule head + tail
+    parts = normalized.split(" ", 1)
+    head = parts[0].strip()
+    tail = parts[1].strip() if len(parts) > 1 else ""
+
+    # Alias lookup (case-insensitive)
+    alias = _JUSTIFICATION_HEAD_ALIASES.get(head.lower())
+    if alias:
+        head = alias
+
+    return f"{head} {tail}".strip()

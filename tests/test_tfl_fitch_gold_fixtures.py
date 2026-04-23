@@ -12,13 +12,12 @@ verifier should flag.
 
 import json
 import unittest
-from pathlib import Path
 from typing import List, Union
 
 import yaml
 
 from proofs_ocr.regression.runner import get_repo_root, load_manifest
-from app.verifier import ProofLine, check_proof, flatten_proof
+from app.verifier import ProofLine, check_proof
 
 
 def _structure_to_proof_lines(structure: list) -> List[Union[ProofLine, List]]:
@@ -106,9 +105,21 @@ class TFLGoldFixtureTests(unittest.TestCase):
 
     def test_q3_structure_loads(self) -> None:
         expected = self._load_expected("tfl_handwritten_q3_P_and_Q_imp_R")
-        self.assertEqual(len(expected), 4)  # 2 premises + 1 subproof list + 1 conclusion
-        self.assertIsInstance(expected[2], list)
-        self.assertEqual(len(expected[2]), 5)
+        self.assertEqual(
+            expected,
+            [
+                {"line": 1, "wffstr": "(P∧Q)→R", "jstr": "Pr"},
+                {"line": 2, "wffstr": "P→Q", "jstr": "Pr"},
+                [
+                    {"line": 3, "wffstr": "P∧S", "jstr": "Hyp"},
+                    {"line": 4, "wffstr": "P", "jstr": "∧E 3"},
+                    {"line": 5, "wffstr": "Q", "jstr": "→E 2,4"},
+                    {"line": 6, "wffstr": "P∧Q", "jstr": "∧I 4,5"},
+                    {"line": 7, "wffstr": "R", "jstr": "→E 1,6"},
+                ],
+                {"line": 8, "wffstr": "(P∧S)→R", "jstr": "→I 3-7"},
+            ],
+        )
 
     def test_q3_verifies_clean(self) -> None:
         result = self._verify_proof("tfl_handwritten_q3_P_and_Q_imp_R", numprems=2, conc="(P\u2227S)\u2192R")
@@ -119,9 +130,22 @@ class TFLGoldFixtureTests(unittest.TestCase):
 
     def test_q4_structure_loads(self) -> None:
         expected = self._load_expected("tfl_handwritten_q4_N_or_K_and_W")
-        self.assertEqual(len(expected), 5)
-        self.assertIsInstance(expected[2], list)
-        self.assertIsInstance(expected[3], list)
+        self.assertEqual(
+            expected,
+            [
+                {"line": 1, "wffstr": "N∨(K∧W)", "jstr": "Pr"},
+                {"line": 2, "wffstr": "N↔W", "jstr": "Pr"},
+                [
+                    {"line": 3, "wffstr": "N", "jstr": "Hyp"},
+                    {"line": 4, "wffstr": "W", "jstr": "↔E 2,3"},
+                ],
+                [
+                    {"line": 5, "wffstr": "K∧W", "jstr": "Hyp"},
+                    {"line": 6, "wffstr": "W", "jstr": "∧E 5"},
+                ],
+                {"line": 7, "wffstr": "W", "jstr": "∨E 1,3-4,5-6"},
+            ],
+        )
 
     def test_q4_verifies_clean(self) -> None:
         result = self._verify_proof("tfl_handwritten_q4_N_or_K_and_W", numprems=2, conc="W")
@@ -130,23 +154,40 @@ class TFLGoldFixtureTests(unittest.TestCase):
 
     def test_q4_has_semantic_notes(self) -> None:
         notes = self._load_semantic_notes("tfl_handwritten_q4_N_or_K_and_W")
-        self.assertIn("notes", notes)
-        note_lines = [n.get("line") for n in notes["notes"]]
-        self.assertIn(4, note_lines, "Q4 semantic notes should mention line 4")
+        self.assertEqual(
+            notes,
+            {
+                "notes": [
+                    {
+                        "line": 4,
+                        "field": "jstr",
+                        "description": "Image shows F 2,3 normalized to E 2,3",
+                        "as_written": "F 2,3",
+                        "normalized_to": "E 2,3",
+                    }
+                ]
+            },
+        )
 
     # -- Q5: Intentional self-citation error --
 
     def test_q5_structure_loads(self) -> None:
         expected = self._load_expected("tfl_handwritten_q5_P_or_K_biconditional")
-        self.assertEqual(len(expected), 5)
-        for item in expected:
-            self.assertIsInstance(item, dict, "Q5 should have no subproofs")
+        self.assertEqual(
+            expected,
+            [
+                {"line": 1, "wffstr": "(P∨K)↔(Z∧W)", "jstr": "Pr"},
+                {"line": 2, "wffstr": "P", "jstr": "Pr"},
+                {"line": 3, "wffstr": "P∨K", "jstr": "∨I 2"},
+                {"line": 4, "wffstr": "Z∧W", "jstr": "↔E 1,4"},
+                {"line": 5, "wffstr": "W", "jstr": "∧E 4"},
+            ],
+        )
 
     def test_q5_verifier_flags_self_citation(self) -> None:
         result = self._verify_proof("tfl_handwritten_q5_P_or_K_biconditional", numprems=2, conc="W")
-        self.assertTrue(len(result.issues) > 0, "Q5 should have verifier issues (self-citation on line 4)")
-        issue_text = " ".join(result.issues).lower()
-        self.assertIn("4", " ".join(result.issues), f"Expected issue mentioning line 4, got: {result.issues}")
+        self.assertFalse(result.conc_reached, "Q5 should not reach conclusion W")
+        self.assertEqual(result.issues, ["Line 4: Cites itself."])
 
     def test_q5_has_semantic_notes(self) -> None:
         notes = self._load_semantic_notes("tfl_handwritten_q5_P_or_K_biconditional")
@@ -159,13 +200,37 @@ class TFLGoldFixtureTests(unittest.TestCase):
 
     def test_q6_structure_loads(self) -> None:
         expected = self._load_expected("tfl_handwritten_q6_S_iff_W")
-        self.assertEqual(len(expected), 5)
-        self.assertIsInstance(expected[2], list)
-        self.assertIsInstance(expected[3], list)
+        self.assertEqual(
+            expected,
+            [
+                {"line": 1, "wffstr": "S→W", "jstr": "Pr"},
+                {"line": 2, "wffstr": "W→S", "jstr": "Pr"},
+                [
+                    {"line": 3, "wffstr": "S∧A", "jstr": "Hyp"},
+                    {"line": 4, "wffstr": "S", "jstr": "∧E 3"},
+                    {"line": 5, "wffstr": "W", "jstr": "→E 1,4"},
+                    {"line": 6, "wffstr": "W∧A", "jstr": "∧I 4,5"},
+                ],
+                [
+                    {"line": 7, "wffstr": "W∧A", "jstr": "Hyp"},
+                    {"line": 8, "wffstr": "W", "jstr": "∧E 7"},
+                    {"line": 9, "wffstr": "S", "jstr": "→E 2,8"},
+                    {"line": 10, "wffstr": "S∧A", "jstr": "∧I 8,9"},
+                ],
+                {"line": 11, "wffstr": "(S∧A)↔(W∧A)", "jstr": "↔I 3-6,7-10"},
+            ],
+        )
 
     def test_q6_verifier_flags_invalid_rule_applications(self) -> None:
         result = self._verify_proof("tfl_handwritten_q6_S_iff_W", numprems=2, conc="(S\u2227A)\u2194(W\u2227A)")
-        self.assertTrue(len(result.issues) > 0, "Q6 should have verifier issues (invalid rule on lines 6 and 10)")
+        self.assertFalse(result.conc_reached, "Q6 should not reach conclusion (S∧A)↔(W∧A)")
+        self.assertEqual(
+            result.issues,
+            [
+                "Line 6: Is not a proper application of the rule ∧I (for the line(s) cited).",
+                "Line 10: Is not a proper application of the rule ∧I (for the line(s) cited).",
+            ],
+        )
 
     def test_q6_has_semantic_notes(self) -> None:
         notes = self._load_semantic_notes("tfl_handwritten_q6_S_iff_W")

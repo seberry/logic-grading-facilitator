@@ -20,6 +20,9 @@ if a human manually fetches or pastes a file, the agent should say so before
 doing a slow workaround. Prefer asking for the file directly when that is
 likely to save substantial time or tokens.
 
+For OCR/regression work, agents should also read [docs/AI_WORKFLOW.md](docs/AI_WORKFLOW.md)
+before making structural changes.
+
 A lightweight local tool for grading scanned student submissions with minimal friction, clean data structures, and a clear path toward future automation (OCR, clustering, autograding). Designed to eliminate the mechanical overhead of: matching scans to names, managing multi-page submissions, entering per-problem scores, and exporting grades back to Canvas.
 
 This project is built around a simple core abstraction:
@@ -93,7 +96,7 @@ Grading workflow (real data):
 - Point `DATA_DIR` and `DATA_ARCHIVE_DIR` to external folders.
 
 Documentation reminder for future work:
-- Before changing or inspecting live-data workflows again, review the `FERPA guardrails` section in [docs/TODO.md](/C:/Users/seber/logic-grading-facilitator-MAIN/docs/TODO.md).
+- Before changing or inspecting live-data workflows again, review the **FERPA & Compliance** section in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#5-ferpa--compliance).
 - Planned investigation: enforce hard guardrails so AI-facing tools can do metadata-only operations on live FERPA paths without reading raw file contents into model context.
 - Preferred direction: preserve untouched Canvas ZIPs plus an import manifest automatically, and route any live-data file operations through a narrow local helper instead of direct file reads.
 
@@ -145,10 +148,10 @@ The repo now includes a small shared autograde package at `app/autograde/`.
 - `fitch_proof` and `kripke_model` remain explicit scaffold modules only.
 - The unfinished engines are present to define extension points and shared result shapes; they are not a claim that the user-facing workflows are finished.
 
-See [docs/MODAL_PROOF_DEDUCT_CLI.md](/C:/Users/seber/logic-grading-facilitator-MAIN/docs/MODAL_PROOF_DEDUCT_CLI.md)
+See [docs/MODAL_PROOF_DEDUCT_CLI.md](docs/MODAL_PROOF_DEDUCT_CLI.md)
 for the build/run boundary of the separate modal checker component.
 
-See [docs/AUTOGRADE_ARCHITECTURE.md](/C:/Users/seber/logic-grading-facilitator-MAIN/docs/AUTOGRADE_ARCHITECTURE.md) for the current contract and status table.
+See [docs/AUTOGRADE_ARCHITECTURE.md](docs/AUTOGRADE_ARCHITECTURE.md) for the current contract and status table.
 
 ## Modal proof debug page
 
@@ -410,4 +413,3 @@ Then use:
 - `GET /export_canvas_reupload_feedback_zip`
 
 This export preserves the exact original submission filenames and extensions while replacing content with per-student feedback artifacts (PDF/image). Upload that ZIP back in Canvas re-upload mode, and upload grades separately using the CSV export.
-
