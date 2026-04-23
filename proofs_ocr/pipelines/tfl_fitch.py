@@ -446,19 +446,40 @@ def filter_scaffold_bars(
         return boxes
 
     sorted_boxes = sorted(boxes, key=lambda b: (b[0], b[1]))
+
+    # Drop narrow border artifacts stuck to the extreme page edges before
+    # reasoning about the real proof scaffold vs. subproof bars.
+    edge_margin = max(16, int(img_w * 0.02))
+    narrow_width = max(24, int(img_w * 0.03))
+    sorted_boxes = [
+        box
+        for box in sorted_boxes
+        if not (
+            box[2] <= narrow_width
+            and (box[0] <= edge_margin or (box[0] + box[2]) >= (img_w - edge_margin))
+        )
+    ]
+    if not sorted_boxes:
+        return []
+
     leftmost = sorted_boxes[0]
     x, y, w, h = leftmost
 
     is_left_edge = x <= max(24, int(img_w * 0.12))
-    spans_most_height = h >= int(img_h * 0.75)
+    spans_most_height = h >= int(img_h * 0.65)
     is_narrow = w <= max(24, int(img_w * 0.06))
 
     if is_left_edge and spans_most_height and is_narrow:
         return sorted_boxes[1:]
 
+    # If exactly one tall bar remains, it is usually the outer Fitch scaffold
+    # rather than a real subproof opener.
+    if len(sorted_boxes) == 1 and spans_most_height and is_narrow:
+        return []
+
     if len(sorted_boxes) >= 2:
         nx, ny, nw, nh = sorted_boxes[1]
-        much_taller_than_next = h >= int(nh * 1.4)
+        much_taller_than_next = h >= int(nh * 1.25)
         clearly_left_of_next = (x + w) < nx
         reasonably_close_column = (nx - x) <= max(120, int(img_w * 0.18))
         if spans_most_height and much_taller_than_next and clearly_left_of_next and reasonably_close_column:

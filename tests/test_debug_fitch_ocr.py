@@ -72,6 +72,20 @@ class DebugFitchOcrNormalizationTests(unittest.TestCase):
 
         self.assertEqual(filtered, [(140, 242, 8, 138)])
 
+    def test_filter_scaffold_bars_drops_extreme_page_edge_artifacts_before_scaffold_logic(self) -> None:
+        boxes = [(0, 0, 9, 285), (559, 99, 20, 675), (612, 328, 20, 391), (1651, 0, 5, 197)]
+
+        filtered = debug_fitch_ocr.filter_scaffold_bars(boxes, img_w=1656, img_h=875)
+
+        self.assertEqual(filtered, [(612, 328, 20, 391)])
+
+    def test_filter_scaffold_bars_drops_lone_tall_scaffold_after_edge_cleanup(self) -> None:
+        boxes = [(0, 0, 7, 201), (215, 148, 23, 517), (1581, 0, 3, 101)]
+
+        filtered = debug_fitch_ocr.filter_scaffold_bars(boxes, img_w=1584, img_h=730)
+
+        self.assertEqual(filtered, [])
+
     def test_remove_empty_lines_strips_blank_ocr_noise(self) -> None:
         structure = [
             {"wffstr": "A → ¬B", "jstr": ""},
