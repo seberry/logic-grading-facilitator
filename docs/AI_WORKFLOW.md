@@ -21,7 +21,8 @@ the repo before changing OCR or regression code.
 - `python -m proofs_ocr.regression.tfl_runner summary`
 
 These are the preferred commands for CI-safe edits because they do not require a
-live vision model.
+live vision model. They validate harness logic and fixture plumbing, not the
+quality of live handwritten OCR.
 
 ## Slow or live-model workflows
 
@@ -31,7 +32,8 @@ live vision model.
 - `python scripts/debug_fitch_ocr.py <scan>.jpg`
 
 Treat these as local/manual workflows. They may require LM Studio or another
-running local VLM endpoint.
+running local VLM endpoint. When a live OCR run is enabled, expect strict
+gold-match failures until the handwritten pipeline actually improves.
 
 ## OCR architecture
 

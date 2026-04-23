@@ -15,11 +15,19 @@ Run CI-safe tests only::
 Run live OCR regressions (requires a running VLM endpoint)::
 
     RUN_LIVE_TFL_OCR=1 pytest tests/test_tfl_fitch_ocr_regression.py -v -k Live
+
+Important:
+    The CI-safe tests below do not prove that the real handwritten OCR is good.
+    They validate the TFL comparison/reporting harness using fake transcribers.
+    The live tests are intentionally strict and should fail loudly if the real
+    OCR times out, fails to produce a final structure, or does not match gold.
 """
 
 import json
 import os
 import shutil
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 from uuid import uuid4
@@ -553,56 +561,106 @@ class TFLFitchLiveOCRRegressionTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.repo_root = get_repo_root()
         cls.manifest = load_manifest()
+        cls.pythonpath = str(cls.repo_root)
+
+    def _run_live_case_subprocess(self, case_id: str, output_root: Path, timeout_seconds: int = 180) -> subprocess.CompletedProcess[str]:
+        env = os.environ.copy()
+        existing_pythonpath = str(env.get("PYTHONPATH") or "").strip()
+        env["PYTHONPATH"] = self.pythonpath if not existing_pythonpath else f"{self.pythonpath}{os.pathsep}{existing_pythonpath}"
+        command = [
+            sys.executable,
+            "-m",
+            "proofs_ocr.regression.tfl_runner",
+            "run-gold",
+            "--case",
+            case_id,
+            "--output-root",
+            str(output_root),
+        ]
+        return subprocess.run(
+            command,
+            cwd=self.repo_root,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+
+    def _load_case_result_payload(self, output_root: Path, case_id: str) -> dict:
+        result_path = output_root / case_id / "gold_regression_result.json"
+        self.assertTrue(result_path.exists(), f"Missing gold_regression_result.json for {case_id}")
+        return json.loads(result_path.read_text(encoding="utf-8"))
+
+    def _load_case_metrics_payload(self, output_root: Path, case_id: str) -> dict:
+        metrics_path = output_root / case_id / "gold_regression_metrics.json"
+        self.assertTrue(metrics_path.exists(), f"Missing gold_regression_metrics.json for {case_id}")
+        return json.loads(metrics_path.read_text(encoding="utf-8"))
 
     def test_live_ocr_all_tfl_handwritten_fixtures(self) -> None:
-        """Run the Fitch OCR pipeline on all TFL handwritten fixtures and compare."""
+        """Run every handwritten TFL fixture as a strict live OCR gold regression."""
         output_root = self.repo_root / "working" / "tfl_live_ocr_test"
         output_root.mkdir(parents=True, exist_ok=True)
 
-        results = tfl_runner.run_tfl_gold_regressions(
-            self.manifest,
-            repo_root=self.repo_root,
-            output_root=output_root,
+        failures: list[str] = []
+        for case_id in TFL_HANDWRITTEN_CASE_IDS:
+            try:
+                completed = self._run_live_case_subprocess(case_id, output_root)
+            except subprocess.TimeoutExpired as exc:
+                failures.append(f"{case_id}: timed out after {exc.timeout}s")
+                continue
+
+            result_payload = self._load_case_result_payload(output_root, case_id)
+            metrics_payload = self._load_case_metrics_payload(output_root, case_id)
+            passed = bool(result_payload.get("passed"))
+            error_text = str(result_payload.get("error") or "").strip()
+            metrics = metrics_payload.get("metrics") or {}
+            matched = int(metrics.get("matched_line_count", 0))
+            both = int(metrics.get("both_correct_line_count", 0))
+
+            if completed.returncode != 0 or error_text or not passed:
+                failures.append(
+                    f"{case_id}: returncode={completed.returncode} passed={passed} error={error_text!r} both={both}/{matched}"
+                )
+
+        self.assertEqual(
+            failures,
+            [],
+            "Live OCR regressions did not cleanly match gold:\n" + "\n".join(failures),
         )
 
-        summary = tfl_runner.render_tfl_gold_regression_summary(results)
-        print("\n" + summary)
-
-        # At minimum, verify we got results for all 4 cases
-        self.assertEqual(len(results), len(TFL_HANDWRITTEN_CASE_IDS))
-
-        for result in results:
-            self.assertIn(
-                result.case_id,
-                TFL_HANDWRITTEN_CASE_IDS,
-                f"Unexpected case ID: {result.case_id}",
-            )
-            # Each case should complete without errors
-            self.assertEqual(result.error, "", f"Case {result.case_id} had error: {result.error}")
-            # Verify granular metrics were computed
-            self.assertIsNotNone(result.granular_metrics, f"Case {result.case_id} missing granular metrics")
-
-    def test_live_ocr_q3_structure(self) -> None:
-        """Run live OCR on Q3 and check it matches the expected structure."""
+    def test_live_ocr_q3_matches_gold_without_timeout(self) -> None:
+        """Q3 is the canary case: it should finish and match gold exactly."""
+        case_id = "tfl_handwritten_q3_P_and_Q_imp_R"
         output_root = self.repo_root / "working" / "tfl_live_q3"
         output_root.mkdir(parents=True, exist_ok=True)
 
-        results = tfl_runner.run_tfl_gold_regressions(
-            self.manifest,
-            repo_root=self.repo_root,
-            output_root=output_root,
-            case_ids=["tfl_handwritten_q3_P_and_Q_imp_R"],
-        )
+        try:
+            completed = self._run_live_case_subprocess(case_id, output_root)
+        except subprocess.TimeoutExpired as exc:
+            self.fail(f"{case_id} timed out after {exc.timeout}s before producing a gold comparison")
 
-        self.assertEqual(len(results), 1)
-        result = results[0]
-        if not result.passed:
-            metrics = result.granular_metrics or {}
-            self.assertGreater(
-                metrics.get("formula_correct_line_count", 0),
-                0,
-                f"Q3: expected at least some formulas to match. Diff:\n{result.diff_text}",
-            )
+        result_payload = self._load_case_result_payload(output_root, case_id)
+        metrics_payload = self._load_case_metrics_payload(output_root, case_id)
+        metrics = metrics_payload.get("metrics") or {}
+
+        final_structure_path = output_root / case_id / "final_structure.json"
+        diff_path = output_root / case_id / "gold_regression_diff.txt"
+
+        self.assertEqual(
+            completed.returncode,
+            0,
+            f"{case_id} subprocess failed.\nSTDOUT:\n{completed.stdout}\nSTDERR:\n{completed.stderr}",
+        )
+        self.assertTrue(final_structure_path.exists(), f"{case_id} never produced final_structure.json")
+        self.assertEqual(str(result_payload.get("error") or "").strip(), "", f"{case_id} reported a runner error")
+        self.assertTrue(bool(result_payload.get("passed")), f"{case_id} did not match gold. Diff path: {diff_path}")
+        self.assertEqual(int(metrics.get("missing_line_count", 0)), 0)
+        self.assertEqual(int(metrics.get("extra_line_count", 0)), 0)
+        self.assertEqual(
+            int(metrics.get("both_correct_line_count", 0)),
+            int(metrics.get("expected_line_count", 0)),
+            f"{case_id} matched only {metrics.get('both_correct_line_count', 0)}/{metrics.get('expected_line_count', 0)} lines",
+        )
 
 
 if __name__ == "__main__":
