@@ -9,6 +9,7 @@ from __future__ import annotations
 import difflib
 import inspect
 import json
+import sys
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Sequence
 
@@ -387,6 +388,13 @@ def run_tfl_gold_regressions(
 # ── Summary rendering ────────────────────────────────────────────────
 
 
+def _norm_val(value: Any) -> str:
+    """Normalize a value for display in mismatch output."""
+    if value is None:
+        return "(none)"
+    return str(value).strip()
+
+
 def render_tfl_gold_regression_summary(results: Iterable[GoldRegressionResult]) -> str:
     """Render a human-readable summary of TFL gold regression results."""
     materialized = list(results)
@@ -458,7 +466,49 @@ def render_tfl_gold_regression_summary(results: Iterable[GoldRegressionResult]) 
             diff_preview = "\n".join(result.diff_text.splitlines()[:20])
             if diff_preview.strip():
                 lines.append(diff_preview)
+
+        # Per-line mismatch table for failures
+        if not result.passed and metrics:
+            line_records = metrics.get("line_records") or []
+            mismatches = [
+                rec for rec in line_records
+                if not rec.get("formula_matches", True)
+                or not rec.get("justification_matches", True)
+            ]
+            if mismatches:
+                lines.append("  Line mismatches:")
+                for rec in mismatches:
+                    idx = rec.get("order_index", "?")
+                    exp = rec.get("expected") or {}
+                    act = rec.get("actual") or {}
+                    parts: list[str] = []
+                    if not rec.get("formula_matches", True):
+                        parts.append(
+                            f'wffstr: expected "{_norm_val(exp.get("wffstr"))}"  '
+                            f'actual "{_norm_val(act.get("wffstr"))}"'
+                        )
+                    if not rec.get("justification_matches", True):
+                        parts.append(
+                            f'jstr: expected "{_norm_val(exp.get("jstr"))}"  '
+                            f'actual "{_norm_val(act.get("jstr"))}"'
+                        )
+                    lines.append(f"    L{idx}  {'; '.join(parts)}")
     return "\n".join(lines)
+
+
+# ── Console output helper ─────────────────────────────────────────────
+
+
+def _safe_console_print(text: str) -> None:
+    """Print text to the console, replacing unencodable characters on Windows."""
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        encoded = text.encode(
+            getattr(sys.stdout, "encoding", None) or "utf-8",
+            errors="replace",
+        )
+        sys.stdout.buffer.write(encoded + b"\n")
 
 
 # ── CLI ──────────────────────────────────────────────────────────────
@@ -481,9 +531,9 @@ def main() -> int:
 
     if args.command in {None, "summary"}:
         selected = select_tfl_cases(manifest)
-        print(f"TFL handwritten cases in manifest: {len(selected)}")
+        _safe_console_print(f"TFL handwritten cases in manifest: {len(selected)}")
         for case in selected:
-            print(f"  - {case.get('id')}")
+            _safe_console_print(f"  - {case.get('id')}")
         return 0
 
     if args.command == "run-gold":
@@ -492,7 +542,7 @@ def main() -> int:
             output_root=Path(args.output_root) if str(args.output_root or "").strip() else None,
             case_ids=args.case,
         )
-        print(render_tfl_gold_regression_summary(results))
+        _safe_console_print(render_tfl_gold_regression_summary(results))
         return 0 if all(r.passed for r in results) else 1
 
     raise ValueError(f"Unknown command: {args.command}")
