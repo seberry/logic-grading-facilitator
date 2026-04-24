@@ -808,6 +808,17 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
     # Start with the raw crop of this node's area
     if node.id == "ROOT":
         current_img = img.copy()
+
+        # Blot out line numbers to the LEFT of the outermost bar so the VLM
+        # doesn't read them as formula content.  When we have detected bars,
+        # the leftmost bar's X position marks the boundary — everything left
+        # of that is line numbers (or blank margin).
+        if node.children:
+            leftmost_bar_x = min(c.box[0] for c in node.children)
+            blot_margin = max(4, int(leftmost_bar_x * 0.08))  # small margin
+            blot_right = max(0, leftmost_bar_x - blot_margin)
+            if blot_right > 0:
+                current_img[:, :blot_right] = 255  # fill with white
     else:
         current_img = crop_region(img, node.box)
 
