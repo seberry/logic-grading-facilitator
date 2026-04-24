@@ -3,6 +3,7 @@ Tests for TFL justification normalization improvements and re-scoring
 of saved handwritten OCR probe results.
 
 Phase 1: Space-between-digits → comma normalization.
+Phase 2: Handwritten ∧→8 post-OCR repair heuristic.
 """
 
 import json
@@ -109,6 +110,83 @@ class TestFormulaNormalization(unittest.TestCase):
         )
 
 
+# ── Phase 2: ∧→8 post-OCR repair tests ──────────────────────────────
+
+
+class TestEightAsAndJustificationRepair(unittest.TestCase):
+    """Tests for the 8→∧ repair heuristic in justification heads."""
+
+    def test_eight_E_replaced_with_wedge_E(self):
+        """OCR '8 E 3' should normalize same as gold '∧E 3'."""
+        self.assertEqual(
+            canonicalize_justification_for_comparison("8 E 3"),
+            canonicalize_justification_for_comparison("∧E 3"),
+        )
+
+    def test_eight_I_replaced_with_wedge_I(self):
+        """OCR '8 I 4,5' should normalize same as gold '∧I 4,5'."""
+        self.assertEqual(
+            canonicalize_justification_for_comparison("8 I 4,5"),
+            canonicalize_justification_for_comparison("∧I 4,5"),
+        )
+
+    def test_eight_not_replaced_when_not_EI(self):
+        """'8 ∈ S' should NOT get 8 replaced (not followed by E or I rule letter)."""
+        result = canonicalize_justification_for_comparison("8 ∈ S")
+        # The head should still start with 8 (not ∧) since ∈ is not E or I
+        self.assertTrue(result.startswith("8"), f"Expected head to keep '8', got: {result}")
+
+    def test_eight_E_normalizes_to_canonical_head(self):
+        """'8 E 3' should produce canonical '∧E 3'."""
+        result = canonicalize_justification_for_comparison("8 E 3")
+        self.assertEqual(result, "∧E 3")
+
+    def test_eight_I_normalizes_to_canonical_head(self):
+        """'8 I 4,5' should produce canonical '∧I 4,5'."""
+        result = canonicalize_justification_for_comparison("8 I 4,5")
+        self.assertEqual(result, "∧I 4,5")
+
+    def test_real_digit_8_not_in_head_position_unchanged(self):
+        """A digit 8 in the tail (citation) should remain unchanged."""
+        result = canonicalize_justification_for_comparison("→E 2,8")
+        self.assertEqual(result, "→E 2,8")
+
+
+class TestEightAsAndFormulaRepair(unittest.TestCase):
+    """Tests for the 8→∧ repair heuristic in formulas (between caps)."""
+
+    def test_formula_eight_between_caps(self):
+        """OCR 'K8W' should normalize same as gold 'K∧W'."""
+        self.assertEqual(
+            canonicalize_formula_for_comparison("K8W"),
+            canonicalize_formula_for_comparison("K∧W"),
+        )
+
+    def test_formula_eight_between_caps_with_spaces(self):
+        """OCR 'K 8 W' should normalize same as gold 'K∧W'."""
+        self.assertEqual(
+            canonicalize_formula_for_comparison("K 8 W"),
+            canonicalize_formula_for_comparison("K∧W"),
+        )
+
+    def test_formula_eight_not_between_caps_unchanged(self):
+        """'P8' (8 at end, no cap after) should not get 8 replaced."""
+        result = canonicalize_formula_for_comparison("P8")
+        self.assertIn("8", result)
+
+    def test_formula_eight_at_start_unchanged(self):
+        """'8P' (8 at start, no cap before) should not get 8 replaced."""
+        result = canonicalize_formula_for_comparison("8P")
+        self.assertIn("8", result)
+
+    def test_formula_multiple_eights_between_caps(self):
+        """'A8B8C' should become 'A∧B∧C'."""
+        self.assertEqual(
+            canonicalize_formula_for_comparison("A8B8C"),
+            canonicalize_formula_for_comparison("A∧B∧C"),
+        )
+
+
 # ── Re-scoring tests using saved OCR results ─────────────────────────
 
 
@@ -170,10 +248,12 @@ class TestRescoreWithUpdatedNormalization(unittest.TestCase):
 
     def test_q3_rescore(self):
         metrics = self._rescore_case("tfl_handwritten_q3_P_and_Q_imp_R")
-        # Q3 previously: 8/8 formula, 6/8 justification, 6/8 both
-        # With updated normalization, should be at least as good
+        # Q3 Phase 1: 8/8 formula, 6/8 justification, 6/8 both
+        # Q3 Phase 2: 8/8 formula, 8/8 justification, 8/8 both
+        #   (lines 4 "8 E 3"→"∧E 3", line 6 "8 I 4,5"→"∧I 4,5" now match)
         self.assertEqual(metrics["formula_correct_line_count"], 8)
-        self.assertGreaterEqual(metrics["justification_correct_line_count"], 6)
+        self.assertGreaterEqual(metrics["justification_correct_line_count"], 8)
+        self.assertGreaterEqual(metrics["both_correct_line_count"], 8)
         self.assertEqual(metrics["expected_line_count"], 8)
 
     def test_q4_rescore(self):
@@ -221,25 +301,32 @@ class TestRescoreWithUpdatedNormalization(unittest.TestCase):
             total_both += metrics["both_correct_line_count"]
             total_matched += metrics["matched_line_count"]
 
-        # Previous totals: 28/31 formula, 18/31 justification, 16/31 both
-        # With space→comma normalization, justification should be >= 18
+        # Phase 1 baseline: 28/31 formula, 19/31 justification, 17/31 both
+        # Phase 2 expected: 28/31 formula, 21/31 justification, 19/31 both
+        #   (Q3 lines 4,6 justification now match via 8→∧ repair)
         self.assertEqual(total_matched, 31, "All 31 lines should be matched")
         self.assertEqual(total_formula, 28, "Formula accuracy should remain 28/31")
         self.assertGreaterEqual(
             total_justification,
-            18,
-            f"Justification accuracy should be >= 18/31, got {total_justification}/31. "
-            "Improvement expected from space→comma normalization.",
+            21,
+            f"Justification accuracy should be >= 21/31, got {total_justification}/31. "
+            "Improvement expected from Phase 2 8→∧ repair.",
+        )
+        self.assertGreaterEqual(
+            total_both,
+            19,
+            f"Both-correct should be >= 19/31, got {total_both}/31. "
+            "Improvement expected from Phase 2 8→∧ repair.",
         )
 
         # Print comparison for visibility
-        print(f"\n=== Re-scored results with updated normalization ===")
+        print(f"\n=== Re-scored results with Phase 1+2 normalization ===")
         print(f"Formula:      {total_formula}/{total_matched} "
-              f"(was 28/31 = 90%)")
+              f"(baseline 28/31 = 90%)")
         print(f"Justification: {total_justification}/{total_matched} "
-              f"(was 18/31 = 58%)")
+              f"(baseline 19/31 = 61%, Phase 2 target 21/31 = 68%)")
         print(f"Both correct:  {total_both}/{total_matched} "
-              f"(was 16/31 = 52%)")
+              f"(baseline 17/31 = 55%, Phase 2 target 19/31 = 61%)")
 
 
 if __name__ == "__main__":

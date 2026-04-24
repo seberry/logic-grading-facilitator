@@ -48,10 +48,23 @@ def canonicalize_formula_for_comparison(value: Any) -> str:
     # Multi-char operators first to avoid partial replacements
     for src, tgt in _SYMBOL_REPLACEMENTS:
         normalized = normalized.replace(src, tgt)
+    # Phase 2: repair handwritten ∧ misread as 8 between capital letters
+    # e.g. "K 8 W" → "K∧W"
+    normalized = _EIGHT_BETWEEN_CAPS_RE.sub("∧", normalized)
     # Strip all remaining spaces for comparison
     normalized = _WHITESPACE_RE.sub("", normalized)
     return normalized
 
+
+# ── Post-OCR repair patterns (Phase 2: handwritten ∧→8 confusion) ────
+
+# Justification head: "8 E 3" → "∧E 3", "8 I 4,5" → "∧I 4,5".
+# Only fires when '8' starts the string and is followed by I or E (TFL rules).
+_EIGHT_BEFORE_EI_RE = re.compile(r"^8\s+(?=[IE]\b)")
+
+# Formula: "K8W" or "K 8 W" → "K∧W".  Only fires between capital letters
+# where '8' cannot be a legitimate formula token.
+_EIGHT_BETWEEN_CAPS_RE = re.compile(r"(?<=[A-Z])\s*8\s*(?=[A-Z])")
 
 _DASH_BETWEEN_DIGITS_RE = re.compile(r"(?<=\d)\s*[-–—]\s*(?=\d)")
 _COMMA_BETWEEN_DIGITS_RE = re.compile(r"(?<=\d)\s*,\s*(?=\d)")
@@ -117,6 +130,10 @@ def canonicalize_justification_for_comparison(value: Any) -> str:
     # Normalise arrows / symbols that may appear in rule heads
     for src, tgt in _SYMBOL_REPLACEMENTS:
         normalized = normalized.replace(src, tgt)
+
+    # Phase 2: repair handwritten ∧ misread as 8 in justification heads
+    # e.g. "8 E 3" → "∧E 3", "8 I 4,5" → "∧I 4,5"
+    normalized = _EIGHT_BEFORE_EI_RE.sub("∧", normalized)
 
     # Normalise dash/comma between digit citations
     normalized = normalized.replace("–", "-").replace("—", "-")

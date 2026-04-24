@@ -73,7 +73,10 @@ The comparison pipeline already normalizes:
 
 1. **Phase 1 ✅ DONE**: Fix space-between-digits → comma normalization in justification comparison
    - Result: justification 18/31 → **19/31** (58% → 61%), both-correct 16/31 → **17/31** (52% → 55%)
-2. **Phase 2**: `∧` → `8` post-OCR repair heuristic
+2. **Phase 2 ✅ DONE**: `∧` → `8` post-OCR repair heuristic
+   - Result: justification 19/31 → **21/31** (61% → 68%), both-correct 17/31 → **19/31** (55% → 61%)
+   - Fixed: Q3 line 4 `8 E 3` → `∧E 3`, Q3 line 6 `8 I 4,5` → `∧I 4,5`
+   - Not fixed (deeper OCR garbles): Q4 line 5 `1 < 8 W` (≠ `K∧W`), Q4 line 6 `8 ∈ S` (≠ `∧E 5`)
 3. **Phase 3**: `↔` vs `→` disambiguation strategies
 
 ## Artifacts
