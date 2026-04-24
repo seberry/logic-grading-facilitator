@@ -131,7 +131,13 @@ def canonicalize_justification_for_comparison(value: Any) -> str:
     for src, tgt in _SYMBOL_REPLACEMENTS:
         normalized = normalized.replace(src, tgt)
 
-    # Phase 2: repair handwritten ∧ misread as 8 in justification heads
+    # Phase 2a: repair epsilon/greek-epsilon misread as OCR artifact for E.
+    # ∈ (U+2208) and ε (U+03B5) never appear in TFL justifications;
+    # they are VLM misreads of the rule letter E (Elimination).
+    # Must run before 8→∧ so that "8 ∈ S" → "8 E S" → "∧E S".
+    normalized = normalized.replace("∈", "E").replace("ε", "E")
+
+    # Phase 2b: repair handwritten ∧ misread as 8 in justification heads
     # e.g. "8 E 3" → "∧E 3", "8 I 4,5" → "∧I 4,5"
     normalized = _EIGHT_BEFORE_EI_RE.sub("∧", normalized)
 

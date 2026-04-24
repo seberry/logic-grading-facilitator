@@ -130,10 +130,25 @@ class TestEightAsAndJustificationRepair(unittest.TestCase):
             canonicalize_justification_for_comparison("∧I 4,5"),
         )
 
-    def test_eight_not_replaced_when_not_EI(self):
-        """'8 ∈ S' should NOT get 8 replaced (not followed by E or I rule letter)."""
+    def test_eight_epsilon_chain_repairs_to_wedge_E(self):
+        """OCR '8 ∈ S' chains ∈→E then 8→∧ to produce '∧E S' head."""
         result = canonicalize_justification_for_comparison("8 ∈ S")
-        # The head should still start with 8 (not ∧) since ∈ is not E or I
+        self.assertTrue(result.startswith("∧E"), f"Expected '∧E ...' after ∈→E and 8→∧ chain, got: {result}")
+
+    def test_greek_epsilon_also_repaired(self):
+        """OCR '8 ε 5' chains ε→E then 8→∧ to produce '∧E 5'."""
+        result = canonicalize_justification_for_comparison("8 ε 5")
+        self.assertEqual(result, "∧E 5")
+
+    def test_epsilon_without_eight_still_repairs(self):
+        """'∨∈ 3' → '∨E 3' (epsilon→E even without 8→∧)."""
+        result = canonicalize_justification_for_comparison("∨∈ 3")
+        self.assertEqual(result, "∨E 3")
+
+    def test_eight_not_replaced_when_not_EI(self):
+        """'8 X 3' should NOT get 8 replaced (X is not E or I rule letter)."""
+        result = canonicalize_justification_for_comparison("8 X 3")
+        # The head should still start with 8 (not ∧) since X is not E or I
         self.assertTrue(result.startswith("8"), f"Expected head to keep '8', got: {result}")
 
     def test_eight_E_normalizes_to_canonical_head(self):
