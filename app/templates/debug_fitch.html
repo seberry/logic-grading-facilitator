@@ -516,6 +516,44 @@
       <div class="log-header">Operation log</div>
       <div class="log-panel" id="log-output">Choose an action to see stdout/stderr.</div>
     </div>
+
+    {% if selected_scan and pipeline_artifacts %}
+    <details class="panel" style="margin-top:0.5rem;">
+      <summary style="cursor:pointer;font-weight:700;font-size:0.95rem;">
+        🔍 Pipeline Trace — VLM crops & responses ({{ pipeline_artifacts.nodes|length }} node{{ 's' if pipeline_artifacts.nodes|length != 1 else '' }})
+      </summary>
+
+      {% if pipeline_artifacts.bar_image %}
+      <div style="margin-top:0.75rem;">
+        <strong style="font-size:0.9rem;">Bar detection</strong>
+        <div style="margin-top:0.35rem;background:#0b1224;border-radius:0.5rem;padding:0.5rem;display:inline-block;">
+          <img src="{{ pipeline_artifacts.bar_image }}" alt="Bar detection debug" style="max-width:480px;max-height:320px;border-radius:0.35rem;">
+        </div>
+      </div>
+      {% endif %}
+
+      {% if pipeline_artifacts.nodes %}
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:0.75rem;margin-top:0.75rem;">
+        {% for node in pipeline_artifacts.nodes %}
+        <div style="border:1px solid #e5e7eb;border-radius:0.65rem;padding:0.65rem;background:#fff;">
+          <strong style="font-size:0.85rem;color:#4338ca;">Node {{ node.id }}</strong>
+          <div style="margin-top:0.35rem;background:#0b1224;border-radius:0.4rem;padding:0.4rem;">
+            <img src="{{ node.crop_url }}" alt="Crop for node {{ node.id }}" style="width:100%;max-height:260px;border-radius:0.3rem;">
+          </div>
+          {% if node.response_text %}
+          <details style="margin-top:0.4rem;">
+            <summary style="font-size:0.8rem;font-weight:600;cursor:pointer;color:#475569;">VLM response</summary>
+            <pre style="font-size:0.78rem;background:#f8fafc;border:1px solid #e5e7eb;border-radius:0.4rem;padding:0.5rem;max-height:240px;overflow:auto;white-space:pre-wrap;margin-top:0.25rem;">{{ node.response_text }}</pre>
+          </details>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="muted" style="margin-top:0.5rem;">No crop/response artifacts found in this scan's folder.</p>
+      {% endif %}
+    </details>
+    {% endif %}
   </main>
 
   <script>

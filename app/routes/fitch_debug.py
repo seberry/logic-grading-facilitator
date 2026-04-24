@@ -22,6 +22,38 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG")
 
 
+def scan_pipeline_artifacts(scan_slug: str) -> Dict[str, Any]:
+    """Scan debug dir for VLM pipeline artifacts (crops, responses, bar detection)."""
+    debug_dir = DEBUG_FITCH_DIR / scan_slug
+    if not debug_dir.exists():
+        return {"nodes": [], "bar_image": None}
+
+    nodes: List[Dict[str, Any]] = []
+
+    # Find crop/response pairs
+    for child in sorted(debug_dir.iterdir()):
+        name = child.name
+        if name.startswith("crop_") and name.rsplit(".", 1)[-1].lower() in ("jpg", "jpeg", "png"):
+            node_id = name[5:].rsplit(".", 1)[0]  # e.g. "ROOT", "1", "2"
+            response_path = debug_dir / f"response_{node_id}.json"
+            response_text = ""
+            if response_path.exists():
+                response_text = response_path.read_text(encoding="utf-8")
+            img_url = f"/debug_fitch_assets/{scan_slug}/{name}"
+            nodes.append({
+                "id": node_id,
+                "crop_url": img_url,
+                "response_text": response_text,
+            })
+
+    bar_image = None
+    bars_path = debug_dir / "debug_bars.jpg"
+    if bars_path.exists():
+        bar_image = f"/debug_fitch_assets/{scan_slug}/debug_bars.jpg"
+
+    return {"nodes": nodes, "bar_image": bar_image}
+
+
 def list_fitch_debug_scans() -> List[str]:
     if not DEBUG_FITCH_DIR.exists():
         return []
@@ -201,6 +233,8 @@ async def fitch_debug_page(request: Request, scan: Optional[str] = None) -> Resp
     structure_text = load_structure_text(selected) if selected else ""
     final_path = final_structure_path(selected) if selected else None
 
+    pipeline_artifacts = scan_pipeline_artifacts(selected) if selected else {"nodes": [], "bar_image": None}
+
     return templates.TemplateResponse(
         "debug_fitch.html",
         {
@@ -211,6 +245,7 @@ async def fitch_debug_page(request: Request, scan: Optional[str] = None) -> Resp
             "structure_json": load_structure_json(selected) if selected else {"lines": [], "meta": {"num_premises": None, "conclusion": ""}},
             "image_url": scan_image_url(selected) if selected else None,
             "final_structure_exists": bool(final_path and final_path.exists()),
+            "pipeline_artifacts": pipeline_artifacts,
         },
     )
 
