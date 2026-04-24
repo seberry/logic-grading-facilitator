@@ -4,7 +4,7 @@
 **Pipeline**: TFL Fitch OCR (VLM-based crop-and-transcribe)  
 **Fixture images**: 4 TFL handwritten proofs (FERPA-safe)
 
-## Current Scores (after Phase 1+2+2a normalization)
+## Current Scores (after Phase 1+2+2a+3 normalization)
 
 | Case | Lines | Formula Acc. | Justification Acc. | Both Correct |
 |------|-------|-------------|-------------------|-------------|
@@ -22,6 +22,7 @@
 | Phase 1 (space→comma) | 19/31 (61%) | 17/31 (55%) | +1 J, +1 B |
 | Phase 2 (`8`→`∧` repair) | 21/31 (68%) | 19/31 (61%) | +2 J, +2 B |
 | Phase 2a (epsilon→E) | 21/31 (68%) | 19/31 (61%) | +0 (defensive) |
+| Phase 3 (rule-head snapping) | 21/31 (68%) | 19/31 (61%) | +0 (VLM nondeterminmism offset; infrastructure ready for `↔F`→`↔E`, `±`→`↔I`, bare ranges→`↔I`) |
 
 ## Remaining Errors (10 lines, post-normalization)
 
@@ -101,9 +102,10 @@ The comparison pipeline now applies these normalizations in order:
 1. ~~**Phase 1**: Fix space-between-digits → comma normalization~~ ✅ DONE
 2. ~~**Phase 2**: `8`→`∧` post-OCR repair heuristic~~ ✅ DONE
 3. ~~**Phase 2a**: epsilon→E normalization before 8→∧ chain~~ ✅ DONE (defensive)
-4. **Phase 3a** (easy): `←F` → `↔E` justification head repair (+1 J)
+4. ~~**Phase 3**: Post-OCR rule-head snapping~~ ✅ DONE (infrastructure in place; `←`→`↔`, `↔F`→`↔E`, `±`→`↔I`, `8E`→`∧E`, bare ranges→`↔I`; prompt-only approach tried and reverted — it confused the VLM)
 5. **Phase 3b** (hard): `↔` vs `→` contextual disambiguation — needs formula awareness
 6. **VLM prompt improvements**: Better handling of handwritten `&`/`∧`, line numbers, biconditional arrows
+7. **Cross-pipeline test**: Feed TFL Fitch proof images through the modal OCR pipeline to compare accuracy
 
 ## Artifacts
 
