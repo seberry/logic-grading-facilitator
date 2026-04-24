@@ -833,10 +833,8 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
         # of that is line numbers (or blank margin).
         if node.children:
             leftmost_bar_x = min(c.box[0] for c in node.children)
-            blot_margin = max(4, int(leftmost_bar_x * 0.08))  # small margin
-            blot_right = max(0, leftmost_bar_x - blot_margin)
-            if blot_right > 0:
-                current_img[:, :blot_right] = 255  # fill with white
+            if leftmost_bar_x > 0:
+                current_img[:, :leftmost_bar_x] = 255  # fill with white
     else:
         current_img = crop_region(img, node.box)
 
