@@ -423,6 +423,107 @@ def normalize_proof_structure(structure):
 # 1. Computer Vision Core (Adapted from bold_fitch_lines.py)
 # ==============================================================================
 
+def _split_bars_on_gaps(
+    img: np.ndarray, boxes: List[Tuple[int, int, int, int]]
+) -> List[Tuple[int, int, int, int]]:
+    """Post-process merged bars: split any bar with a significant vertical gap
+    in its actual pixel data, indicating two separate subproofs that were
+    erroneously merged because they sit at the same X position.
+
+    Uses the same adaptive-threshold + morphological pipeline as bar detection
+    so that the gap analysis is done on the same thick, smeared representation
+    that caused the merge in the first place.
+    """
+
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    img_h, img_w = gray.shape[:2]
+
+    # Reproduce the same binary pipeline used by detect_vertical_bars.
+    binary = cv2.adaptiveThreshold(
+        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV, 91, 15,
+    )
+    dilate_kernel = np.ones((1, 6), np.uint8)
+    dilated = cv2.dilate(binary, dilate_kernel, iterations=1)
+    vert_kern = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 80))
+    vert_mask = cv2.morphologyEx(dilated, cv2.MORPH_OPEN, vert_kern)
+
+    result: List[Tuple[int, int, int, int]] = []
+    for x, y, w, h in boxes:
+        # A bar must be tall enough to even consider splitting.
+        if h < 60:
+            result.append((x, y, w, h))
+            continue
+
+        # Extract the morphological mask within the bar's bounding box,
+        # with a small horizontal margin.
+        x1 = max(0, x - 4)
+        x2 = min(img_w, x + w + 4)
+        y1 = max(0, y)
+        y2 = min(img_h, y + h)
+        roi_mask = vert_mask[y1:y2, x1:x2]
+        if roi_mask.size == 0:
+            result.append((x, y, w, h))
+            continue
+
+        row_counts = (roi_mask > 0).sum(axis=1)
+        min_row_count = max(1, int(0.15 * (x2 - x1)))
+
+        active_rows = [idx for idx, count in enumerate(row_counts) if count >= min_row_count]
+        if len(active_rows) < 2:
+            result.append((x, y, w, h))
+            continue
+
+        # Find contiguous segments of active rows.
+        segments: List[Tuple[int, int]] = []
+        seg_start = active_rows[0]
+        prev = active_rows[0]
+        for idx in active_rows[1:]:
+            if idx == prev + 1:
+                prev = idx
+                continue
+            segments.append((seg_start, prev))
+            seg_start = idx
+            prev = idx
+        segments.append((seg_start, prev))
+
+        if len(segments) <= 1:
+            result.append((x, y, w, h))
+            continue
+
+        # Only split on gaps that are proportionally significant.
+        gap_threshold = max(15, int(h * 0.06))
+
+        split_boxes: List[Tuple[int, int, int, int]] = []
+        for i, (seg_s, seg_e) in enumerate(segments):
+            seg_h = seg_e - seg_s + 1
+            if seg_h < 15:
+                continue
+            if i == 0:
+                split_boxes.append((x, y1 + seg_s, w, seg_h))
+            else:
+                prev_seg_end = segments[i - 1][1]
+                gap = seg_s - prev_seg_end
+                if gap >= gap_threshold:
+                    split_boxes.append((x, y1 + seg_s, w, seg_h))
+                else:
+                    # Gap too small — merge back with the previous split box.
+                    if split_boxes:
+                        last = split_boxes[-1]
+                        new_y = last[1]
+                        new_h = (y1 + seg_e + 1) - new_y
+                        split_boxes[-1] = (last[0], new_y, last[2], new_h)
+                    else:
+                        split_boxes.append((x, y1 + seg_s, w, seg_h))
+
+        if len(split_boxes) <= 1:
+            result.append((x, y, w, h))
+        else:
+            result.extend(split_boxes)
+
+    return result
+
+
 def detect_vertical_bars(img: np.ndarray) -> List[Tuple[int, int, int, int]]:
     """
     Returns a list of (x, y, w, h) tuples for vertical proof bars.
@@ -468,8 +569,12 @@ def detect_vertical_bars(img: np.ndarray) -> List[Tuple[int, int, int, int]]:
             curr_x, curr_y, curr_w, curr_h = nx, ny, nw, nh
     merged.append((curr_x, curr_y, curr_w, curr_h))
 
+    # Post-merge: split bars that have significant vertical gaps (e.g. two
+    # adjacent subproofs at the same X position that were erroneously merged).
+    split = _split_bars_on_gaps(img, merged)
+
     # Filter out noise (very short lines)
-    final_boxes = [b for b in merged if b[3] > 50]
+    final_boxes = [b for b in split if b[3] > 50]
     return final_boxes
 
 
@@ -513,9 +618,11 @@ def filter_scaffold_bars(
     if is_left_edge and spans_most_height and is_narrow:
         return sorted_boxes[1:]
 
-    # If exactly one tall bar remains, it is usually the outer Fitch scaffold
-    # rather than a real subproof opener.
-    if len(sorted_boxes) == 1 and spans_most_height and is_narrow:
+    # If exactly one tall bar remains at the left edge, it is usually the
+    # outer Fitch scaffold rather than a real subproof opener.  A bar that
+    # is *not* at the left edge is far more likely to be a genuine subproof
+    # bar, so we keep it.
+    if len(sorted_boxes) == 1 and is_left_edge and spans_most_height and is_narrow:
         return []
 
     if len(sorted_boxes) >= 2:

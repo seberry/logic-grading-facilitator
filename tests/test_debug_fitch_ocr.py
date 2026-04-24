@@ -79,12 +79,15 @@ class DebugFitchOcrNormalizationTests(unittest.TestCase):
 
         self.assertEqual(filtered, [(612, 328, 20, 391)])
 
-    def test_filter_scaffold_bars_drops_lone_tall_scaffold_after_edge_cleanup(self) -> None:
+    def test_filter_scaffold_bars_keeps_lone_tall_bar_after_edge_cleanup(self) -> None:
+        """After edge-artifact cleanup, a single remaining bar that is NOT at
+        the left edge should be kept — it is a genuine subproof bar, not
+        page scaffolding.  (Regression: the code used to drop it.)"""
         boxes = [(0, 0, 7, 201), (215, 148, 23, 517), (1581, 0, 3, 101)]
 
         filtered = debug_fitch_ocr.filter_scaffold_bars(boxes, img_w=1584, img_h=730)
 
-        self.assertEqual(filtered, [])
+        self.assertEqual(filtered, [(215, 148, 23, 517)])
 
     def test_remove_empty_lines_strips_blank_ocr_noise(self) -> None:
         structure = [
