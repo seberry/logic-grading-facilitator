@@ -1,0 +1,2 @@
+# This file ensures the working/ directory exists in the repo.
+# working/ is gitignored but needed for regression test outputs.

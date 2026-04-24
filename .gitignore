@@ -1,24 +1,17 @@
 # --- Global Ignores (Any folder) ---
 *.pdf
-*.PDF
 *.jpg
-*.JPG
 *.jpeg
-*.JPEG
 *.png
-*.PNG
 *.zip
-*.ZIP
 
 # --- Folder Specific ---
 data/
 data_archive/
 __pycache__/
-working/
-
+working/*
 
 # ---- Python / tooling ----
-__pycache__/
 *.py[cod]
 *.pyo
 *.pyd
@@ -39,8 +32,6 @@ env/
 Thumbs.db
 
 # ---- App data (FERPA-sensitive) ----
-
-# All live data for current quiz run
 data/raw_scans/
 data/auto_grouped/
 data/grades/
@@ -48,36 +39,24 @@ data/name_review_cache/
 data/debug/
 data_archive/
 
-data/
-*.pdf
-*.jpg
-*.png
-*.zip
-__pycache__/
-
 # Roster contains student names and IDs; keep a fake/sample in docs instead
 data/roster.csv
-
 
 # Debug artifacts / overlays / crops
 debug_output/
 debug_output_segment_all/
 
-
-
 # ---- Optional: ignore any local scratch notebooks, etc. ----
 *.ipynb_checkpoints
 *.tmp
 
-# any exported zip bundles
-*.zip
-
 # optional: LM Studio cache dirs, model downloads, venv, etc.
 lmstudio/
 models/
-venv/
 .aider*
 vendor/deduct-master/
 tools/deduct_checker_cli/target/
 pytest-cache-files-*/
-working/.pytest_cache/
+
+# Allow .gitkeep so working/ dir is preserved in repo
+!working/.gitkeep
