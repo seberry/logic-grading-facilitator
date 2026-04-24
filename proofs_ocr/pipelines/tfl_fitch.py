@@ -836,7 +836,15 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
             if leftmost_bar_x > 0:
                 current_img[:, :leftmost_bar_x] = 255  # fill with white
     else:
-        current_img = crop_region(img, node.box)
+        if node.parent and node.parent.id == "ROOT":
+            # Extend crop to image bottom to capture post-subproof conclusion
+            # lines that sit below the outermost Fitch bar.  Only done for
+            # direct children of ROOT because deeper nesting never has
+            # post-subproof content outside the parent bar's Y span.
+            extended_h = img.shape[0] - node.box[1]
+            current_img = crop_region(img, (node.box[0], node.box[1], node.box[2], extended_h))
+        else:
+            current_img = crop_region(img, node.box)
 
     # 2. Process Children (Deepest first)
     # We sort children by vertical position just in case, though order doesn't strictly matter for masking
