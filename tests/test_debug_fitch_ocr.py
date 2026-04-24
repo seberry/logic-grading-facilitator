@@ -58,26 +58,31 @@ class DebugFitchOcrNormalizationTests(unittest.TestCase):
         self.assertEqual(structure[1]["jstr"], "↔E 2,3")
         self.assertEqual(structure[2]["jstr"], "X 6")
 
-    def test_filter_scaffold_bars_drops_full_height_left_spine(self) -> None:
-        boxes = [(12, 0, 10, 460), (120, 80, 8, 140)]
+    def test_filter_scaffold_bars_keeps_full_height_left_spine(self) -> None:
+        """Scaffold removal is disabled — the outer bar is a real subproof delimiter."""
+        boxes = [(30, 0, 12, 460), (120, 80, 8, 140)]
 
         filtered = debug_fitch_ocr.filter_scaffold_bars(boxes, img_w=560, img_h=480)
 
-        self.assertEqual(filtered, [(120, 80, 8, 140)])
+        self.assertEqual(filtered, [(30, 0, 12, 460), (120, 80, 8, 140)])
 
-    def test_filter_scaffold_bars_drops_tall_outer_bar_even_when_not_at_edge(self) -> None:
+    def test_filter_scaffold_bars_keeps_tall_outer_bar_even_at_edge(self) -> None:
+        """Scaffold removal is disabled — keep both bars for the tree builder."""
         boxes = [(118, 45, 17, 538), (140, 242, 8, 138)]
 
         filtered = debug_fitch_ocr.filter_scaffold_bars(boxes, img_w=564, img_h=564)
 
-        self.assertEqual(filtered, [(140, 242, 8, 138)])
+        self.assertEqual(filtered, [(118, 45, 17, 538), (140, 242, 8, 138)])
 
     def test_filter_scaffold_bars_drops_extreme_page_edge_artifacts_before_scaffold_logic(self) -> None:
+        """Narrow bars at the absolute page edges are removed; interior bars survive."""
         boxes = [(0, 0, 9, 285), (559, 99, 20, 675), (612, 328, 20, 391), (1651, 0, 5, 197)]
 
         filtered = debug_fitch_ocr.filter_scaffold_bars(boxes, img_w=1656, img_h=875)
 
-        self.assertEqual(filtered, [(612, 328, 20, 391)])
+        # (0,0,9,285) dropped: narrow + left edge.  (1651,0,5,197) dropped: narrow + right edge.
+        # (559,99,20,675) survives: not at edge.  (612,328,20,391) survives: not at edge.
+        self.assertEqual(filtered, [(559, 99, 20, 675), (612, 328, 20, 391)])
 
     def test_filter_scaffold_bars_keeps_lone_tall_bar_after_edge_cleanup(self) -> None:
         """After edge-artifact cleanup, a single remaining bar that is NOT at

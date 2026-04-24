@@ -608,30 +608,12 @@ def filter_scaffold_bars(
     if not sorted_boxes:
         return []
 
-    leftmost = sorted_boxes[0]
-    x, y, w, h = leftmost
-
-    is_left_edge = x <= max(24, int(img_w * 0.12))
-    spans_most_height = h >= int(img_h * 0.65)
-    is_narrow = w <= max(24, int(img_w * 0.06))
-
-    if is_left_edge and spans_most_height and is_narrow:
-        return sorted_boxes[1:]
-
-    # If exactly one tall bar remains at the left edge, it is usually the
-    # outer Fitch scaffold rather than a real subproof opener.  A bar that
-    # is *not* at the left edge is far more likely to be a genuine subproof
-    # bar, so we keep it.
-    if len(sorted_boxes) == 1 and is_left_edge and spans_most_height and is_narrow:
-        return []
-
-    if len(sorted_boxes) >= 2:
-        nx, ny, nw, nh = sorted_boxes[1]
-        much_taller_than_next = h >= int(nh * 1.25)
-        clearly_left_of_next = (x + w) < nx
-        reasonably_close_column = (nx - x) <= max(120, int(img_w * 0.18))
-        if spans_most_height and much_taller_than_next and clearly_left_of_next and reasonably_close_column:
-            return sorted_boxes[1:]
+    # NOTE: scaffold-removal logic deliberately disabled (2026-04-24).
+    # Handwritten Fitch proofs have a real outer subproof bar that spans
+    # most of the image height at the left edge — exactly the profile that
+    # scaffold removal was dropping.  The edge-artifact cleanup above is
+    # sufficient for real-world scans; a human-in-the-loop can crop any
+    # genuine page-border artifacts during scan prep.
     return sorted_boxes
 
 class SubproofNode:
