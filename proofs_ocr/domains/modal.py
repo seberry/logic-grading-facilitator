@@ -14,25 +14,23 @@ import cv2
 import numpy as np
 
 from proofs_ocr.common.stitch import extract_subproof_token_id
+from proofs_ocr.domains.shared import (
+    build_subproof_token_entry as _shared_build_subproof_token_entry,
+    has_visible_formula as _shared_has_visible_formula,
+)
+from proofs_ocr.tricks.citation_cleanup import (
+    normalize_citation_commas,
+    normalize_citation_dashes,
+)
+from proofs_ocr.tricks.justification_snaps import PREMISE_ALIAS_HEADS
+from proofs_ocr.tricks.symbol_normalization import collapse_whitespace
 
 _WHITESPACE_RE = re.compile(r"\s+")
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
-_DASH_BETWEEN_DIGITS_RE = re.compile(r"(?<=\d)\s*[-–—]\s*(?=\d)")
-_COMMA_BETWEEN_DIGITS_RE = re.compile(r"(?<=\d)\s*,\s*(?=\d)")
 _FORMULA_COMPARE_SPACE_RE = re.compile(r"\s+")
 _STUCK_JUSTIFICATION_TAIL_RE = re.compile(
     r"^(PR|R|∧I|∧E|∨I|∨E|→I|→E|↔I|↔E|¬I|¬E|~I|~E|IP|DN|MC|□I|□E|R4|R5|RT|Def⋄|AI|AE|CI|CE|NI|NE|OI|DE|BOXI|BOXE)(\d.*)$"
 )
-_PREMISE_ALIAS_HEADS = {
-    "pr",
-    "prem",
-    "premise",
-    "hyp",
-    "assumption",
-    "assume",
-    "assum",
-    "assump",
-}
 _JUSTIFICATION_HEAD_ALIASES = {
     "pr": "PR",
     "premise": "PR",
@@ -121,8 +119,8 @@ _IMPLICIT_PREMISE_JUSTIFICATIONS = {
 }
 
 
-def _collapse_whitespace(value: Any) -> str:
-    return _WHITESPACE_RE.sub(" ", str(value or "")).strip()
+# Delegate to shared collapse_whitespace from tricks.symbol_normalization
+_collapse_whitespace = collapse_whitespace
 
 
 def canonical_modal_config(config: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -181,12 +179,12 @@ def normalize_justification_text(value: Any) -> str:
         return ""
     normalized = normalized.replace("[]", "□").replace("<>", "⋄").replace("◇", "⋄").replace("◊", "⋄")
     normalized = normalized.replace("–", "-").replace("—", "-")
-    normalized = _DASH_BETWEEN_DIGITS_RE.sub("-", normalized)
-    normalized = _COMMA_BETWEEN_DIGITS_RE.sub(",", normalized)
+    normalized = normalize_citation_dashes(normalized)
+    normalized = normalize_citation_commas(normalized)
     parts = normalized.split(" ", 1)
     head = parts[0].strip()
     tail = parts[1].strip() if len(parts) > 1 else ""
-    if head.lower() in _PREMISE_ALIAS_HEADS:
+    if head.lower() in PREMISE_ALIAS_HEADS:
         head = "PR"
     elif not tail:
         stuck_match = _STUCK_JUSTIFICATION_TAIL_RE.match(head)
