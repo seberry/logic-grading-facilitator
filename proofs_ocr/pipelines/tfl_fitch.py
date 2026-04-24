@@ -617,11 +617,70 @@ def mask_subproof_in_parent(parent_img: np.ndarray, child_node: SubproofNode) ->
     
     return masked
 
+
+# ==============================================================================
+# 2b. Context-Aware Crops for Small Subproofs
+# ==============================================================================
+
+# Threshold: leaf crops shorter than this (pixels) get a parent-context crop
+# with a highlighted box instead of a tight white-masked crop.
+SMALL_CROP_THRESHOLD = 250
+
+# Visual settings for the highlight rectangle drawn on context crops.
+HIGHLIGHT_COLOR = (0, 255, 0)   # bright green (BGR)
+HIGHLIGHT_THICKNESS = 3
+
+
+def build_context_crop(
+    parent_img: np.ndarray,
+    child_box_global: Tuple[int, int, int, int],
+    parent_crop_offset: Tuple[int, int],
+) -> np.ndarray:
+    """Draw a colored highlight rectangle around the child region on a parent image.
+
+    The parent image should already be cropped to the parent's region (unmasked).
+    The child coordinates are in the *global* image frame and are translated
+    into the parent-crop frame using *parent_crop_offset*.
+
+    Parameters
+    ----------
+    parent_img:
+        The parent's cropped image (no masking applied).
+    child_box_global:
+        The child's box ``(x, y, w, h)`` in global image coordinates.
+    parent_crop_offset:
+        ``(offset_x, offset_y)`` — the top-left corner of the parent crop
+        in global coordinates (i.e. what was subtracted by ``crop_region``).
+
+    Returns
+    -------
+    np.ndarray
+        Copy of *parent_img* with a colored rectangle around the child region.
+    """
+    annotated = parent_img.copy()
+    offset_x, offset_y = parent_crop_offset
+
+    cx, cy, _cw, ch = child_box_global
+    h_img, w_img = annotated.shape[:2]
+
+    # Translate to parent-crop frame.  The highlight covers the same region
+    # that mask_subproof_in_parent would white-out: from the child bar X to
+    # the right edge of the image, and from child bar Y to Y+H.
+    x1 = max(0, cx - offset_x)
+    y1 = max(0, cy - offset_y)
+    x2 = w_img  # extend to right edge
+    y2 = min(h_img, cy + ch - offset_y)
+
+    cv2.rectangle(annotated, (x1, y1), (x2, y2), HIGHLIGHT_COLOR, HIGHLIGHT_THICKNESS)
+
+    return annotated
+
+
 # ==============================================================================
 # 3. VLM Interaction (Mockable)
 # ==============================================================================
 
-def build_ocr_prompt(*, has_children: bool = True) -> str:
+def build_ocr_prompt(*, has_children: bool = True, highlighted_box: bool = False) -> str:
     """Build the VLM OCR prompt for a Fitch proof crop.
 
     Parameters
@@ -633,6 +692,10 @@ def build_ocr_prompt(*, has_children: bool = True) -> str:
         no red stamps, so token instructions are omitted entirely — this
         prevents the VLM from hallucinating placeholder tokens that don't
         exist in the image.
+    highlighted_box:
+        When *True*, the image is a parent-context crop with a bright green
+        rectangle drawn around the target subproof region.  The prompt
+        instructs the VLM to OCR only the lines inside that box.
     """
     base = (
         "Transcribe the Fitch-style proof in this image into a JSON list of objects. "
@@ -645,15 +708,20 @@ def build_ocr_prompt(*, has_children: bool = True) -> str:
         base += (
             "If you see a red box token like <SUBPROOF_ID_X>, copy it exactly as the entire 'wffstr' value for that line and leave 'jstr' empty. "
         )
+    if highlighted_box:
+        base += (
+            "OCR only the proof lines inside the bright green highlighted box. "
+            "Ignore all other text outside the green box. "
+        )
     base += "Return JSON only, with no markdown fences or explanation."
     return base
 
 
-def call_vlm(image_path: str, client, *, has_children: bool = True) -> List[Dict]:
+def call_vlm(image_path: str, client, *, has_children: bool = True, highlighted_box: bool = False) -> List[Dict]:
     """
     Real VLM call. expects client to be compatible with typical OpenAI/LocalAI SDKs.
     """
-    prompt = build_ocr_prompt(has_children=has_children)
+    prompt = build_ocr_prompt(has_children=has_children, highlighted_box=highlighted_box)
 
     print(f"   [VLM] Sending {os.path.basename(image_path)}...")
 
@@ -758,20 +826,67 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
     filename = f"crop_{node.id}.jpg"
     save_path = output_dir / filename
     cv2.imwrite(str(save_path), current_img)
-    
-    print(f"Processing Node {node.id} (Depth {node.depth})... Saved to {save_path.name}")
-    
-    # Call VLM — leaf nodes (no masked children) get a simpler prompt that
-    # omits the <SUBPROOF_ID_X> instructions, preventing hallucinated tokens.
-    ocr_result = call_vlm(str(save_path), client, has_children=bool(sorted_children))
-    
+
+    # --- Context-aware crop for small leaf subproofs ---
+    # Leaf nodes with very short crops (< SMALL_CROP_THRESHOLD) and a
+    # non-ROOT parent get a "context crop": the parent's full unmasked image
+    # with a bright green rectangle drawn around the target subproof region.
+    # This gives the VLM character-shape context from surrounding lines.
+    use_context_crop = (
+        not sorted_children                          # leaf node
+        and node.parent is not None
+        and node.parent.id != "ROOT"                 # parent must be a real subproof
+        and current_img.shape[0] < SMALL_CROP_THRESHOLD
+    )
+
+    if use_context_crop:
+        parent_node = node.parent
+        px, py, pw, ph = parent_node.box
+
+        # Build the parent's unmasked crop the same way it would be built
+        # in process_node_recursive for the parent.
+        if parent_node.parent and parent_node.parent.id == "ROOT":
+            p_extended_h = img.shape[0] - py
+            parent_crop = crop_region(img, (px, py, pw, p_extended_h))
+        else:
+            parent_crop = crop_region(img, parent_node.box)
+
+        # Compute the offset that crop_region applied (padding-aware).
+        p_offset_x = max(0, px - 10)
+        p_offset_y = max(0, py - 10)
+
+        # Draw the highlight rectangle on the parent crop.
+        context_img = build_context_crop(parent_crop, node.box, (p_offset_x, p_offset_y))
+
+        # Save context crop for debugging comparison.
+        context_filename = f"crop_{node.id}_context.jpg"
+        context_save_path = output_dir / context_filename
+        cv2.imwrite(str(context_save_path), context_img)
+
+        print(
+            f"Processing Node {node.id} (Depth {node.depth})... "
+            f"Using context-aware crop ({current_img.shape[0]}px < {SMALL_CROP_THRESHOLD}px)"
+        )
+
+        ocr_result = call_vlm(
+            str(context_save_path), client,
+            has_children=False,
+            highlighted_box=True,
+        )
+    else:
+        print(f"Processing Node {node.id} (Depth {node.depth})... Saved to {save_path.name}")
+
+        # Call VLM — leaf nodes (no masked children) get a simpler prompt that
+        # omits the <SUBPROOF_ID_X> instructions, preventing hallucinated tokens.
+        ocr_result = call_vlm(str(save_path), client, has_children=bool(sorted_children))
+
     # Save raw VLM response for debug
     with open(output_dir / f"response_{node.id}.json", "w") as f:
         json.dump(ocr_result, f, indent=2)
-        
+
     # Add to library
     library[node.id] = ocr_result
-    
+
     return ocr_result
 
 # ==============================================================================
