@@ -1,27 +1,57 @@
 # Canvas API Integration Documentation
 
-## Overview
+> **Consolidated reference for all Canvas-related features.** This document covers
+> setup, submission download, comment posting, user ID mapping, column matching,
+> and known issues. The forward-looking redesign spec lives separately in
+> [CANVAS_WORKFLOW_REDESIGN_SPEC.md](CANVAS_WORKFLOW_REDESIGN_SPEC.md).
 
-The classwork viewer now supports Canvas API integration to streamline the grading workflow. This integration automates fetching gradebook and assignment data from Canvas, and allows posting comments back to Canvas.
+---
 
-## Features
+## 1. Overview
 
-### 1. Canvas Setup Flow
+The classwork viewer supports Canvas API integration to streamline the grading workflow. This integration automates fetching gradebook and assignment data from Canvas, downloading submissions, and posting comments back to Canvas.
+
+**Two paths exist:**
+
+| Path | Status | Description |
+|------|--------|-------------|
+| **Manual** | Stable | Upload gradebook CSV + submission ZIPs by hand |
+| **Canvas API** | Live (slow for large batches) | Auto-fetch everything from Canvas; see §5 for known performance issue |
+
+---
+
+## 2. Configuration
+
+Required environment variables:
+
+```bash
+CANVAS_BASE_URL=https://your-canvas-instance.com
+CANVAS_API_KEY=your_api_key_here
+```
+
+**IMPORTANT:** `CANVAS_BASE_URL` must be the **root domain only**, not a course-specific URL.
+
+- ✅ **Correct:** `https://iu.instructure.com`
+- ❌ **Incorrect:** `https://iu.instructure.com/courses/123456`
+
+**API Key Requirements:**
+- Must have OAuth2 scope for course and assignment access
+- Should have grading permissions for target courses
+- Rate limiting is handled automatically with exponential backoff
+
+---
+
+## 3. Canvas Setup Flow
 
 **Access:** `/classwork/canvas_setup`
 
 The Canvas setup page provides a streamlined three-step workflow:
 
-1. **Select Course** - Dropdown loads all accessible Canvas courses via API
-2. **Select Assignments** - Choose assignments to grade from a sorted list (with ungraded counts)
-3. **Fetch from Canvas & Setup** - Click to automatically download submissions and setup grading
+1. **Select Course** — Dropdown loads all accessible Canvas courses via API
+2. **Select Assignments** — Choose assignments to grade from a sorted list (with ungraded counts)
+3. **Fetch from Canvas & Setup** — Click to automatically download submissions and setup grading
 
-**Assignment Sorting:**
-- Assignments with due dates are sorted by date DESC (most recent first)
-- Assignments without due dates appear at the bottom
-- Shows assignment name, max points, due date, and submission counts
-
-### 2. API Endpoints
+### 3.1 API Endpoints
 
 #### GET `/classwork/canvas_courses`
 - Fetches list of accessible courses from Canvas
@@ -44,39 +74,38 @@ The Canvas setup page provides a streamlined three-step workflow:
   1. Fetches gradebook CSV from Canvas
   2. Parses gradebook and builds roster
   3. Fetches assignment metadata (max points)
-  4. **Downloads all submission files from Canvas for each selected assignment** (automatic)
+  4. Downloads all submission files from Canvas for each selected assignment (automatic)
   5. Creates ClassworkBatchState with Canvas metadata
 - Redirects to `/classwork/review`
 
-#### Auto-Download Feature
+### 3.2 Auto-Download Feature
 
 **Always enabled for Canvas setup:**
 - Downloads all submission files directly from Canvas API for selected assignments
 - Supports multiple file attachments per student (PDF, images, etc.)
 - Handles text submissions (creates `.txt` files)
 - Combines submissions from multiple assignments into one batch
-- Creates Canvas-style ZIP structure for compatibility
 
-**File Types Handled:**
+**File types handled:**
 - File attachments: PDF, JPG, PNG, DOCX, etc.
 - Text submissions: Converted to `.txt` files
 - Multiple files per student: All downloaded and included
 
-**Filename handling note:**
-- The app preserves the exact Canvas filename as `original_filename` for display and
-  comment ZIP exports.
-- It stores the local file under a separate safe `stored_filename` for disk paths and
-  `/classwork_files/...` preview URLs.
-- This avoids viewer failures on Canvas filenames containing URL-like escapes such as
-  `%28` / `%29`, without breaking manual ZIP-based reupload workflows that care about
-  the original filename.
+**Filename handling:**
+- The app preserves the exact Canvas filename as `original_filename` for display and comment ZIP exports.
+- It stores the local file under a separate safe `stored_filename` for disk paths and `/classwork_files/...` preview URLs.
+- This avoids viewer failures on Canvas filenames containing URL-like escapes such as `%28` / `%29`, without breaking manual ZIP-based reupload workflows.
 
-**Benefits:**
-- Eliminates manual download step from Canvas UI
-- Ensures you have latest submissions (not stale ZIP)
-- Works with multiple assignments in one batch
-- Automatically handles Canvas naming conventions
-- Simple, streamlined workflow
+### 3.3 Assignment Sorting
+- Assignments with due dates are sorted by date DESC (most recent first)
+- Assignments without due dates appear at the bottom
+- Shows assignment name, max points, due date, and submission counts
+
+---
+
+## 4. Comment Posting
+
+### 4.1 Endpoint
 
 #### POST `/classwork/canvas_post_comments`
 - Posts text comments to Canvas assignments
@@ -90,24 +119,163 @@ The Canvas setup page provides a streamlined three-step workflow:
   4. Returns success/failure summary per assignment
 - Renders results in `classwork_batch_done.html`
 
-### 3. Data Model Updates
+### 4.2 Canvas API Endpoint Used
 
-#### ClassworkModeState
-New fields added:
-- `canvas_course_id: Optional[int]` - Canvas course ID
-- `canvas_assignment_id: Optional[int]` - Canvas assignment ID
+```
+PUT /api/v1/courses/{course_id}/assignments/{assignment_id}/submissions/{canvas_user_id}
+```
 
-These fields are populated when using Canvas setup and used for posting comments back to Canvas.
+Request body:
+```json
+{
+  "comment": {
+    "text_comment": "Comment text here"
+  }
+}
+```
 
-### 4. FERPA Compliance
+### 4.3 User Workflow
+
+1. User completes classwork batch grading
+2. User clicks "Finalize Batch" on the review page
+3. On the done page, user sees:
+   - Option A: "Post Comments to Canvas" button
+   - Option B: Download ZIP files for manual upload (fallback)
+4. User clicks "Post Comments to Canvas"
+5. System posts all comments to Canvas via API
+6. Page displays results:
+   - Success/failure counts
+   - Per-assignment status
+   - Error details if any failures
+
+### 4.4 Safety Features
+- **No duplicate posting:** Form is hidden after posting (prevents accidental re-posts)
+- **Overwrite protection:** Checkbox to allow overwriting is unchecked by default
+- **Manual fallback:** ZIP download option remains available
+- **Clear feedback:** Detailed error messages if posting fails
+
+### 4.5 Rate Limiting
+- 0.5 second delay between student comments
+- Respects Canvas API rate limits
+- Prevents API throttling
+
+### 4.6 Important Notes
+- Comments are **additive** — each call adds a new comment (Canvas has no "replace comment" endpoint)
+- The overwrite checkbox is advisory only (cannot actually replace)
+- Best practice: Grade each assignment once to avoid comment accumulation
+
+---
+
+## 5. User ID Mapping
+
+### 5.1 The Problem
+
+When posting comments to Canvas via the API, the system needs Canvas user IDs (internal identifiers), not SIS login IDs (the external student identifiers used in gradebook CSVs).
+
+### 5.2 The Solution
+
+The system builds and maintains a mapping between SIS login IDs and Canvas user IDs:
+
+1. **Collection Phase:** When downloading submissions from Canvas, extract Canvas user IDs
+2. **Storage Phase:** Store the mapping in `ClassworkBatchState.canvas_user_ids`
+3. **Usage Phase:** Look up Canvas user IDs when posting comments
+4. **Cleanup Phase:** Clear mapping when batch is closed
+
+### 5.3 Data Model
+
+```python
+class ClassworkBatchState(BaseModel):
+    # ... existing fields ...
+    canvas_user_ids: Dict[str, int] = {}  # SIS login ID → Canvas user ID
+```
+
+The mapping is populated during `download_assignment_submissions()`, which returns:
+```python
+# Returns: (Dict[str, List[Path]], Dict[str, int])
+student_files, canvas_user_ids = client.download_assignment_submissions(...)
+```
+
+### 5.4 Comment Posting with User IDs
+
+```python
+for entry in mode.entries:
+    if entry.comment and entry.comment.strip():
+        canvas_user_id = batch.canvas_user_ids.get(entry.student_id)
+        if canvas_user_id:
+            comments_dict[canvas_user_id] = {"text": entry.comment.strip()}
+```
+
+---
+
+## 6. Column Matching
+
+### 6.1 Purpose
+
+When users select assignments from Canvas, the system needs to know which gradebook column to write grades to. The auto-matching system pairs Canvas assignment names with gradebook CSV columns.
+
+### 6.2 How It Works
+
+**Name normalization** (`_normalize_for_matching()`) standardizes both Canvas assignment names and gradebook column names:
+- Converts to lowercase
+- Removes parenthetical numbers (Canvas assignment IDs in gradebook columns)
+- Removes special characters (except spaces, hyphens, underscores)
+- Collapses multiple spaces into single spaces
+- Trims whitespace
+
+**Examples:**
+- `"Worksheet 1"` → `"worksheet 1"`
+- `"Wed Attendance (18715846)"` → `"wed attendance"` (ID removed)
+- `"Exam 1 (18697401)"` → `"exam 1"` (ID removed)
+
+**Matching** (`_find_matching_column()`):
+1. Normalizes the Canvas assignment name
+2. Filters out non-assignment columns (Student, ID, Score, Grade columns)
+3. Returns first exact match after normalization, or `None`
+
+### 6.3 Console Output
+
+```
+[COLUMN MATCH] Auto-matched 'Worksheet 1' to gradebook column: 'Worksheet 1'
+[COLUMN MATCH WARNING] No match found for assignment 'Quiz 9'. Manual column selection required.
+```
+
+### 6.4 Limitations
+- Exact match only (no fuzzy matching yet)
+- Matches happen silently in console (no UI feedback yet)
+- Manual override via `/classwork/batch/set_column` if auto-match fails
+
+---
+
+## 7. Data Model
+
+### ClassworkModeState — Canvas fields
+
+```python
+class ClassworkModeState(BaseModel):
+    # ... other fields ...
+    canvas_course_id: Optional[int]      # Set only if Canvas API path
+    canvas_assignment_id: Optional[int]  # Set only if Canvas API path
+```
+
+### ClassworkBatchState — Canvas fields
+
+```python
+class ClassworkBatchState(BaseModel):
+    # ... other fields ...
+    canvas_user_ids: Dict[str, int] = {}  # SIS login ID → Canvas user ID
+```
+
+---
+
+## 8. FERPA Compliance & Caching
 
 All Canvas API data is cached to `data/canvas_cache/` directory:
 
 ```
 data/canvas_cache/
-├── courses_cache.json          # Course list (1 hour TTL)
-├── {course_id}_assignments_{timestamp}.json  # Assignments (30 min TTL)
-└── {course_id}_gradebook_{timestamp}.csv    # Gradebook (no caching)
+├── courses_cache.json                           # Course list (1 hour TTL)
+├── {course_id}_assignments_{timestamp}.json     # Assignments (30 min TTL)
+└── {course_id}_gradebook_{timestamp}.csv        # Gradebook (no caching)
 ```
 
 **Key principles:**
@@ -116,30 +284,11 @@ data/canvas_cache/
 - Cache files include timestamps for expiration
 - Temporary gradebook stored in `data/gradebook_merge/tmp/`
 
-### 5. Configuration
+---
 
-Required environment variables:
+## 9. Workflow Comparison
 
-```bash
-CANVAS_BASE_URL=https://your-canvas-instance.com
-CANVAS_API_KEY=your_api_key_here
-```
-
-**IMPORTANT:** `CANVAS_BASE_URL` must be the **root domain only**, not a course-specific URL.
-
-- ✅ **Correct:** `https://iu.instructure.com`
-- ❌ **Incorrect:** `https://iu.instructure.com/courses/123456`
-
-The base URL should point to your Canvas instance's home page.
-
-**API Key Requirements:**
-- Must have OAuth2 scope for course and assignment access
-- Should have grading permissions for target courses
-- Rate limiting is handled automatically with exponential backoff
-
-### 6. Workflow Comparison
-
-#### Manual Workflow (Original)
+### Manual Workflow
 1. Download gradebook CSV from Canvas manually
 2. Upload CSV to classwork setup
 3. Identify assignment columns manually
@@ -151,62 +300,101 @@ The base URL should point to your Canvas instance's home page.
 9. Export comments ZIP
 10. Upload comments ZIP to Canvas manually
 
-#### Canvas API Workflow (Streamlined)
+### Canvas API Workflow (Streamlined)
 1. Select course from dropdown (auto-fetched)
 2. Select assignments from list (auto-fetched, sorted by due date, with ungraded counts)
 3. Click "Fetch from Canvas & Setup"
-4. **Submissions downloaded automatically from Canvas** (no manual ZIP needed!)
+4. **Submissions downloaded automatically** (no manual ZIP needed)
 5. Grade submissions
 6. Export merged gradebook CSV
-7. Upload CSV back to Canvas (still manual - **INTENTIONAL DESIGN**)
+7. Upload CSV back to Canvas (still manual — **INTENTIONAL DESIGN**)
 8. Click "Upload Comments to Canvas" button
 9. Comments posted automatically via API
 
 **Time Savings:** Eliminates steps 1, 2, 3, 4, 5, 8, 9, and 10 from manual workflow.
 
-**IMPORTANT:** Manual grade upload (step 7) is intentional design, not a missing feature.
+### Why Manual Grade Upload?
 
-**Why Manual Grade Upload?**
+**Manual grade upload (step 7) is intentional design, not a missing feature.**
+
 - **Safety First:** Canvas has no grade conflict API. Automatic uploads could overwrite existing grades.
 - **Review Opportunity:** Manual upload lets you review the merged CSV before committing.
 - **Error Recovery:** If grades are incorrect, you can fix them in the CSV before uploading.
 - **Consistency:** Keeps grading workflow consistent with existing Canvas procedures.
 
-**The app generates a correctly-labeled CSV** that Canvas will accept. You simply:
-1. Download the merged CSV from the export page
-2. Review it in a spreadsheet
-3. Upload it to Canvas using the standard gradebook import feature
+---
 
-This approach balances automation with safety and review capabilities.
+## 10. Known Issues
 
-### 7. Error Handling
+### Performance Issue: Synchronous File Downloads
 
-#### Canvas API Errors
-- If Canvas API fails, falls back to cached data (if available)
+**Current behavior of `POST /classwork/canvas_setup`:**
+Downloads ALL files for ALL selected assignments in one synchronous handler. N assignments × M students × K files = potentially hundreds of HTTP requests, all blocking, all in one request.
+
+**Workaround:** Use the manual path (upload ZIPs) for large batches.
+
+**Planned fix:** See [CANVAS_WORKFLOW_REDESIGN_SPEC.md](CANVAS_WORKFLOW_REDESIGN_SPEC.md) for the lazy per-assignment download design.
+
+### Bug Fix: Comments Not Persisting (Fixed 2026-03-22)
+
+**Root cause:** Comments were saved in memory but never written to `session.json`. This caused blank comments in ZIP exports and Canvas posts.
+
+**Fix:** Added `persist_session()` calls after form updates and before finalize.
+
+**How to verify:**
+1. Add comments in `/classwork/review`
+2. Click "Save" — verify comments persist across page refreshes
+3. Click "Finalize" and download ZIP — verify comments are present
+4. Click "Post to Canvas" — verify debug output shows comments
+
+### Pagination Bug
+
+`download_assignment_submissions()` uses non-paginated API requests, silently dropping students beyond the first page (~100). Planned fix: switch to `_make_paginated_request`.
+
+---
+
+## 11. Error Handling
+
+### Canvas API Errors
+- Falls back to cached data (if available)
 - Shows error messages in UI
 - Allows retry with "Refresh" options
 
-#### Rate Limiting
+### Rate Limiting
 - Automatically detects HTTP 429 errors
 - Implements exponential backoff
 - Respects Canvas rate limits
 
-#### Comment Upload Errors
+### Comment Upload Errors
 - Shows per-assignment success/failure summary
 - Lists students with failed uploads
 - Allows retry without re-grading
 
-### 8. Future Enhancements
+---
 
-Potential future improvements:
-- **Grade Upload:** Add option to post grades via API (with Canvas conflict handling)
-- **Real-time Sync:** Refresh roster and assignments periodically
-- **Assignment Groups:** Filter assignments by group (quizzes, homework, etc.)
-- **Recent Assignments First:** Highlight assignments due in the last 7 days
-- **Progress Indicators:** Show download progress for large submissions batches
-- **Caching Downloaded Files:** Cache downloaded submissions to avoid re-downloading
+## 12. Troubleshooting
 
-### 9. Testing Checklist
+| Issue | Solution |
+|-------|----------|
+| "Canvas API credentials not configured" | Set `CANVAS_BASE_URL` and `CANVAS_API_KEY` environment variables |
+| "No assignments found for this course" | Verify course has published assignments, check API key permissions |
+| Comment upload fails for some students | Check if student IDs in roster match Canvas SIS Login IDs |
+| Rate limit errors during setup | Wait a few minutes and retry; caching will reduce API calls |
+| Assignments not sorted correctly | Check assignment due dates in Canvas; assignments with no due date appear at bottom |
+
+---
+
+## 13. Development Notes
+
+- Canvas client uses `httpx` for HTTP requests (synchronous, not async)
+- Cache files use ISO 8601 timestamps
+- All Canvas data is optional; system falls back to manual workflow if API fails
+- Comment upload uses per-student PUT requests with 0.5s delay
+- Gradebook CSV format expected: SIS Login ID column for student IDs
+
+---
+
+## 14. Testing Checklist
 
 Before using Canvas integration in production:
 
@@ -216,32 +404,25 @@ Before using Canvas integration in production:
 - [ ] Verify API key has comment write permissions
 - [ ] Test course list loading
 - [ ] Test assignment list loading
-- [ ] Test setup with real submissions ZIP
+- [ ] Test setup with real submissions
 - [ ] Test comment upload to Canvas
 - [ ] Verify comments appear in Canvas SpeedGrader
-- [ ] Verify FERPA compliance (all data in data/ directory)
+- [ ] Verify FERPA compliance (all data in `data/` directory)
 
-### 10. Troubleshooting
+Run automated tests:
+```bash
+python scripts/test_canvas_api.py
+python scripts/test_canvas_user_id_mapping.py
+python test_column_matching_simple.py
+```
 
-**Issue:** "Canvas API credentials not configured"
-- **Solution:** Set CANVAS_BASE_URL and CANVAS_API_KEY environment variables
+---
 
-**Issue:** "No assignments found for this course"
-- **Solution:** Verify course has published assignments, check API key permissions
+## 15. Future Enhancements
 
-**Issue:** Comment upload fails for some students
-- **Solution:** Check if student IDs in your roster match Canvas SIS Login IDs
-
-**Issue:** Rate limit errors during setup
-- **Solution:** Wait a few minutes and retry; caching will reduce API calls
-
-**Issue:** Assignments not sorted correctly
-- **Solution:** Check assignment due dates in Canvas; assignments with no due date appear at bottom
-
-## Development Notes
-
-- Canvas client uses `httpx` for HTTP requests
-- Cache files use ISO 8601 timestamps
-- All Canvas data is optional; system falls back to manual workflow if API fails
-- Comment upload uses Canvas bulk submission API endpoint
-- Gradebook CSV format expected: SIS Login ID column for student IDs
+- **Grade Upload:** Add option to post grades via API (with Canvas conflict handling)
+- **Lazy Downloads:** Per-assignment file download instead of all-at-once (see CANVAS_WORKFLOW_REDESIGN_SPEC.md)
+- **Real-time Sync:** Refresh roster and assignments periodically
+- **Progress Indicators:** Show download progress for large submission batches
+- **Fuzzy Column Matching:** Use Levenshtein distance for near-match column names
+- **UI Feedback:** Show column match status in the Canvas setup page

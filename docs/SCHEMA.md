@@ -1,4 +1,4 @@
-This document defines the core data structures that all parts of the system agree on.  
+This document defines the core data structures that all parts of the system agree on.
 All examples are canonical; when writing new code, verify output conforms to these formats.
 
 ---
@@ -22,17 +22,15 @@ Derived from Canvas gradebook CSV.
 
 Invariants:
 
-student_id must be unique.
-
-Names are stored exactly as they appear in Canvas (for import matching).
-
-The fuzzy-search UI matches on name but canonicalization happens via student_id.
+- `student_id` must be unique.
+- Names are stored exactly as they appear in Canvas (for import matching).
+- The fuzzy-search UI matches on name but canonicalization happens via `student_id`.
 
 # 2. Grading Key (YAML)
-Example (data/rubric/quiz3.yaml):
 
-yaml
-Copy code
+Example (`data/rubric/quiz3.yaml`):
+
+```yaml
 quiz_id: "quiz3"
 max_points: 10
 
@@ -48,26 +46,25 @@ problems:
   - id: "Q3"
     label: "Explanation"
     points: 3
+```
+
 Invariants:
 
-id values must be unique.
-
-All per-problem score entries in WorkUnits must refer to these ids exactly.
-
-The problem `label` is also used as a natural-language hint when the model searches for the answer region in strip view, so match the wording on the exam if possible.
+- `id` values must be unique.
+- All per-problem score entries in WorkUnits must refer to these ids exactly.
+- The problem `label` is also used as a natural-language hint when the model searches for the answer region in strip view, so match the wording on the exam if possible.
 
 Totals are computed as:
 
-bash
-Copy code
+```bash
 total_score = sum(WorkUnit.per_problem[id] for id in problems)
+```
 
+# 3. WorkUnit Schema (v0)
 
-3. WorkUnit Schema (v0)
 WorkUnits are written to JSON after each grading action.
 
-json
-Copy code
+```json
 {
   "unit_id": 7,
   "page_filenames": ["IMG_4024.JPG", "IMG_4025.JPG"],
@@ -87,27 +84,22 @@ Copy code
 
   "comment": "missing witness in Q2"
 }
+```
+
 Invariants:
 
-page_filenames lists raw images in display order.
+- `page_filenames` lists raw images in display order.
+- Exactly one `student_id` per WorkUnit.
+- Every key in `per_problem` must correspond to an `id` in the GradingKey.
+- `per_problem` values are floats or `null` (`null` means ungraded).
+- Missing values are allowed (e.g., ungraded problems) but must be resolved before export.
+- `per_problem_comments` keys mirror `per_problem`; values are strings or `null`.
 
-Exactly one student_id per WorkUnit.
+# 4. WorkUnit Schema (future segmentation)
 
-Every key in per_problem must correspond to an id in the GradingKey.
-
-per_problem values are floats or null (null means ungraded).
-
-Missing values are allowed (e.g., ungraded problems) but must be resolved before export.
-
-per_problem_comments keys mirror per_problem; values are strings or null.
-
-
-
-4. WorkUnit Schema (future segmentation)
 After OCR segmentation:
 
-json
-Copy code
+```json
 {
   "unit_id": 7,
   "page_filenames": ["IMG_4024.JPG", "IMG_4025.JPG"],
@@ -131,34 +123,33 @@ Copy code
     "Q2": {...}
   }
 }
+```
 
 Invariants:
 
-answers[].problem_id must match the GradingKey.
+- `answers[].problem_id` must match the GradingKey.
+- `answers[].bbox` is `[x1, y1, x2, y2]` in pixel coordinates.
+- Future modules may populate or modify `text`, `auto_score`, etc.
+- Human scores remain canonical for exported grades.
 
-answers[].bbox is [x1, y1, x2, y2] in pixel coordinates.
+# 5. Export CSV Schema (Canvas)
 
-Future modules may populate or modify text, auto_score, etc.
-Human scores remain canonical for exported grades.
-
-5. Export CSV Schema (Canvas)
 The final CSV looks like:
 
-csv
-Copy code
+```csv
 student_id,quiz3_score
 12345,8
 67890,9.5
+```
+
 If integrating with full Canvas gradebook:
 
-A merge step inserts a quiz3_score column into a Canvas-exported gradebook CSV.
-
-Canvas then imports the updated CSV without changing other columns.
-
+- A merge step inserts a `quiz3_score` column into a Canvas-exported gradebook CSV.
+- Canvas then imports the updated CSV without changing other columns.
 
 ## 5.1 Related Export: Renamed Scans (ZIP)
 
-The HTML UI provides a **“Download renamed scans (ZIP)”** action.
+The HTML UI provides a **"Download renamed scans (ZIP)"** action.
 
 This endpoint:
 
@@ -179,73 +170,68 @@ This endpoint:
 
 Invariants:
 
-Page order within a WorkUnit is preserved (page_index is 1-based in the order
-given by WorkUnit.page_filenames).
-
-Only WorkUnits with a student_id are included; unassigned scans are skipped.
-
-The original images in data/raw_scans/ are unchanged; the renaming happens
-only in the ZIP archive.
+- Page order within a WorkUnit is preserved (`page_index` is 1-based in the order given by `WorkUnit.page_filenames`).
+- Only WorkUnits with a `student_id` are included; unassigned scans are skipped.
+- The original images in `data/raw_scans/` are unchanged; the renaming happens only in the ZIP archive.
 
 This export is intended for:
 
-handback (e.g., uploading named scans to another system),
-
-offline archival of per-student scan bundles,
-
-training/evaluation datasets for future OCR and local-model experiments
+- handback (e.g., uploading named scans to another system),
+- offline archival of per-student scan bundles,
+- training/evaluation datasets for future OCR and local-model experiments.
 
 # 6. Session File Format (optional)
+
 Incremental grading sessions may be stored as:
 
-json
-Copy code
-  {
-    "roster": [...],
-    "grading_key": {...},
-    "work_units": [...],
-    "unclaimed_pages": ["IMG_4031.JPG", "IMG_4032.JPG"],
-    "pinned_note": null,
-    "problem_notes": {
-      "Q1": "Truth table for ¬(P→Q)"
-    },
-    "problem_types": {
-      "Q1": "fitch_proof"
-    }
+```json
+{
+  "roster": [...],
+  "grading_key": {...},
+  "work_units": [...],
+  "unclaimed_pages": ["IMG_4031.JPG", "IMG_4032.JPG"],
+  "pinned_note": null,
+  "problem_notes": {
+    "Q1": "Truth table for ¬(P→Q)"
+  },
+  "problem_types": {
+    "Q1": "fitch_proof"
   }
-  This file is reloadable at any time.
+}
+```
 
+This file is reloadable at any time.
 
-7. Session Extensions (v0.2)
+# 7. Session Extensions (v0.2)
 
-The Session model now includes an optional pinned_note field:
+The Session model now includes an optional `pinned_note` field:
 
+```json
 {
   "pinned_note": "string or null"
 }
+```
 
+- This stores the assignment's answer key or grading notes.
+- Shared across all WorkUnits.
+- Preserved when creating archival snapshots.
+- `null` is stored instead of an empty string for backwards compatibility.
 
-This stores the assignment’s answer key or grading notes.
+# 8. Session Extensions (v0.3)
 
-Shared across all WorkUnits.
+`problem_types`:
 
-Preserved when creating archival snapshots.
-
-Null is stored instead of an empty string for backwards compatibility.
-
-8. Session Extensions (v0.3)
-
-problem_types:
-
+```json
 {
   "problem_types": {
     "Q1": "fitch_proof",
     "Q2": "modal_proof"
   }
 }
+```
 
 Stores per-problem type tags used for future autograde workflows (e.g., Fitch proofs).
-These can be set from the Problem Strips UI via the “Problem type wheel.”
+These can be set from the Problem Strips UI via the "Problem type wheel."
 
 ## 9. Proposed Rubric Extension (draft)
 
