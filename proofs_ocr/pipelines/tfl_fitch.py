@@ -19,6 +19,12 @@ import numpy as np
 
 from proofs_ocr.common.stitch import recursive_stitch, renumber_lines
 from proofs_ocr.domains.shared import parse_vlm_json_response
+from proofs_ocr.tricks.justification_snaps import (
+    TFL_KNOWN_RULE_HEADS,
+    TFL_VALID_RULE_HEADS,
+    clean_justification_for_tfl,
+    snap_justification_rule_head,
+)
 
 # Attempt to import project modules
 try:
@@ -176,43 +182,7 @@ def normalize_proof_structure(structure):
         "F": "⊥",      # Falsum often written as F
     }
 
-    # Map Justifications to Verifier Codes (from verifier.py TFL_RULES)
-    justification_map = {
-        "premise": "Pr",
-        "Premise": "Pr",
-        "prem": "Pr",
-        "Prem": "Pr",
-        "pr": "Pr",
-        "Pr": "Pr",
-        "assumption": "Hyp",
-        "assume": "Hyp",
-        "hyp": "Hyp",
-        "h": "Hyp",
-        # Rules often OCR'd poorly
-        "ve": "∨E",
-        "vi": "∨I",
-        "&e": "∧E",
-        "&i": "∧I",
-        ".e": "∧E",
-        ".i": "∧I",
-        "~e": "¬E",
-        "~i": "¬I",
-        "-e": "¬E",
-        "-i": "¬I",
-        "xe": "⊥E",   # Explosion
-        "xi": "⊥I",
-        "bot": "⊥",
-        "bote": "⊥E",
-        "boti": "⊥I",
-    }
-
     contradiction_rule_heads = {"¬E", "⊥I"}
-    known_rule_heads = {
-        "Pr", "PR", "Hyp", "HYP", "premise", "Premise", "assumption", "Assumption",
-        "∨E", "∨I", "∧E", "∧I", "¬E", "¬I", "→E", "→I", "↔E", "↔I",
-        "vE", "vI", "&E", "&I", ".E", ".I", "~E", "~I", "-E", "-I",
-        "AE", "AI", "MP", "MT", "DS", "DNE", "LEM", "DeM", "DEM", "X", "IP", "R",
-    }
 
     def clean_wff(wff):
         if not wff: return ""
@@ -247,7 +217,7 @@ def normalize_proof_structure(structure):
         if not token:
             return False
         compact = normalize_rule_candidate(token).replace(" ", "")
-        return compact in known_rule_heads
+        return compact in TFL_KNOWN_RULE_HEADS
 
     def likely_rule_with_citations(token, next_token):
         if not looks_like_rule_token(token):
@@ -288,8 +258,8 @@ def normalize_proof_structure(structure):
         head, consumed = rule_token_at(tokens, 0)
         if head is not None:
             justification_text = " ".join([head, *tokens[consumed:]]).strip()
-            normalized_head = clean_justification(head)
-            normalized_full = clean_justification(justification_text)
+            normalized_head = clean_justification_for_tfl(head)
+            normalized_full = clean_justification_for_tfl(justification_text)
             if normalized_head in contradiction_rule_heads:
                 return "⊥", normalized_full
             return "", normalized_full
@@ -306,90 +276,6 @@ def normalize_proof_structure(structure):
             return formula_part, justification_part
 
         return wff_text, j_text
-
-    def snap_justification_rule_head(jstr):
-        """Post-normalization snap: fix rule heads that are still not valid TFL rules."""
-        if not jstr:
-            return jstr
-
-        valid_rules = {
-            "Pr", "Hyp",
-            "∧I", "∧E", "∨I", "∨E",
-            "→I", "→E", "↔I", "↔E",
-            "¬I", "¬E", "⊥I", "⊥E",
-        }
-
-        parts = jstr.strip().split(None, 1)
-        head = parts[0]
-        tail = parts[1] if len(parts) > 1 else ""
-
-        # Already valid — nothing to do
-        if head in valid_rules:
-            return jstr
-
-        full_text = jstr.strip()
-
-        # --- Pattern: bare line ranges with no rule head ---
-        # Two ranges like "3-6 7-10" or "3-6,7-10" → ↔I
-        if re.fullmatch(r"\d+\s*-\s*\d+\s*[,;\s]+\s*\d+\s*-\s*\d+", full_text):
-            return "↔I " + full_text
-
-        # --- Known OCR confusions for rule heads ---
-        head_fixes = {
-            # ← read instead of ↔
-            "←E": "↔E", "←I": "↔I", "←F": "↔E",
-            # ↔F: F misread for E in ↔E
-            "↔F": "↔E",
-            # ± read instead of ↔I
-            "±": "↔I",
-            # handwritten ∧ looks like 8
-            "8E": "∧E", "8I": "∧I",
-            # ∈ in OCR output
-            "∈E": "↔E", "∈I": "↔I", "∈S": "∧E",
-            # epsilon/fallback
-            "εE": "∧E", "εI": "∧I", "εS": "∧E",
-            # BE/BI from ∧ → B confusion
-            "BE": "∧E", "BI": "∧I",
-            # XE/XI for ⊥E/⊥I (explosion)
-            "XE": "⊥E", "XI": "⊥I",
-        }
-
-        if head in head_fixes:
-            fixed = head_fixes[head]
-            return (fixed + " " + tail).strip() if tail else fixed
-
-        return jstr
-
-    def clean_justification(jstr):
-        if not jstr: return ""
-        jstr = jstr.replace("->", "→").replace("<->", "↔").replace("<→", "↔")
-        jstr = jstr.replace("←", "↔")  # Common OCR: left-arrow read instead of ↔
-        # Collapse spaces: "8 E" -> "8E", "8 I" -> "8I" (handwritten ∧ looks like 8)
-        jstr = re.sub(r"\b8\s+([IE])\b", r"8\1", jstr)
-        jstr = re.sub(r"([¬∧∨→↔])\s+([IE])\b", r"\1\2", jstr)
-        jstr = jstr.replace("&", "∧").replace("~", "¬")
-        jstr = re.sub(r"\b([∧∨¬→↔A-Z]{1,3})\s*([IE])(?=\d)", r"\1\2 ", jstr)
-        jstr = re.sub(r"\b(X|IP|R|MT|DS|DNE|LEM|DeM|DEM)(?=\d)", r"\1 ", jstr)
-        jstr = re.sub(r"\b([∧∨¬→↔A-Z]{1,4})(\d)", r"\1 \2", jstr)
-        
-        # Split into Rule and Lines (e.g., "vE 2" -> "vE", "2")
-        # We assume the Rule is the first "word"
-        parts = jstr.strip().split(' ', 1)
-        rule = parts[0].lower()
-        remainder = parts[1] if len(parts) > 1 else ""
-
-        # Map the rule if known
-        if rule in justification_map:
-            rule = justification_map[rule]
-        else:
-            # Try to fix casing for standard rules (e.g., "mp" -> "MP")
-            # The verifier is Case Sensitive for rules like 'R', 'X', 'MT'
-            rule = rule.upper() 
-            # Fix specific case-sensitive ones from verifier.py
-            if rule == "AE": rule = "∧E" # Common confusion
-            if rule == "AI": rule = "∧I"
-        
-        return f"{rule} {remainder}".strip()
 
     def recursive_normalize(sub_structure, is_subproof_start=False):
         for index, item in enumerate(sub_structure):
@@ -414,7 +300,8 @@ def normalize_proof_structure(structure):
                     item["jstr"] = "Hyp"
                 else:
                     item["jstr"] = snap_justification_rule_head(
-                        clean_justification(extracted_j)
+                        clean_justification_for_tfl(extracted_j),
+                        valid_rules=TFL_VALID_RULE_HEADS,
                     )
 
     # Start the recursion

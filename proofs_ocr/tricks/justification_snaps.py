@@ -28,6 +28,9 @@ _BARE_NUMERIC_RE = re.compile(r"^[\d,.\-]+$")
 # Split a justification into (rule_head, tail) preserving spacing.
 _HEAD_TAIL_RE = re.compile(r"\s+")
 
+# Bare double line-range pattern — "3-6 7-10" or "3-6,7-10"
+_BARE_DOUBLE_RANGE_RE = re.compile(r"\d+\s*-\s*\d+\s*[,;\s]+\s*\d+\s*-\s*\d+")
+
 
 # ── OCR confusion tables ──────────────────────────────────────────────
 
@@ -110,6 +113,7 @@ def snap_justification_rule_head(
     jstr: str,
     *,
     extra_fixes: dict[str, str] | None = None,
+    valid_rules: frozenset[str] | None = None,
 ) -> str:
     """Post-normalization snap: fix rule heads that are not yet canonical.
 
@@ -124,6 +128,10 @@ def snap_justification_rule_head(
     extra_fixes:
         Optional additional head → canonical mappings to merge with the
         shared table (e.g. modal-specific fixes).
+    valid_rules:
+        Optional set of already-canonical rule heads.  If the extracted
+        head is in this set, the string is returned unchanged without
+        consulting the fix table.
     """
     if not jstr:
         return jstr
@@ -136,9 +144,18 @@ def snap_justification_rule_head(
     head = parts[0]
     tail = parts[1] if len(parts) > 1 else ""
 
+    # Already valid — nothing to do
+    if valid_rules and head in valid_rules:
+        return jstr
+
     if head in fixes:
         fixed = fixes[head]
         return (fixed + " " + tail).strip() if tail else fixed
+
+    # Bare double line-range with no rule head: "3-6 7-10" → "↔I 3-6 7-10"
+    full_text = jstr.strip()
+    if _BARE_DOUBLE_RANGE_RE.fullmatch(full_text):
+        return "↔I " + full_text
 
     return jstr
 
@@ -204,6 +221,9 @@ TFL_JUSTIFICATION_ALIASES: dict[str, str] = {
     "xe": "⊥E",
     "boti": "⊥I",
     "bote": "⊥E",
+    "bot": "⊥",
+    ".e": "∧E",
+    ".i": "∧I",
     # Derived / shorthand
     "ip": "IP",
     "r": "R",
@@ -213,6 +233,23 @@ TFL_JUSTIFICATION_ALIASES: dict[str, str] = {
     "dem": "DeM",
     "lem": "LEM",
 }
+
+#: Valid post-normalization TFL rule heads.
+TFL_VALID_RULE_HEADS: frozenset[str] = frozenset({
+    "Pr", "Hyp",
+    "∧I", "∧E", "∨I", "∨E",
+    "→I", "→E", "↔I", "↔E",
+    "¬I", "¬E", "⊥I", "⊥E",
+})
+
+#: Broader set of known rule heads for pre-normalization matching.
+#: Includes ASCII/loose forms used by VLM before normalization.
+TFL_KNOWN_RULE_HEADS: frozenset[str] = frozenset({
+    "Pr", "PR", "Hyp", "HYP", "premise", "Premise", "assumption", "Assumption",
+    "∨E", "∨I", "∧E", "∧I", "¬E", "¬I", "→E", "→I", "↔E", "↔I",
+    "vE", "vI", "&E", "&I", ".E", ".I", "~E", "~I", "-E", "-I",
+    "AE", "AI", "MP", "MT", "DS", "DNE", "LEM", "DeM", "DEM", "X", "IP", "R",
+})
 
 #: Canonical modal justification head aliases (lowercase → canonical).
 #: Extends TFL aliases with modal-specific rules.
@@ -269,3 +306,49 @@ def resolve_justification_head(
     if aliases is None:
         aliases = TFL_JUSTIFICATION_ALIASES
     return aliases.get(head.lower(), head)
+
+
+# ── TFL justification normalization ───────────────────────────────────
+
+def clean_justification_for_tfl(jstr: str) -> str:
+    """Full TFL justification normalization: symbols, spaces, alias lookup.
+
+    Applies in order:
+    1. Symbol normalization (→, ↔, ←→↔, ∧, ¬)
+    2. Space collapsing around operator+I/E patterns
+    3. snap_8_before_ei (8 E → ∧E, 8 I → ∧I)
+    4. snap_epsilon_to_e (∈→E, ε→E)
+    5. Alias lookup via TFL_JUSTIFICATION_ALIASES (lowercase key)
+    6. Uppercase fallback for unrecognized rules
+    7. AE→∧E, AI→∧I correction (common ∧↔A confusion)
+    """
+    if not jstr:
+        return ""
+    jstr = jstr.replace("->", "→").replace("<->", "↔").replace("<→", "↔")
+    jstr = jstr.replace("←", "↔")
+    # Collapse spaces: "8 E" -> "8E", "8 I" -> "8I" (handwritten ∧ looks like 8)
+    jstr = re.sub(r"\b8\s+([IE])\b", r"8\1", jstr)
+    jstr = re.sub(r"([¬∧∨→↔])\s+([IE])\b", r"\1\2", jstr)
+    jstr = jstr.replace("&", "∧").replace("~", "¬")
+    jstr = re.sub(r"\b([∧∨¬→↔A-Z]{1,3})\s*([IE])(?=\d)", r"\1\2 ", jstr)
+    jstr = re.sub(r"\b(X|IP|R|MT|DS|DNE|LEM|DeM|DEM)(?=\d)", r"\1 ", jstr)
+    jstr = re.sub(r"\b([∧∨¬→↔A-Z]{1,4})(\d)", r"\1 \2", jstr)
+
+    # Split into Rule and Lines (e.g., "vE 2" -> "vE", "2")
+    parts = jstr.strip().split(" ", 1)
+    rule = parts[0].lower()
+    remainder = parts[1] if len(parts) > 1 else ""
+
+    # Map the rule if known
+    if rule in TFL_JUSTIFICATION_ALIASES:
+        rule = TFL_JUSTIFICATION_ALIASES[rule]
+    else:
+        # Try to fix casing for standard rules (e.g., "mp" -> "MP")
+        rule = rule.upper()
+        # Fix specific case-sensitive ones from verifier.py
+        if rule == "AE":
+            rule = "∧E"
+        if rule == "AI":
+            rule = "∧I"
+
+    return f"{rule} {remainder}".strip()
