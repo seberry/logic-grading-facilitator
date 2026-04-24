@@ -322,9 +322,63 @@ def normalize_proof_structure(structure):
 
         return wff_text, j_text
 
+    def snap_justification_rule_head(jstr):
+        """Post-normalization snap: fix rule heads that are still not valid TFL rules."""
+        if not jstr:
+            return jstr
+
+        valid_rules = {
+            "Pr", "Hyp",
+            "∧I", "∧E", "∨I", "∨E",
+            "→I", "→E", "↔I", "↔E",
+            "¬I", "¬E", "⊥I", "⊥E",
+        }
+
+        parts = jstr.strip().split(None, 1)
+        head = parts[0]
+        tail = parts[1] if len(parts) > 1 else ""
+
+        # Already valid — nothing to do
+        if head in valid_rules:
+            return jstr
+
+        full_text = jstr.strip()
+
+        # --- Pattern: bare line ranges with no rule head ---
+        # Two ranges like "3-6 7-10" or "3-6,7-10" → ↔I
+        if re.fullmatch(r"\d+\s*-\s*\d+\s*[,;\s]+\s*\d+\s*-\s*\d+", full_text):
+            return "↔I " + full_text
+
+        # --- Known OCR confusions for rule heads ---
+        head_fixes = {
+            # ← read instead of ↔
+            "←E": "↔E", "←I": "↔I", "←F": "↔E",
+            # ↔F: F misread for E in ↔E
+            "↔F": "↔E",
+            # ± read instead of ↔I
+            "±": "↔I",
+            # handwritten ∧ looks like 8
+            "8E": "∧E", "8I": "∧I",
+            # ∈ in OCR output
+            "∈E": "↔E", "∈I": "↔I", "∈S": "∧E",
+            # epsilon/fallback
+            "εE": "∧E", "εI": "∧I", "εS": "∧E",
+            # BE/BI from ∧ → B confusion
+            "BE": "∧E", "BI": "∧I",
+            # XE/XI for ⊥E/⊥I (explosion)
+            "XE": "⊥E", "XI": "⊥I",
+        }
+
+        if head in head_fixes:
+            fixed = head_fixes[head]
+            return (fixed + " " + tail).strip() if tail else fixed
+
+        return jstr
+
     def clean_justification(jstr):
         if not jstr: return ""
         jstr = jstr.replace("->", "→").replace("<->", "↔").replace("<→", "↔")
+        jstr = jstr.replace("←", "↔")  # Common OCR: left-arrow read instead of ↔
         jstr = re.sub(r"([¬∧∨→↔])\s+([IE])\b", r"\1\2", jstr)
         jstr = jstr.replace("&", "∧").replace("~", "¬")
         jstr = re.sub(r"\b([∧∨¬→↔A-Z]{1,3})\s*([IE])(?=\d)", r"\1\2 ", jstr)
@@ -372,7 +426,9 @@ def normalize_proof_structure(structure):
                 if is_subproof_start and index == 0 and not extracted_j:
                     item["jstr"] = "Hyp"
                 else:
-                    item["jstr"] = clean_justification(extracted_j)
+                    item["jstr"] = snap_justification_rule_head(
+                        clean_justification(extracted_j)
+                    )
 
     # Start the recursion
     recursive_normalize(structure)
