@@ -734,23 +734,39 @@ def mask_subproof_in_parent(parent_img: np.ndarray, child_node: SubproofNode) ->
 # 3. VLM Interaction (Mockable)
 # ==============================================================================
 
-def build_ocr_prompt() -> str:
-    return (
+def build_ocr_prompt(*, has_children: bool = True) -> str:
+    """Build the VLM OCR prompt for a Fitch proof crop.
+
+    Parameters
+    ----------
+    has_children:
+        When *True* (the default), the crop contains red-box tokens that
+        reference masked child subproofs, so the prompt instructs the VLM to
+        copy those tokens verbatim.  When *False* the crop is a leaf node with
+        no red stamps, so token instructions are omitted entirely — this
+        prevents the VLM from hallucinating placeholder tokens that don't
+        exist in the image.
+    """
+    base = (
         "Transcribe the Fitch-style proof in this image into a JSON list of objects. "
         "Each object must have exactly these keys: 'line', 'wffstr', and 'jstr'. "
         "Use 'wffstr' only for the formula on that line. Use 'jstr' only for the justification. "
         "Do not place justification text inside 'wffstr'. "
         "If a line is a premise or assumption and no justification is printed, leave 'jstr' as an empty string. "
-        "If you see a red box token like <SUBPROOF_ID_X>, copy it exactly as the entire 'wffstr' value for that line and leave 'jstr' empty. "
-        "Return JSON only, with no markdown fences or explanation."
     )
+    if has_children:
+        base += (
+            "If you see a red box token like <SUBPROOF_ID_X>, copy it exactly as the entire 'wffstr' value for that line and leave 'jstr' empty. "
+        )
+    base += "Return JSON only, with no markdown fences or explanation."
+    return base
 
 
-def call_vlm(image_path: str, client) -> List[Dict]:
+def call_vlm(image_path: str, client, *, has_children: bool = True) -> List[Dict]:
     """
     Real VLM call. expects client to be compatible with typical OpenAI/LocalAI SDKs.
     """
-    prompt = build_ocr_prompt()
+    prompt = build_ocr_prompt(has_children=has_children)
 
     print(f"   [VLM] Sending {os.path.basename(image_path)}...")
 
@@ -852,8 +868,9 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
     
     print(f"Processing Node {node.id} (Depth {node.depth})... Saved to {save_path.name}")
     
-    # Call VLM
-    ocr_result = call_vlm(str(save_path), client)
+    # Call VLM — leaf nodes (no masked children) get a simpler prompt that
+    # omits the <SUBPROOF_ID_X> instructions, preventing hallucinated tokens.
+    ocr_result = call_vlm(str(save_path), client, has_children=bool(sorted_children))
     
     # Save raw VLM response for debug
     with open(output_dir / f"response_{node.id}.json", "w") as f:

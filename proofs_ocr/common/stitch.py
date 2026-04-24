@@ -12,12 +12,15 @@ fallback insertion heuristics.
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any, Callable, Iterable, List, Mapping, Sequence
 
 TOKEN_PATTERN = re.compile(r"<SUBPROOF_ID_([A-Za-z0-9_]+)>")
 
 TokenResolver = Callable[[Any, int], Any | None]
+
+_logger = logging.getLogger(__name__)
 
 
 def extract_subproof_token_id(item: Any) -> str | None:
@@ -43,6 +46,7 @@ def recursive_stitch(
     library: Mapping[str, Sequence[Any]],
     *,
     resolve_item: TokenResolver | None = None,
+    _visited: frozenset[str] | None = None,
 ) -> List[Any]:
     """Expand child placeholders into a nested proof structure.
 
@@ -51,18 +55,39 @@ def recursive_stitch(
     The optional ``resolve_item`` callback lets a pipeline convert intermediate
     OCR entries into final line dictionaries while keeping the placeholder
     expansion logic shared.
+
+    Cycle protection: if a placeholder references an ID that is already on the
+    current expansion path (tracked via ``_visited``), the placeholder is treated
+    as a plain line instead of being expanded — preventing infinite recursion
+    caused by VLM hallucinated back-references.
     """
+    if _visited is None:
+        _visited = frozenset()
 
     resolved: List[Any] = []
     for index, item in enumerate(items):
         child_id = extract_subproof_token_id(item)
         if child_id and child_id in library:
-            child_items = library[child_id]
+            if child_id in _visited:
+                # Cycle detected — treat as a plain line to avoid infinite recursion
+                _logger.warning(
+                    "Cycle detected: <SUBPROOF_ID_%s> references an ancestor "
+                    "already on the expansion path; treating as plain line.",
+                    child_id,
+                )
+                normalized = (
+                    resolve_item(item, index) if resolve_item is not None else item
+                )
+                if normalized is not None:
+                    resolved.append(normalized)
+                continue
+
             resolved.append(
                 recursive_stitch(
-                    child_items,
+                    library[child_id],
                     library,
                     resolve_item=resolve_item,
+                    _visited=_visited | {child_id},
                 )
             )
             continue
@@ -73,6 +98,7 @@ def recursive_stitch(
                     item,
                     library,
                     resolve_item=resolve_item,
+                    _visited=_visited,
                 )
             )
             continue

@@ -11,6 +11,20 @@ class DebugFitchOcrNormalizationTests(unittest.TestCase):
         self.assertIn("Do not place justification text inside 'wffstr'", prompt)
         self.assertIn("<SUBPROOF_ID_X>", prompt)
 
+    def test_build_ocr_prompt_parent_includes_subproof_token_instruction(self) -> None:
+        prompt = debug_fitch_ocr.build_ocr_prompt(has_children=True)
+
+        self.assertIn("<SUBPROOF_ID_X>", prompt)
+        self.assertIn("red box token", prompt)
+
+    def test_build_ocr_prompt_leaf_omits_subproof_token_instruction(self) -> None:
+        prompt = debug_fitch_ocr.build_ocr_prompt(has_children=False)
+
+        self.assertNotIn("<SUBPROOF_ID_X>", prompt)
+        self.assertNotIn("red box token", prompt)
+        # Leaf prompt still has the core transcription instructions
+        self.assertIn("Use 'wffstr' only for the formula", prompt)
+
     def test_normalize_structure_splits_embedded_justification_from_formula(self) -> None:
         structure = [
             {
