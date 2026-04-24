@@ -17,6 +17,9 @@ from typing import Dict, List, Optional, Tuple, Union
 import cv2
 import numpy as np
 
+from proofs_ocr.common.stitch import recursive_stitch, renumber_lines
+from proofs_ocr.domains.shared import parse_vlm_json_response
+
 # Attempt to import project modules
 try:
     from app.storage import DEBUG_FITCH_DIR, RAW_SCANS_DIR
@@ -33,25 +36,7 @@ except ImportError as e:
     RAW_SCANS_DIR = project_root / "data" / "raw_scans"
     DEBUG_FITCH_DIR = project_root / "data" / "debug_fitch"
 
-def renumber_lines(proof_structure: list, start_counter: int = 1) -> int:
-    """
-    Recursively walks the proof structure (lists of dicts/lists).
-    Overwrites 'line' numbers in-place with a global, incrementing counter.
-    Returns the next available line number.
-    """
-    current_counter = start_counter
-    
-    for item in proof_structure:
-        if isinstance(item, list):
-            # It's a subproof: Recurse into it.
-            # The subproof will consume some numbers and return the next one.
-            current_counter = renumber_lines(item, current_counter)
-        elif isinstance(item, dict):
-            # It's a proof line: Assign number and increment.
-            item['line'] = current_counter
-            current_counter += 1
-            
-    return current_counter
+# renumber_lines and recursive_stitch are imported from proofs_ocr.common.stitch
 
 
 def apply_default_justifications(proof_structure: list, numprems: int) -> None:
@@ -778,44 +763,8 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
     return ocr_result
 
 # ==============================================================================
-# 5. Stitching (Inline version of the logic)
+# 5. Stitching — uses shared recursive_stitch from proofs_ocr.common.stitch
 # ==============================================================================
-
-def recursive_stitch(current_list, library):
-    resolved = []
-    token_pattern = re.compile(r"<SUBPROOF_ID_([A-Za-z0-9_]+)>")
-    
-    for item in current_list:
-        # Handle string match (rare)
-        if isinstance(item, str):
-            match = token_pattern.search(item)
-            if match and match.group(1) in library:
-                resolved.append(recursive_stitch(library[match.group(1)], library))
-            continue
-            
-        # Handle Dict
-        if isinstance(item, dict):
-            token_found = False
-            # Search values
-            for k, v in item.items():
-                if isinstance(v, str):
-                    match = token_pattern.search(v)
-                    if match and match.group(1) in library:
-                        # Replace this line with the subproof list
-                        child_list = library[match.group(1)]
-                        # Important: The subproof list is a LIST of lines. 
-                        # We append the LIST itself to make the structure [Line, [Sub], Line]
-                        resolved.append(recursive_stitch(child_list, library))
-                        token_found = True
-                        break
-            if token_found:
-                continue
-                
-            # Regular line
-            # Convert to Verifier format if needed, here just keeping dict for simplicity
-            resolved.append(item)
-            
-    return resolved
 
 def label_and_count_premises(proof_structure: List[Union[Dict, List]]) -> int:
     """
