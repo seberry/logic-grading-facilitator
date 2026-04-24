@@ -1,7 +1,7 @@
 # Cross-Pipeline Investigation: TFL Proofs Through Modal Pipeline
 
 **Date:** 2026-04-23
-**Status:** Investigation needed
+**Status:** Investigation complete → refactoring in progress
 
 ## Background
 
@@ -66,6 +66,32 @@ python -m proofs_ocr.regression.runner run-gold \
   --enable-contradiction-reread \
   --enable-formula-consensus-reread
 ```
+
+## Refactoring Progress (2026-04-23)
+
+The investigation revealed that both pipelines duplicate substantial logic. We extracted the shared pieces into composable modules that both pipelines can import.
+
+### New shared modules
+
+| Module | Purpose |
+|--------|---------|
+| `proofs_ocr/tricks/symbol_normalization.py` | `collapse_whitespace()`, `TFL_SYMBOL_MAP`, `MODAL_SYMBOL_REPLACEMENTS` |
+| `proofs_ocr/tricks/citation_cleanup.py` | `normalize_citation_dashes()`, `normalize_citation_commas()` |
+| `proofs_ocr/tricks/justification_snaps.py` | `snap_justification_rule_head()`, `PREMISE_ALIAS_HEADS` |
+| `proofs_ocr/domains/shared.py` | `parse_vlm_json_response()`, `has_visible_formula()`, `build_subproof_token_entry()`, prompt fragments |
+
+### Wiring completed
+
+- **TFL pipeline** (`proofs_ocr/pipelines/tfl_fitch.py`): removed duplicated `renumber_lines` and `recursive_stitch`, now imports from `proofs_ocr.common.stitch` and `proofs_ocr.domains.shared`. Net -56 lines.
+- **Modal domain** (`proofs_ocr/domains/modal.py`): replaced `_collapse_whitespace`, `_DASH_BETWEEN_DIGITS_RE`/`_COMMA_BETWEEN_DIGITS_RE`, and `_PREMISE_ALIAS_HEADS` with imports from tricks. Net -2 lines.
+
+### Remaining work
+
+- The TFL `normalize_proof_structure()` closure (~180 lines) has 10+ nested helpers that mirror modal normalization logic. This is the highest-value migration target but requires careful surgical extraction.
+- Both pipelines still have their own fence-stripping code; can consolidate to `domains.shared.parse_vlm_json_response`.
+- The modal pipeline's row segmentation (`_segment_node_rows`) could potentially benefit the TFL pipeline.
+
+All 381 tests pass after every commit.
 
 ## Artifacts
 
