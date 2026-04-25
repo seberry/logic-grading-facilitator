@@ -1147,7 +1147,7 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
             and _model_27b_available()
         ):
             model_override = _get_model_27b()
-            print(f"   [ModelRoute] Node {node.id}: routing to {model_override} (≤{SMALL_LEAF_MODEL_ROUTING_THRESHOLD} lines)")
+            print(f"   [ModelRoute] Node {node.id}: routing to {model_override} (<={SMALL_LEAF_MODEL_ROUTING_THRESHOLD} lines)")
 
         # Call VLM — leaf nodes (no masked children) get a simpler prompt that
         # omits the <SUBPROOF_ID_X> instructions, preventing hallucinated tokens.
