@@ -688,6 +688,14 @@ def mask_subproof_in_parent(parent_img: np.ndarray, child_node: SubproofNode) ->
 # with a highlighted box instead of a tight white-masked crop.
 SMALL_CROP_THRESHOLD = 250
 
+#: Enable line-count estimation via horizontal projection profiles.
+#: When True, leaf crops are analysed to estimate the number of text lines,
+#: the VLM prompt is constrained to that count, and excess responses are
+#: truncated.  Currently DISABLED because the estimator over-counts (picks
+#: up subproof bars and other non-text features), which makes hallucination
+#: *worse*.  Re-enable once the estimator is more accurate.
+USE_LINE_COUNT_CONSTRAINT = False
+
 # Visual settings for the highlight rectangle drawn on context crops.
 HIGHLIGHT_COLOR = (0, 255, 0)   # bright green (BGR)
 HIGHLIGHT_THICKNESS = 3
@@ -1020,10 +1028,11 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
     else:
         print(f"Processing Node {node.id} (Depth {node.depth})... Saved to {save_path.name}")
 
-        # For leaf nodes, estimate expected line count from horizontal
-        # projection profiling to constrain the VLM and truncate hallucinations.
+        # For leaf nodes, optionally estimate expected line count from
+        # horizontal projection profiling to constrain the VLM and truncate
+        # hallucinations.  Controlled by USE_LINE_COUNT_CONSTRAINT flag.
         expected_lines = None
-        if is_leaf:
+        if USE_LINE_COUNT_CONSTRAINT and is_leaf:
             expected_lines = count_text_lines_in_region(current_img)
             print(f"   [LineCount] Node {node.id}: estimated {expected_lines} text line(s)")
 
@@ -1036,8 +1045,9 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
         )
 
         # Truncate if VLM returned more dict items than expected.
-        # Only applies to leaf nodes where we have a reliable line estimate.
-        if is_leaf and expected_lines is not None:
+        # Only applies when USE_LINE_COUNT_CONSTRAINT is enabled and we
+        # have a line estimate for this leaf node.
+        if USE_LINE_COUNT_CONSTRAINT and is_leaf and expected_lines is not None:
             dict_items = [item for item in ocr_result if isinstance(item, dict)]
             if len(dict_items) > expected_lines:
                 print(
