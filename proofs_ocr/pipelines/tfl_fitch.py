@@ -996,7 +996,11 @@ def call_vlm(
             },
         ]
 
-        content = client.chat(messages, model=model_override)
+        # Use extended timeout for larger model requests
+        extra_kwargs = {}
+        if model_override:
+            extra_kwargs["timeout"] = 600  # 10 min for 27b model
+        content = client.chat(messages, model=model_override, **extra_kwargs)
 
         # Extract JSON from markdown blocks if present
         if "```json" in content:
