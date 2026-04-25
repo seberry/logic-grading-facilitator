@@ -3,6 +3,76 @@ import unittest
 from scripts import debug_fitch_ocr
 
 
+class TestFuzzySnapJustification(unittest.TestCase):
+    """Tests for the combinatorial OCR justification repair."""
+
+    def test_valid_head_unchanged(self):
+        from proofs_ocr.tricks.justification_snaps import fuzzy_snap_justification
+        self.assertEqual(fuzzy_snap_justification("∧E 5"), "∧E 5")
+
+    def test_tail_S_to_5_rescue(self):
+        from proofs_ocr.tricks.justification_snaps import fuzzy_snap_justification
+        self.assertEqual(fuzzy_snap_justification("∧E S"), "∧E 5")
+
+    def test_tail_O_to_0_rescue(self):
+        from proofs_ocr.tricks.justification_snaps import fuzzy_snap_justification
+        self.assertEqual(fuzzy_snap_justification("→I O"), "→I 0")
+
+    def test_unknown_head_no_unique_match_returns_tail_fixed(self):
+        from proofs_ocr.tricks.justification_snaps import fuzzy_snap_justification
+        # "XX" has no unique valid mapping, tail still gets S→5
+        result = fuzzy_snap_justification("XX S")
+        self.assertTrue(result.endswith("5"))
+
+    def test_empty_string_returns_empty(self):
+        from proofs_ocr.tricks.justification_snaps import fuzzy_snap_justification
+        self.assertEqual(fuzzy_snap_justification(""), "")
+
+    def test_head_BI_repairs_to_wedge_I(self):
+        from proofs_ocr.tricks.justification_snaps import fuzzy_snap_justification
+        self.assertEqual(fuzzy_snap_justification("BI 3,4"), "∧I 3,4")
+
+
+class TestCountTextLinesInRegion(unittest.TestCase):
+    """Tests for the horizontal projection line counter."""
+
+    def test_blank_image_returns_1(self):
+        import numpy as np
+        from proofs_ocr.pipelines.tfl_fitch import count_text_lines_in_region
+        blank = np.ones((100, 200, 3), dtype=np.uint8) * 255
+        self.assertEqual(count_text_lines_in_region(blank), 1)
+
+    def test_tiny_image_returns_1(self):
+        import numpy as np
+        from proofs_ocr.pipelines.tfl_fitch import count_text_lines_in_region
+        tiny = np.ones((5, 5), dtype=np.uint8) * 255
+        self.assertEqual(count_text_lines_in_region(tiny), 1)
+
+    def test_two_text_bands_detected(self):
+        import numpy as np
+        from proofs_ocr.pipelines.tfl_fitch import count_text_lines_in_region
+        img = np.ones((200, 300), dtype=np.uint8) * 255
+        # Draw two horizontal bands of "text" (dark pixels)
+        img[40:60, 50:250] = 0   # band 1
+        img[130:150, 50:250] = 0  # band 2
+        self.assertEqual(count_text_lines_in_region(img), 2)
+
+
+class TestBuildOcrPromptWithExpectedLines(unittest.TestCase):
+    """Tests for the expected_lines parameter in build_ocr_prompt."""
+
+    def test_leaf_prompt_includes_line_count(self):
+        from proofs_ocr.pipelines.tfl_fitch import build_ocr_prompt
+        prompt = build_ocr_prompt(has_children=False, expected_lines=2)
+        self.assertIn("exactly 2 proof line(s)", prompt)
+        self.assertIn("Output exactly 2 line objects", prompt)
+
+    def test_parent_prompt_ignores_line_count(self):
+        from proofs_ocr.pipelines.tfl_fitch import build_ocr_prompt
+        prompt = build_ocr_prompt(has_children=True, expected_lines=2)
+        self.assertNotIn("exactly 2 proof line(s)", prompt)
+
+
 class DebugFitchOcrNormalizationTests(unittest.TestCase):
     def test_build_ocr_prompt_mentions_formula_justification_separation(self) -> None:
         prompt = debug_fitch_ocr.build_ocr_prompt()

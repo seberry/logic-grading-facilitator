@@ -124,11 +124,11 @@ Input image
    d. Store VLM response in library[node_id]
     │
     ▼
-4. CONTEXT-AWARE CROPS (experiment)
+4. LETTERBOXING (small leaf crops)
    Leaf nodes shorter than SMALL_CROP_THRESHOLD (250px)
-   with a non-ROOT parent get a "context crop" instead:
-   - Parent's full unmasked image with a green highlight box
-   - VLM is told to OCR only inside the green box
+   get padded with white space to a 4:3 aspect ratio (min height 250px).
+   This prevents the VLM's internal image resizing from distorting tiny
+   crops, which was causing severe OCR quality degradation.
     │
     ▼
 5. STITCHING
@@ -151,12 +151,34 @@ Input image
    final_structure.json written to output dir
 ```
 
+### Line-count estimation & hallucination guard
+
+`count_text_lines_in_region()` uses horizontal projection profiles (same adaptive-threshold pipeline as bar detection) to count text lines in leaf crops. The count is used two ways:
+
+1. **Prompt constraint:** The leaf prompt includes `"This image contains exactly N proof line(s). Output exactly N line objects."`
+2. **Response truncation:** If the VLM returns more dict items than expected, extras are silently dropped.
+
+### Fuzzy justification snapping
+
+`fuzzy_snap_justification()` in `justification_snaps.py` runs as a second normalization pass after `snap_justification_rule_head()`:
+
+- **Combinatorial head repair:** When the rule head isn't in `TFL_VALID_RULE_HEADS`, tries all combinations of known OCR confusions (8↔∧, B↔∧, X↔⊥, ∈↔E, ±↔↔, etc.). Accepts the repair only if exactly one valid candidate emerges.
+- **Always-on tail rescue:** Unconditionally applies `S→5` and `O→0` substitutions in citation tails (e.g. `"∧E S"` → `"∧E 5"`).
+
 ### VLM Prompt
 
 The prompt is built by `build_ocr_prompt()`:
-- **Leaf nodes (no children):** Simple prompt — no token instructions, preventing hallucinated `<SUBPROOF_ID>` tokens
+- **Leaf nodes (no children):** Simple prompt — no token instructions, preventing hallucinated `<SUBPROOF_ID>` tokens. Includes line-count constraint when available. Includes "Transcribe only the lines actually visible in this image." to reduce hallucinated extra lines.
 - **Internal nodes:** Includes instruction to copy red-box tokens verbatim
-- **Context-aware crops:** Adds "OCR only inside the green box" instruction
+- **Context-aware crops:** DISABLED (see History below). Code preserved but `use_context_crop = False`.
+
+### Letterboxing
+
+`letterbox_crop()` in `tfl_fitch.py` pads small images:
+- Minimum height enforced (default 250px) with vertical white padding
+- Then padded horizontally to 4:3 aspect ratio
+- Applied only to leaf crops shorter than `SMALL_CROP_THRESHOLD`
+- Prevents VLM's internal resize from distorting thin crops
 
 ---
 
@@ -165,14 +187,17 @@ The prompt is built by `build_ocr_prompt()`:
 The main development loop is:
 
 1. **Tweak** — Edit pipeline code (bar detection thresholds, normalization rules, snap tables, prompt text, context-crop logic)
-2. **Run** — Execute gold regressions: `python -m proofs_ocr.regression.tfl_runner run-gold`
-3. **Analyze** — Inspect output artifacts:
+2. **Commit** — Always commit before running slow tests, so you have a clean revert point and the diff is easy to review: `git add -A && git commit -m "description of tweak"`
+3. **Run fast tests** — `pytest tests/test_debug_fitch_ocr.py tests/test_tfl_normalization_rescore.py -v` — catches regressions in normalization logic (under 1 second)
+4. **Run slow tests** — `python -m proofs_ocr.regression.tfl_runner run-gold` — live VLM calls, takes several minutes
+5. **Analyze** — Inspect output artifacts:
    - `gold_regression_metrics.json` for per-line scores
    - `gold_regression_diff.txt` for expected-vs-actual diffs
    - `crop_*.jpg` images to see what the VLM received
    - `response_*.json` to see raw VLM output
    - `debug_bars.jpg` to verify bar detection
-4. **Plan next tweak** — Based on failure patterns
+6. **Report** — Summarize what changed vs. the previous baseline: line counts, formula/justification match rates, new passes or regressions
+7. **Plan next tweak** — Based on failure patterns
 
 ### Common tweak targets
 
@@ -189,16 +214,91 @@ The main development loop is:
 
 ---
 
-## Known Issues & Current Focus (as of 2026-04-24)
+## Known Issues & Current Focus (as of 2026-04-25)
 
 ### Q4 small subproof problem
 - **Case:** `tfl_handwritten_q4_N_or_K_and_W`
-- **Issue:** The two ∨E subproofs are short (few lines, small vertical extent). When cropped tightly, the VLM doesn't have enough character-shape context to accurately read formulas.
-- **Experiment:** Context-aware crops (`build_context_crop`, `SMALL_CROP_THRESHOLD = 250`) — instead of a tight white-masked crop, send the parent's full image with a green highlight rectangle and tell the VLM to OCR only inside the box. Active but still being tuned.
+- **Expected:** 7 lines. `N∨(K∧W)` Pr, `N↔W` Pr, subproof [`N` Hyp, `W` →E 2,3], subproof [`K∧W` Hyp, `W` ∧E 5], `W` ∨E 1,3-4 5-6
+- **Current best result:** 9 lines (was 14 before letterboxing)
+- **Remaining issues:**
+  - `N↔W` misread as `N↔N` (letter confusion — VLM reads W as N)
+  - Crop 3 (second subproof) is unreadable by qwen3-vl-4b — returns gibberish like `"x < 8w"`, `"8 ∈ S"`
+  - VLM adds hallucinated conclusion lines to 2-line subproofs (e.g. `N→W / →I 1-2`)
+- **Hard floor reached with 4b model:** One of the two leaf crops contains handwriting the model literally cannot decipher
+
+### Context-aware crops: DISABLED
+- **What was tried:** Sending the parent's full unmasked image with a green highlight rectangle, telling the VLM to OCR only inside the green box.
+- **Result:** The VLM (qwen3-vl-4b) completely ignored the green box and read the entire parent image, producing 5-6 lines per leaf instead of 2. This doubled the total line count (7→14).
+- **Decision:** Disabled in favor of letterboxed tight crops. Code is preserved (`build_context_crop()` still exists) with `use_context_crop = False` in case a future model respects the instruction.
+
+### Letterboxing: ACTIVE
+- **What it does:** `letterbox_crop()` pads small leaf crops to 4:3 aspect ratio with white space (min height 250px)
+- **Result:** Reduced Q4 from 14 lines → 9 lines. The VLM can no longer read beyond crop boundaries because the tight crop physically limits what's visible.
+- **Trade-off:** Without parent context, the VLM sometimes can't interpret ambiguous handwriting (e.g. crop_3 returns gibberish).
+
+### Symbol normalization status
+- `8` → `∧` normalization is **working correctly** in `proofs_ocr/domains/tfl.py` (not in `symbol_normalization.py`). Applied at comparison time via `_EIGHT_BEFORE_EI_RE` and `_EIGHT_BETWEEN_CAPS_RE`.
+- `∈` → `E` normalization also exists and works (handles `8 ∈ 5` → `8 E 5` → `∧E 5`).
 
 ### Other active notes
 - **Scaffold removal disabled** (2026-04-24): `filter_scaffold_bars()` scaffold-removal logic deliberately disabled because handwritten Fitch proofs have a real outer subproof bar that spans most of the image height. Only edge-artifact cleanup remains active.
 - **Line-number blotting** on ROOT node: The pipeline whites out everything to the left of the leftmost bar, preventing the VLM from reading line numbers as formula content.
+
+---
+
+## Experiment History
+
+### 2026-04-25 (late): Line-count guard, fuzzy justification snap, 8b probe
+
+**Changes made:**
+1. Added `count_text_lines_in_region()` — horizontal projection profiling to estimate text lines in leaf crops
+2. Added `expected_lines` parameter to `build_ocr_prompt()` — tells VLM exactly how many lines to produce
+3. Added response truncation in `process_node_recursive()` — silently drops extra VLM-hallucinated lines
+4. Added `fuzzy_snap_justification()` in `justification_snaps.py` — combinatorial OCR-substitution repair for invalid rule heads + always-on `S→5`/`O→0` tail rescue
+5. Wired fuzzy snap as second normalization pass after `snap_justification_rule_head()`
+6. 11 new unit tests for all three features
+
+**8b model probe results** (qwen3-vl-8b on Q4 leaf crops):
+- **crop_2 (8b):** `[N/premise, w/premise, ←→/2,3]` — hallucinated 3 lines, garbled `←→`
+- **crop_3 (8b):** `[1<8w, n/8E5]` — same `K∧W`→`1<8w` garble, but `8E5` normalizable to `∧E 5`
+- **crop_2 (4b):** `[N, W, N→W/2,3]` — hallucinated 3rd line
+- **crop_3 (4b):** `[1<8w, w/8∈5]` — same garble
+- **Conclusion:** 8b doesn't improve over 4b. Both models hallucinate extra lines (strongly supporting the line-count guard) and struggle with the same handwritten characters.
+
+**Gold regression results:*** (pending — run `python -m proofs_ocr.regression.tfl_runner run-gold`)
+
+### 2026-04-25: Letterboxing + prompt tweaks
+
+**Changes made:**
+1. Added `letterbox_crop()` function — pads small crops to 4:3 aspect ratio
+2. Added "Transcribe only the lines actually visible in this image." to leaf-node prompts
+3. Added "There are typically 1-3 lines inside the box." to context-crop prompts (moot — context crops disabled)
+4. Disabled context-aware crops (`use_context_crop = False`)
+
+**Q4 results:**
+
+| Metric | Before (context crops) | After (letterboxed tight crops) |
+|--------|----------------------|-------------------------------|
+| Total lines | 14 | **9** |
+| Formula match | 2/7 | **3/7** |
+| Justification match | 4/7 | 3/7 |
+| Both match | 1/7 | **2/7** |
+| Extra lines | 7 | **2** |
+| Structural mismatches | 3 | **2** |
+
+**Leaf crop responses:**
+- `response_2.json`: Correctly read `N` and `W` (was reading full proof before). Hallucinated a third line `N→W / →I 1-2`.
+- `response_3.json`: Complete gibberish — VLM cannot read this handwriting. `"x < 8w"`, `"8 ∈ S"` instead of `K∧W` and `W`.
+
+**Conclusion:** Letterboxing is a clear improvement for limiting boundary leakage. The remaining failures are model-capacity issues (4b too small to read handwriting in crop_3) and letter confusion (`W`→`N`). See `docs/TFL_OCR_FUTURE_IDEAS.md` for next strategies to try.
+
+### 2026-04-24: Initial Q4 investigation
+
+- Ran gold regressions: Q3 perfect, Q4 broken (14 lines)
+- Sent sub-crops to 8b and 4b via `scripts/ocr_q4_crops_8b.py` probe
+- Traced pipeline responses: ROOT found only 1 line, leaf crops read beyond boundaries
+- Confirmed `8` → `∧` normalization working correctly
+- Root cause identified: structural (boundary leaking + segmentation failure), not symbol-level
 
 ---
 

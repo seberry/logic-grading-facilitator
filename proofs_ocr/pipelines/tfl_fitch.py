@@ -23,6 +23,7 @@ from proofs_ocr.tricks.justification_snaps import (
     TFL_KNOWN_RULE_HEADS,
     TFL_VALID_RULE_HEADS,
     clean_justification_for_tfl,
+    fuzzy_snap_justification,
     snap_justification_rule_head,
 )
 
@@ -299,10 +300,17 @@ def normalize_proof_structure(structure):
                 if is_subproof_start and index == 0 and not extracted_j:
                     item["jstr"] = "Hyp"
                 else:
-                    item["jstr"] = snap_justification_rule_head(
+                    normalized_j = snap_justification_rule_head(
                         clean_justification_for_tfl(extracted_j),
                         valid_rules=TFL_VALID_RULE_HEADS,
                     )
+                    # Second pass: fuzzy combinatorial repair for stacked
+                    # OCR confusions (e.g. "∧E S" → "∧E 5").
+                    normalized_j = fuzzy_snap_justification(
+                        normalized_j,
+                        valid_rules=TFL_VALID_RULE_HEADS,
+                    )
+                    item["jstr"] = normalized_j
 
     # Start the recursion
     recursive_normalize(structure)
@@ -505,6 +513,60 @@ def filter_scaffold_bars(
     # genuine page-border artifacts during scan prep.
     return sorted_boxes
 
+def count_text_lines_in_region(img: np.ndarray) -> int:
+    """Estimate the number of handwritten text lines in a crop image.
+
+    Uses a horizontal projection profile: sum dark pixels per row, then
+    count contiguous clusters of "active" rows that exceed a density
+    threshold.  This reuses the same adaptive-threshold pipeline as bar
+    detection but analyses rows instead of columns.
+
+    Parameters
+    ----------
+    img:
+        Cropped proof region (BGR or grayscale).
+
+    Returns
+    -------
+    int
+        Estimated number of text lines (always >= 1).
+    """
+    if len(img.shape) == 3:
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = img
+
+    h, w = gray.shape[:2]
+    if h < 10 or w < 10:
+        return 1
+
+    # Binary: dark text on white background
+    binary = cv2.adaptiveThreshold(
+        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV, 91, 15,
+    )
+
+    # Horizontal projection: count dark pixels per row
+    row_counts = (binary > 0).sum(axis=1)
+
+    # A row is "active" if it has at least 5% of its pixels dark.
+    # This ignores nearly-blank rows between lines.
+    min_row_density = max(3, int(0.05 * w))
+    active = row_counts >= min_row_density
+
+    # Count contiguous runs of active rows
+    runs = 0
+    in_run = False
+    for val in active:
+        if val and not in_run:
+            runs += 1
+            in_run = True
+        elif not val:
+            in_run = False
+
+    return max(1, runs)
+
+
 class SubproofNode:
     def __init__(self, box_id, box):
         self.id = box_id
@@ -631,6 +693,55 @@ HIGHLIGHT_COLOR = (0, 255, 0)   # bright green (BGR)
 HIGHLIGHT_THICKNESS = 3
 
 
+def letterbox_crop(
+    img: np.ndarray,
+    target_ratio: float = 4 / 3,
+    min_height: int = 250,
+) -> np.ndarray:
+    """Pad a small crop with white space to reach a target aspect ratio.
+
+    Many VLMs (including Qwen-VL) internally resize images to fixed patch
+    sizes.  A very short, wide crop can get distorted or severely
+    down-sampled, degrading handwriting recognition.  Letterboxing adds
+    white padding so the image looks like a clean "page" with a few lines.
+
+    Parameters
+    ----------
+    img:
+        The cropped proof image (BGR).
+    target_ratio:
+        Desired width / height ratio (default 4:3).
+    min_height:
+        Minimum height in pixels; if the crop is shorter, vertical padding
+        is added first to reach this height before aspect-ratio adjustment.
+    """
+    h, w = img.shape[:2]
+
+    # Ensure minimum height first
+    if h < min_height:
+        pad_v = min_height - h
+        pad_top = pad_v // 2
+        pad_bot = pad_v - pad_top
+        img = cv2.copyMakeBorder(
+            img, pad_top, pad_bot, 0, 0,
+            cv2.BORDER_CONSTANT, value=(255, 255, 255),
+        )
+        h = img.shape[0]
+
+    # Now pad horizontally to reach target_ratio
+    target_w = int(h * target_ratio)
+    if w >= target_w:
+        return img  # already wide enough
+
+    pad_total = target_w - w
+    pad_left = pad_total // 2
+    pad_right = pad_total - pad_left
+    return cv2.copyMakeBorder(
+        img, 0, 0, pad_left, pad_right,
+        cv2.BORDER_CONSTANT, value=(255, 255, 255),
+    )
+
+
 def build_context_crop(
     parent_img: np.ndarray,
     child_box_global: Tuple[int, int, int, int],
@@ -680,7 +791,12 @@ def build_context_crop(
 # 3. VLM Interaction (Mockable)
 # ==============================================================================
 
-def build_ocr_prompt(*, has_children: bool = True, highlighted_box: bool = False) -> str:
+def build_ocr_prompt(
+    *,
+    has_children: bool = True,
+    highlighted_box: bool = False,
+    expected_lines: int | None = None,
+) -> str:
     """Build the VLM OCR prompt for a Fitch proof crop.
 
     Parameters
@@ -696,6 +812,11 @@ def build_ocr_prompt(*, has_children: bool = True, highlighted_box: bool = False
         When *True*, the image is a parent-context crop with a bright green
         rectangle drawn around the target subproof region.  The prompt
         instructs the VLM to OCR only the lines inside that box.
+    expected_lines:
+        When provided (and *has_children* is False), injects an explicit line
+        count into the prompt so the VLM knows exactly how many line objects
+        to produce.  This is derived from horizontal projection profiling of
+        the crop and helps prevent the VLM from hallucinating extra lines.
     """
     base = (
         "Transcribe the Fitch-style proof in this image into a JSON list of objects. "
@@ -711,17 +832,33 @@ def build_ocr_prompt(*, has_children: bool = True, highlighted_box: bool = False
     if highlighted_box:
         base += (
             "OCR only the proof lines inside the bright green highlighted box. "
+            "There are typically 1-3 lines inside the box. "
             "Ignore all other text outside the green box. "
         )
+    if not has_children:
+        base += "Transcribe only the lines actually visible in this image. "
+        if expected_lines is not None and expected_lines >= 1:
+            base += f"This image contains exactly {expected_lines} proof line(s). Output exactly {expected_lines} line objects. "
     base += "Return JSON only, with no markdown fences or explanation."
     return base
 
 
-def call_vlm(image_path: str, client, *, has_children: bool = True, highlighted_box: bool = False) -> List[Dict]:
+def call_vlm(
+    image_path: str,
+    client,
+    *,
+    has_children: bool = True,
+    highlighted_box: bool = False,
+    expected_lines: int | None = None,
+) -> List[Dict]:
     """
     Real VLM call. expects client to be compatible with typical OpenAI/LocalAI SDKs.
     """
-    prompt = build_ocr_prompt(has_children=has_children, highlighted_box=highlighted_box)
+    prompt = build_ocr_prompt(
+        has_children=has_children,
+        highlighted_box=highlighted_box,
+        expected_lines=expected_lines,
+    )
 
     print(f"   [VLM] Sending {os.path.basename(image_path)}...")
 
@@ -822,24 +959,31 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
             rel_child = SubproofNode(child.id, rel_box)
             current_img = mask_subproof_in_parent(current_img, rel_child)
 
+    # Capture the original crop height before any letterboxing changes it,
+    # since the context-crop decision should be based on the real content size.
+    original_crop_h = current_img.shape[0]
+    is_leaf = not sorted_children
+
     # 3. Save & OCR
     filename = f"crop_{node.id}.jpg"
     save_path = output_dir / filename
+
+    # Apply letterboxing to small leaf crops so the VLM's internal resizing
+    # doesn't distort the handwriting.  Context crops are already large
+    # enough (they embed the parent image) so they don't need letterboxing.
+    if is_leaf and original_crop_h < SMALL_CROP_THRESHOLD:
+        current_img = letterbox_crop(current_img)
+
     cv2.imwrite(str(save_path), current_img)
 
     # --- Context-aware crop for small leaf subproofs ---
-    # Leaf nodes with very short crops (< SMALL_CROP_THRESHOLD) and a
-    # non-ROOT parent get a "context crop": the parent's full unmasked image
-    # with a bright green rectangle drawn around the target subproof region.
-    # This gives the VLM character-shape context from surrounding lines.
-    use_context_crop = (
-        not sorted_children                          # leaf node
-        and node.parent is not None
-        and node.parent.id != "ROOT"                 # parent must be a real subproof
-        and current_img.shape[0] < SMALL_CROP_THRESHOLD
-    )
+    # DISABLED (2026-04-25): The VLM (qwen3-vl-4b) ignores the green box
+    # instruction and reads the entire parent image, producing 2–3× more
+    # lines than expected.  Using letterboxed tight crops instead limits
+    # what the model can physically see.
+    use_context_crop = False
 
-    if use_context_crop:
+    if False and use_context_crop:
         parent_node = node.parent
         px, py, pw, ph = parent_node.box
 
@@ -865,7 +1009,7 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
 
         print(
             f"Processing Node {node.id} (Depth {node.depth})... "
-            f"Using context-aware crop ({current_img.shape[0]}px < {SMALL_CROP_THRESHOLD}px)"
+            f"Using context-aware crop ({original_crop_h}px < {SMALL_CROP_THRESHOLD}px)"
         )
 
         ocr_result = call_vlm(
@@ -876,9 +1020,41 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
     else:
         print(f"Processing Node {node.id} (Depth {node.depth})... Saved to {save_path.name}")
 
+        # For leaf nodes, estimate expected line count from horizontal
+        # projection profiling to constrain the VLM and truncate hallucinations.
+        expected_lines = None
+        if is_leaf:
+            expected_lines = count_text_lines_in_region(current_img)
+            print(f"   [LineCount] Node {node.id}: estimated {expected_lines} text line(s)")
+
         # Call VLM — leaf nodes (no masked children) get a simpler prompt that
         # omits the <SUBPROOF_ID_X> instructions, preventing hallucinated tokens.
-        ocr_result = call_vlm(str(save_path), client, has_children=bool(sorted_children))
+        ocr_result = call_vlm(
+            str(save_path), client,
+            has_children=bool(sorted_children),
+            expected_lines=expected_lines,
+        )
+
+        # Truncate if VLM returned more dict items than expected.
+        # Only applies to leaf nodes where we have a reliable line estimate.
+        if is_leaf and expected_lines is not None:
+            dict_items = [item for item in ocr_result if isinstance(item, dict)]
+            if len(dict_items) > expected_lines:
+                print(
+                    f"   [Truncate] Node {node.id}: VLM returned "
+                    f"{len(dict_items)} lines, truncating to {expected_lines}"
+                )
+                # Keep only the first expected_lines dict items (preserve
+                # any non-dict entries like sub-lists, though leaf nodes
+                # shouldn't have them).
+                kept = []
+                for item in ocr_result:
+                    if isinstance(item, dict):
+                        if len(kept) < expected_lines:
+                            kept.append(item)
+                    else:
+                        kept.append(item)
+                ocr_result = kept
 
     # Save raw VLM response for debug
     with open(output_dir / f"response_{node.id}.json", "w") as f:

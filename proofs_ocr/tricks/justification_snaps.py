@@ -160,6 +160,124 @@ def snap_justification_rule_head(
     return jstr
 
 
+# ── Fuzzy justification repair via combinatorial OCR substitution ──────
+
+#: Known OCR character confusions for rule heads.
+#: Each tuple is (ocr_char, true_char).  Applied combinatorially when
+#: the post-normalization rule head is not in *valid_rules*.
+_OCR_HEAD_CONFUSIONS: list[tuple[str, str]] = [
+    ("8", "∧"),
+    ("∈", "E"),
+    ("ε", "E"),
+    ("B", "∧"),
+    ("X", "⊥"),
+    ("±", "↔"),
+    ("S", "5"),
+    ("O", "0"),
+]
+
+#: OCR confusions that can appear in citation tails (line-number refs).
+#: Only digit ↔ letter confusions belong here.
+_OCR_TAIL_CONFUSIONS: list[tuple[str, str]] = [
+    ("S", "5"),
+    ("O", "0"),
+]
+
+
+def fuzzy_snap_justification(
+    jstr: str,
+    *,
+    valid_rules: frozenset[str] | None = None,
+) -> str:
+    """Attempt combinatorial OCR-substitution repair on an invalid justification.
+
+    After existing normalization (symbol snaps, alias lookup), if the rule
+    head is still not a recognized justification, this function tries all
+    combinations of known OCR character substitutions on the head.  If exactly
+    one substitution combination yields a valid rule, it is accepted.
+
+    Also applies digit-like substitutions (``S→5``, ``O→0``) on the
+    citation tail.
+
+    Parameters
+    ----------
+    jstr:
+        Already-normalized justification string.
+    valid_rules:
+        Set of valid canonical rule heads.  Defaults to
+        :data:`TFL_VALID_RULE_HEADS`.
+
+    Returns
+    -------
+    str
+        The repaired justification, or the original if no unique repair
+        was found.
+    """
+    if valid_rules is None:
+        valid_rules = TFL_VALID_RULE_HEADS
+
+    if not jstr:
+        return jstr
+
+    parts = jstr.strip().split(None, 1)
+    head = parts[0]
+    tail = parts[1] if len(parts) > 1 else ""
+
+    # --- Tail digit rescue: S→5, O→0 in line-number references ---
+    # This runs regardless of whether the head is already valid.
+    if tail:
+        for ocr_char, true_char in _OCR_TAIL_CONFUSIONS:
+            tail = tail.replace(ocr_char, true_char)
+
+    # Already valid — nothing more to do (return with fixed tail)
+    if head in valid_rules:
+        return f"{head} {tail}".strip() if tail else head
+
+    # --- Combinatorial head repair ---
+    # Collect which characters in the head appear in the confusion table
+    confusion_positions: list[tuple[int, list[str]]] = []
+    for i, ch in enumerate(head):
+        options = {ch}
+        for ocr_char, true_char in _OCR_HEAD_CONFUSIONS:
+            if ch == ocr_char:
+                options.add(true_char)
+            elif ch == true_char:
+                options.add(ocr_char)
+        if len(options) > 1:
+            confusion_positions.append((i, sorted(options)))
+
+    if not confusion_positions:
+        # No applicable confusions — return with tail fixed
+        return f"{head} {tail}".strip() if tail else head
+
+    # Generate all substitution combinations
+    candidates: list[str] = []
+    head_chars = list(head)
+
+    def _generate(pos_index: int) -> None:
+        if pos_index >= len(confusion_positions):
+            candidates.append("".join(head_chars))
+            return
+        str_pos, options = confusion_positions[pos_index]
+        original = head_chars[str_pos]
+        for opt in options:
+            head_chars[str_pos] = opt
+            _generate(pos_index + 1)
+        head_chars[str_pos] = original
+
+    _generate(0)
+
+    # Filter to valid rule heads
+    valid_candidates = [c for c in candidates if c in valid_rules]
+
+    if len(valid_candidates) == 1:
+        fixed_head = valid_candidates[0]
+        return f"{fixed_head} {tail}".strip() if tail else fixed_head
+
+    # 0 or 2+ matches — return with tail fixed but head unchanged
+    return f"{head} {tail}".strip() if tail else head
+
+
 # ── Bare-line-number detection ────────────────────────────────────────
 
 def is_bare_numeric(jstr: str) -> bool:
