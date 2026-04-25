@@ -37,6 +37,7 @@ After running regressions, inspect the per-case output directory:
 | `crop_N.jpg` | Sub-proof node N's masked crop |
 | `crop_N_context.jpg` | Context-aware crop (green box) for small subproofs |
 | `response_N.json` | Raw VLM JSON response for node N |
+| `thinking_N.txt` | Qwen3.x reasoning/thinking text for node N (27b model only) |
 | `final_structure.json` | Stitched + normalized proof structure |
 | `gold_regression_result.json` | PASS/FAIL + run metadata |
 | `gold_regression_metrics.json` | Per-line formula/justification/structure scores |
@@ -294,6 +295,16 @@ The main development loop is:
 - `∈` → `E` normalization also exists and works (handles `8 ∈ S` → `8 E S` → `∧E S`).
 - **Whitespace normalization** in `canonicalize_formula_for_comparison()` already strips all spaces via `_WHITESPACE_RE.sub("", normalized)` — confirmed working.
 
+### 27b model routing: ACTIVE
+- **What it does:** Leaf crops with ≤4 expected lines are routed to Qwen 3.6 27B (`qwen/qwen3.6-27b`) via `LMSTUDIO_MODEL_27B` env var, with a 600s timeout. Larger crops still use the default 4b model.
+- **Config:** `SMALL_LEAF_MODEL_ROUTING_THRESHOLD = 4` in `tfl_fitch.py`
+- **First Q4 27b result (600s timeout):** 3/7 lines matched, 1/7 both correct. The model produced correct line count (7) but struggled with nested subproof structure. It appears to have timed out on complex reasoning — thinking text capture was not yet available.
+
+### Thinking text capture: ACTIVE (commit 235aef0)
+- **What it does:** `LMStudioQwenClient.chat()` now extracts `reasoning_content` from the LM Studio response and stores it on `self.last_thinking`. The pipeline saves this as `thinking_{node_id}.txt` alongside each `response_{node_id}.json`.
+- **Why it matters:** The 27b model does extended thinking that can loop forever on confusing prompts. Capturing the thinking text lets us diagnose when/why the model gets stuck.
+- **Files affected:** `app/vlm_client.py` (extraction), `proofs_ocr/pipelines/tfl_fitch.py` (saving)
+
 ### Other active notes
 - **Scaffold removal disabled** (2026-04-24): `filter_scaffold_bars()` scaffold-removal logic deliberately disabled because handwritten Fitch proofs have a real outer subproof bar that spans most of the image height. Only edge-artifact cleanup remains active.
 - **Line-number blotting** on ROOT node: The pipeline whites out everything to the left of the leftmost bar, preventing the VLM from reading line numbers as formula content.
@@ -483,6 +494,7 @@ working/                            # (gitignored) regression outputs
         ├── debug_bars.jpg
         ├── crop_*.jpg
         ├── response_*.json
+        ├── thinking_*.txt          # Qwen3.x reasoning (27b model only)
         ├── final_structure.json
         └── gold_regression_*.json
 
