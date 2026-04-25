@@ -42,15 +42,27 @@ Force the model to output exactly N line objects to prevent hallucinated extra l
 - Even without schema enforcement, try stronger prompt language: "The image contains exactly 2 proof lines. Output exactly 2 JSON objects."
 - **Effort:** ~30 minutes to test
 
-### C. Try Larger Model (qwen3-vl-8b or 32b)
+### C. Try Larger Model (qwen3.6-27b) — IN PROGRESS
 
-The 4b model can't distinguish formula from justification columns in Q4 crop_3 — it reads `∧E 5` (justification) as a third formula line `"8 ∈ S"`. An 8b model was already probed and showed the same issue. A larger model (32b) might handle the layout correctly.
+The 4b model can't distinguish formula from justification columns in Q4 crop_3 — it reads `∧E 5` (justification) as a third formula line `"8 ∈ S"`. An 8b model was already probed and showed the same issue. A **27b model** (qwen3.6-27b) shows promise: it takes ~3 min per crop but does deliver correct transcriptions for the K∧W subproof with a dedicated transcriber prompt.
+
+**Probe script:** `scripts/probe_subproof_ocr.py`
+- Tests subproof crops against 4 prompt variants (pipeline baseline + 3 transcriber versions)
+- Captures thinking text from Qwen3's `reasoning_content`
+- Auto-compares against `expected_structure.json` with full pipeline normalization
+- Results saved to `working/subproof_probe_results/`
+
+**Open concerns:**
+- The 27b model's thinking text suggests it may be prone to checking correctness and rewriting what it sees rather than purely transcribing. Prompt variants v2 and v3 add strong "TRANSCRIBER not proof checker" language to counteract this.
+- Still need to test across all subproof crops (Q3, Q4, Q6) to assess generality.
 
 **Action items:**
-- Already have `scripts/ocr_q4_crops_8b.py` probe script — 8b showed same garble as 4b
-- Test qwen3-vl-32b or Gemini Flash if available locally
-- Key test: does the model correctly identify 2 lines (not 3) in crop_3?
-- **Effort:** ~1 hour (mostly download + config time)
+- ✅ `scripts/ocr_q4_crops_8b.py` — 8b showed same garble as 4b
+- ✅ `scripts/probe_subproof_ocr.py` — 27b probe with prompt A/B testing
+- Run `python scripts/probe_subproof_ocr.py --all-cases` with 27b loaded in LM Studio
+- Evaluate whether prompt v2 or v3 reduces proof-checking behavior
+- If 27b works well, design the routing logic to divert small subproofs to it
+- **Effort:** Probe script done; testing requires ~30 min with 27b loaded
 
 ---
 
