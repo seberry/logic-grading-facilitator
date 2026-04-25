@@ -231,9 +231,14 @@ The main development loop is:
 - **Current best result:** 9 lines (was 14 before letterboxing)
 - **Remaining issues:**
   - `N↔W` misread as `N↔N` (letter confusion — VLM reads W as N)
-  - Crop 3 (second subproof) is unreadable by qwen3-vl-4b — returns gibberish like `"x < 8w"`, `"8 ∈ S"`
-  - VLM adds hallucinated conclusion lines to 2-line subproofs (e.g. `N→W / →I 1-2`)
-- **Hard floor reached with 4b model:** One of the two leaf crops contains handwriting the model literally cannot decipher
+  - Crop 3 (second subproof): VLM misreads the layout entirely
+- **Crop 3 diagnosis — layout confusion, not just illegibility:**
+  - Expected: 2 lines — `K∧W / Hyp` and `W / ∧E 5`
+  - VLM returns 3 lines: `"x < 8w"/""`, `"x"/"1"`, `"8 ∈ S"/""`
+  - The VLM reads `K∧W` as garbled `"x < 8w"` (illegible), hallucinates a middle line `"x"/"1"`, and then **treats the justification column `∧E 5` as a third formula line**, reading it as `"8 ∈ S"`
+  - Our post-processing chain (`8→∧`, `∈→E`) WOULD normalize `8 ∈ S` → `∧ E S`, but since the VLM put it in the wffstr field instead of jstr, it stays as a formula rather than being recognized as a justification
+  - **Root cause:** The 4b model can't distinguish the formula region from the justification region in this crop. It reads left-to-right across both columns as if they were one continuous text block, inflating 2 lines into 3
+- **Potentially addressable:** A wider left-margin crop that separates formula from justification columns more clearly, or pre-extraction normalization that recognizes `8 ∈ S` as a misplaced justification even when it appears in wffstr
 
 ### Q5 biconditional misread
 - **Case:** `tfl_handwritten_q5_P_or_K_biconditional`
