@@ -150,3 +150,62 @@ Interpretation:
 Artifacts:
 - `working/fol_ocr_batch/summary.json`
 - `working/fol_ocr_batch/summary.html`
+
+## 8. Running tests (offline, fast)
+
+Unit and integration tests live in `tests/`. Most are fully offline (no VLM needed).
+
+```bash
+# Run everything
+pytest tests/
+
+# Run only TFL-related tests
+pytest tests/ -k tfl
+
+# Run only modal-related tests
+pytest tests/ -k modal
+
+# Skip tests that require a live LM Studio server
+pytest tests/ -m "not needs_vlm"
+```
+
+Key test files:
+- `test_tfl_fitch_gold_fixtures.py` — validates fixture `expected_structure.json` files parse correctly (offline, fast)
+- `test_tfl_fitch_ocr_regression.py` — runs the regression runner in offline/gold mode
+- `test_proofs_ocr_regression_runner.py` — shared regression infrastructure
+- `test_debug_fitch_ocr.py` — exercises the debug Fitch OCR script path
+
+## 9. Running OCR gold regressions (live VLM, slow)
+
+The gold regression suite re-runs the full TFL Fitch OCR pipeline against curated handwritten proof images and compares results line-by-line against a hand-curated "expected" structure. **This calls a live VLM endpoint** (LM Studio or similar) and costs real tokens/time.
+
+```bash
+# Run all TFL gold regressions
+python -m proofs_ocr.regression.tfl_runner run-gold
+
+# Results are written to:
+#   working/tfl_gold_regressions/<case_id>/
+```
+
+Each fixture directory under `proofs_ocr/regression/fixtures/tfl/handwritten/` contains:
+- One or more source images (the handwritten proof scan)
+- `expected_structure.json` — the gold-standard proof structure
+
+### Interpreting output
+
+For each case, the runner writes three files to `working/tfl_gold_regressions/<case_id>/`:
+
+| File | Purpose |
+|------|---------|
+| `gold_regression_result.json` | Top-level pass/fail + error message (if any) |
+| `gold_regression_metrics.json` | Line-by-line comparison: formula, justification, and nesting structure matches |
+| `gold_regression_diff.txt` | Human-readable diff (generated when there are differences) |
+
+Key metrics in `gold_regression_metrics.json`:
+- `formula_correct_line_count` / `expected_line_count` — how many formulas matched
+- `justification_correct_line_count` — how many justifications matched
+- `both_correct_line_count` — lines where both formula AND justification matched
+- `structure_mismatch_count` — lines where nesting depth was wrong
+- `extra_line_count` — VLM hallucinated lines beyond the expected proof
+- `missing_line_count` — expected lines the VLM failed to produce
+- `error` — non-empty if the pipeline crashed (e.g. `"maximum recursion depth exceeded"`)

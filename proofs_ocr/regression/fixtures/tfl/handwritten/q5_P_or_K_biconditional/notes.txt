@@ -1,0 +1,4 @@
+Q5: 5-line proof.
+Derive W from premises (P∨K)↔(Z∧W) and P.
+Flat proof (no subproofs). Uses ∨I, ↔E/→E, ∧E.
+Known VLM issue: reads ↔ as → in the biconditional on line 1.

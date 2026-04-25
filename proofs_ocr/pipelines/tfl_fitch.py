@@ -189,6 +189,14 @@ def normalize_proof_structure(structure):
         if not wff: return ""
         if "<SUBPROOF_ID_" in str(wff):
             return str(wff)
+
+        # Phase 0: Blanket OCR-artifact repair for TFL formulas.
+        # TFL formulas never contain digits, epsilons, or element-of symbols.
+        # Any occurrence is a VLM misread of a handwritten symbol.
+        wff = wff.replace("∈", "E").replace("ε", "E")   # epsilon → E
+        wff = wff.replace("8", "∧")                       # handwritten ∧ misread as 8
+        wff = wff.replace("5", "S")                        # handwritten S misread as 5
+
         # 1. Replace multi-char operators first to avoid breaking them
         wff = wff.replace("->", "→").replace("<->", "↔").replace("<→", "↔")
         

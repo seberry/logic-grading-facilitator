@@ -214,17 +214,37 @@ The main development loop is:
 
 ---
 
-## Known Issues & Current Focus (as of 2026-04-25)
+## Known Issues & Current Focus (as of 2026-04-25, run 00:49)
+
+### Current gold regression scoreboard
+
+| Case | Status | Lines | Formula | Justification | Key issue |
+|------|--------|-------|---------|---------------|-----------|
+| Q3 | ✅ PASS | 8/8 | 8/8 | 8/8 | None — rock-solid baseline |
+| Q4 | ❌ FAIL | 9 (exp 7) | 3/7 | 3/7 | Small subproof hallucination + illegible crop |
+| Q5 | ❌ FAIL | 5/5 | 4/5 | 5/5 | `↔` misread as `→` on line 1 |
+| Q6 | ❌ FAIL | 11/11 | **11/11** ✅ | 7/11 | All formulas perfect; justification citation errors |
 
 ### Q4 small subproof problem
 - **Case:** `tfl_handwritten_q4_N_or_K_and_W`
-- **Expected:** 7 lines. `N∨(K∧W)` Pr, `N↔W` Pr, subproof [`N` Hyp, `W` →E 2,3], subproof [`K∧W` Hyp, `W` ∧E 5], `W` ∨E 1,3-4 5-6
+- **Expected:** 7 lines. `N∨(K∧W)` Pr, `N↔W` Pr, subproof [`N` Hyp, `W` ↔E 2,3], subproof [`K∧W` Hyp, `W` ∧E 5], `W` ∨E 1,3-4 5-6
 - **Current best result:** 9 lines (was 14 before letterboxing)
 - **Remaining issues:**
   - `N↔W` misread as `N↔N` (letter confusion — VLM reads W as N)
   - Crop 3 (second subproof) is unreadable by qwen3-vl-4b — returns gibberish like `"x < 8w"`, `"8 ∈ S"`
   - VLM adds hallucinated conclusion lines to 2-line subproofs (e.g. `N→W / →I 1-2`)
 - **Hard floor reached with 4b model:** One of the two leaf crops contains handwriting the model literally cannot decipher
+
+### Q5 biconditional misread
+- **Case:** `tfl_handwritten_q5_P_or_K_biconditional`
+- **Only failure:** Line 1 reads `(P∨K)→(Z∧W)` instead of `(P∨K)↔(Z∧W)` — the VLM reads handwritten `↔` as `→`. Everything else (lines 2-5) is perfect including all justifications.
+- **This is a VLM symbol recognition issue**, not a normalization issue. Whitespace normalization is already correct.
+
+### Q6 near-perfect formulas, citation errors
+- **Case:** `tfl_handwritten_q6_S_iff_W`
+- **Major improvement:** Line count correct (11/11), structure perfect (0 mismatches), **all 11 formulas correct**.
+- **Remaining gap:** 4 justification citation-number errors (lines 4, 5, 6, 8). The VLM reads the correct rule names but misreads the handwritten line reference numbers.
+- **Promising:** This is a strong candidate for semantic validation repair — the formulas are correct enough to validate/invalidate citations.
 
 ### Context-aware crops: DISABLED
 - **What was tried:** Sending the parent's full unmasked image with a green highlight rectangle, telling the VLM to OCR only inside the green box.
@@ -236,9 +256,15 @@ The main development loop is:
 - **Result:** Reduced Q4 from 14 lines → 9 lines. The VLM can no longer read beyond crop boundaries because the tight crop physically limits what's visible.
 - **Trade-off:** Without parent context, the VLM sometimes can't interpret ambiguous handwriting (e.g. crop_3 returns gibberish).
 
+### Line-count guard: DISABLED
+- **Flag:** `USE_LINE_COUNT_CONSTRAINT = False` in `tfl_fitch.py`
+- **What it does:** When enabled, `count_text_lines_in_region()` uses horizontal projection profiles to estimate text lines in leaf crops, then constrains the VLM prompt and truncates responses. Currently disabled because the counter over-counts (picks up Fitch subproof bars and other non-text features), which causes the prompt to *instruct* the VLM to produce more lines than it would naturally, worsening hallucination.
+- **Code preserved:** The feature is fully implemented (estimation, prompt constraint, response truncation) and guarded by the flag. Can be re-enabled if the line counter is improved.
+
 ### Symbol normalization status
 - `8` → `∧` normalization is **working correctly** in `proofs_ocr/domains/tfl.py` (not in `symbol_normalization.py`). Applied at comparison time via `_EIGHT_BEFORE_EI_RE` and `_EIGHT_BETWEEN_CAPS_RE`.
-- `∈` → `E` normalization also exists and works (handles `8 ∈ 5` → `8 E 5` → `∧E 5`).
+- `∈` → `E` normalization also exists and works (handles `8 ∈ S` → `8 E S` → `∧E S`).
+- **Whitespace normalization** in `canonicalize_formula_for_comparison()` already strips all spaces via `_WHITESPACE_RE.sub("", normalized)` — confirmed working.
 
 ### Other active notes
 - **Scaffold removal disabled** (2026-04-24): `filter_scaffold_bars()` scaffold-removal logic deliberately disabled because handwritten Fitch proofs have a real outer subproof bar that spans most of the image height. Only edge-artifact cleanup remains active.
@@ -247,6 +273,36 @@ The main development loop is:
 ---
 
 ## Experiment History
+
+### 2026-04-25 (00:49): Latest gold regression run (no code changes)
+
+**Context:** Re-ran gold regressions to establish current baseline after previous session's changes. No code changes since last commit. `USE_LINE_COUNT_CONSTRAINT = False`.
+
+**Results:**
+
+| Case | Lines (exp→act) | Formula | Justification | Both | Extra | Struct | Status |
+|------|-----------------|---------|---------------|------|-------|--------|--------|
+| Q3 | 8→8 | 8/8 | 8/8 | 8/8 | 0 | 0 | ✅ PASS |
+| Q4 | 7→9 | 3/7 | 3/7 | 2/7 | 2 | 2 | ❌ FAIL |
+| Q5 | 5→5 | 4/5 | 5/5 | 4/5 | 0 | 0 | ❌ FAIL |
+| Q6 | 11→11 | **11/11** | 7/11 | 7/11 | 0 | 0 | ❌ FAIL |
+
+**Key observations:**
+- Q3 stable, Q4 same as previous baseline (line-count guard disabled avoids the 12-line regression)
+- Q5 failure is `↔`→`→` misread on line 1, NOT whitespace — normalization already strips spaces correctly
+- **Q6 major improvement:** formulas went from 6/11→**11/11**, line count 13→11 (correct). Only 4 justification citation-number errors remain
+- Aggregate: formula 26/31, justification 23/31, both 21/31
+
+**Q6 justification mismatches (only errors):**
+
+| Line | Expected | Actual | Error type |
+|------|----------|--------|------------|
+| L4 | `∧E 3` | `∧E 1` | Wrong citation number |
+| L5 | `→E 1,4` | `Hyp` | VLM failed to read, defaulted to Hyp |
+| L6 | `∧I 4,5` | `∧I 3,2` | Wrong citation numbers |
+| L8 | `∧E 7` | `→E 2,8` | Wrong rule + citations |
+
+**Conclusion:** Whitespace normalization was already working. Line-count guard confirmed disabled. The most promising next direction is semantic validation of citations for Q6.
 
 ### 2026-04-25 (late): Line-count guard, fuzzy justification snap, 8b probe
 

@@ -1,0 +1,4 @@
+Q6: 11-line proof.
+Derive (S∧A)↔(W∧A) from premises S→W and W→S.
+Uses ↔I with two subproofs: assume S∧A (lines 3-6), assume W∧A (lines 7-10).
+Known VLM issues: hallucinates many extra subproofs (24 extra lines in baseline), struggles with ↔ throughout.

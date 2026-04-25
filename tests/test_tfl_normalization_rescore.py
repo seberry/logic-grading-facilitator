@@ -184,15 +184,15 @@ class TestEightAsAndFormulaRepair(unittest.TestCase):
             canonicalize_formula_for_comparison("K∧W"),
         )
 
-    def test_formula_eight_not_between_caps_unchanged(self):
-        """'P8' (8 at end, no cap after) should not get 8 replaced."""
+    def test_formula_eight_at_end_replaced(self):
+        """'P8' — blanket 8→∧ now fires everywhere in formulas."""
         result = canonicalize_formula_for_comparison("P8")
-        self.assertIn("8", result)
+        self.assertEqual(result, "P∧")
 
-    def test_formula_eight_at_start_unchanged(self):
-        """'8P' (8 at start, no cap before) should not get 8 replaced."""
+    def test_formula_eight_at_start_replaced(self):
+        """'8P' — blanket 8→∧ now fires everywhere in formulas."""
         result = canonicalize_formula_for_comparison("8P")
-        self.assertIn("8", result)
+        self.assertEqual(result, "∧P")
 
     def test_formula_multiple_eights_between_caps(self):
         """'A8B8C' should become 'A∧B∧C'."""

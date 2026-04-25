@@ -45,12 +45,17 @@ def canonicalize_formula_for_comparison(value: Any) -> str:
     normalized = _collapse_whitespace(value)
     if not normalized:
         return ""
+
+    # Phase 0: Blanket OCR-artifact repair for TFL formulas.
+    # TFL formulas never contain digits, epsilons, or element-of symbols.
+    # Must match the pipeline's clean_wff Phase 0 replacements exactly.
+    normalized = normalized.replace("∈", "E").replace("ε", "E")   # epsilon → E
+    normalized = normalized.replace("8", "∧")                       # handwritten ∧ misread as 8
+    normalized = normalized.replace("5", "S")                        # handwritten S misread as 5
+
     # Multi-char operators first to avoid partial replacements
     for src, tgt in _SYMBOL_REPLACEMENTS:
         normalized = normalized.replace(src, tgt)
-    # Phase 2: repair handwritten ∧ misread as 8 between capital letters
-    # e.g. "K 8 W" → "K∧W"
-    normalized = _EIGHT_BETWEEN_CAPS_RE.sub("∧", normalized)
     # Strip all remaining spaces for comparison
     normalized = _WHITESPACE_RE.sub("", normalized)
     return normalized

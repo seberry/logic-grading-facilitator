@@ -43,6 +43,16 @@ Human Authority: AI suggests groupings and bounding boxes; the human makes the f
 
 WorkUnit: The core data structure representing one student's grouped pages and scores.
 
+## Codebase Layout
+
+Three semi-independent domains live side by side in this repo:
+
+- **`app/`** — Flask/FastAPI web server, grading UI, Canvas export, session management
+- **`proofs_ocr/`** — TFL Fitch proof OCR pipeline (recursive crop-mask-transcribe), regression fixtures, symbol normalization tricks
+- **`modal_ocr/`** — Modal Fitch proof OCR scaffold (experimental sibling of the TFL path)
+
+Supporting scripts live in `scripts/`; shared tests in `tests/`. For the full development workflow recipes, see [docs/DEV_WORKFLOWS.md](docs/DEV_WORKFLOWS.md).
+
 Core Features
 
 Auto-Grouping: scripts.auto_group_scans uses a local VLM (Qwen via LM Studio) to read names and group widely scattered pages into single student submissions.

@@ -1,0 +1,3 @@
+Q3: 8-line proof.
+Derive (P∧S)→R from premises (P∧Q)→R and P→Q.
+Uses a subproof (lines 3-7) assuming P∧S to derive R via →I.
