@@ -950,9 +950,14 @@ def call_vlm(
     highlighted_box: bool = False,
     expected_lines: int | None = None,
     model_override: str | None = None,
-) -> List[Dict]:
+) -> Tuple[List[Dict], str]:
     """
     Real VLM call. expects client to be compatible with typical OpenAI/LocalAI SDKs.
+
+    Returns
+    -------
+    Tuple[List[Dict], str]
+        (parsed OCR result, model thinking/reasoning text).
 
     Parameters
     ----------
@@ -972,7 +977,7 @@ def call_vlm(
 
     # Mock response if no client provided
     if client is None:
-        return [{"line": "?", "wffstr": "VLM_NOT_CONFIGURED", "jstr": "Error"}]
+        return [{"line": "?", "wffstr": "VLM_NOT_CONFIGURED", "jstr": "Error"}], ""
 
     try:
         import base64
@@ -1002,17 +1007,21 @@ def call_vlm(
             extra_kwargs["timeout"] = 600  # 10 min for 27b model
         content = client.chat(messages, model=model_override, **extra_kwargs)
 
+        # Extract thinking/reasoning text from the VLM client (populated by
+        # LMStudioQwenClient.chat() from the reasoning_content field).
+        thinking = getattr(client, "last_thinking", "") or ""
+
         # Extract JSON from markdown blocks if present
         if "```json" in content:
             content = content.split("```json")[1].split("```")[0]
         elif "```" in content:
             content = content.split("```")[1].split("```")[0]
 
-        return json.loads(content)
+        return json.loads(content), thinking
 
     except Exception as e:
         print(f"   [VLM Error] {e}")
-        return []
+        return [], ""
 
 # ==============================================================================
 # 4. Orchestration
@@ -1124,7 +1133,7 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
             f"Using context-aware crop ({original_crop_h}px < {SMALL_CROP_THRESHOLD}px)"
         )
 
-        ocr_result = call_vlm(
+        ocr_result, _thinking = call_vlm(
             str(context_save_path), client,
             has_children=False,
             highlighted_box=True,
@@ -1155,12 +1164,19 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
 
         # Call VLM — leaf nodes (no masked children) get a simpler prompt that
         # omits the <SUBPROOF_ID_X> instructions, preventing hallucinated tokens.
-        ocr_result = call_vlm(
+        ocr_result, thinking_text = call_vlm(
             str(save_path), client,
             has_children=bool(sorted_children),
             expected_lines=expected_lines,
             model_override=model_override,
         )
+
+        # Save thinking/reasoning text for debugging (especially useful for
+        # diagnosing when the 27b model gets stuck in infinite thinking loops).
+        if thinking_text:
+            thinking_path = output_dir / f"thinking_{node.id}.txt"
+            thinking_path.write_text(thinking_text, encoding="utf-8")
+            print(f"   [Thinking] Node {node.id}: saved {len(thinking_text)} chars to {thinking_path.name}")
 
         # Truncate if VLM returned more dict items than expected.
         # Only applies when USE_LINE_COUNT_CONSTRAINT is enabled and we

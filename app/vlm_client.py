@@ -114,6 +114,7 @@ class LMStudioQwenClient:
         self.timeout = default_lmstudio_timeout() if timeout is None else timeout
         self.max_image_dim = 1500
         self.max_data_uri_len = 2_500_000
+        self.last_thinking: str = ""
 
     def _encode_image_to_data_uri(self, image_path: Path, max_dim: int | None = None) -> str:
         """
@@ -227,6 +228,13 @@ class LMStudioQwenClient:
 
         message = data["choices"][0].get("message") or {}
         content = str(message.get("content") or "")
+
+        # Extract thinking/reasoning text (Qwen3.x returns it in reasoning_content)
+        thinking = str(message.get("reasoning_content") or "")
+        self.last_thinking = thinking
+        if thinking:
+            print(f"[VLM] Thinking: {len(thinking)} chars")
+
         if content:
             return content
 
