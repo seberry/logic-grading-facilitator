@@ -274,6 +274,28 @@ The main development loop is:
 
 ## Experiment History
 
+### 2026-04-25 (01:17): Blanket OCR artifact repair (commit 4e1efef)
+
+**Changes:** Added blanket formula-level replacements in both pipeline normalization (`clean_wff` in `tfl_fitch.py`) and comparison canonicalizer (`canonicalize_formula_for_comparison` in `tfl.py`):
+- `∈`/`ε` → `E` (epsilon never appears in TFL)
+- `8` → `∧` (digits never appear in TFL formulas)
+- `5` → `S` (handwritten S misread as 5)
+
+Updated 2 tests that tested the old "8 only between caps" behavior to match new blanket policy.
+
+**Gold regression results:**
+
+| Case | Lines (exp→act) | Formula | Justification | Both | Extra | Struct | Status |
+|------|-----------------|---------|---------------|------|-------|--------|--------|
+| Q3 | 8→8 | 8/8 | 8/8 | 8/8 | 0 | 0 | ✅ PASS |
+| Q4 | 7→9 | 3/7 | 3/7 | 2/7 | 2 | 2 | ❌ FAIL |
+| Q5 | 5→5 | 4/5 | 5/5 | 4/5 | 0 | 0 | ❌ FAIL |
+| Q6 | 11→11 | **11/11** | 7/11 | 7/11 | 0 | 0 | ❌ FAIL |
+
+**Analysis:** Scores are identical to the previous baseline. This is expected — the VLM returns the same raw output, and the new blanket replacements clean up the pipeline output that *humans* see (e.g., `∧` instead of `8`, proper `E` instead of `∈` in Q4 crop_3's `X < ∧W`). The comparison canonicalizer also now applies the same repairs so that future VLM outputs with these misreads will be auto-matched.
+
+**Key value:** Infrastructure improvement. The human reviewer now sees `∧E 5` instead of `8∈S` in justifications and `∧` instead of `8` in formulas. The remaining failures are model-capacity issues (illegible handwriting in Q4 crop_3, `↔`→`→` misread in Q5, citation-number errors in Q6).
+
 ### 2026-04-25 (00:49): Latest gold regression run (no code changes)
 
 **Context:** Re-ran gold regressions to establish current baseline after previous session's changes. No code changes since last commit. `USE_LINE_COUNT_CONSTRAINT = False`.
