@@ -42,14 +42,14 @@ Force the model to output exactly N line objects to prevent hallucinated extra l
 - Even without schema enforcement, try stronger prompt language: "The image contains exactly 2 proof lines. Output exactly 2 JSON objects."
 - **Effort:** ~30 minutes to test
 
-### C. Try Larger Model (qwen3-vl-8b)
+### C. Try Larger Model (qwen3-vl-8b or 32b)
 
-The 4b model literally cannot read handwriting in crop_3. An 8b model might handle it.
+The 4b model can't distinguish formula from justification columns in Q4 crop_3 — it reads `∧E 5` (justification) as a third formula line `"8 ∈ S"`. An 8b model was already probed and showed the same issue. A larger model (32b) might handle the layout correctly.
 
 **Action items:**
-- Already have `scripts/ocr_q4_crops_8b.py` probe script
-- Test if LM Studio can serve qwen3-vl-8b with acceptable latency
-- Re-run Q4 regression with 8b model
+- Already have `scripts/ocr_q4_crops_8b.py` probe script — 8b showed same garble as 4b
+- Test qwen3-vl-32b or Gemini Flash if available locally
+- Key test: does the model correctly identify 2 lines (not 3) in crop_3?
 - **Effort:** ~1 hour (mostly download + config time)
 
 ---
