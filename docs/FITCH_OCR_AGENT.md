@@ -265,7 +265,18 @@ The main development loop is:
 - **crop_3 (4b):** `[1<8w, w/8∈5]` — same garble
 - **Conclusion:** 8b doesn't improve over 4b. Both models hallucinate extra lines (strongly supporting the line-count guard) and struggle with the same handwritten characters.
 
-**Gold regression results:*** (pending — run `python -m proofs_ocr.regression.tfl_runner run-gold`)
+**Gold regression results (commit c2db043):**
+
+| Case | Prev lines | New lines | Prev formula | New formula | Prev jstr | New jstr | Notes |
+|------|-----------|-----------|-------------|-------------|-----------|----------|-------|
+| Q3 | 8 | 8 | 8/8 | 8/8 | 8/8 | 8/8 | ✅ Still perfect |
+| Q4 | 9 | **12** | 3/7 | 3/7 | 3/7 | 3/7 | ❌ **WORSE** — line counter over-counted |
+| Q5 | 5 | 5 | 4/5 | 4/5 | 5/5 | 5/5 | No change |
+| Q6 | — | 13 | — | 6/11 | — | 3/11 | New baseline (first run) |
+
+**Root cause of Q4 regression:** `count_text_lines_in_region()` over-counts — it estimated 4 lines for crop_2 (should be 2) and 5 lines for crop_3 (should be 2). The prompt constraint then *told* the VLM to produce 4-5 lines, causing MORE hallucination than the unconstrained baseline. The horizontal projection picks up the Fitch subproof bar and other non-text features as extra text lines.
+
+**Action needed:** Either fix the line counter to be more accurate, or make it advisory-only (don't increase the prompt constraint beyond what the VLM would naturally produce).
 
 ### 2026-04-25: Letterboxing + prompt tweaks
 
