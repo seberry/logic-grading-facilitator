@@ -17,6 +17,7 @@ from typing import Dict, List, Optional, Tuple, Union
 import cv2
 import numpy as np
 
+from proofs_ocr.common.rows import band_height, detect_text_row_bands
 from proofs_ocr.common.stitch import recursive_stitch, renumber_lines
 from proofs_ocr.domains.shared import parse_vlm_json_response
 from proofs_ocr.tricks.justification_snaps import (
@@ -696,13 +697,44 @@ def mask_subproof_in_parent(parent_img: np.ndarray, child_node: SubproofNode) ->
 # with a highlighted box instead of a tight white-masked crop.
 SMALL_CROP_THRESHOLD = 250
 
-#: Enable line-count estimation via horizontal projection profiles.
-#: When True, leaf crops are analysed to estimate the number of text lines,
-#: the VLM prompt is constrained to that count, and excess responses are
-#: truncated.  Currently DISABLED because the estimator over-counts (picks
-#: up subproof bars and other non-text features), which makes hallucination
-#: *worse*.  Re-enable once the estimator is more accurate.
-USE_LINE_COUNT_CONSTRAINT = False
+def estimate_line_count(img: np.ndarray) -> int:
+    """Estimate proof lines in a leaf crop using morphological band detection.
+
+    Wraps ``detect_text_row_bands`` with post-filtering:
+    * removes thin artifact bands (underline / rule-line residuals < 18 px)
+    * estimates merged lines inside unusually tall bands.
+
+    Returns 0 if the image is too small or no bands are found.
+    """
+    bands = detect_text_row_bands(img)
+    if not bands:
+        return 0
+
+    MIN_BAND_HEIGHT = 18
+    real_bands = [b for b in bands if band_height(b) >= MIN_BAND_HEIGHT]
+    if not real_bands:
+        return len(bands)
+
+    heights = sorted(band_height(b) for b in real_bands)
+    ref_height = heights[len(heights) // 2]  # median
+
+    MERGE_FACTOR = 1.6
+    count = 0
+    for b in real_bands:
+        h = band_height(b)
+        if h > ref_height * MERGE_FACTOR and ref_height > 0:
+            count += max(1, round(h / ref_height))
+        else:
+            count += 1
+    return count
+
+
+#: Enable line-count estimation for leaf crops using the shared morphological
+#: band detector from proofs_ocr/common/rows.py, with post-filtering to remove
+#: thin underline artifacts and estimate merged tall bands.
+#: When True, the VLM prompt is constrained to the detected line count and
+#: excess VLM responses are truncated.
+USE_LINE_COUNT_CONSTRAINT = True
 
 # Visual settings for the highlight rectangle drawn on context crops.
 HIGHLIGHT_COLOR = (0, 255, 0)   # bright green (BGR)
@@ -840,6 +872,17 @@ def build_ocr_prompt(
         "Use 'wffstr' only for the formula on that line. Use 'jstr' only for the justification. "
         "Do not place justification text inside 'wffstr'. "
         "If a line is a premise or assumption and no justification is printed, leave 'jstr' as an empty string. "
+    )
+    # Handwriting Translation Guide — helps the VLM correctly interpret
+    # common sloppy handwritten symbols that it would otherwise misread
+    # as digits or punctuation.  Validated on Q4 crop_3 (K∧W subproof)
+    # with the 27b model: baseline+guide passed 2/2 formulas, 2/2 justifications.
+    base += (
+        "Handwriting Translation Guide (CRITICAL): "
+        "Students have sloppy handwriting. Use these known distortions to correct your visual reading: "
+        "- A sloppy K frequently looks like '1 <' or a vertical line next to a '<'. "
+        "- A sloppy ampersand & (conjunction) frequently looks like an '8'. "
+        "- A sloppy S frequently looks like a '5'. "
     )
     if has_children:
         base += (
@@ -1041,8 +1084,8 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
         # hallucinations.  Controlled by USE_LINE_COUNT_CONSTRAINT flag.
         expected_lines = None
         if USE_LINE_COUNT_CONSTRAINT and is_leaf:
-            expected_lines = count_text_lines_in_region(current_img)
-            print(f"   [LineCount] Node {node.id}: estimated {expected_lines} text line(s)")
+            expected_lines = estimate_line_count(current_img)
+            print(f"   [LineCount] Node {node.id}: detected {expected_lines} text line(s)")
 
         # Call VLM — leaf nodes (no masked children) get a simpler prompt that
         # omits the <SUBPROOF_ID_X> instructions, preventing hallucinated tokens.

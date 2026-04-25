@@ -97,15 +97,38 @@ The comparison pipeline now applies these normalizations in order:
 
 **Justification**: strip whitespace → epsilon→E (`∈`→`E`, `ε`→`E`) → head aliases (`ai`→`∧I`, `&e`→`∧E`, etc.) → `8`+`I`/`E` → `∧I`/`∧E` → tail space-between-digits → comma
 
+## Subproof OCR Probe Results (2026-04-25)
+
+Probe tested the Q4 `crop_3` (K∧W subproof) with the 27b model (`qwen/qwen3.6-27b`) across multiple prompt variants:
+
+| Prompt | Formulas | Justifications | Time | Status |
+|--------|----------|----------------|------|--------|
+| **baseline** (with handwriting guide) | **2/2** | **2/2** | ~266s | ✅ PASS |
+| pipeline (no guide at time) | 0/2 | 0/2 | 146s | ❌ FAIL |
+| transcriber-v1 | timeout | timeout | >360s | ❌ TIMEOUT |
+| transcriber-v2 | timeout | timeout | >360s | ❌ TIMEOUT |
+
+**Key insight**: The handwriting guide (K→`1<`, &→`8`, S→`5`) is the single highest-impact change. The transcriber prompts' "You are a TRANSCRIBER, not a proof checker" framing causes the 27b model to enter extended reasoning loops (~6+ min), leading to timeouts.
+
+## Phase 4: Handwriting Guide Merged into Pipeline Prompt ✅ DONE
+
+The handwriting guide from the successful baseline probe has been merged into `build_ocr_prompt()` in `proofs_ocr/pipelines/tfl_fitch.py`. This means the standard pipeline now includes:
+- `K` → `1<` or vertical line next to `<`
+- `&` (conjunction) → `8`
+- `S` → `5`
+
+The guide applies to **all** VLM calls (leaf and non-leaf), complementing the existing post-OCR normalization that already handles `8`→`∧` and `5`→`S` after the fact.
+
 ## Planned Improvements
 
 1. ~~**Phase 1**: Fix space-between-digits → comma normalization~~ ✅ DONE
 2. ~~**Phase 2**: `8`→`∧` post-OCR repair heuristic~~ ✅ DONE
 3. ~~**Phase 2a**: epsilon→E normalization before 8→∧ chain~~ ✅ DONE (defensive)
-4. ~~**Phase 3**: Post-OCR rule-head snapping~~ ✅ DONE (infrastructure in place; `←`→`↔`, `↔F`→`↔E`, `±`→`↔I`, `8E`→`∧E`, bare ranges→`↔I`; prompt-only approach tried and reverted — it confused the VLM)
-5. **Phase 3b** (hard): `↔` vs `→` contextual disambiguation — needs formula awareness
-6. **VLM prompt improvements**: Better handling of handwritten `&`/`∧`, line numbers, biconditional arrows
-7. **Cross-pipeline test**: Feed TFL Fitch proof images through the modal OCR pipeline to compare accuracy
+4. ~~**Phase 3**: Post-OCR rule-head snapping~~ ✅ DONE
+5. ~~**Phase 4**: Handwriting guide merged into pipeline prompt~~ ✅ DONE (2026-04-25)
+6. **Phase 3b** (hard): `↔` vs `→` contextual disambiguation — needs formula awareness
+7. **Validate pipeline prompt with 27b on all cases**: `python scripts/probe_subproof_ocr.py --prompt pipeline --all-cases`
+8. **Cross-pipeline test**: Feed TFL Fitch proof images through the modal OCR pipeline to compare accuracy
 
 ## Artifacts
 

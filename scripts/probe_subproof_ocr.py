@@ -52,6 +52,29 @@ from app.vlm_client import default_lmstudio_base_url
 # Prompt variants
 # ============================================================================
 
+BASELINE = """\
+Role: You are a logic quiz transcriber performing OCR on subproof chunks \
+cropped out from the middle of handwritten Fitch-style natural deduction proofs.
+
+Context: You will be given cropped images of specific subproofs (beginning \
+with an assumption with no justification above a horizontal line, and \
+deriving various consequences from that line and earlier lines). So don't \
+worry that those are missing, and remember that the top line in the crop you \
+are seeing might not be line 1 in the proof.
+
+Task: Extract the logical formulas and their justifications.
+
+Handwriting Translation Guide (CRITICAL):
+Students have sloppy handwriting. Use the following known distortions to \
+correct your visual reading:
+- A sloppy $K$ frequently looks like 1 < or a vertical line next to a <.
+- A sloppy ampersand $\\&$ (conjunction) frequently looks like an 8.
+
+Output format: Return a JSON list of objects with keys "line", "wffstr" \
+(the formula text), and "jstr" (the justification, or "" if none visible).
+Return JSON only, no markdown fences or explanation.""".strip()
+
+
 TRANSCRIBER_V1 = """\
 Role: You are a logic quiz transcriber performing OCR on subproof chunks \
 cropped from the middle of handwritten Fitch-style natural deduction proofs.
@@ -156,6 +179,7 @@ def _get_pipeline_prompt() -> str:
 
 
 PROMPT_REGISTRY = {
+    "baseline": BASELINE,
     "pipeline": None,  # resolved lazily
     "transcriber-v1": TRANSCRIBER_V1,
     "transcriber-v2": TRANSCRIBER_V2,
@@ -198,6 +222,9 @@ def discover_crops(case_id: str, only_crops: list[str] | None = None) -> list[Pa
         node_id = f.stem.replace("crop_", "")
         if node_id == "ROOT":
             continue
+        # Skip _context variants (separate experiment, not standard subproof crops)
+        if "_context" in f.name:
+            continue
         # If --only-crops filter given, check for substring match
         if only_crops and not any(oc in f.name for oc in only_crops):
             continue
@@ -205,9 +232,16 @@ def discover_crops(case_id: str, only_crops: list[str] | None = None) -> list[Pa
     return crops
 
 
+def _fixture_case_name(case_id: str) -> str:
+    """Strip 'tfl_handwritten_' prefix from case_id to get fixture dir name."""
+    if case_id.startswith("tfl_handwritten_"):
+        return case_id[len("tfl_handwritten_"):]
+    return case_id
+
+
 def extract_expected_subproofs(case_id: str) -> list[list[dict]]:
     """Load expected_structure.json and extract subproof blocks (list entries)."""
-    fixture = FIXTURE_DIR / case_id / "expected_structure.json"
+    fixture = FIXTURE_DIR / _fixture_case_name(case_id) / "expected_structure.json"
     if not fixture.exists():
         print(f"[WARN] No expected structure at {fixture}", file=sys.stderr)
         return []
@@ -692,6 +726,12 @@ def run_probe(
 
 
 def main():
+    # Force UTF-8 output on Windows (emoji characters in results)
+    if sys.stdout.encoding != "utf-8":
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    if sys.stderr.encoding != "utf-8":
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
     parser = build_parser()
     args = parser.parse_args()
 
@@ -750,7 +790,10 @@ def main():
             # Extract crop number to pair with expected subproof
             crop_num_str = crop_path.stem.replace("crop_", "")
             try:
-                crop_idx = int(crop_num_str) - 2  # crop_2 → index 0 (first subproof)
+                crop_num = int(crop_num_str)
+                # Crops are numbered from 1; subproof list is 0-indexed.
+                # crop_1 → subproof 0, crop_2 → subproof 1, etc.
+                crop_idx = crop_num - 1
             except ValueError:
                 crop_idx = 0
 
