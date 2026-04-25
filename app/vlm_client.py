@@ -203,10 +203,10 @@ class LMStudioQwenClient:
             },
         ]
 
-    def chat(self, messages: List[Dict[str, Any]]) -> str:
+    def chat(self, messages: List[Dict[str, Any]], *, model: str | None = None) -> str:
         url = f"{self.base_url}/chat/completions"
         payload = {
-            "model": self.model,
+            "model": model or self.model,
             "messages": messages,
             "temperature": 0.0,
         }

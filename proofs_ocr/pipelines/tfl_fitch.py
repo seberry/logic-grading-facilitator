@@ -839,6 +839,28 @@ def build_context_crop(
 # 3. VLM Interaction (Mockable)
 # ==============================================================================
 
+#: When True, use a stripped-down prompt for leaf crops.  The full prompt
+#: stacks ~6 instruction blocks which may overwhelm a 4b model; this variant
+#: keeps only the essentials.  Toggle to compare regression scores.
+USE_SIMPLE_PROMPT = False
+
+#: Model routing for small leaf crops.  When a leaf crop has ≤ this many
+#: expected lines, the pipeline routes it to a larger model (27b) for better
+#: handwriting recognition.  Set to 0 to disable routing.
+SMALL_LEAF_MODEL_ROUTING_THRESHOLD = 4
+
+#: LM Studio model identifier for the larger VLM used on small leaf crops.
+#: This is Qwen 3.6 27B (qwen/qwen3.6-27b), a significantly more capable
+#: model than the default 4b for handwriting recognition on small crops.
+#: Loaded from LMSTUDIO_MODEL_27B env var.
+def _get_model_27b() -> str:
+    return os.getenv("LMSTUDIO_MODEL_27B", "qwen/qwen3.6-27b").strip()
+
+def _model_27b_available() -> bool:
+    """Check if a 27b model is specified and differs from the default 4b."""
+    return bool(_get_model_27b().strip())
+
+
 def build_ocr_prompt(
     *,
     has_children: bool = True,
@@ -866,6 +888,19 @@ def build_ocr_prompt(
         to produce.  This is derived from horizontal projection profiling of
         the crop and helps prevent the VLM from hallucinating extra lines.
     """
+    # ---- Simple prompt path ------------------------------------------------
+    if USE_SIMPLE_PROMPT and not has_children:
+        parts = [
+            "Transcribe this Fitch proof image into a JSON array.",
+            "Each element: {\"line\": <num>, \"wffstr\": \"<formula>\", \"jstr\": \"<justification>\"}.",
+            "wffstr = formula on the left.  jstr = rule + line refs on the right.  Keep them separate.",
+        ]
+        if expected_lines is not None and expected_lines >= 1:
+            parts.append(f"Output exactly {expected_lines} line(s).")
+        parts.append("Return JSON only. No markdown.")
+        return " ".join(parts)
+
+    # ---- Full prompt path (non-leaf or simple disabled) --------------------
     base = (
         "Transcribe the Fitch-style proof in this image into a JSON list of objects. "
         "Each object must have exactly these keys: 'line', 'wffstr', and 'jstr'. "
@@ -898,6 +933,11 @@ def build_ocr_prompt(
         base += "Transcribe only the lines actually visible in this image. "
         if expected_lines is not None and expected_lines >= 1:
             base += f"This image contains exactly {expected_lines} proof line(s). Output exactly {expected_lines} line objects. "
+            if expected_lines <= 4:
+                base += (
+                    f"Each of the {expected_lines} line(s) has a formula on the LEFT and a justification on the RIGHT. "
+                    "Formula goes in 'wffstr', justification goes in 'jstr'. Keep them separate. "
+                )
     base += "Return JSON only, with no markdown fences or explanation."
     return base
 
@@ -909,9 +949,17 @@ def call_vlm(
     has_children: bool = True,
     highlighted_box: bool = False,
     expected_lines: int | None = None,
+    model_override: str | None = None,
 ) -> List[Dict]:
     """
     Real VLM call. expects client to be compatible with typical OpenAI/LocalAI SDKs.
+
+    Parameters
+    ----------
+    model_override:
+        When set, passed through to ``client.chat(model=...)`` to route the
+        request to a different LM Studio model (e.g. the 27b variant for
+        small leaf crops).
     """
     prompt = build_ocr_prompt(
         has_children=has_children,
@@ -919,7 +967,8 @@ def call_vlm(
         expected_lines=expected_lines,
     )
 
-    print(f"   [VLM] Sending {os.path.basename(image_path)}...")
+    model_tag = f" (model={model_override})" if model_override else ""
+    print(f"   [VLM] Sending {os.path.basename(image_path)}{model_tag}...")
 
     # Mock response if no client provided
     if client is None:
@@ -947,7 +996,7 @@ def call_vlm(
             },
         ]
 
-        content = client.chat(messages)
+        content = client.chat(messages, model=model_override)
 
         # Extract JSON from markdown blocks if present
         if "```json" in content:
@@ -1087,12 +1136,26 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
             expected_lines = estimate_line_count(current_img)
             print(f"   [LineCount] Node {node.id}: detected {expected_lines} text line(s)")
 
+        # Model routing: use the larger 27b model for small leaf crops where
+        # the 4b model struggles with handwriting recognition.
+        model_override = None
+        if (
+            is_leaf
+            and SMALL_LEAF_MODEL_ROUTING_THRESHOLD > 0
+            and expected_lines is not None
+            and expected_lines <= SMALL_LEAF_MODEL_ROUTING_THRESHOLD
+            and _model_27b_available()
+        ):
+            model_override = _get_model_27b()
+            print(f"   [ModelRoute] Node {node.id}: routing to {model_override} (≤{SMALL_LEAF_MODEL_ROUTING_THRESHOLD} lines)")
+
         # Call VLM — leaf nodes (no masked children) get a simpler prompt that
         # omits the <SUBPROOF_ID_X> instructions, preventing hallucinated tokens.
         ocr_result = call_vlm(
             str(save_path), client,
             has_children=bool(sorted_children),
             expected_lines=expected_lines,
+            model_override=model_override,
         )
 
         # Truncate if VLM returned more dict items than expected.
