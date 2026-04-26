@@ -912,6 +912,11 @@ def _get_27b_extra_payload() -> Dict[str, object]:
     return extra_payload
 
 
+def _get_4b_fullwidth_max_lines() -> int:
+    """Return max leaf line count for default-model full-width crop trials."""
+    return max(0, _env_int("TFL_FITCH_4B_FULLWIDTH_MAX_LINES", 0) or 0)
+
+
 def build_ocr_prompt(
     *,
     has_children: bool = True,
@@ -1289,6 +1294,23 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
 
             vlm_image_path = str(fw_save_path)
             prompt_override = build_27b_fullwidth_prompt(expected_lines=expected_lines)
+        else:
+            four_b_fullwidth_max_lines = _get_4b_fullwidth_max_lines()
+            if (
+                is_leaf
+                and four_b_fullwidth_max_lines > 0
+                and expected_lines is not None
+                and expected_lines <= four_b_fullwidth_max_lines
+            ):
+                print(
+                    f"   [FullWidth4B] Node {node.id}: using full-width crop "
+                    f"(<= {four_b_fullwidth_max_lines} lines)"
+                )
+                fw_img = crop_full_width(img, node)
+                fw_filename = f"crop_{node.id}_4b_fullwidth.jpg"
+                fw_save_path = output_dir / fw_filename
+                cv2.imwrite(str(fw_save_path), fw_img)
+                vlm_image_path = str(fw_save_path)
 
         # Call VLM — leaf nodes (no masked children) get a simpler prompt that
         # omits the <SUBPROOF_ID_X> instructions, preventing hallucinated tokens.
