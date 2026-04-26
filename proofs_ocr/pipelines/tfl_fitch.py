@@ -651,6 +651,25 @@ def crop_region(img: np.ndarray, box: Tuple[int, int, int, int], padding=10) -> 
     
     return img[y1:y2, x1:x2]
 
+def crop_full_width(img: np.ndarray, node: SubproofNode, padding: int = 10) -> np.ndarray:
+    """Crop a full-width horizontal slice at the node's Y range.
+
+    Unlike :func:`crop_region` which starts from the bar's X position, this
+    preserves the full image width including the line-number gutter on the
+    left.  The 27b model uses the gutter numbers as visual context.
+    """
+    _, y, _, h = node.box
+    h_img, _w_img = img.shape[:2]
+
+    if node.parent and node.parent.id == "ROOT":
+        y2 = h_img
+    else:
+        y2 = min(h_img, y + h)
+
+    y1 = max(0, y - padding)
+    return img[y1:y2, :]
+
+
 def mask_subproof_in_parent(parent_img: np.ndarray, child_node: SubproofNode) -> np.ndarray:
     """
     Draws a white box over the child's area and stamps the token.
@@ -847,7 +866,7 @@ USE_SIMPLE_PROMPT = False
 #: Model routing for small leaf crops.  When a leaf crop has ≤ this many
 #: expected lines, the pipeline routes it to a larger model (27b) for better
 #: handwriting recognition.  Set to 0 to disable routing.
-SMALL_LEAF_MODEL_ROUTING_THRESHOLD = 4
+SMALL_LEAF_MODEL_ROUTING_THRESHOLD = 3
 
 #: LM Studio model identifier for the larger VLM used on small leaf crops.
 #: This is Qwen 3.6 27B (qwen/qwen3.6-27b), a significantly more capable
@@ -974,6 +993,39 @@ def build_ocr_prompt(
     return base
 
 
+def build_27b_fullwidth_prompt(expected_lines: int | None = None) -> str:
+    """Build the proven manual prompt for 27b full-width crop OCR.
+
+    This prompt was validated on Q4 crop_3 (K∧W subproof) with the 27b model
+    and produces correct results after normalization.  It assumes the crop
+    includes the line-number gutter (full image width, restricted Y range).
+    """
+    prompt = (
+        "Role: You are a logic quiz transcriber performing OCR on subproof chunks "
+        "cropped out from the middle of handwritten Fitch-style natural deduction proofs.\n"
+        "Context: You will be given cropped images of specific subproofs (beginning with "
+        "an assumption with no justification above a horizontal line, and deriving various "
+        "consequences from that line and earlier lines). So don't worry that those are "
+        "missing, and remember that the top line in the crop you are seeing might not be "
+        "line 1 in the proof.\n"
+        "Task: Extract the logical formulas and their justifications.\n"
+        "Output format: JSON array of objects with keys 'line', 'wffstr', 'jstr'.\n"
+        "Handwriting Translation Guide (CRITICAL):\n"
+        "Students have sloppy handwriting. Use the following known distortions to correct "
+        "your visual reading:\n"
+        "- A sloppy K frequently looks like '1 <' or a vertical line next to a '<'.\n"
+        "- A sloppy ampersand & (conjunction) frequently looks like an '8'.\n"
+        "- A sloppy S frequently looks like a '5'.\n"
+    )
+    if expected_lines is not None and expected_lines >= 1:
+        prompt += (
+            f"\nThis image contains exactly {expected_lines} proof line(s). "
+            f"Output exactly {expected_lines} line objects.\n"
+        )
+    prompt += "Return JSON only, with no markdown fences or explanation."
+    return prompt
+
+
 def call_vlm(
     image_path: str,
     client,
@@ -982,6 +1034,7 @@ def call_vlm(
     highlighted_box: bool = False,
     expected_lines: int | None = None,
     model_override: str | None = None,
+    prompt_override: str | None = None,
 ) -> Tuple[List[Dict], str]:
     """
     Real VLM call. expects client to be compatible with typical OpenAI/LocalAI SDKs.
@@ -997,8 +1050,14 @@ def call_vlm(
         When set, passed through to ``client.chat(model=...)`` to route the
         request to a different LM Studio model (e.g. the 27b variant for
         small leaf crops).
+    prompt_override:
+        When set, use this string as the prompt instead of building one via
+        :func:`build_ocr_prompt`.  Used for the 27b full-width crop path.
     """
-    prompt = build_ocr_prompt(
+    if prompt_override:
+        prompt = prompt_override
+    else:
+        prompt = build_ocr_prompt(
         has_children=has_children,
         highlighted_box=highlighted_box,
         expected_lines=expected_lines,
@@ -1206,6 +1265,9 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
         # Model routing: use the larger 27b model for small leaf crops where
         # the 4b model struggles with handwriting recognition.
         model_override = None
+        prompt_override = None
+        vlm_image_path = str(save_path)  # default: tight (letterboxed) crop
+
         if (
             is_leaf
             and SMALL_LEAF_MODEL_ROUTING_THRESHOLD > 0
@@ -1216,13 +1278,26 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
             model_override = _get_model_27b()
             print(f"   [ModelRoute] Node {node.id}: routing to {model_override} (<={SMALL_LEAF_MODEL_ROUTING_THRESHOLD} lines)")
 
+            # Generate a full-width crop for 27b — preserves the line-number
+            # gutter for citation context.  No letterboxing needed since the
+            # aspect ratio is already reasonable at full image width.
+            fw_img = crop_full_width(img, node)
+            fw_filename = f"crop_{node.id}_fullwidth.jpg"
+            fw_save_path = output_dir / fw_filename
+            cv2.imwrite(str(fw_save_path), fw_img)
+            print(f"   [FullWidth] Node {node.id}: saved full-width crop to {fw_filename}")
+
+            vlm_image_path = str(fw_save_path)
+            prompt_override = build_27b_fullwidth_prompt(expected_lines=expected_lines)
+
         # Call VLM — leaf nodes (no masked children) get a simpler prompt that
         # omits the <SUBPROOF_ID_X> instructions, preventing hallucinated tokens.
         ocr_result, thinking_text = call_vlm(
-            str(save_path), client,
+            vlm_image_path, client,
             has_children=bool(sorted_children),
             expected_lines=expected_lines,
             model_override=model_override,
+            prompt_override=prompt_override,
         )
 
         # Save thinking/reasoning text for debugging (especially useful for

@@ -36,6 +36,7 @@ After running regressions, inspect the per-case output directory:
 | `crop_ROOT.jpg` | Top-level masked image sent to VLM |
 | `crop_N.jpg` | Sub-proof node N's masked crop |
 | `crop_N_context.jpg` | Context-aware crop (green box) for small subproofs |
+| `crop_N_fullwidth.jpg` | Full-width crop sent to 27b model (preserves line-number gutter) |
 | `response_N.json` | Raw VLM JSON response for node N |
 | `thinking_N.txt` | Qwen3.x reasoning/thinking text for node N (27b model only) |
 | `final_structure.json` | Stitched + normalized proof structure |
@@ -237,30 +238,42 @@ The main development loop is:
 
 ## Known Issues & Current Focus (as of 2026-04-26)
 
-### Current priority: Wire full-width crops into 27b pipeline path
+### Current priority: Investigate Q6 4-line subproof citation errors
 
-**Experiment result (2026-04-26):** Full-width crops are the winning approach for 27b.
+**Status (2026-04-26):** The 27b full-width routing is **wired and working** for ≤3-line leaf subproofs. Q4 subproofs are now perfect. The next problem is Q6, where 4-line subproofs stay on 4b and produce citation-number errors.
 
-When 27b receives a **full-width crop** (full original image width, restricted to the node's Y range only, preserving the line-number gutter), it produces answers that are **correct after normalization** — and does so **slightly faster** than with the original prompt. The chunk-awareness prompt (`--chunk-aware`) turned out to be unnecessary; the visual evidence from the line-number gutter is sufficient.
+**Q6 failure analysis:**
+- **11/11 formulas correct** — the VLM reads every formula perfectly
+- **6/11 justifications correct** — 5 citation errors in subproof lines
+- Subproofs in Q6 have 4 lines each, so they **don't trigger** the ≤3 27b routing threshold
+- Errors: L4 `∧E 3`→`∧E 1`, L5 `→E 1,4`→`∧E 1`, L6 `∧I 4,5`→`∧I 2,3`, L8 `∧E 7`→`→E 2,8`, L10 `∧I 8,9`→`∧I 3,4`
 
-**Probe command that works (Q4 K∧W subproof, crop_3):**
+**Investigation prompt for next Cline session:** Look at the Q6 crop images and VLM responses to understand whether raising the threshold to 4-5 would help, or whether the 4b model is fundamentally misreading handwritten citation numbers in these 4-line subproofs. Key files: `working/tfl_gold_regressions/tfl_handwritten_q6_S_iff_W/crop_2.jpg`, `crop_3.jpg`, `response_2.json`, `response_3.json`.
 
-```bash
-python scripts/probe_27b_crop.py --full-width --y-start 431 --y-end 681 --manual-prompt --no-think --max-tokens 512
-```
+### 27b full-width routing: WIRED AND VALIDATED (2026-04-26)
 
-**Next steps:**
+**What was done:**
+1. Added `crop_full_width()` — generates full-width horizontal slices preserving the line-number gutter
+2. Added `build_27b_fullwidth_prompt()` — the proven manual prompt from probe experiments
+3. Added `prompt_override` parameter to `call_vlm()` for bypassing the auto-built prompt
+4. Wired routing in `process_node_recursive()`: when a leaf has ≤3 detected lines and 27b is available, the pipeline generates a full-width crop and uses the manual prompt
+5. Set `SMALL_LEAF_MODEL_ROUTING_THRESHOLD = 3`
 
-1. **Wire full-width crops into `process_node_recursive()`** for 27b-routed leaf calls. The pipeline already knows each node's Y-range from bar detection; instead of tight-cropping from bar X to right edge, generate a full-width crop for 27b nodes. Keep tight crops for 4b.
+**Gold regression results (2026-04-26):**
 
-2. **Add regularization to regression comparison.** Currently the regression runner compares raw VLM output against gold fixtures. Since 27b's raw output regularizes correctly (e.g., `K & W` → `K∧W`, blank jstr → `Hyp`), we should add a **post-normalization comparison pass** to the regression pipeline. This would show:
-   - Raw match score (current behavior)
-   - **Regularized match score** (after full normalization chain: symbol mapping, justification snaps, default justifications, renumbering)
-   - This lets us distinguish "VLM got it right but with different surface syntax" from "VLM actually misread the formula"
+| Case | Lines | Formula | Justification | Both | Notes |
+|------|-------|---------|---------------|------|-------|
+| Q3 | 8/8 | **8/8** | 6/8 | 6/8 | 2 citation errors in 5-line subproof (stayed on 4b) |
+| Q4 | 7/7 | 6/7 | **7/7** | 6/7 | **Subproofs perfect via 27b full-width**; 1 error in ROOT (N↔N vs N↔W) |
+| Q5 | 5/5 | 4/5 | **5/5** | 4/5 | ↔→→ misread on L1 (no subproofs, no routing change) |
+| Q6 | 11/11 | **11/11** | 6/11 | 6/11 | Perfect formulas! 5 citation errors in 4-line subproofs (stayed on 4b) |
 
-3. **Run full regression with 27b full-width path** once wired in, to measure quality and latency across all fixtures (Q3, Q4, Q5, Q6).
+**Aggregate: 29/31 formulas (94%), 24/31 justifications (77%), 0 structural mismatches**
 
-The chunk-awareness prompt (`--chunk-aware` flag) is preserved in `probe_27b_crop.py` for future use but is not needed for the current winning approach.
+**Key evidence the 27b routing works:**
+- Q4 nodes 2 and 3 (2 lines each) were routed to 27b with full-width crops
+- Both returned perfect results after normalization
+- Log output confirmed: `[ModelRoute] Node 2: routing to qwen/qwen3.6-27b (<=3 lines)`
 
 ### Semantic citation repair: DEFERRED
 
@@ -355,33 +368,24 @@ python -m proofs_ocr.regression.tfl_runner run-gold --case tfl_handwritten_q4_N_
 - `proofs_ocr/pipelines/tfl_fitch.py` — 27b routing and prompt construction.
 - `working/thinking_captures/` — saved probe records and reasoning captures.
 
-### Q4 small subproof problem
+### Q4 small subproof problem: SOLVED (27b full-width routing)
 - **Case:** `tfl_handwritten_q4_N_or_K_and_W`
 - **Expected:** 7 lines. `N∨(K∧W)` Pr, `N↔W` Pr, subproof [`N` Hyp, `W` ↔E 2,3], subproof [`K∧W` Hyp, `W` ∧E 5], `W` ∨E 1,3-4 5-6
-- **Current best direction:** 4b + line-count guard gives correct total line count but still misreads key symbols. 27b can correctly read the hard second subproof crop (`K∧W`, `W / ∧E 5`) when thinking is disabled in LM Studio.
-- **Remaining issues:**
-  - `N↔W` can still be misread as `N↔N` (letter confusion — VLM reads W as N).
-  - Final/root line and cross-subproof citations depend on absolute line references, which tight subproof crops do not show.
-  - 27b may infer line numbers from local justification text, but this is not a stable contract.
-- **4b crop_3 diagnosis — layout confusion, not just illegibility:**
-  - Expected: 2 lines — `K∧W / Hyp` and `W / ∧E 5`
-  - VLM returns 3 lines: `"x < 8w"/""`, `"x"/"1"`, `"8 ∈ S"/""`
-  - The VLM reads `K∧W` as garbled `"x < 8w"` (illegible), hallucinates a middle line `"x"/"1"`, and then **treats the justification column `∧E 5` as a third formula line**, reading it as `"8 ∈ S"`
-  - Our post-processing chain (`8→∧`, `∈→E`) WOULD normalize `8 ∈ S` → `∧ E S`, but since the VLM put it in the wffstr field instead of jstr, it stays as a formula rather than being recognized as a justification
-  - **Root cause:** The 4b model can't distinguish the formula region from the justification region in this crop. It reads left-to-right across both columns as if they were one continuous text block, inflating 2 lines into 3
-- **27b crop_3 diagnosis:** 27b resolves the handwriting correctly. The remaining question is how to give it enough global context for stable citations and line numbers without reintroducing the leakage/hallucination that context crops caused for 4b.
-- **Potentially addressable:** For 27b fallback only, test crops that retain the line-number gutter or pass explicit crop-start metadata into the prompt. For 4b, keep the tight/letterboxed crop strategy.
+- **Solution:** Both subproofs (2 lines each) now routed to 27b with full-width crops. Results are **perfect** after normalization.
+- **Remaining issue:** ROOT crop still read by 4b, which misreads `N↔W` as `N↔N` (letter confusion). This is in the parent node, not the subproof leaves.
 
 ### Q5 biconditional misread
 - **Case:** `tfl_handwritten_q5_P_or_K_biconditional`
 - **Only failure:** Line 1 reads `(P∨K)→(Z∧W)` instead of `(P∨K)↔(Z∧W)` — the VLM reads handwritten `↔` as `→`. Everything else (lines 2-5) is perfect including all justifications.
 - **This is a VLM symbol recognition issue**, not a normalization issue. Whitespace normalization is already correct.
 
-### Q6 near-perfect formulas, citation errors
+### Q6 near-perfect formulas, citation errors — NEXT INVESTIGATION TARGET
 - **Case:** `tfl_handwritten_q6_S_iff_W`
 - **Major improvement:** Line count correct (11/11), structure perfect (0 mismatches), **all 11 formulas correct**.
-- **Remaining gap:** 4 justification citation-number errors (lines 4, 5, 6, 8). The VLM reads the correct rule names but misreads the handwritten line reference numbers.
-- **Promising:** This is a strong candidate for semantic validation repair — the formulas are correct enough to validate/invalidate citations.
+- **Remaining gap:** 5 justification citation-number errors (lines 4, 5, 6, 8, 10). The VLM reads the correct rule names but misreads the handwritten line reference numbers.
+- **Key observation:** Both subproofs have 4 lines each, so they **don't trigger** the ≤3 27b routing threshold. They stay on 4b with tight/letterboxed crops.
+- **Investigation needed:** Look at crop images (`working/tfl_gold_regressions/tfl_handwritten_q6_S_iff_W/crop_2.jpg`, `crop_3.jpg`) and VLM responses to decide whether to raise the threshold or take a different approach.
+- **Promising:** This is also a strong candidate for semantic validation repair — the formulas are correct enough to validate/invalidate citations.
 
 ### Context-aware crops: DISABLED
 - **What was tried:** Sending the parent's full unmasked image with a green highlight rectangle, telling the VLM to OCR only inside the green box.
@@ -404,11 +408,13 @@ python -m proofs_ocr.regression.tfl_runner run-gold --case tfl_handwritten_q4_N_
 - `∈` → `E` normalization also exists and works (handles `8 ∈ S` → `8 E S` → `∧E S`).
 - **Whitespace normalization** in `canonicalize_formula_for_comparison()` already strips all spaces via `_WHITESPACE_RE.sub("", normalized)` — confirmed working.
 
-### 27b model routing: ACTIVE
-- **What it does:** Leaf crops with ≤4 expected lines are routed to Qwen 3.6 27B (`qwen/qwen3.6-27b`) via `LMSTUDIO_MODEL_27B` env var. Larger crops still use the default 4b model.
-- **Config:** `SMALL_LEAF_MODEL_ROUTING_THRESHOLD = 4` in `tfl_fitch.py`
+### 27b model routing: ACTIVE (with full-width crops)
+- **What it does:** Leaf crops with ≤3 expected lines are routed to Qwen 3.6 27B (`qwen/qwen3.6-27b`) via `LMSTUDIO_MODEL_27B` env var. Routed crops use **full-width images** (preserving line-number gutter) with a dedicated manual prompt. Non-routed crops continue to use tight/letterboxed crops with the auto-built prompt.
+- **Config:** `SMALL_LEAF_MODEL_ROUTING_THRESHOLD = 3` in `tfl_fitch.py`
+- **Crop generation:** `crop_full_width()` — full image width, node Y-range only, no letterboxing
+- **Prompt:** `build_27b_fullwidth_prompt()` — the validated manual prompt with handwriting translation guide
 - **Runtime controls:** `TFL_FITCH_27B_TIMEOUT_SECONDS`, `TFL_FITCH_27B_MAX_TOKENS`, `TFL_FITCH_27B_NO_THINK`, `TFL_FITCH_27B_ENABLE_THINKING_FALSE`, and `TFL_FITCH_27B_SINGLE_USER_MESSAGE`.
-- **Current stance:** Keep routing experimental. The quality gain is real on Q4 crop_3, but full-regression latency and citation stability still need measurement with LM Studio thinking disabled.
+- **Validated:** Q4 subproofs (2 lines each) produce perfect OCR via 27b full-width routing (2026-04-26 regression).
 
 ### Thinking/metadata capture: ACTIVE
 - **What it does:** `LMStudioQwenClient.chat()` extracts `reasoning_content` into `self.last_thinking` and records call metadata (`elapsed_s`, thinking/content chars, finish reason, usage, token caps). The pipeline saves thinking text as `thinking_{node_id}.txt` alongside each `response_{node_id}.json`.
