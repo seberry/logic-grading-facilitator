@@ -10,13 +10,13 @@ Usage:
     python scripts/probe_27b_crop.py path/to/crop.jpg --expected-lines 3
 
 Full-width crop (shows original line numbers for absolute line reference):
-    python scripts/probe_27b_crop.py --full-width --source-image proofs_ocr/regression/fixtures/tfl/handwritten/q4_N_or_K_and_W/image.png --y-start 260 --y-end 420 --manual-prompt --no-think --max-tokens 512
+    python scripts/probe_27b_crop.py --full-width --source-image proofs_ocr/regression/fixtures/tfl/handwritten/q4_N_or_K_and_W/image.png --y-start 431 --y-end 681 --manual-prompt --no-think --max-tokens 512
 
 Chunk-awareness prompt (tells model it is seeing a cropped chunk):
     python scripts/probe_27b_crop.py --chunk-aware --manual-prompt --no-think --max-tokens 512
 
 Combined (full-width + chunk-aware):
-    python scripts/probe_27b_crop.py --full-width --source-image ... --y-start 260 --y-end 420 --chunk-aware --manual-prompt --no-think --max-tokens 512
+    python scripts/probe_27b_crop.py --full-width --source-image ... --y-start 431 --y-end 681 --chunk-aware --manual-prompt --no-think --max-tokens 512
 """
 
 from __future__ import annotations
@@ -218,11 +218,11 @@ def probe_crop(
 
     # --- Show expected answer ---
     print("=" * 72)
-    print("EXPECTED ANSWER (for crop_3 of Q4: K∧W subproof)")
+    print("EXPECTED ANSWER (for crop_3 of Q4: K∧W subproof, absolute lines 5-6)")
     print("=" * 72)
     expected = [
-        {"line": 1, "wffstr": "K∧W", "jstr": "Hyp"},
-        {"line": 2, "wffstr": "W", "jstr": "∧E 5"},
+        {"line": 5, "wffstr": "K∧W", "jstr": "Hyp"},
+        {"line": 6, "wffstr": "W", "jstr": "∧E 5"},
     ]
     print(json.dumps(expected, indent=2, ensure_ascii=False))
     print()
