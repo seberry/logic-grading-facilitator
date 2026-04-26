@@ -913,8 +913,8 @@ def _get_27b_extra_payload() -> Dict[str, object]:
 
 
 def _get_4b_fullwidth_max_lines() -> int:
-    """Return max leaf line count for default-model full-width crop trials."""
-    return max(0, _env_int("TFL_FITCH_4B_FULLWIDTH_MAX_LINES", 0) or 0)
+    """Return max nested leaf line count for default-model full-width crops."""
+    return max(0, _env_int("TFL_FITCH_4B_FULLWIDTH_MAX_LINES", 99) or 0)
 
 
 def build_ocr_prompt(
@@ -1296,8 +1296,9 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
             prompt_override = build_27b_fullwidth_prompt(expected_lines=expected_lines)
         else:
             four_b_fullwidth_max_lines = _get_4b_fullwidth_max_lines()
+            is_nested_leaf = is_leaf and node.parent is not None and node.parent.id != "ROOT"
             if (
-                is_leaf
+                is_nested_leaf
                 and four_b_fullwidth_max_lines > 0
                 and expected_lines is not None
                 and expected_lines <= four_b_fullwidth_max_lines

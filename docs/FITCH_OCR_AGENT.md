@@ -91,6 +91,7 @@ Each fixture directory contains: `image.png`, `expected_structure.json`, optiona
 | File | Purpose |
 |---|---|
 | `scripts/debug_fitch_ocr.py` | CLI wrapper for running the pipeline on a single scan image. |
+| `scripts/probe_tfl_row_reread.py` | Side experiment: split a saved full-width crop into generous row bands and reread each row's justification with the default VLM. |
 | `app/routes/fitch_debug.py` | Web UI route for viewing pipeline artifacts in browser. |
 
 ---
@@ -238,17 +239,39 @@ The main development loop is:
 
 ## Known Issues & Current Focus (as of 2026-04-26)
 
-### Current priority: Investigate Q6 4-line subproof citation errors
+### Current priority: Investigate Q6 row-association citation errors
 
-**Status (2026-04-26):** The 27b full-width routing is **wired and working** for ≤3-line leaf subproofs. Q4 subproofs are now perfect. The next problem is Q6, where 4-line subproofs stay on 4b and produce citation-number errors.
+**Status (2026-04-26):** The 27b full-width routing is **wired and working** for ≤3-line leaf subproofs. Nested leaf subproofs that stay on 4b now also use full-width horizontal slices by default. This preserves the line-number gutter and prevents the 4b model from treating each crop as if it starts on line 1.
 
 **Q6 failure analysis:**
 - **11/11 formulas correct** — the VLM reads every formula perfectly
-- **6/11 justifications correct** — 5 citation errors in subproof lines
-- Subproofs in Q6 have 4 lines each, so they **don't trigger** the ≤3 27b routing threshold
-- Errors: L4 `∧E 3`→`∧E 1`, L5 `→E 1,4`→`∧E 1`, L6 `∧I 4,5`→`∧I 2,3`, L8 `∧E 7`→`→E 2,8`, L10 `∧I 8,9`→`∧I 3,4`
+- Baseline tight/letterboxed 4b crops had **6/11 justifications correct** because the model often used crop-local citations (`∧I 2,3`) instead of absolute proof citations (`∧I 4,5`)
+- 4b full-width nested leaf crops improve Q6 to **9/11 justifications correct**
+- Remaining Q6 errors are row-association errors in the second 4-line subproof: L8 receives L9's `→E 2,8`, and L9 receives L10's `∧I 8,9`
 
-**Investigation prompt for next Cline session:** Look at the Q6 crop images and VLM responses to understand whether raising the threshold to 4-5 would help, or whether the 4b model is fundamentally misreading handwritten citation numbers in these 4-line subproofs. Key files: `working/tfl_gold_regressions/tfl_handwritten_q6_S_iff_W/crop_2.jpg`, `crop_3.jpg`, `response_2.json`, `response_3.json`.
+**Next experiment:** Use `scripts/probe_tfl_row_reread.py` on `crop_3_4b_fullwidth.jpg` to split the problematic full-width subproof crop into generous full-width row bands and reread one row at a time. This keeps scale/context while reducing cross-row citation drift.
+
+**Row reread probe result (2026-04-26):**
+- `detect_text_row_bands()` found only 3 bands for the 4-line Q6 node 3 crop, merging the top rows. The probe script therefore supports `--expected-lines 4` to create overlapping equal-height row windows.
+- On Q6 node 3, default 4b row windows fixed line 9's justification (`→E 2,8`) and recovered line 10's citation tail (`8,9`), but line 8 still misread `∧E 7` as an arrow-style rule and line 10 dropped the rule head.
+- Conclusion: row isolation helps row association, but single-row crops are not stable enough for automatic correction yet. Next variants should try row guide overlays on the whole subproof crop, or slightly taller two-row context windows.
+
+### 4b full-width nested leaf routing: WIRED (2026-04-26)
+
+**What it does:**
+1. For nested leaf subproofs not routed to 27b, the default 4b path now uses `crop_full_width()` instead of the tight/letterboxed crop.
+2. It preserves the line-number gutter while keeping the crop vertically restricted to the target subproof.
+3. It deliberately skips outer/flat proof leaves, because applying full-width to Q5's flat proof regressed the biconditional on line 1 from `↔` to `→`.
+4. `TFL_FITCH_4B_FULLWIDTH_MAX_LINES` controls the maximum detected line count for this path; default is `99`. Set it to `0` to disable.
+
+**Experiment results (2026-04-26):**
+
+| Mode | Aggregate formula | Aggregate justification | Notes |
+|------|-------------------|-------------------------|-------|
+| 27b ≤3 only | 29/31 | 24/31 | Q6 stayed on tight 4b crops and had local citation errors |
+| 4b full-width for Q6 4-line leaves | 11/11 Q6 | 9/11 Q6 | First Q6 subproof became perfect; second still had row association drift |
+| 4b full-width for all non-27b leaves | 29/31 | 28/31 | Q3 perfect and Q6 improved, but Q5 flat proof regressed one biconditional rule |
+| 4b full-width for nested non-27b leaves only | 29/31 | 29/31 | Default path: keeps Q3/Q6 gains and avoids the Q5 flat-proof justification regression |
 
 ### 27b full-width routing: WIRED AND VALIDATED (2026-04-26)
 
