@@ -237,29 +237,30 @@ The main development loop is:
 
 ## Known Issues & Current Focus (as of 2026-04-26)
 
-### Current priority: 27b line-number accuracy
+### Current priority: Wire full-width crops into 27b pipeline path
 
-The 27b model reads formulas correctly on small crops but outputs **crop-relative line numbers** (1, 2, …) instead of the **absolute proof line numbers** (5, 6, …). This causes all downstream justifications that reference line numbers to be wrong.
+**Experiment result (2026-04-26):** Full-width crops are the winning approach for 27b.
 
-**Two experiments in progress:**
+When 27b receives a **full-width crop** (full original image width, restricted to the node's Y range only, preserving the line-number gutter), it produces answers that are **correct after normalization** — and does so **slightly faster** than with the original prompt. The chunk-awareness prompt (`--chunk-aware`) turned out to be unnecessary; the visual evidence from the line-number gutter is sufficient.
 
-**(a) Full-width crop (show original line numbers):**
-- Generate a crop that uses the **full original image width** but restricts to the node's **Y-range only**.
-- This lets 27b see the handwritten line-number gutter on the left side, giving visual evidence that a line is "5" not "1".
-- The normal 4b path continues using tight crops (bar X → right edge) with line-number blotting on ROOT.
-- Probe flag: `--full-width` on `scripts/probe_27b_crop.py`.
+**Probe command that works (Q4 K∧W subproof, crop_3):**
 
-**(b) Chunk-awareness prompt:**
-- Add explicit text telling 27b it is seeing a cropped chunk, not the full proof:
-  ```
-  CRITICAL CONTEXT: You are seeing a cropped chunk of a larger proof.
-  The line numbers visible at the left of this image are the ABSOLUTE
-  line numbers from the full proof — they are NOT relative to this crop.
-  Copy the line numbers exactly as you see them written.
-  ```
-- Probe flag: `--chunk-aware` on `scripts/probe_27b_crop.py`.
+```bash
+python scripts/probe_27b_crop.py --full-width --y-start 431 --y-end 681 --manual-prompt --no-think --max-tokens 512
+```
 
-**If probe results are positive**, wire both into `process_node_recursive()` for 27b-routed leaf calls.
+**Next steps:**
+
+1. **Wire full-width crops into `process_node_recursive()`** for 27b-routed leaf calls. The pipeline already knows each node's Y-range from bar detection; instead of tight-cropping from bar X to right edge, generate a full-width crop for 27b nodes. Keep tight crops for 4b.
+
+2. **Add regularization to regression comparison.** Currently the regression runner compares raw VLM output against gold fixtures. Since 27b's raw output regularizes correctly (e.g., `K & W` → `K∧W`, blank jstr → `Hyp`), we should add a **post-normalization comparison pass** to the regression pipeline. This would show:
+   - Raw match score (current behavior)
+   - **Regularized match score** (after full normalization chain: symbol mapping, justification snaps, default justifications, renumbering)
+   - This lets us distinguish "VLM got it right but with different surface syntax" from "VLM actually misread the formula"
+
+3. **Run full regression with 27b full-width path** once wired in, to measure quality and latency across all fixtures (Q3, Q4, Q5, Q6).
+
+The chunk-awareness prompt (`--chunk-aware` flag) is preserved in `probe_27b_crop.py` for future use but is not needed for the current winning approach.
 
 ### Semantic citation repair: DEFERRED
 
