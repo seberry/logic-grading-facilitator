@@ -8,6 +8,15 @@ Usage:
     python scripts/probe_27b_crop.py
     python scripts/probe_27b_crop.py path/to/crop.jpg
     python scripts/probe_27b_crop.py path/to/crop.jpg --expected-lines 3
+
+Full-width crop (shows original line numbers for absolute line reference):
+    python scripts/probe_27b_crop.py --full-width --source-image proofs_ocr/regression/fixtures/tfl/handwritten/q4_N_or_K_and_W/image.png --y-start 260 --y-end 420 --manual-prompt --no-think --max-tokens 512
+
+Chunk-awareness prompt (tells model it is seeing a cropped chunk):
+    python scripts/probe_27b_crop.py --chunk-aware --manual-prompt --no-think --max-tokens 512
+
+Combined (full-width + chunk-aware):
+    python scripts/probe_27b_crop.py --full-width --source-image ... --y-start 260 --y-end 420 --chunk-aware --manual-prompt --no-think --max-tokens 512
 """
 
 from __future__ import annotations
@@ -28,6 +37,9 @@ if sys.stderr and hasattr(sys.stderr, "reconfigure"):
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+import cv2
+import numpy as np
+
 from app.vlm_client import LMStudioQwenClient
 from proofs_ocr.pipelines.tfl_fitch import build_ocr_prompt
 
@@ -46,6 +58,36 @@ MANUAL_PROMPT = (
     "Output format: JSON array of objects with keys 'line', 'wffstr', 'jstr'."
 )
 
+CHUNK_AWARE_SUFFIX = (
+    "\n\nCRITICAL CONTEXT: You are seeing a cropped chunk of a larger proof, NOT the entire proof. "
+    "The line numbers visible at the left of this image are the ABSOLUTE line numbers from the "
+    "full proof — they are NOT relative to this crop. If you see line numbers 5 and 6, use 5 and 6 "
+    "(not 1 and 2) in your output. Copy the line numbers exactly as you see them written. "
+    "Do NOT renumber lines starting from 1."
+)
+
+
+def build_fullwidth_crop(
+    source_image: Path, y_start: int, y_end: int, padding: int = 10
+) -> Path:
+    """Generate a full-width crop from *source_image* restricted to Y range.
+
+    Returns the path to the saved crop image (in working/).
+    """
+    img = cv2.imread(str(source_image))
+    if img is None:
+        raise FileNotFoundError(f"Could not read image: {source_image}")
+    h, w = img.shape[:2]
+    y1 = max(0, y_start - padding)
+    y2 = min(h, y_end + padding)
+    crop = img[y1:y2, :]  # full width, restricted Y range
+    out_dir = PROJECT_ROOT / "working" / "fullwidth_crops"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"fullwidth_y{y1}_{y2}.jpg"
+    cv2.imwrite(str(out_path), crop)
+    print(f"[full-width] Saved crop {w}x{y2 - y1}px from {source_image.name} → {out_path.name}")
+    return out_path
+
 
 def probe_crop(
     image_path: Path,
@@ -59,6 +101,7 @@ def probe_crop(
     max_tokens: int = 16384,
     single_user_message: bool = False,
     enable_thinking_false: bool = False,
+    chunk_aware: bool = False,
 ) -> None:
     """Send *image_path* to the 27b model and print everything."""
 
@@ -71,6 +114,10 @@ def probe_crop(
     else:
         prompt = build_ocr_prompt(has_children=False, expected_lines=expected_lines)
         prompt_label = "PIPELINE PROMPT (build_ocr_prompt)"
+
+    if chunk_aware:
+        prompt += CHUNK_AWARE_SUFFIX
+        prompt_label += " + CHUNK_AWARE"
 
     if no_think:
         prompt += " /no_think"
@@ -302,12 +349,70 @@ def main():
         action="store_true",
         help="Send chat_template_kwargs.enable_thinking=false in the OpenAI-compatible payload",
     )
+    parser.add_argument(
+        "--chunk-aware",
+        action="store_true",
+        help="Append chunk-awareness text to prompt: tells the model it is seeing "
+             "a cropped chunk and should use absolute (not relative) line numbers",
+    )
+    parser.add_argument(
+        "--full-width",
+        action="store_true",
+        help="Generate a full-width crop from --source-image using --y-start/--y-end "
+             "instead of using a pre-existing crop image. The full-width crop includes "
+             "the line-number gutter so the VLM can see absolute line numbers.",
+    )
+    parser.add_argument(
+        "--source-image",
+        type=str,
+        default=None,
+        help="Original proof image to crop from (used with --full-width). "
+             "E.g. proofs_ocr/regression/fixtures/tfl/handwritten/q4_N_or_K_and_W/image.png",
+    )
+    parser.add_argument(
+        "--y-start",
+        type=int,
+        default=0,
+        help="Top Y coordinate for full-width crop (used with --full-width)",
+    )
+    parser.add_argument(
+        "--y-end",
+        type=int,
+        default=0,
+        help="Bottom Y coordinate for full-width crop (used with --full-width)",
+    )
     args = parser.parse_args()
 
-    image_path = Path(args.image)
-    if not image_path.exists():
-        print(f"[ERROR] Image not found: {image_path}")
-        sys.exit(1)
+    # --- Handle full-width crop generation ---
+    if args.full_width:
+        source_image = args.source_image
+        if not source_image:
+            # Default to Q4 fixture
+            source_image = str(
+                PROJECT_ROOT
+                / "proofs_ocr"
+                / "regression"
+                / "fixtures"
+                / "tfl"
+                / "handwritten"
+                / "q4_N_or_K_and_W"
+                / "image.png"
+            )
+            print(f"[full-width] No --source-image given, defaulting to Q4 fixture")
+        source_path = Path(source_image)
+        if not source_path.exists():
+            print(f"[ERROR] Source image not found: {source_path}")
+            sys.exit(1)
+        if args.y_end <= args.y_start:
+            print("[ERROR] --y-end must be greater than --y-start for --full-width mode")
+            sys.exit(1)
+        image_path = build_fullwidth_crop(source_path, args.y_start, args.y_end)
+    else:
+        image_path = Path(args.image)
+        if not image_path.exists():
+            print(f"[ERROR] Image not found: {image_path}")
+            print("  Hint: run a gold regression first to generate crops, or use --full-width")
+            sys.exit(1)
 
     probe_crop(
         image_path,
@@ -320,6 +425,7 @@ def main():
         max_tokens=args.max_tokens,
         single_user_message=args.single_user_message,
         enable_thinking_false=args.enable_thinking_false,
+        chunk_aware=args.chunk_aware,
     )
 
 

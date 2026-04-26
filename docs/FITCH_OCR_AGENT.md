@@ -235,33 +235,141 @@ The main development loop is:
 
 ---
 
-## Known Issues & Current Focus (as of 2026-04-25, run 10:56)
+## Known Issues & Current Focus (as of 2026-04-26)
 
-### Current gold regression scoreboard
+### Current priority: 27b line-number accuracy
 
-| Case | Status | Lines | Formula | Justification | Key issue |
-|------|--------|-------|---------|---------------|-----------|
-| Q3 | ✅ PASS | 8/8 | 8/8 | 6/8 | 2 citation number errors (pre-existing) |
-| Q4 | ❌ FAIL | 7/7 | 4/7 | 5/7 | VLM symbol misreads on small crops (4b model) |
-| Q5 | ❌ FAIL | 5/5 | 4/5 | 5/5 | `↔` misread as `→` on line 1 |
-| Q6 | ❌ FAIL | 11/11 | **11/11** ✅ | 6/11 | All formulas perfect; justification citation errors |
+The 27b model reads formulas correctly on small crops but outputs **crop-relative line numbers** (1, 2, …) instead of the **absolute proof line numbers** (5, 6, …). This causes all downstream justifications that reference line numbers to be wrong.
 
-**Line count accuracy: 26/26 across all cases (0 extra, 0 missing).**
+**Two experiments in progress:**
+
+**(a) Full-width crop (show original line numbers):**
+- Generate a crop that uses the **full original image width** but restricts to the node's **Y-range only**.
+- This lets 27b see the handwritten line-number gutter on the left side, giving visual evidence that a line is "5" not "1".
+- The normal 4b path continues using tight crops (bar X → right edge) with line-number blotting on ROOT.
+- Probe flag: `--full-width` on `scripts/probe_27b_crop.py`.
+
+**(b) Chunk-awareness prompt:**
+- Add explicit text telling 27b it is seeing a cropped chunk, not the full proof:
+  ```
+  CRITICAL CONTEXT: You are seeing a cropped chunk of a larger proof.
+  The line numbers visible at the left of this image are the ABSOLUTE
+  line numbers from the full proof — they are NOT relative to this crop.
+  Copy the line numbers exactly as you see them written.
+  ```
+- Probe flag: `--chunk-aware` on `scripts/probe_27b_crop.py`.
+
+**If probe results are positive**, wire both into `process_node_recursive()` for 27b-routed leaf calls.
+
+### Semantic citation repair: DEFERRED
+
+Post-OCR justification validation (checking whether `∧E 3` is consistent with line 3's formula, and repairing citations that reference wrong lines) is a powerful technique but **deferred** because this is a grading system — it is critical to read and recognize wrong student answers as wrong, not silently repair them. A future use could be **flagging** suspect citations for re-examination with a different model, but auto-repair is off the table for now.
+
+### 27b local model status: usable, not fully integrated
+
+**Current state:** The 27b model (`qwen/qwen3.6-27b`) now works through the LM Studio OpenAI-compatible API and gives high-quality answers on the hard Q4 crop_3 case. The apparent "API timeout" blocker was a mix of two issues:
+
+1. LM Studio thinking was enabled, causing very long `reasoning_content` generations.
+2. During one retest, the LM Studio server had been stopped while unloading/reloading the model, so the client got `WinError 10061` connection-refused errors. That was not a model failure.
+
+**Server sanity check:** Before interpreting any probe failure, verify the LM Studio server is actually listening:
+
+```powershell
+Test-NetConnection 127.0.0.1 -Port 1234
+```
+
+`TcpTestSucceeded : True` means the API server is reachable. If LM Studio is using a different port, set `LMSTUDIO_BASE_URL`, e.g. `http://127.0.0.1:PORT/v1`.
+
+**Best current 27b setup:**
+- In LM Studio GUI/model settings: turn off thinking, then unload/reload the model if needed.
+- Keep the local server running after reload.
+- Use the GUI-like single-user message shape for direct crop probes.
+- Keep `max_tokens` low enough to prevent long generations (`512` is enough for the successful Q4 crop_3 response).
+
+**Probe command for Q4 crop_3:**
+
+```bash
+python -u scripts/probe_27b_crop.py --manual-prompt --no-think --enable-thinking-false --max-tokens 512 --timeout 900
+```
+
+**Prompt that works well manually and through API:**
+
+```
+Role: You are a logic quiz transcriber performing OCR on subproof chunks cropped out from the middle of handwritten Fitch-style natural deduction proofs.
+Context: You will be given cropped images of specific subproofs (beginning with an assumption with no justification above a horizontal line, and deriving various consequences from that line and earlier lines). So don't worry that those are missing, and remember that the top line in the crop you are seeing might not be line 1 in the proof.
+Task: Extract the logical formulas and their justifications.
+Handwriting Translation Guide (CRITICAL):
+Students have sloppy handwriting. Use the following known distortions to correct your visual reading:
+A sloppy K frequently looks like 1 < or a vertical line next to a <.
+A sloppy ampersand & (conjunction) frequently looks like an 8.
+```
+
+**Successful answer shape:** The 27b crop_3 response regularizes to the correct proof lines:
+
+```json
+[{"line": 5, "wffstr": "K & W", "jstr": ""}, {"line": 6, "wffstr": "W", "jstr": "& E 5"}]
+```
+
+After normalization (`&` -> `∧`, blank assumption justification -> `Hyp`), this is the desired `K∧W`/Hyp and `W`/`∧E 5`.
+
+**Diagnostic probe script:** `scripts/probe_27b_crop.py` has flags for testing the important call-shape and generation controls:
+
+```bash
+python -u scripts/probe_27b_crop.py --manual-prompt
+python -u scripts/probe_27b_crop.py --manual-prompt --no-think
+python -u scripts/probe_27b_crop.py --manual-prompt --max-tokens 512
+python -u scripts/probe_27b_crop.py --manual-prompt --enable-thinking-false
+python -u scripts/probe_27b_crop.py --single-user-message
+python -u scripts/probe_27b_crop.py --no-max-tokens
+```
+
+**27b pipeline controls:** The pipeline can now test 27b call behavior via environment variables:
+
+```powershell
+$env:TFL_FITCH_27B_SINGLE_USER_MESSAGE='1'
+$env:TFL_FITCH_27B_NO_THINK='1'
+$env:TFL_FITCH_27B_ENABLE_THINKING_FALSE='1'
+$env:TFL_FITCH_27B_MAX_TOKENS='512'
+$env:TFL_FITCH_27B_TIMEOUT_SECONDS='900'
+```
+
+Then run a focused regression:
+
+```bash
+python -m proofs_ocr.regression.tfl_runner run-gold --case tfl_handwritten_q4_N_or_K_and_W --output-root working/tfl_27b_probe
+```
+
+**Remaining 27b issue:** The model can read the hard crop, but line numbering is still brittle. On tight crops it may infer absolute line numbers from local justification text, or it may assume crop-relative numbering depending on prompt and visible context. Downstream renumbering usually makes the raw `line` fields less important, but citation justifications (`∧E 5`, `↔E 2,3`, etc.) depend on absolute proof line numbers. This is the next integration problem.
+
+**Recommended next direction:**
+1. Keep 27b as a targeted fallback for hard tiny crops, not as the default for every leaf, until latency is measured after thinking is disabled.
+2. Add an experiment that gives 27b a slightly wider crop including the line-number gutter, but only for 27b fallback calls. Do not undo ROOT line-number blotting for the normal 4b path.
+3. If wider crops cause leakage/hallucination, add prompt metadata instead: "This crop begins at absolute proof line N; output line numbers N..N+k-1." The tree/row detector may be able to provide `N` after global row counting.
+4. Keep `max_tokens=512` for these tiny crops unless a probe proves it truncates useful output.
+5. Record elapsed time, thinking chars, content chars, and `usage.completion_tokens_details.reasoning_tokens` from each probe. A successful no-thinking setup should show zero or near-zero reasoning tokens.
+
+**Relevant files:**
+- `scripts/probe_27b_crop.py` — direct crop diagnostic probe.
+- `app/vlm_client.py` — `LMStudioQwenClient.chat()` sends the API call and records metadata.
+- `proofs_ocr/pipelines/tfl_fitch.py` — 27b routing and prompt construction.
+- `working/thinking_captures/` — saved probe records and reasoning captures.
 
 ### Q4 small subproof problem
 - **Case:** `tfl_handwritten_q4_N_or_K_and_W`
 - **Expected:** 7 lines. `N∨(K∧W)` Pr, `N↔W` Pr, subproof [`N` Hyp, `W` ↔E 2,3], subproof [`K∧W` Hyp, `W` ∧E 5], `W` ∨E 1,3-4 5-6
-- **Current best result:** 9 lines (was 14 before letterboxing)
+- **Current best direction:** 4b + line-count guard gives correct total line count but still misreads key symbols. 27b can correctly read the hard second subproof crop (`K∧W`, `W / ∧E 5`) when thinking is disabled in LM Studio.
 - **Remaining issues:**
-  - `N↔W` misread as `N↔N` (letter confusion — VLM reads W as N)
-  - Crop 3 (second subproof): VLM misreads the layout entirely
-- **Crop 3 diagnosis — layout confusion, not just illegibility:**
+  - `N↔W` can still be misread as `N↔N` (letter confusion — VLM reads W as N).
+  - Final/root line and cross-subproof citations depend on absolute line references, which tight subproof crops do not show.
+  - 27b may infer line numbers from local justification text, but this is not a stable contract.
+- **4b crop_3 diagnosis — layout confusion, not just illegibility:**
   - Expected: 2 lines — `K∧W / Hyp` and `W / ∧E 5`
   - VLM returns 3 lines: `"x < 8w"/""`, `"x"/"1"`, `"8 ∈ S"/""`
   - The VLM reads `K∧W` as garbled `"x < 8w"` (illegible), hallucinates a middle line `"x"/"1"`, and then **treats the justification column `∧E 5` as a third formula line**, reading it as `"8 ∈ S"`
   - Our post-processing chain (`8→∧`, `∈→E`) WOULD normalize `8 ∈ S` → `∧ E S`, but since the VLM put it in the wffstr field instead of jstr, it stays as a formula rather than being recognized as a justification
   - **Root cause:** The 4b model can't distinguish the formula region from the justification region in this crop. It reads left-to-right across both columns as if they were one continuous text block, inflating 2 lines into 3
-- **Potentially addressable:** A wider left-margin crop that separates formula from justification columns more clearly, or pre-extraction normalization that recognizes `8 ∈ S` as a misplaced justification even when it appears in wffstr
+- **27b crop_3 diagnosis:** 27b resolves the handwriting correctly. The remaining question is how to give it enough global context for stable citations and line numbers without reintroducing the leakage/hallucination that context crops caused for 4b.
+- **Potentially addressable:** For 27b fallback only, test crops that retain the line-number gutter or pass explicit crop-start metadata into the prompt. For 4b, keep the tight/letterboxed crop strategy.
 
 ### Q5 biconditional misread
 - **Case:** `tfl_handwritten_q5_P_or_K_biconditional`
@@ -296,22 +404,45 @@ The main development loop is:
 - **Whitespace normalization** in `canonicalize_formula_for_comparison()` already strips all spaces via `_WHITESPACE_RE.sub("", normalized)` — confirmed working.
 
 ### 27b model routing: ACTIVE
-- **What it does:** Leaf crops with ≤4 expected lines are routed to Qwen 3.6 27B (`qwen/qwen3.6-27b`) via `LMSTUDIO_MODEL_27B` env var, with a 600s timeout. Larger crops still use the default 4b model.
+- **What it does:** Leaf crops with ≤4 expected lines are routed to Qwen 3.6 27B (`qwen/qwen3.6-27b`) via `LMSTUDIO_MODEL_27B` env var. Larger crops still use the default 4b model.
 - **Config:** `SMALL_LEAF_MODEL_ROUTING_THRESHOLD = 4` in `tfl_fitch.py`
-- **First Q4 27b result (600s timeout):** 3/7 lines matched, 1/7 both correct. The model produced correct line count (7) but struggled with nested subproof structure. It appears to have timed out on complex reasoning — thinking text capture was not yet available.
+- **Runtime controls:** `TFL_FITCH_27B_TIMEOUT_SECONDS`, `TFL_FITCH_27B_MAX_TOKENS`, `TFL_FITCH_27B_NO_THINK`, `TFL_FITCH_27B_ENABLE_THINKING_FALSE`, and `TFL_FITCH_27B_SINGLE_USER_MESSAGE`.
+- **Current stance:** Keep routing experimental. The quality gain is real on Q4 crop_3, but full-regression latency and citation stability still need measurement with LM Studio thinking disabled.
 
-### Thinking text capture: ACTIVE (commit 235aef0)
-- **What it does:** `LMStudioQwenClient.chat()` now extracts `reasoning_content` from the LM Studio response and stores it on `self.last_thinking`. The pipeline saves this as `thinking_{node_id}.txt` alongside each `response_{node_id}.json`.
-- **Why it matters:** The 27b model does extended thinking that can loop forever on confusing prompts. Capturing the thinking text lets us diagnose when/why the model gets stuck.
-- **Files affected:** `app/vlm_client.py` (extraction), `proofs_ocr/pipelines/tfl_fitch.py` (saving)
+### Thinking/metadata capture: ACTIVE
+- **What it does:** `LMStudioQwenClient.chat()` extracts `reasoning_content` into `self.last_thinking` and records call metadata (`elapsed_s`, thinking/content chars, finish reason, usage, token caps). The pipeline saves thinking text as `thinking_{node_id}.txt` alongside each `response_{node_id}.json`.
+- **Why it matters:** It separates transport failures, prompt-shape failures, and real model latency. For 27b no-thinking verification, check both `thinking_chars` and LM Studio usage details such as `reasoning_tokens`.
+- **Files affected:** `app/vlm_client.py` (extraction + metadata), `proofs_ocr/pipelines/tfl_fitch.py` (saving + logging), `scripts/probe_27b_crop.py` (probe records).
 
 ### Other active notes
 - **Scaffold removal disabled** (2026-04-24): `filter_scaffold_bars()` scaffold-removal logic deliberately disabled because handwritten Fitch proofs have a real outer subproof bar that spans most of the image height. Only edge-artifact cleanup remains active.
 - **Line-number blotting** on ROOT node: The pipeline whites out everything to the left of the leftmost bar, preventing the VLM from reading line numbers as formula content.
+- **Outer pytest timeout:** `tests/test_tfl_fitch_ocr_regression.py` still uses a 180s subprocess timeout for live cases. That is fine for 4b canary runs but can misclassify 27b experiments as timeouts. Prefer `python -m proofs_ocr.regression.tfl_runner run-gold ...` for 27b probes unless the test timeout is deliberately raised.
+- **Do not overfit line numbers from crop OCR:** The pipeline renumbers final structures depth-first after stitching. Raw OCR `line` fields are secondary; citation strings inside `jstr` are the harder problem because they must refer to absolute proof lines.
 
 ---
 
 ## Experiment History
+
+### 2026-04-26: 27b API timeout resolved; remaining issue is context/line numbers
+
+**Problem:** 27b appeared to time out on API calls even though LM Studio GUI responses worked. A later probe also failed with `WinError 10061`.
+
+**Resolution:**
+1. The connection-refused error was not a model issue: the LM Studio server had been stopped while unloading/reloading the model.
+2. Long API calls were caused by model thinking. Turning off thinking in LM Studio's GUI/model settings is the important control; prompt-level `/no_think` and `chat_template_kwargs.enable_thinking=false` alone were not sufficient in earlier tests.
+3. With the server running and thinking disabled, 27b returns Q4 crop_3 answers that regularize to the correct formulas/justification.
+
+**Code added for investigation (commit `933c6cb`):**
+- `LMStudioQwenClient.chat()` records call metadata and accepts `max_tokens` plus extra payload knobs.
+- `scripts/probe_27b_crop.py` supports manual prompt, single-user message mode, low max-token probes, and `enable_thinking=false` payload probes.
+- `tfl_fitch.py` exposes 27b runtime controls through `TFL_FITCH_27B_*` environment variables.
+
+**Current recommendation:** Use 27b as a targeted tiny-crop fallback while testing two integration strategies:
+1. A 27b-only crop variant that includes the line-number gutter.
+2. A prompt variant that provides absolute crop-start line metadata without widening the image.
+
+The first strategy gives the model visual evidence for citations; the second avoids visual leakage. Test both on Q4 crop_2/crop_3 before changing full-pipeline defaults.
 
 ### 2026-04-25 (10:56): Robust line counting via modal pipeline's row detector
 
