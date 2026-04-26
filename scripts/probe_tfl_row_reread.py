@@ -52,6 +52,25 @@ corrections.  Preserve rule symbols and citation numbers as written.
 Example output shape: ["∧E 7", "→E 2,8", "∧I 8,9"]"""
 
 
+SEPARATED_LISTS_PROMPT = """You are transcribing a cropped handwritten Fitch
+subproof.  Return exactly one JSON object with keys "formulas" and
+"justifications".
+
+Rules:
+- "formulas" is a top-to-bottom array of every formula visible in the subproof.
+- The first/top formula is the child subproof assumption or premise.
+- The first/top formula has no printed justification.  Do not include a
+  justification for it.
+- "justifications" is a top-to-bottom array of the printed right-side
+  justifications for only the derived lines after the first formula.
+- Preserve citation numbers exactly as written.  They are absolute proof line
+  numbers, not local crop numbers.
+- Do not infer corrections or validate the proof.
+
+Example output shape:
+{"formulas": ["W∧A", "W", "S", "S∧A"], "justifications": ["∧E 7", "→E 2,8", "∧I 8,9"]}"""
+
+
 def _json_from_text(text: str) -> Any:
     content = text.strip()
     if "```json" in content:
@@ -161,6 +180,53 @@ def reread_ordered_justifications(crop_path: Path, *, model: str | None, timeout
     return record
 
 
+def _stitch_separated_lists(parsed: Any) -> list[dict[str, str]] | None:
+    if not isinstance(parsed, dict):
+        return None
+    formulas = parsed.get("formulas")
+    justifications = parsed.get("justifications")
+    if not isinstance(formulas, list) or not isinstance(justifications, list):
+        return None
+    if len(formulas) != len(justifications) + 1:
+        return None
+
+    stitched: list[dict[str, str]] = []
+    for index, formula in enumerate(formulas):
+        jstr = "" if index == 0 else str(justifications[index - 1] or "")
+        stitched.append({"wffstr": str(formula or ""), "jstr": jstr})
+    return stitched
+
+
+def reread_separated_lists(crop_path: Path, *, model: str | None, timeout: int) -> dict[str, Any]:
+    client = LMStudioQwenClient(model=model, timeout=timeout)
+    print(f"[separated] Sending {crop_path.name}...")
+    messages = client.build_messages_for_prompt(crop_path, SEPARATED_LISTS_PROMPT)
+    started = time.time()
+    raw = client.chat(messages, model=model, timeout=timeout, max_tokens=256)
+    elapsed = time.time() - started
+    try:
+        parsed = _json_from_text(raw)
+    except Exception as exc:  # noqa: BLE001 - probe should record parse failures.
+        parsed = {"parse_error": str(exc), "raw": raw}
+
+    stitched = _stitch_separated_lists(parsed)
+    record = {
+        "crop": str(crop_path),
+        "elapsed_s": round(elapsed, 3),
+        "parsed": parsed,
+        "stitched": stitched,
+        "counts_match": stitched is not None,
+        "raw": raw,
+        "metadata": getattr(client, "last_response_metadata", {}) or {},
+    }
+    print(json.dumps(parsed, ensure_ascii=False))
+    if stitched is not None:
+        print("stitched:", json.dumps(stitched, ensure_ascii=False))
+    else:
+        print("stitched: <count mismatch or invalid shape>")
+    return record
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("crop", type=Path, help="Saved full-width crop image to split into rows.")
@@ -175,6 +241,11 @@ def main() -> None:
         action="store_true",
         help="Ask for the derived-line justifications as one ordered list from the whole crop.",
     )
+    parser.add_argument(
+        "--separated-lists",
+        action="store_true",
+        help="Ask for formulas and derived-line justifications as separate lists.",
+    )
     args = parser.parse_args()
 
     crop_path = args.crop.resolve()
@@ -186,6 +257,15 @@ def main() -> None:
             print("--ordered-justifications requires a model call; ignoring --no-call.")
         record = reread_ordered_justifications(crop_path, model=args.model, timeout=args.timeout)
         report_path = output_dir / f"{_safe_stem(crop_path.stem)}_ordered_justifications.json"
+        report_path.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"Wrote {report_path}")
+        return
+
+    if args.separated_lists:
+        if args.no_call:
+            print("--separated-lists requires a model call; ignoring --no-call.")
+        record = reread_separated_lists(crop_path, model=args.model, timeout=args.timeout)
+        report_path = output_dir / f"{_safe_stem(crop_path.stem)}_separated_lists.json"
         report_path.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
         print(f"Wrote {report_path}")
         return
