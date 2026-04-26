@@ -60,3 +60,4 @@ pytest-cache-files-*/
 
 # Allow .gitkeep so working/ dir is preserved in repo
 !working/.gitkeep
+!working/README.md

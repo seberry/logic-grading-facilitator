@@ -6,6 +6,7 @@ the repo before changing OCR or regression code.
 ## Fast entry points
 
 - Read [`proofs_ocr/regression/manifest.yaml`](../proofs_ocr/regression/manifest.yaml) for fixture ids, domains, and paths.
+- Read [`docs/FITCH_OCR_AGENT.md`](FITCH_OCR_AGENT.md) before changing handwritten TFL/Fitch OCR behavior.
 - Use [`proofs_ocr/regression/runner.py`](../proofs_ocr/regression/runner.py) for modal gold-regression helpers.
 - Use [`proofs_ocr/regression/tfl_runner.py`](../proofs_ocr/regression/tfl_runner.py) for handwritten TFL/Fitch gold-regression helpers.
 - Use [`proofs_ocr/pipelines/tfl_fitch.py`](../proofs_ocr/pipelines/tfl_fitch.py) for the importable Fitch OCR pipeline.

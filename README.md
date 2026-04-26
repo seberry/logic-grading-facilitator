@@ -20,7 +20,9 @@ if a human manually fetches or pastes a file, the agent should say so before
 doing a slow workaround. Prefer asking for the file directly when that is
 likely to save substantial time or tokens.
 
-For OCR/regression work, agents should also read [docs/AI_WORKFLOW.md](docs/AI_WORKFLOW.md)
+For coding-agent work, start with [AGENTS.md](AGENTS.md). For OCR/regression
+work, agents should also read [docs/AI_WORKFLOW.md](docs/AI_WORKFLOW.md) and
+the active TFL/Fitch guide [docs/FITCH_OCR_AGENT.md](docs/FITCH_OCR_AGENT.md)
 before making structural changes.
 
 A lightweight local tool for grading scanned student submissions with minimal friction, clean data structures, and a clear path toward future automation (OCR, clustering, autograding). Designed to eliminate the mechanical overhead of: matching scans to names, managing multi-page submissions, entering per-problem scores, and exporting grades back to Canvas.
