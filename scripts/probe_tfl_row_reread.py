@@ -39,6 +39,19 @@ right-side rule and line references in "jstr".  If no justification is printed,
 use an empty string.  Do not infer or repair the student's proof."""
 
 
+ORDERED_JUSTIFICATIONS_PROMPT = """You are reading the RIGHT-SIDE justifications
+in a cropped handwritten Fitch subproof.
+
+Important: the first/top proof line in this child subproof is an assumption or
+premise and has NO printed justification.  Ignore that top assumption line.
+
+Return only a JSON array of strings: the printed justifications for the remaining
+derived lines, in top-to-bottom order.  Do not include formulas.  Do not infer
+corrections.  Preserve rule symbols and citation numbers as written.
+
+Example output shape: ["∧E 7", "→E 2,8", "∧I 8,9"]"""
+
+
 def _json_from_text(text: str) -> Any:
     content = text.strip()
     if "```json" in content:
@@ -125,6 +138,29 @@ def reread_rows(row_paths: list[Path], *, model: str | None, timeout: int) -> li
     return records
 
 
+def reread_ordered_justifications(crop_path: Path, *, model: str | None, timeout: int) -> dict[str, Any]:
+    client = LMStudioQwenClient(model=model, timeout=timeout)
+    print(f"[ordered] Sending {crop_path.name}...")
+    messages = client.build_messages_for_prompt(crop_path, ORDERED_JUSTIFICATIONS_PROMPT)
+    started = time.time()
+    raw = client.chat(messages, model=model, timeout=timeout, max_tokens=128)
+    elapsed = time.time() - started
+    try:
+        parsed = _json_from_text(raw)
+    except Exception as exc:  # noqa: BLE001 - probe should record parse failures.
+        parsed = {"parse_error": str(exc), "raw": raw}
+
+    record = {
+        "crop": str(crop_path),
+        "elapsed_s": round(elapsed, 3),
+        "parsed": parsed,
+        "raw": raw,
+        "metadata": getattr(client, "last_response_metadata", {}) or {},
+    }
+    print(json.dumps(parsed, ensure_ascii=False))
+    return record
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("crop", type=Path, help="Saved full-width crop image to split into rows.")
@@ -134,10 +170,26 @@ def main() -> None:
     parser.add_argument("--model", default=None, help="LM Studio model override. Defaults to the configured 4b model.")
     parser.add_argument("--timeout", type=int, default=120)
     parser.add_argument("--no-call", action="store_true", help="Only write row crops; do not call the model.")
+    parser.add_argument(
+        "--ordered-justifications",
+        action="store_true",
+        help="Ask for the derived-line justifications as one ordered list from the whole crop.",
+    )
     args = parser.parse_args()
 
     crop_path = args.crop.resolve()
     output_dir = args.output_dir.resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if args.ordered_justifications:
+        if args.no_call:
+            print("--ordered-justifications requires a model call; ignoring --no-call.")
+        record = reread_ordered_justifications(crop_path, model=args.model, timeout=args.timeout)
+        report_path = output_dir / f"{_safe_stem(crop_path.stem)}_ordered_justifications.json"
+        report_path.write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"Wrote {report_path}")
+        return
+
     row_paths = extract_row_crops(
         crop_path,
         output_dir,

@@ -254,7 +254,8 @@ The main development loop is:
 **Row reread probe result (2026-04-26):**
 - `detect_text_row_bands()` found only 3 bands for the 4-line Q6 node 3 crop, merging the top rows. The probe script therefore supports `--expected-lines 4` to create overlapping equal-height row windows.
 - On Q6 node 3, default 4b row windows fixed line 9's justification (`→E 2,8`) and recovered line 10's citation tail (`8,9`), but line 8 still misread `∧E 7` as an arrow-style rule and line 10 dropped the rule head.
-- Conclusion: row isolation helps row association, but single-row crops are not stable enough for automatic correction yet. Next variants should try row guide overlays on the whole subproof crop, or slightly taller two-row context windows.
+- Asking 4b to read only the derived-line justifications as an ordered list from the whole full-width crop worked on Q6 node 3: `["∧E 7", "→E 2,8", "∧I 8,9"]` in ~2s. The prompt explicitly told the model that the first/top line is an assumption with no printed justification.
+- Conclusion: row isolation helps row association, but single-row crops are not stable enough for automatic correction yet. The stronger path is likely "justification-list reread": when the crop has the expected number of lines, read justifications as an ordered list and assign them to derived rows after the blank opening assumption.
 
 ### 4b full-width nested leaf routing: WIRED (2026-04-26)
 
