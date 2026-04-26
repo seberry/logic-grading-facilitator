@@ -861,6 +861,38 @@ def _model_27b_available() -> bool:
     return bool(_get_model_27b().strip())
 
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(name: str, default: int | None = None) -> int | None:
+    raw = (os.getenv(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _get_27b_timeout_seconds() -> int:
+    return max(1, _env_int("TFL_FITCH_27B_TIMEOUT_SECONDS", 600) or 600)
+
+
+def _get_27b_max_tokens() -> int | None:
+    return _env_int("TFL_FITCH_27B_MAX_TOKENS")
+
+
+def _get_27b_extra_payload() -> Dict[str, object]:
+    extra_payload: Dict[str, object] = {}
+    if _env_flag("TFL_FITCH_27B_ENABLE_THINKING_FALSE"):
+        extra_payload["chat_template_kwargs"] = {"enable_thinking": False}
+    return extra_payload
+
+
 def build_ocr_prompt(
     *,
     has_children: bool = True,
@@ -971,6 +1003,9 @@ def call_vlm(
         highlighted_box=highlighted_box,
         expected_lines=expected_lines,
     )
+    is_27b_route = bool(model_override)
+    if is_27b_route and _env_flag("TFL_FITCH_27B_NO_THINK"):
+        prompt = f"{prompt} /no_think"
 
     model_tag = f" (model={model_override})" if model_override else ""
     print(f"   [VLM] Sending {os.path.basename(image_path)}{model_tag}...")
@@ -980,36 +1015,55 @@ def call_vlm(
         return [{"line": "?", "wffstr": "VLM_NOT_CONFIGURED", "jstr": "Error"}], ""
 
     try:
-        import base64
+        image_path_obj = Path(image_path)
+        if is_27b_route and _env_flag("TFL_FITCH_27B_SINGLE_USER_MESSAGE"):
+            messages = client.build_single_user_image_message(image_path_obj, prompt)
+        elif hasattr(client, "build_messages_for_prompt"):
+            messages = client.build_messages_for_prompt(image_path_obj, "Provide the transcription as instructed.", system_prompt=prompt)
+        else:
+            import base64
 
-        with open(image_path, "rb") as f:
-            base64_image = base64.b64encode(f.read()).decode("utf-8")
+            with open(image_path, "rb") as f:
+                base64_image = base64.b64encode(f.read()).decode("utf-8")
 
-        # LMStudioQwenClient exposes a simple chat(...) wrapper around the
-        # OpenAI-style /chat/completions endpoint, so we mirror its expected payload.
-        messages = [
-            {"role": "system", "content": prompt},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "Provide the transcription as instructed."},
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
-                    },
-                ],
-            },
-        ]
+            messages = [
+                {"role": "system", "content": prompt},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Provide the transcription as instructed."},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
+                        },
+                    ],
+                },
+            ]
 
         # Use extended timeout for larger model requests
         extra_kwargs = {}
-        if model_override:
-            extra_kwargs["timeout"] = 600  # 10 min for 27b model
+        if is_27b_route:
+            extra_kwargs["timeout"] = _get_27b_timeout_seconds()
+            max_tokens = _get_27b_max_tokens()
+            if max_tokens is not None:
+                extra_kwargs["max_tokens"] = max_tokens
+            extra_payload = _get_27b_extra_payload()
+            if extra_payload:
+                extra_kwargs["extra_payload"] = extra_payload
         content = client.chat(messages, model=model_override, **extra_kwargs)
 
         # Extract thinking/reasoning text from the VLM client (populated by
         # LMStudioQwenClient.chat() from the reasoning_content field).
         thinking = getattr(client, "last_thinking", "") or ""
+        metadata = getattr(client, "last_response_metadata", {}) or {}
+        if metadata:
+            print(
+                "   [VLM] Metadata: "
+                f"elapsed={metadata.get('elapsed_s')}s "
+                f"thinking={metadata.get('thinking_chars')} "
+                f"content={metadata.get('content_chars')} "
+                f"finish={metadata.get('finish_reason')}"
+            )
 
         # Extract JSON from markdown blocks if present
         if "```json" in content:

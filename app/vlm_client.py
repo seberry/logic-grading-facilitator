@@ -4,6 +4,7 @@ import base64
 import io
 import requests
 import os
+import time
 from pathlib import Path
 from typing import Any, Dict, List
 from PIL import Image
@@ -115,6 +116,7 @@ class LMStudioQwenClient:
         self.max_image_dim = 1500
         self.max_data_uri_len = 2_500_000
         self.last_thinking: str = ""
+        self.last_response_metadata: Dict[str, Any] = {}
 
     def _encode_image_to_data_uri(self, image_path: Path, max_dim: int | None = None) -> str:
         """
@@ -204,14 +206,31 @@ class LMStudioQwenClient:
             },
         ]
 
-    def chat(self, messages: List[Dict[str, Any]], *, model: str | None = None, timeout: int | None = None) -> str:
+    def chat(
+        self,
+        messages: List[Dict[str, Any]],
+        *,
+        model: str | None = None,
+        timeout: int | None = None,
+        max_tokens: int | None = None,
+        extra_payload: Dict[str, Any] | None = None,
+    ) -> str:
         url = f"{self.base_url}/chat/completions"
         payload = {
             "model": model or self.model,
             "messages": messages,
             "temperature": 0.0,
         }
+        if max_tokens is not None:
+            # Send both parameter names — LM Studio may respect either one
+            payload["max_tokens"] = max_tokens
+            payload["max_completion_tokens"] = max_tokens
+        if extra_payload:
+            payload.update(extra_payload)
+
+        started_at = time.monotonic()
         resp = requests.post(url, json=payload, timeout=timeout or self.timeout)
+        elapsed_s = time.monotonic() - started_at
         resp.raise_for_status()
 
         try:
@@ -232,13 +251,25 @@ class LMStudioQwenClient:
         # Extract thinking/reasoning text (Qwen3.x returns it in reasoning_content)
         thinking = str(message.get("reasoning_content") or "")
         self.last_thinking = thinking
+        choice = data["choices"][0] if data.get("choices") else {}
+        usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
+        self.last_response_metadata = {
+            "model": payload.get("model"),
+            "elapsed_s": round(elapsed_s, 3),
+            "thinking_chars": len(thinking),
+            "content_chars": len(content),
+            "finish_reason": choice.get("finish_reason"),
+            "usage": usage,
+            "sent_max_tokens": payload.get("max_tokens"),
+            "sent_max_completion_tokens": payload.get("max_completion_tokens"),
+            "sent_extra_payload_keys": sorted(extra_payload.keys()) if extra_payload else [],
+        }
         if thinking:
             print(f"[VLM] Thinking: {len(thinking)} chars")
 
         if content:
             return content
 
-        usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
         raise RuntimeError(
             "LM Studio returned an empty completion content "
             f"(model={self.model}, usage={usage}). "
@@ -281,6 +312,29 @@ class LMStudioQwenClient:
                         "type": "text",
                         "text": prompt,
                     },
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": data_uri,
+                        },
+                    },
+                ],
+            },
+        ]
+
+    def build_single_user_image_message(
+        self,
+        image_path: Path,
+        prompt: str,
+        max_image_dim: int | None = None,
+    ) -> List[Dict[str, Any]]:
+        """Build the GUI-like single user message shape used by LM Studio chat."""
+        data_uri = self._encode_image_to_data_uri(image_path, max_dim=max_image_dim)
+        return [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
                     {
                         "type": "image_url",
                         "image_url": {
