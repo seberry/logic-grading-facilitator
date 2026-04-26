@@ -73,6 +73,36 @@ class TestBuildOcrPromptWithExpectedLines(unittest.TestCase):
         self.assertNotIn("exactly 2 proof line(s)", prompt)
 
 
+class TestSeparatedNestedLeafOcr(unittest.TestCase):
+    def test_stitch_separated_nested_leaf_ocr_accepts_expected_shape(self) -> None:
+        from proofs_ocr.pipelines.tfl_fitch import stitch_separated_nested_leaf_ocr
+
+        payload = {
+            "formulas": ["W∧A", "W", "S", "S∧A"],
+            "justifications": ["∧E 7", "→E 2,8", "∧I 8,9"],
+        }
+
+        self.assertEqual(
+            stitch_separated_nested_leaf_ocr(payload, expected_lines=4),
+            [
+                {"line": 1, "wffstr": "W∧A", "jstr": ""},
+                {"line": 2, "wffstr": "W", "jstr": "∧E 7"},
+                {"line": 3, "wffstr": "S", "jstr": "→E 2,8"},
+                {"line": 4, "wffstr": "S∧A", "jstr": "∧I 8,9"},
+            ],
+        )
+
+    def test_stitch_separated_nested_leaf_ocr_rejects_count_mismatch(self) -> None:
+        from proofs_ocr.pipelines.tfl_fitch import stitch_separated_nested_leaf_ocr
+
+        payload = {
+            "formulas": ["W∧A", "W", "S", "S∧A"],
+            "justifications": ["∧E 7", "→E 2,8"],
+        }
+
+        self.assertIsNone(stitch_separated_nested_leaf_ocr(payload, expected_lines=4))
+
+
 class DebugFitchOcrNormalizationTests(unittest.TestCase):
     def test_build_ocr_prompt_mentions_formula_justification_separation(self) -> None:
         prompt = debug_fitch_ocr.build_ocr_prompt()

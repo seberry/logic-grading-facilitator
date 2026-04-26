@@ -239,9 +239,9 @@ The main development loop is:
 
 ## Known Issues & Current Focus (as of 2026-04-26)
 
-### Current priority: Investigate Q6 row-association citation errors
+### Current priority: Remaining formula-only OCR errors
 
-**Status (2026-04-26):** The 27b full-width routing is **wired and working** for ≤3-line leaf subproofs. Nested leaf subproofs that stay on 4b now also use full-width horizontal slices by default. This preserves the line-number gutter and prevents the 4b model from treating each crop as if it starts on line 1.
+**Status (2026-04-26):** Q6 citation handling is now solved in the current gold set. The 27b full-width routing is **wired and working** for ≤3-line leaf subproofs. Nested leaf subproofs that stay on 4b use full-width horizontal slices and separated-list OCR by default. This preserves the line-number gutter and uses Fitch structure to avoid cross-column row-association drift.
 
 **Q6 failure analysis:**
 - **11/11 formulas correct** — the VLM reads every formula perfectly
@@ -259,6 +259,27 @@ The main development loop is:
   - Node 2: `{"formulas": ["S∧A", "S", "W", "W∧A"], "justifications": ["∧E 3", "→E 1,4", "∧I 4,5"]}`
   - Node 3: `{"formulas": ["W∧A", "W", "S", "S∧A"], "justifications": ["∧E 7", "→E 2,8", "∧I 8,9"]}`
 - Conclusion: row isolation helps row association, but single-row crops are not stable enough for automatic correction yet. The strongest path is likely "separated-list nested leaf OCR": when a nested leaf has the expected line count, ask for formulas and derived-line justifications as separate lists, require `len(formulas) == len(justifications) + 1`, then stitch with a blank opening assumption.
+
+### Separated-list nested leaf OCR: WIRED (2026-04-26)
+
+**What it does:**
+1. Applies only to nested leaf subproofs on the default 4b path.
+2. Uses the full-width crop and asks the model for `{"formulas": [...], "justifications": [...]}`.
+3. Requires `len(formulas) == expected_lines` and `len(justifications) == len(formulas) - 1`.
+4. Stitches the first formula with blank justification, then assigns the nth justification to the n+1th formula.
+5. Saves the raw separated response as `response_<node>_separated_raw.json`.
+6. Falls back to the normal row-object OCR prompt if the separated response has the wrong shape.
+
+**Gold regression result (2026-04-26):**
+
+| Case | Formula | Justification | Both | Status |
+|------|---------|---------------|------|--------|
+| Q3 | 8/8 | 8/8 | 8/8 | PASS |
+| Q4 | 6/7 | 7/7 | 6/7 | FAIL: existing formula error `N↔W`→`N↔N` |
+| Q5 | 4/5 | 5/5 | 4/5 | FAIL: existing formula error `↔`→`→` on line 1 |
+| Q6 | 11/11 | 11/11 | 11/11 | PASS |
+
+**Aggregate: 29/31 formulas, 31/31 justifications, 29/31 both, 0 structural mismatches.**
 
 ### 4b full-width nested leaf routing: WIRED (2026-04-26)
 

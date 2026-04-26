@@ -917,6 +917,10 @@ def _get_4b_fullwidth_max_lines() -> int:
     return max(0, _env_int("TFL_FITCH_4B_FULLWIDTH_MAX_LINES", 99) or 0)
 
 
+def _use_separated_nested_leaf_ocr() -> bool:
+    return _env_flag("TFL_FITCH_SEPARATED_NESTED_LEAF_OCR", True)
+
+
 def build_ocr_prompt(
     *,
     has_children: bool = True,
@@ -998,6 +1002,60 @@ def build_ocr_prompt(
     return base
 
 
+def build_nested_leaf_separated_prompt(expected_lines: int | None = None) -> str:
+    """Build prompt for nested leaf OCR as formula/justification lists."""
+    prompt = (
+        "You are transcribing a cropped handwritten Fitch subproof. "
+        "Return exactly one JSON object with keys 'formulas' and 'justifications'. "
+        "'formulas' is a top-to-bottom array of every formula visible in the subproof. "
+        "The first/top formula is the child subproof assumption or premise. "
+        "The first/top formula has no printed justification. Do not include a justification for it. "
+        "'justifications' is a top-to-bottom array of the printed right-side justifications "
+        "for only the derived lines after the first formula. "
+        "Preserve citation numbers exactly as written. They are absolute proof line numbers, "
+        "not local crop numbers. "
+        "Do not infer corrections or validate the proof. "
+        "Handwriting guide: sloppy ampersand/conjunction may look like '8'; sloppy S may look like '5'. "
+    )
+    if expected_lines is not None and expected_lines >= 2:
+        prompt += (
+            f"This image contains exactly {expected_lines} proof line(s). "
+            f"Return exactly {expected_lines} formulas and exactly {expected_lines - 1} justifications. "
+        )
+    prompt += (
+        "Example output shape: "
+        "{\"formulas\": [\"W∧A\", \"W\", \"S\", \"S∧A\"], "
+        "\"justifications\": [\"∧E 7\", \"→E 2,8\", \"∧I 8,9\"]}. "
+        "Return JSON only, with no markdown fences or explanation."
+    )
+    return prompt
+
+
+def stitch_separated_nested_leaf_ocr(payload, expected_lines: int | None = None) -> List[Dict] | None:
+    """Convert separated formula/justification OCR into line dictionaries.
+
+    Accept only the strict nested-leaf shape: one opening assumption formula
+    with no justification, followed by exactly one justification per derived
+    formula.  Returning ``None`` lets the caller fall back to normal OCR.
+    """
+    if not isinstance(payload, dict):
+        return None
+    formulas = payload.get("formulas")
+    justifications = payload.get("justifications")
+    if not isinstance(formulas, list) or not isinstance(justifications, list):
+        return None
+    if expected_lines is not None and len(formulas) != expected_lines:
+        return None
+    if len(formulas) < 2 or len(justifications) != len(formulas) - 1:
+        return None
+
+    stitched: List[Dict] = []
+    for index, formula in enumerate(formulas):
+        jstr = "" if index == 0 else str(justifications[index - 1] or "")
+        stitched.append({"line": index + 1, "wffstr": str(formula or ""), "jstr": jstr})
+    return stitched
+
+
 def build_27b_fullwidth_prompt(expected_lines: int | None = None) -> str:
     """Build the proven manual prompt for 27b full-width crop OCR.
 
@@ -1040,13 +1098,13 @@ def call_vlm(
     expected_lines: int | None = None,
     model_override: str | None = None,
     prompt_override: str | None = None,
-) -> Tuple[List[Dict], str]:
+) -> Tuple[object, str]:
     """
     Real VLM call. expects client to be compatible with typical OpenAI/LocalAI SDKs.
 
     Returns
     -------
-    Tuple[List[Dict], str]
+    Tuple[object, str]
         (parsed OCR result, model thinking/reasoning text).
 
     Parameters
@@ -1272,6 +1330,7 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
         model_override = None
         prompt_override = None
         vlm_image_path = str(save_path)  # default: tight (letterboxed) crop
+        use_separated_nested_leaf_ocr = False
 
         if (
             is_leaf
@@ -1312,6 +1371,10 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
                 fw_save_path = output_dir / fw_filename
                 cv2.imwrite(str(fw_save_path), fw_img)
                 vlm_image_path = str(fw_save_path)
+                if expected_lines is not None and expected_lines >= 2 and _use_separated_nested_leaf_ocr():
+                    use_separated_nested_leaf_ocr = True
+                    prompt_override = build_nested_leaf_separated_prompt(expected_lines=expected_lines)
+                    print(f"   [SeparatedLeaf] Node {node.id}: requesting formulas/justifications lists")
 
         # Call VLM — leaf nodes (no masked children) get a simpler prompt that
         # omits the <SUBPROOF_ID_X> instructions, preventing hallucinated tokens.
@@ -1322,6 +1385,33 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
             model_override=model_override,
             prompt_override=prompt_override,
         )
+
+        if use_separated_nested_leaf_ocr:
+            separated_payload = ocr_result
+            separated_path = output_dir / f"response_{node.id}_separated_raw.json"
+            with open(separated_path, "w", encoding="utf-8") as f:
+                json.dump(separated_payload, f, indent=2, ensure_ascii=False)
+            stitched_separated = stitch_separated_nested_leaf_ocr(
+                separated_payload,
+                expected_lines=expected_lines,
+            )
+            if stitched_separated is not None:
+                print(
+                    f"   [SeparatedLeaf] Node {node.id}: accepted "
+                    f"{len(stitched_separated)} stitched line(s)"
+                )
+                ocr_result = stitched_separated
+            else:
+                print(f"   [SeparatedLeaf] Node {node.id}: count/shape mismatch; falling back to row-object OCR")
+                ocr_result, fallback_thinking = call_vlm(
+                    vlm_image_path,
+                    client,
+                    has_children=bool(sorted_children),
+                    expected_lines=expected_lines,
+                    model_override=model_override,
+                )
+                if fallback_thinking:
+                    thinking_text = f"{thinking_text}\n\n--- fallback ---\n\n{fallback_thinking}" if thinking_text else fallback_thinking
 
         # Save thinking/reasoning text for debugging (especially useful for
         # diagnosing when the 27b model gets stuck in infinite thinking loops).
