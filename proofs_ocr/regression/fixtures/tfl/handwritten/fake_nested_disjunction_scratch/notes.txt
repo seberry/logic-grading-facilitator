@@ -1,0 +1,4 @@
+Fake instructor-authored TFL proof crop from phone scan IMG_2150.
+Messy nested disjunction-elimination proof with scratch-out artifacts.
+Includes an intentional mistake on line 11.
+No real student data.

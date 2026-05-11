@@ -77,6 +77,16 @@ Each fixture directory contains: `image.png`, `expected_structure.json`, optiona
 | `tfl_handwritten_q4_N_or_K_and_W` | `N∨(K∧W), N↔W ⊢ W`. ∨E with two subproofs. | **Small subproofs**, ∨E structure, ↔F→↔E normalization |
 | `tfl_handwritten_q5_P_or_K_biconditional` | No subproofs, intentional error (self-citation on line 4). | Flat proof, error detection |
 | `tfl_handwritten_q6_S_iff_W` | ↔I with two subproofs, intentional errors on lines 6 and 10. | Nested subproofs, biconditional intro |
+| `tfl_fake_implication_intro` | Fake instructor-authored scan: `A→(B→C) ⊢ (A∧B)→C`. | Clean one-subproof case from phone crop |
+| `tfl_fake_nested_disjunction_scratch` | Fake instructor-authored scan: `A→(B∨C), A→¬B ⊢ A→C`, with scratch-outs and intentional `∧E 9` error. | Scratch-outs, nested ∨E, explosion `X`, intentional rule error |
+
+The fake-data fixtures are deliberately not real student submissions. They were
+created as phone scans of instructor-authored messy proofs and cropped to the
+proof region, matching the intended human-corrected crop boundary for the
+grading workflow. A longer fake disjunction-elimination proof crop is retained
+under `working/tfl_candidate_scans/` as a reserve stress case, but it is not in
+the active manifest because its length and messiness are less representative of
+ordinary quiz proofs.
 
 ### Test files
 

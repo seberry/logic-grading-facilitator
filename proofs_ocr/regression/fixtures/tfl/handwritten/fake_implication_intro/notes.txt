@@ -1,0 +1,3 @@
+Fake instructor-authored TFL proof crop from phone scan IMG_2146.
+Clean implication-introduction case with one subproof.
+No real student data.
