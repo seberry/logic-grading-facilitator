@@ -720,16 +720,52 @@ def preprocess_slanted_phone_crop(img: np.ndarray) -> np.ndarray:
         img = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
 
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img
+
+    def remove_horizontal_ruling(bw: np.ndarray) -> np.ndarray:
+        cleaned = bw.copy()
+        inv = 255 - cleaned
+        h, w = cleaned.shape[:2]
+        horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (max(30, int(w * 0.20)), 1))
+        horizontal_mask = cv2.morphologyEx(inv, cv2.MORPH_OPEN, horizontal_kernel)
+        cleaned[horizontal_mask > 0] = 255
+        return cleaned
+
     threshold = max(0, min(255, _env_int("TFL_FITCH_SLANTED_PREPROCESS_THRESHOLD", 110) or 110))
-    _, bw = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY)
+    _, global_bw = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY)
+    global_bw = remove_horizontal_ruling(global_bw)
 
-    inv = 255 - bw
-    h, w = bw.shape[:2]
-    horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (max(30, int(w * 0.20)), 1))
-    horizontal_mask = cv2.morphologyEx(inv, cv2.MORPH_OPEN, horizontal_kernel)
-    bw[horizontal_mask > 0] = 255
+    mode = (os.getenv("TFL_FITCH_SLANTED_PHONE_PREPROCESS_MODE") or "auto").strip().lower()
+    if mode in {"global", "threshold", "legacy"}:
+        return cv2.cvtColor(global_bw, cv2.COLOR_GRAY2BGR)
 
-    return cv2.cvtColor(bw, cv2.COLOR_GRAY2BGR)
+    shadow_sigma = max(3, _env_int("TFL_FITCH_SHADOW_PREPROCESS_SIGMA", 25) or 25)
+    shadow_threshold = max(1, _env_int("TFL_FITCH_SHADOW_PREPROCESS_THRESHOLD", 25) or 25)
+    background = cv2.GaussianBlur(gray, (0, 0), sigmaX=shadow_sigma, sigmaY=shadow_sigma)
+    foreground_strength = cv2.subtract(background, gray)
+    shadow_bw = np.where(foreground_strength >= shadow_threshold, 0, 255).astype(np.uint8)
+    shadow_bw = remove_horizontal_ruling(shadow_bw)
+
+    if mode == "shadow":
+        return cv2.cvtColor(shadow_bw, cv2.COLOR_GRAY2BGR)
+
+    if mode != "auto":
+        return cv2.cvtColor(global_bw, cv2.COLOR_GRAY2BGR)
+
+    h, w = global_bw.shape[:2]
+    y1 = int(h * 0.45)
+    y2 = int(h * 0.85)
+    x2 = int(w * 0.45)
+    if y2 <= y1 or x2 <= 0:
+        return cv2.cvtColor(global_bw, cv2.COLOR_GRAY2BGR)
+
+    global_density = float((global_bw[y1:y2, :x2] == 0).mean())
+    shadow_density = float((shadow_bw[y1:y2, :x2] == 0).mean())
+    density_floor = float(os.getenv("TFL_FITCH_SHADOW_AUTO_DENSITY", "0.14") or "0.14")
+    improvement_floor = float(os.getenv("TFL_FITCH_SHADOW_AUTO_IMPROVEMENT", "0.04") or "0.04")
+    if global_density >= density_floor and (global_density - shadow_density) >= improvement_floor:
+        return cv2.cvtColor(shadow_bw, cv2.COLOR_GRAY2BGR)
+
+    return cv2.cvtColor(global_bw, cv2.COLOR_GRAY2BGR)
 
 
 def filter_scaffold_bars(

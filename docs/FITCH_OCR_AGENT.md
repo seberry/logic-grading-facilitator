@@ -121,6 +121,24 @@ lined paper, not as a replacement for the standard detector. A synthetic unit
 test covers opener-row extension, but this path still needs live-regression
 work before becoming a default.
 
+Phone-crop preprocessing now defaults to:
+
+```powershell
+$env:TFL_FITCH_SLANTED_PHONE_PREPROCESS_MODE='auto'
+```
+
+Modes:
+
+- `global` / `legacy`: original downscale + global threshold + ruling cleanup
+- `shadow`: background-normalized foreground extraction + ruling cleanup
+- `auto`: use `global` unless the left/mid-lower crop region has a high dark
+  density that `shadow` materially reduces
+
+The auto switch was added after the long/scratch fake phone crops showed large
+peppery black regions from shadows after global thresholding. Keep inspecting
+`normalized.png`/`debug_bars.jpg`; shadow cleanup fixes those blobs but can
+shorten or split scope bars on cleaner crops if forced manually.
+
 Best probe result on the easiest fake proof:
 
 - geometry became essentially correct after downscale + rough ruled-line
@@ -263,6 +281,16 @@ Next fake crop: negation-introduction phone crop (`IMG_2148`):
   model still misread the final contradiction row in the inner child crop as
   justification text (`¬E 2,6`) rather than formula `⊥` with justification
   `¬E 2,6`; treat this as the next OCR-quality/reread issue, not geometry
+
+Shadow-preprocess probe on remaining fake candidate crops:
+
+- current/global preprocessing created large peppery black artifacts in the
+  shadowed lower-left regions of the long and scratch crops
+- `auto` keeps the known-good implication and neg-intro geometry on the global
+  path, but switches the long/scratch crops to the shadow-normalized path
+- the shadow-normalized images are visually cleaner, so judge future bar/line
+  failures from those cleaned preflight artifacts rather than from the old
+  global-threshold blobs
 
 Suggested next-conversation prompt:
 
