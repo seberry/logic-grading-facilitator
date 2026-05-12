@@ -78,6 +78,7 @@ Each fixture directory contains: `image.png`, `expected_structure.json`, optiona
 | `tfl_handwritten_q5_P_or_K_biconditional` | No subproofs, intentional error (self-citation on line 4). | Flat proof, error detection |
 | `tfl_handwritten_q6_S_iff_W` | ↔I with two subproofs, intentional errors on lines 6 and 10. | Nested subproofs, biconditional intro |
 | `tfl_fake_implication_intro` | Fake instructor-authored scan: `A→(B→C) ⊢ (A∧B)→C`. | Clean one-subproof case from phone crop |
+| `tfl_fake_neg_intro_error` | Fake instructor-authored scan: `(A∧B)→C, ¬C, A ⊢ ¬B`. | Short phone crop with a long outer proof spine and one nested `B...⊥` subproof |
 | `tfl_fake_nested_disjunction_scratch` | Fake instructor-authored scan: `A→(B∨C), A→¬B ⊢ A→C`, with scratch-outs and intentional `∧E 9` error. | Scratch-outs, nested ∨E, explosion `X`, intentional rule error |
 
 The fake-data fixtures are deliberately not real student submissions. They were
@@ -241,6 +242,27 @@ Wide fake-crop follow-up (`93cd800` and live canaries):
 - old Q4 no-27b canary still completed quickly with 7 lines and 0 structural
   mismatches; remaining formula/justification misses matched the known
   handwriting/OCR quality pattern rather than a structural regression
+
+Next fake crop: negation-introduction phone crop (`IMG_2148`):
+
+- the original tight crop clipped the right-side justifications; a wider,
+  natural-aspect crop was generated from `working/tfl_candidate_scans/IMG_2148.png`
+  and tracked as `tfl_fake_neg_intro_error`
+- avoid including the far-right page edge because it becomes a false vertical
+  bar after phone-crop preprocessing
+- gold treats the long left vertical line from 1-8 as the ordinary outer proof
+  spine, not as a nested semantic subproof; the stored nested block is only
+  lines 4-7 (`B`, `A∧B`, `C`, `⊥`)
+- slanted geometry needed a relaxed fallback vertical opening because the
+  nested scope line is fragmented after ruled-paper cleanup; preflight now
+  recovers 2 bars, one child node, and a 4-line child crop
+- fixed parent masking coordinate translation so child whiteout starts at the
+  true child top even when parent-crop padding is clipped at image edge
+- top-anchored red subproof tokens improved parent OCR ordering on this crop
+- latest no-27b canary was structurally aligned after correcting gold, but the
+  model still misread the final contradiction row in the inner child crop as
+  justification text (`¬E 2,6`) rather than formula `⊥` with justification
+  `¬E 2,6`; treat this as the next OCR-quality/reread issue, not geometry
 
 Suggested next-conversation prompt:
 

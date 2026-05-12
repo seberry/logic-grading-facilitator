@@ -177,6 +177,23 @@ cases:
     oracle_kind: "gold_curated_from_image"
     notes: "Fake handwritten TFL proof crop: A→(B→C) ⊢ (A∧B)→C. Clean one-subproof case."
 
+  - id: "tfl_fake_neg_intro_error"
+    domain: "tfl"
+    kind: "handwritten"
+    image_path: "proofs_ocr/regression/fixtures/tfl/handwritten/fake_neg_intro_error/image.png"
+    expected_structure_path: "proofs_ocr/regression/fixtures/tfl/handwritten/fake_neg_intro_error/expected_structure.json"
+    tags:
+      - "handwritten"
+      - "instructor_authored"
+      - "fake_data"
+      - "tfl"
+      - "negation_intro"
+      - "nested_subproofs"
+      - "intentional_error"
+    source: "proofs_ocr/regression/fixtures/tfl/handwritten/fake_neg_intro_error"
+    oracle_kind: "gold_curated_from_image"
+    notes: "Fake handwritten TFL proof crop: (A∧B)→C, ¬C, A ⊢ ¬B. The long left line is the outer proof spine; only B...⊥ is nested."
+
   - id: "tfl_fake_nested_disjunction_scratch"
     domain: "tfl"
     kind: "handwritten"

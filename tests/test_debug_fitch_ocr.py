@@ -190,6 +190,45 @@ class TestSlantedBarRepair(unittest.TestCase):
         self.assertEqual(estimate_line_count(crop_region(normalized, inner_node.box)), 5)
         self.assertEqual(estimate_line_count(crop_full_width(normalized, inner_node)), 5)
 
+    def test_slanted_repair_relaxed_pass_recovers_fragmented_nested_bar(self) -> None:
+        import cv2
+        import numpy as np
+        from proofs_ocr.pipelines.tfl_fitch import (
+            detect_vertical_bars,
+            filter_scaffold_bars,
+        )
+
+        img = np.ones((545, 715, 3), dtype=np.uint8) * 255
+
+        # Margin/scaffold strokes near the outer proof bar.  The main scope bar
+        # is broken into line-height fragments after ruled-line cleanup.
+        for x in [54, 69, 82]:
+            cv2.line(img, (x, 0), (x, 180), (0, 0, 0), 5)
+        for y in [0, 50, 100, 150, 200, 250, 300, 350, 400, 450, 500]:
+            cv2.line(img, (70, y), (70, min(544, y + 42)), (0, 0, 0), 5)
+
+        # Inner subproof bar appears as line-height fragments after ruled-line
+        # cleanup; an 80px vertical opening drops it, while the fallback should
+        # merge these into a candidate bar.
+        for y in [229, 279, 329]:
+            cv2.line(img, (130, y), (130, y + 48), (0, 0, 0), 5)
+
+        # Nearby text rows give the opener-extension code useful evidence.
+        for y in [45, 95, 145, 205, 255, 305, 355, 405]:
+            cv2.rectangle(img, (150, y), (255, y + 18), (0, 0, 0), -1)
+
+        with patch.dict("os.environ", {"TFL_FITCH_SLANTED_BAR_REPAIR": "1"}):
+            bars = filter_scaffold_bars(
+                detect_vertical_bars(img),
+                img_w=img.shape[1],
+                img_h=img.shape[0],
+            )
+
+        self.assertGreaterEqual(len(bars), 2)
+        outer, inner = sorted(bars, key=lambda box: box[0])[:2]
+        self.assertLess(outer[0], inner[0])
+        self.assertGreaterEqual(inner[3], 100)
+
 
 class TestBuildOcrPromptWithExpectedLines(unittest.TestCase):
     """Tests for the expected_lines parameter in build_ocr_prompt."""
@@ -249,6 +288,7 @@ class DebugFitchOcrNormalizationTests(unittest.TestCase):
 
         self.assertIn("<SUBPROOF_ID_X>", prompt)
         self.assertIn("red box token", prompt)
+        self.assertIn("visible black proof line above and below", prompt)
 
     def test_build_ocr_prompt_leaf_omits_subproof_token_instruction(self) -> None:
         prompt = debug_fitch_ocr.build_ocr_prompt(has_children=False)

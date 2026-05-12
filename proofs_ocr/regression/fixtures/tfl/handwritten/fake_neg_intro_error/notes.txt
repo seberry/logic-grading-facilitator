@@ -1,0 +1,6 @@
+Fake instructor-authored TFL proof crop from phone scan IMG_2148.
+Nested negation-introduction case with an intentionally invalid premise set.
+Gold treats the long left vertical stroke from lines 1-8 as the ordinary
+outer proof spine, not as a semantic subproof. The only nested subproof in
+the stored structure is the short B...⊥ block on lines 4-7.
+No real student data.

@@ -638,17 +638,34 @@ def _detect_vertical_bars_slanted_repair(img: np.ndarray) -> List[Tuple[int, int
     binary = _dark_pixel_mask(img)
 
     dilate_width = max(6, _env_int("TFL_FITCH_SLANTED_BAR_DILATE_WIDTH", 22) or 22)
-    dilated = cv2.dilate(binary, np.ones((1, dilate_width), np.uint8), iterations=1)
-    vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 80))
-    vertical_mask = cv2.morphologyEx(dilated, cv2.MORPH_OPEN, vertical_kernel)
 
-    contours, _ = cv2.findContours(vertical_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    boxes = [cv2.boundingRect(c) for c in contours]
-    merged = _merge_vertical_bar_boxes(boxes)
-    split = [box for box in _split_bars_on_gaps(img, merged) if box[3] > 50]
-    extended = _extend_bars_to_nearby_openers(img, split)
-    trimmed = _trim_nested_bars_at_text_gap(img, extended)
-    return _filter_slanted_repair_bar_candidates(trimmed, img_shape=img.shape)
+    def candidates(vertical_kernel_height: int, min_height: int) -> List[Tuple[int, int, int, int]]:
+        dilated = cv2.dilate(binary, np.ones((1, dilate_width), np.uint8), iterations=1)
+        vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, vertical_kernel_height))
+        vertical_mask = cv2.morphologyEx(dilated, cv2.MORPH_OPEN, vertical_kernel)
+
+        contours, _ = cv2.findContours(vertical_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        boxes = [cv2.boundingRect(c) for c in contours]
+        merged = _merge_vertical_bar_boxes(boxes)
+        split = [box for box in _split_bars_on_gaps(img, merged) if box[3] > min_height]
+        extended = _extend_bars_to_nearby_openers(img, split)
+        trimmed = _trim_nested_bars_at_text_gap(img, extended)
+        return _filter_slanted_repair_bar_candidates(trimmed, img_shape=img.shape)
+
+    repaired = candidates(vertical_kernel_height=80, min_height=50)
+    if len(repaired) >= 2:
+        return repaired
+
+    # Some phone crops show only the top of the leftmost scope bar after ruling
+    # cleanup, while the nested bar is broken into line-height fragments.  The
+    # normal 80px opening correctly rejects handwriting in most cases, but it
+    # also drops those fragmented bars.  Use the relaxed pass only as a fallback
+    # when the strict pass cannot form a plausible nested structure.
+    relaxed_kernel = max(20, _env_int("TFL_FITCH_SLANTED_RELAXED_VERTICAL_KERNEL", 40) or 40)
+    relaxed = candidates(vertical_kernel_height=relaxed_kernel, min_height=35)
+    if len(relaxed) > len(repaired):
+        return relaxed
+    return repaired
 
 
 def _filter_slanted_repair_bar_candidates(
@@ -924,7 +941,7 @@ def mask_subproof_in_parent(parent_img: np.ndarray, child_node: SubproofNode) ->
     # instead of a floating annotation in the middle of the whiteout.
     token = f"<SUBPROOF_ID_{child_node.id}>"
     token_x = min(w_img - 40, x1 + max(42, int(w_img * 0.08)))
-    token_y = y1 + h // 2
+    token_y = y1 + min(max(24, h // 4), max(24, h - 8))
     
     # Calculate text size for centering
     font = cv2.FONT_HERSHEY_SIMPLEX
@@ -1075,7 +1092,19 @@ def _estimate_lined_paper_line_count(img: np.ndarray) -> int:
         if next_gap >= max(18, img_h // 45):
             bands = bands[1:]
 
-    return len(bands)
+    heights = sorted(end - start + 1 for start, end in bands)
+    ref_height = heights[len(heights) // 2]
+    if ref_height <= 0:
+        return len(bands)
+
+    count = 0
+    for start, end in bands:
+        height = end - start + 1
+        if height > ref_height * 1.8:
+            count += max(1, round(height / ref_height))
+        else:
+            count += 1
+    return count
 
 
 #: Enable line-count estimation for leaf crops using the shared morphological
@@ -1315,6 +1344,8 @@ def build_ocr_prompt(
             "Every red box token like <SUBPROOF_ID_X> marks one masked child subproof. "
             "You MUST output one proof-line object for each red token in its top-to-bottom position. "
             "Copy the token exactly as the entire 'wffstr' value for that line and leave 'jstr' empty. "
+            "Also transcribe every visible black proof line above and below each red token; "
+            "a red token does not replace nearby visible proof lines. "
         )
     if highlighted_box:
         base += (
@@ -1584,8 +1615,10 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
         else:
             # Adjust child global coords to be relative to parent crop
             px, py, _, _ = node.box
+            offset_x = max(0, px - 10)
+            offset_y = max(0, py - 10)
             # Create a temporary relative node for masking
-            rel_box = (child.box[0] - px + 10, child.box[1] - py + 10, child.box[2], child.box[3])
+            rel_box = (child.box[0] - offset_x, child.box[1] - offset_y, child.box[2], child.box[3])
             rel_child = SubproofNode(child.id, rel_box)
             current_img = mask_subproof_in_parent(current_img, rel_child)
 
