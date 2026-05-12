@@ -957,6 +957,12 @@ def crop_full_width(img: np.ndarray, node: SubproofNode, padding: int = 10) -> n
     return img[y1:y2, :]
 
 
+def _subproof_token_baseline_y(*, y1: int, h: int, img_h: int, text_height: int) -> int:
+    """Place the red child token near the masked subproof opener row."""
+    top_offset = min(max(text_height + 10, 26), max(text_height + 10, h - 6))
+    return max(text_height + 8, min(y1 + top_offset, img_h - 8))
+
+
 def mask_subproof_in_parent(parent_img: np.ndarray, child_node: SubproofNode) -> np.ndarray:
     """
     Draws a white box over the child's area and stamps the token.
@@ -980,7 +986,6 @@ def mask_subproof_in_parent(parent_img: np.ndarray, child_node: SubproofNode) ->
     # instead of a floating annotation in the middle of the whiteout.
     token = f"<SUBPROOF_ID_{child_node.id}>"
     token_x = min(w_img - 40, x1 + max(42, int(w_img * 0.08)))
-    token_y = y1 + min(max(24, h // 4), max(24, h - 8))
     
     # Calculate text size for centering
     font = cv2.FONT_HERSHEY_SIMPLEX
@@ -988,7 +993,7 @@ def mask_subproof_in_parent(parent_img: np.ndarray, child_node: SubproofNode) ->
     thickness = 2
     (tw, th), _ = cv2.getTextSize(token, font, scale, thickness)
     token_x = max(0, min(token_x, w_img - tw - 12))
-    token_y = max(th + 8, min(token_y, h_img - 8))
+    token_y = _subproof_token_baseline_y(y1=y1, h=h, img_h=h_img, text_height=th)
     
     # Draw red border around token
     pad = 6
@@ -1004,6 +1009,91 @@ def mask_subproof_in_parent(parent_img: np.ndarray, child_node: SubproofNode) ->
     cv2.putText(masked, token, (token_x, token_y), font, scale, (0, 0, 255), thickness)
     
     return masked
+
+
+def _subproof_token_id(value: object) -> str | None:
+    match = re.search(r"<SUBPROOF_ID_([^>]+)>", str(value or ""))
+    return match.group(1) if match else None
+
+
+def repair_missing_child_tokens(
+    ocr_result: object,
+    child_nodes: List[SubproofNode],
+    *,
+    img_shape: Tuple[int, int, int] | Tuple[int, int],
+) -> object:
+    """Restore child placeholders omitted by parent OCR.
+
+    The red tokens are synthetic structural markers drawn by this pipeline.
+    If the VLM skips one, the child OCR is already present in ``library`` but
+    cannot be stitched.  This repair only inserts missing immediate child
+    placeholders; it does not alter formulas or justifications.
+    """
+    if not isinstance(ocr_result, list) or not child_nodes:
+        return ocr_result
+
+    existing_ids = {
+        token_id
+        for item in ocr_result
+        if isinstance(item, dict)
+        for token_id in [_subproof_token_id(item.get("wffstr"))]
+        if token_id is not None
+    }
+    missing_children = [child for child in sorted(child_nodes, key=lambda c: c.box[1]) if child.id not in existing_ids]
+    if not missing_children:
+        return ocr_result
+
+    child_y_by_id = {child.id: int(child.box[1]) for child in child_nodes}
+    repaired = list(ocr_result)
+    img_h = int(img_shape[0])
+
+    def fallback_index(child: SubproofNode) -> int:
+        if not repaired:
+            return 0
+        child_bottom = int(child.box[1] + child.box[3])
+        post_child_room = img_h - child_bottom
+        if len(repaired) >= 2 and post_child_room > max(48, int(img_h * 0.12)):
+            return len(repaired) - 1
+        return len(repaired)
+
+    for child in missing_children:
+        insert_at: int | None = None
+        child_y = int(child.box[1])
+        for index, item in enumerate(repaired):
+            if not isinstance(item, dict):
+                continue
+            token_id = _subproof_token_id(item.get("wffstr"))
+            if token_id is not None and child_y_by_id.get(token_id, child_y) > child_y:
+                insert_at = index
+                break
+        if insert_at is None:
+            insert_at = fallback_index(child)
+        repaired.insert(
+            insert_at,
+            {
+                "line": insert_at + 1,
+                "wffstr": f"<SUBPROOF_ID_{child.id}>",
+                "jstr": "",
+            },
+        )
+    return repaired
+
+
+def drop_trailing_parent_bleed_artifact(ocr_result: object) -> object:
+    """Drop a narrow OCR row caused by bleed from the next parent line."""
+    if not isinstance(ocr_result, list) or len(ocr_result) < 2:
+        return ocr_result
+    last = ocr_result[-1]
+    if not isinstance(last, dict):
+        return ocr_result
+
+    wff = str(last.get("wffstr") or "").strip()
+    jstr = str(last.get("jstr") or "").strip()
+    if wff != "E":
+        return ocr_result
+    if not re.fullmatch(r"[\d,\-\s]+", jstr):
+        return ocr_result
+    return ocr_result[:-1]
 
 
 # ==============================================================================
@@ -1173,6 +1263,74 @@ def _estimate_lined_paper_line_count(img: np.ndarray) -> int:
             return 3
 
     return count
+
+
+def _top_carryover_trim_y(
+    *,
+    img_h: int,
+    bands: List[Tuple[int, int]],
+    expected_lines: int | None,
+) -> int:
+    if expected_lines is None or expected_lines <= 0:
+        return 0
+    if len(bands) <= expected_lines:
+        return 0
+    if len(bands) < 2:
+        return 0
+    if bands[0][0] > max(8, img_h // 80):
+        return 0
+    next_gap = bands[1][0] - bands[0][1] - 1
+    if next_gap < max(18, img_h // 45):
+        return 0
+    return max(0, bands[1][0] - max(10, img_h // 30))
+
+
+def trim_lined_paper_top_carryover_for_ocr(
+    img: np.ndarray,
+    *,
+    expected_lines: int | None,
+) -> np.ndarray:
+    """Remove clipped parent-row carryover before sending a leaf crop to OCR."""
+    if not _env_flag("TFL_FITCH_SLANTED_BAR_REPAIR") or img.size == 0:
+        return img
+
+    bands = detect_text_row_bands(img)
+    trim_y = _top_carryover_trim_y(img_h=img.shape[0], bands=bands, expected_lines=expected_lines)
+    if trim_y <= 0 or trim_y >= img.shape[0] - 8:
+        return img
+    return img[trim_y:, :]
+
+
+def adjusted_child_box_for_parent_mask(
+    child_node: SubproofNode,
+    source_img: np.ndarray,
+) -> Tuple[int, int, int, int]:
+    """Shift a leaf child's parent-mask top below clipped carryover rows."""
+    x, y, w, h = child_node.box
+    if not _env_flag("TFL_FITCH_SLANTED_BAR_REPAIR") or child_node.children:
+        return child_node.box
+
+    child_crop = crop_region(source_img, child_node.box)
+    expected_lines = estimate_line_count(child_crop)
+    if expected_lines <= 0:
+        return child_node.box
+
+    fw_img = crop_full_width(source_img, child_node)
+    bands = detect_text_row_bands(fw_img)
+    trim_y = _top_carryover_trim_y(
+        img_h=fw_img.shape[0],
+        bands=bands,
+        expected_lines=expected_lines,
+    )
+    if trim_y <= 0:
+        return child_node.box
+
+    fullwidth_y1 = max(0, y - 10)
+    adjusted_y = max(y, fullwidth_y1 + trim_y)
+    delta = adjusted_y - y
+    if delta <= 0 or delta >= h - 8:
+        return child_node.box
+    return (x, adjusted_y, w, h - delta)
 
 
 #: Enable line-count estimation for leaf crops using the shared morphological
@@ -1412,6 +1570,8 @@ def build_ocr_prompt(
             "Every red box token like <SUBPROOF_ID_X> marks one masked child subproof. "
             "You MUST output one proof-line object for each red token in its top-to-bottom position. "
             "Copy the token exactly as the entire 'wffstr' value for that line and leave 'jstr' empty. "
+            "Treat a red token as a real proof row even when it appears alone in a large blank erased area. "
+            "Do not skip a red token because no black handwriting is next to it. "
             "Also transcribe every visible black proof line above and below each red token; "
             "a red token does not replace nearby visible proof lines. "
         )
@@ -1670,6 +1830,7 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
     # 2. Process Children (Deepest first)
     # We sort children by vertical position just in case, though order doesn't strictly matter for masking
     sorted_children = sorted(node.children, key=lambda c: c.box[1])
+    masked_child_nodes: List[SubproofNode] = []
     
     for child in sorted_children:
         # RECURSE: This will populate the library with the child's JSON
@@ -1677,18 +1838,22 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
         
         # MASK: Now we hide the child on our current image
         # Note: We must translate child coordinates to the cropped frame of the parent
+        mask_box = adjusted_child_box_for_parent_mask(child, img)
+        mask_child = SubproofNode(child.id, mask_box)
         if node.id == "ROOT":
             # Child coordinates are already global
-            current_img = mask_subproof_in_parent(current_img, child)
+            current_img = mask_subproof_in_parent(current_img, mask_child)
+            masked_child_nodes.append(mask_child)
         else:
             # Adjust child global coords to be relative to parent crop
             px, py, _, _ = node.box
             offset_x = max(0, px - 10)
             offset_y = max(0, py - 10)
             # Create a temporary relative node for masking
-            rel_box = (child.box[0] - offset_x, child.box[1] - offset_y, child.box[2], child.box[3])
+            rel_box = (mask_box[0] - offset_x, mask_box[1] - offset_y, mask_box[2], mask_box[3])
             rel_child = SubproofNode(child.id, rel_box)
             current_img = mask_subproof_in_parent(current_img, rel_child)
+            masked_child_nodes.append(rel_child)
 
     # Capture the real crop before any letterboxing changes it, since context
     # decisions and line counting should be based on the actual crop geometry.
@@ -1781,6 +1946,10 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
             # gutter for citation context.  No letterboxing needed since the
             # aspect ratio is already reasonable at full image width.
             fw_img = crop_full_width(img, node)
+            fw_img = trim_lined_paper_top_carryover_for_ocr(
+                fw_img,
+                expected_lines=expected_lines,
+            )
             fw_filename = f"crop_{node.id}_fullwidth.jpg"
             fw_save_path = output_dir / fw_filename
             cv2.imwrite(str(fw_save_path), fw_img)
@@ -1802,6 +1971,10 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
                     f"(<= {four_b_fullwidth_max_lines} lines)"
                 )
                 fw_img = crop_full_width(img, node)
+                fw_img = trim_lined_paper_top_carryover_for_ocr(
+                    fw_img,
+                    expected_lines=expected_lines,
+                )
                 fw_filename = f"crop_{node.id}_4b_fullwidth.jpg"
                 fw_save_path = output_dir / fw_filename
                 cv2.imwrite(str(fw_save_path), fw_img)
@@ -1876,6 +2049,23 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
                     else:
                         kept.append(item)
                 ocr_result = kept
+
+        if not is_leaf:
+            repaired_ocr_result = repair_missing_child_tokens(
+                ocr_result,
+                masked_child_nodes,
+                img_shape=current_img.shape,
+            )
+            if repaired_ocr_result is not ocr_result:
+                print(
+                    f"   [TokenRepair] Node {node.id}: restored "
+                    f"{len(repaired_ocr_result) - len(ocr_result)} missing child token(s)"
+                )
+                ocr_result = repaired_ocr_result
+            filtered_ocr_result = drop_trailing_parent_bleed_artifact(ocr_result)
+            if filtered_ocr_result is not ocr_result:
+                print(f"   [BleedFilter] Node {node.id}: dropped trailing parent-line artifact")
+                ocr_result = filtered_ocr_result
 
     # Save raw VLM response for debug
     with open(output_dir / f"response_{node.id}.json", "w") as f:

@@ -311,6 +311,24 @@ Completed scratch crop follow-up after `eefa14b`:
   final `A→C`; treat this as a parent-token/prompt issue, not a bar-geometry
   issue
 
+Follow-up after `1bce994`:
+
+- parent-token/stitch collapse is fixed for
+  `tfl_fake_nested_disjunction_scratch_completed` in opt-in slanted mode with
+  no 27b route
+- the pipeline now top-anchors red child tokens, restores missing immediate
+  child placeholders from the detected tree, trims top carryover from nested
+  leaf full-width OCR crops, adjusts leaf masking so parent rows above child
+  openers remain visible, and drops the narrow trailing `E` citation fragment
+  caused by bottom bleed from the next parent line
+- latest no-27b canary:
+  `working/tfl_fake_nested_disjunction_scratch_completed_no27b_bleed_filter/`
+  reports 4 bars, 13 actual lines, 0 missing, 0 extra, 0 structural
+  mismatches, and 13/13 formulas
+- remaining misses are OCR-quality issues in justifications: missing rule
+  heads on `→E`/`∨E`, `X 7` read as a cross glyph, two off-by-one conjunction
+  citations, and final `→I 3-12` still read as `→I 3-2`
+
 Suggested next-conversation prompt:
 
 > Continue the TFL/Fitch OCR fake phone-crop work after commit `5fed00c`.

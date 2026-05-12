@@ -1,6 +1,8 @@
 import unittest
 from unittest.mock import patch
 
+import cv2
+
 from scripts import debug_fitch_ocr
 
 
@@ -337,6 +339,7 @@ class DebugFitchOcrNormalizationTests(unittest.TestCase):
 
         self.assertIn("<SUBPROOF_ID_X>", prompt)
         self.assertIn("red box token", prompt)
+        self.assertIn("large blank erased area", prompt)
         self.assertIn("visible black proof line above and below", prompt)
 
     def test_build_ocr_prompt_leaf_omits_subproof_token_instruction(self) -> None:
@@ -454,6 +457,115 @@ class DebugFitchOcrNormalizationTests(unittest.TestCase):
         debug_fitch_ocr.infer_missing_rule_heads(structure)
 
         self.assertEqual(structure[0]["jstr"], "¬I 2-6")
+
+    def test_subproof_token_baseline_stays_near_tall_mask_top(self) -> None:
+        from proofs_ocr.pipelines.tfl_fitch import _subproof_token_baseline_y
+
+        baseline_y = _subproof_token_baseline_y(y1=80, h=320, img_h=500, text_height=14)
+
+        self.assertLessEqual(baseline_y, 110)
+
+    def test_subproof_token_baseline_stays_inside_short_mask(self) -> None:
+        from proofs_ocr.pipelines.tfl_fitch import _subproof_token_baseline_y
+
+        baseline_y = _subproof_token_baseline_y(y1=80, h=28, img_h=500, text_height=14)
+
+        self.assertEqual(baseline_y, 104)
+
+    def test_repair_missing_child_tokens_inserts_before_post_child_line(self) -> None:
+        from proofs_ocr.pipelines.tfl_fitch import repair_missing_child_tokens
+
+        child = debug_fitch_ocr.SubproofNode("2", (30, 90, 20, 280))
+        ocr_result = [
+            {"line": 1, "wffstr": "A → (B ∨ C)", "jstr": ""},
+            {"line": 2, "wffstr": "A → ¬B", "jstr": ""},
+            {"line": 3, "wffstr": "A → C", "jstr": "→I 3-12"},
+        ]
+
+        repaired = repair_missing_child_tokens(ocr_result, [child], img_shape=(620, 500, 3))
+
+        self.assertEqual([row["wffstr"] for row in repaired], ["A → (B ∨ C)", "A → ¬B", "<SUBPROOF_ID_2>", "A → C"])
+
+    def test_repair_missing_child_tokens_orders_before_existing_lower_sibling(self) -> None:
+        from proofs_ocr.pipelines.tfl_fitch import repair_missing_child_tokens
+
+        upper_child = debug_fitch_ocr.SubproofNode("3", (40, 80, 20, 90))
+        lower_child = debug_fitch_ocr.SubproofNode("4", (40, 230, 20, 90))
+        ocr_result = [
+            {"line": 1, "wffstr": "A", "jstr": ""},
+            {"line": 2, "wffstr": "<SUBPROOF_ID_4>", "jstr": ""},
+            {"line": 3, "wffstr": "C", "jstr": "∨E 4,5-8,9-11"},
+        ]
+
+        repaired = repair_missing_child_tokens(ocr_result, [upper_child, lower_child], img_shape=(450, 500, 3))
+
+        self.assertEqual([row["wffstr"] for row in repaired], ["A", "<SUBPROOF_ID_3>", "<SUBPROOF_ID_4>", "C"])
+
+    def test_top_carryover_trim_y_drops_extra_top_band(self) -> None:
+        from proofs_ocr.pipelines.tfl_fitch import _top_carryover_trim_y
+
+        trim_y = _top_carryover_trim_y(
+            img_h=210,
+            bands=[(0, 49), (77, 83), (94, 121), (133, 156), (171, 193)],
+            expected_lines=4,
+        )
+
+        self.assertEqual(trim_y, 67)
+
+    def test_top_carryover_trim_y_keeps_expected_band_count(self) -> None:
+        from proofs_ocr.pipelines.tfl_fitch import _top_carryover_trim_y
+
+        trim_y = _top_carryover_trim_y(
+            img_h=210,
+            bands=[(12, 31), (58, 79), (96, 118), (140, 160)],
+            expected_lines=4,
+        )
+
+        self.assertEqual(trim_y, 0)
+
+    def test_adjusted_child_box_for_parent_mask_shifts_completed_scratch_leaf_below_carryover(self) -> None:
+        from proofs_ocr.pipelines.tfl_fitch import (
+            adjusted_child_box_for_parent_mask,
+            preprocess_slanted_phone_crop,
+        )
+
+        raw = cv2.imread(
+            "proofs_ocr/regression/fixtures/tfl/handwritten/"
+            "fake_nested_disjunction_scratch_completed/image.png"
+        )
+        img = preprocess_slanted_phone_crop(raw)
+        child = debug_fitch_ocr.SubproofNode("3", (183, 112, 35, 199))
+
+        with patch.dict("os.environ", {"TFL_FITCH_SLANTED_BAR_REPAIR": "1"}):
+            adjusted = adjusted_child_box_for_parent_mask(child, img)
+
+        self.assertGreater(adjusted[1], child.box[1])
+        self.assertLess(adjusted[3], child.box[3])
+
+    def test_drop_trailing_parent_bleed_artifact_removes_e_citation_fragment(self) -> None:
+        from proofs_ocr.pipelines.tfl_fitch import drop_trailing_parent_bleed_artifact
+
+        ocr_result = [
+            {"line": 1, "wffstr": "A", "jstr": ""},
+            {"line": 2, "wffstr": "C", "jstr": "4, 5-8 9-11"},
+            {"line": 3, "wffstr": "E", "jstr": "7, 12"},
+        ]
+
+        filtered = drop_trailing_parent_bleed_artifact(ocr_result)
+
+        self.assertEqual(len(filtered), 2)
+
+    def test_drop_trailing_parent_bleed_artifact_keeps_rule_head_line(self) -> None:
+        from proofs_ocr.pipelines.tfl_fitch import drop_trailing_parent_bleed_artifact
+
+        ocr_result = [
+            {"line": 1, "wffstr": "A", "jstr": ""},
+            {"line": 2, "wffstr": "E", "jstr": "∨E 1,2-3"},
+        ]
+
+        filtered = drop_trailing_parent_bleed_artifact(ocr_result)
+
+        self.assertIs(filtered, ocr_result)
 
 
 if __name__ == "__main__":
