@@ -19,6 +19,25 @@ class TestFuzzySnapJustification(unittest.TestCase):
         from proofs_ocr.tricks.justification_snaps import fuzzy_snap_justification
         self.assertEqual(fuzzy_snap_justification("→I O"), "→I 0")
 
+    def test_tail_Z_to_2_rescue(self):
+        from proofs_ocr.tricks.justification_snaps import fuzzy_snap_justification
+        self.assertEqual(fuzzy_snap_justification("∧E Z"), "∧E 2")
+
+    def test_clean_justification_repairs_epsilon_like_wedge_elim(self):
+        from proofs_ocr.tricks.justification_snaps import (
+            TFL_VALID_RULE_HEADS,
+            clean_justification_for_tfl,
+            fuzzy_snap_justification,
+            snap_justification_rule_head,
+        )
+
+        cleaned = clean_justification_for_tfl("8 ∈ Z")
+        snapped = snap_justification_rule_head(cleaned, valid_rules=TFL_VALID_RULE_HEADS)
+        self.assertEqual(
+            fuzzy_snap_justification(snapped, valid_rules=TFL_VALID_RULE_HEADS),
+            "∧E 2",
+        )
+
     def test_unknown_head_no_unique_match_returns_tail_fixed(self):
         from proofs_ocr.tricks.justification_snaps import fuzzy_snap_justification
         # "XX" has no unique valid mapping, tail still gets S→5
