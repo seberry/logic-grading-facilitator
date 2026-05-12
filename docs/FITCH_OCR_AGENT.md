@@ -211,6 +211,37 @@ Targeted probe result after `1a52a25`:
   could not recover the missing endpoint; keep this as a review/forced-choice
   candidate rather than a silent repair
 
+Wide fake-crop follow-up (`93cd800` and live canaries):
+
+- the original fake fixture was a same-size crop from `IMG_2146` with the right
+  edge too far left; the terminal `6` in the final `→I 2-6` was outside the
+  tracked image
+- the fixture is now a wider crop that keeps the left proof context and includes
+  that terminal citation endpoint; after preprocessing it normalizes to a
+  smaller, wider image (`714x573`)
+- line counting initially regressed because the phone-crop counter discarded the
+  real top child row as clipped carryover; the carryover drop now keys on a
+  large gap before the next row, and geometry-only checks recover 2 bars, one
+  nested child, and 5 child rows
+- run old-fixture canaries with `LMSTUDIO_MODEL_27B=''` unless explicitly testing
+  the 27b route. Accidental 27b routing can make a quick Q4 canary spend minutes
+  in LM Studio generation even when model-template thinking is reported as off
+- no-27b live canary on Q4 completed quickly and kept the expected 7-line,
+  structurally correct shape, so the wider fake-crop geometry change did not
+  show an obvious old-fixture regression
+- no-27b live canary on the wider fake implication crop exposed the next
+  bottleneck: the child crop fallback can now read line 5 as normalizable
+  `8E 2`, and the parent crop sees the final `2-6`, but the parent OCR omits
+  `<SUBPROOF_ID_2>` and still misses the final `→I` rule head
+- compacting the red subproof token and placing it nearer the scope bar made
+  the parent OCR preserve `<SUBPROOF_ID_2>` again; adding a prompt hint for
+  handwritten implication-introduction heads recovered the final `→I 2-6`
+- fake implication no-27b live canary after that change passed: 2 bars, 7
+  lines, 7/7 formulas, 7/7 justifications, 0 structural mismatches
+- old Q4 no-27b canary still completed quickly with 7 lines and 0 structural
+  mismatches; remaining formula/justification misses matched the known
+  handwriting/OCR quality pattern rather than a structural regression
+
 Suggested next-conversation prompt:
 
 > Continue the TFL/Fitch OCR fake phone-crop work after the commit that ports

@@ -919,22 +919,33 @@ def mask_subproof_in_parent(parent_img: np.ndarray, child_node: SubproofNode) ->
     # 1. Draw solid white rectangle (Erasure)
     cv2.rectangle(masked, (x1, y1), (x2, y2), (255, 255, 255), -1)
     
-    # 2. Draw Red Box for Token (Attention)
+    # 2. Draw a compact red token where the erased subproof belongs.  Keeping
+    # it close to the scope bar makes the placeholder read like a proof row
+    # instead of a floating annotation in the middle of the whiteout.
     token = f"<SUBPROOF_ID_{child_node.id}>"
-    cx, cy = x1 + 150, y1 + h // 2 # Place token somewhat to the right of the bar
+    token_x = min(w_img - 40, x1 + max(42, int(w_img * 0.08)))
+    token_y = y1 + h // 2
     
     # Calculate text size for centering
     font = cv2.FONT_HERSHEY_SIMPLEX
-    scale = 1.0
+    scale = 0.65
     thickness = 2
     (tw, th), _ = cv2.getTextSize(token, font, scale, thickness)
+    token_x = max(0, min(token_x, w_img - tw - 12))
+    token_y = max(th + 8, min(token_y, h_img - 8))
     
     # Draw red border around token
-    pad = 10
-    cv2.rectangle(masked, (cx - pad, cy - th - pad), (cx + tw + pad, cy + pad), (0, 0, 255), 2)
+    pad = 6
+    cv2.rectangle(
+        masked,
+        (token_x - pad, token_y - th - pad),
+        (token_x + tw + pad, token_y + pad),
+        (0, 0, 255),
+        2,
+    )
     
     # 3. Write Token
-    cv2.putText(masked, token, (cx, cy), font, scale, (0, 0, 255), thickness)
+    cv2.putText(masked, token, (token_x, token_y), font, scale, (0, 0, 255), thickness)
     
     return masked
 
@@ -1297,10 +1308,13 @@ def build_ocr_prompt(
         "- A sloppy K frequently looks like '1 <' or a vertical line next to a '<'. "
         "- A sloppy ampersand & (conjunction) frequently looks like an '8'. "
         "- A sloppy S frequently looks like a '5'. "
+        "- A handwritten implication-introduction justification may look like an arrow followed by a tall capital I; transcribe that rule head as '→I' before the cited range. "
     )
     if has_children:
         base += (
-            "If you see a red box token like <SUBPROOF_ID_X>, copy it exactly as the entire 'wffstr' value for that line and leave 'jstr' empty. "
+            "Every red box token like <SUBPROOF_ID_X> marks one masked child subproof. "
+            "You MUST output one proof-line object for each red token in its top-to-bottom position. "
+            "Copy the token exactly as the entire 'wffstr' value for that line and leave 'jstr' empty. "
         )
     if highlighted_box:
         base += (
