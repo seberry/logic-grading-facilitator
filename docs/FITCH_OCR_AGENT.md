@@ -244,16 +244,21 @@ Wide fake-crop follow-up (`93cd800` and live canaries):
 
 Suggested next-conversation prompt:
 
-> Continue the TFL/Fitch OCR fake phone-crop work after the commit that ports
-> slanted phone-crop preprocessing. Read `docs/FITCH_OCR_AGENT.md`, especially
-> "Fake phone-crop slant repair probe (2026-05-12)". Current state on
-> `tfl_fake_implication_intro`: opt-in slanted mode now completes quickly with
-> 2 bars, 7/7 structure, 7/7 formulas, and 5/7 justifications. Focus next on
-> what the local model is seeing for the two remaining justification misses:
-> child line 5 (`∧I 3,4` vs expected `∧E 2`) and final line 7 (`2-`/blank vs
-> expected `→I 2-6`). Prefer a cheap targeted crop/reread probe before broader
-> live runs. Keep FERPA-safe boundaries; these fake scans are instructor-authored,
-> but real student handwriting should remain external.
+> Continue the TFL/Fitch OCR fake phone-crop work after commit `5fed00c`.
+> Read `docs/FITCH_OCR_AGENT.md`, especially "Fake phone-crop slant repair
+> probe (2026-05-12)". Current baseline: `tfl_fake_implication_intro` uses a
+> wider crop from `IMG_2146`, opt-in slanted mode recovers 2 bars / 7 lines,
+> and the no-27b live canary passes with 7/7 formulas and 7/7 justifications.
+> Old Q4 no-27b canary remains structurally correct. For the next step, pick
+> the next easiest instructor-authored phone crop under
+> `working/tfl_candidate_scans/crops/` (likely a short/simple proof before the
+> scratch-heavy nested disjunction case), make sure the crop is human-like and
+> not forced into a square, then run geometry-only/preflight checks first:
+> bar count, tree shape, and child line counts. Keep `LMSTUDIO_MODEL_27B=''`
+> for quick canaries unless explicitly testing the 27b route. If geometry is
+> plausible, add or refresh the sanitized gold fixture/manifest entry and run
+> one no-27b live case. Keep FERPA-safe boundaries; these fake scans are
+> instructor-authored, but real student handwriting should remain external.
 
 ### Test files
 
