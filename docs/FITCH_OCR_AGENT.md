@@ -88,6 +88,64 @@ under `working/tfl_candidate_scans/` as a reserve stress case, but it is not in
 the active manifest because its length and messiness are less representative of
 ordinary quiz proofs.
 
+### Fake phone-crop slant repair probe (2026-05-12)
+
+The first fake fixture exposed a new input-class problem: phone-cropped lined
+paper differs sharply from the older clean PNG fixtures.
+
+Observed failure modes:
+
+- high-resolution phone crops caused severe over-detection of vertical bars
+  from handwriting strokes
+- notebook ruling and shadows confused row/line detection
+- slightly slanted Fitch bars were detected too low, so assumption/opening
+  rows were placed outside their subproof
+- repaired slanted bars could then extend too far downward and swallow a
+  post-subproof conclusion line
+
+Current opt-in experiment:
+
+```powershell
+$env:TFL_FITCH_SLANTED_BAR_REPAIR='1'
+```
+
+When enabled, `detect_vertical_bars()` uses a slant-tolerant repair path:
+
+1. wider horizontal smear before vertical morphology
+2. upward extension to nearby opener/assumption rows
+3. nested-bar trimming before large text-row gaps
+
+This flag is **off by default**. It is meant for normalized phone crops on
+lined paper, not as a replacement for the standard detector. A synthetic unit
+test covers opener-row extension, but this path still needs live-regression
+work before becoming a default.
+
+Best probe result on the easiest fake proof:
+
+- geometry became essentially correct after downscale + rough ruled-line
+  cleanup + slanted-bar repair + gap trim
+- with the correct 5-line child count forced, the inner subproof OCR produced
+  the intended formulas and justifications
+- remaining miss: the post-subproof conclusion justification was read as
+  `2-6`/blank instead of `→I 2-6`
+
+Important caution for grading: do not silently infer a missing rule head unless
+there is enough visual/textual evidence. This may be a good candidate for a
+review flag or forced-choice reread rather than an automatic proof repair.
+
+Suggested next-conversation prompt:
+
+> Continue the TFL/Fitch OCR fake phone-crop work. Start from commit after
+> `TFL_FITCH_SLANTED_BAR_REPAIR`. Read `docs/FITCH_OCR_AGENT.md`, especially
+> "Fake phone-crop slant repair probe (2026-05-12)". Focus on the easiest fake
+> implication proof. Decide whether to: (1) find a safe trigger for slanted-bar
+> repair without regressing clean fixtures, (2) repair the line counter for
+> lined-paper child crops so separated-list OCR gets the correct 5-line count,
+> (3) investigate the final `→I 2-6` miss as a visual reread/forced-choice
+> problem, or (4) move on to the next fake fixture after documenting the current
+> geometry result. Keep FERPA-safe boundaries; these fake scans are
+> instructor-authored, but real student handwriting should remain external.
+
 ### Test files
 
 | File | Purpose |

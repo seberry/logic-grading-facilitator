@@ -430,10 +430,171 @@ def _split_bars_on_gaps(
     return result
 
 
-def detect_vertical_bars(img: np.ndarray) -> List[Tuple[int, int, int, int]]:
+def _merge_vertical_bar_boxes(
+    boxes: List[Tuple[int, int, int, int]],
+    *,
+    x_threshold: int = 20,
+    y_gap_threshold: int = 100,
+) -> List[Tuple[int, int, int, int]]:
+    """Merge contour boxes that look like pieces of the same Fitch bar."""
+    boxes = sorted(boxes, key=lambda b: (b[0], b[1]))
+    if not boxes:
+        return []
+
+    merged: List[Tuple[int, int, int, int]] = []
+    curr_x, curr_y, curr_w, curr_h = boxes[0]
+    for nx, ny, nw, nh in boxes[1:]:
+        if abs(curr_x - nx) < x_threshold and (ny - (curr_y + curr_h) < y_gap_threshold):
+            new_x = min(curr_x, nx)
+            new_y = min(curr_y, ny)
+            new_w = max(curr_x + curr_w, nx + nw) - new_x
+            new_h = max(curr_y + curr_h, ny + nh) - new_y
+            curr_x, curr_y, curr_w, curr_h = new_x, new_y, new_w, new_h
+        else:
+            merged.append((curr_x, curr_y, curr_w, curr_h))
+            curr_x, curr_y, curr_w, curr_h = nx, ny, nw, nh
+    merged.append((curr_x, curr_y, curr_w, curr_h))
+    return merged
+
+
+def _dark_pixel_mask(img: np.ndarray) -> np.ndarray:
+    """Return an inverted adaptive-threshold foreground mask."""
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img
+    return cv2.adaptiveThreshold(
+        gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV, 91, 15,
+    )
+
+
+def _extend_bars_to_nearby_openers(
+    img: np.ndarray,
+    boxes: List[Tuple[int, int, int, int]],
+) -> List[Tuple[int, int, int, int]]:
+    """Extend slanted bars upward to include nearby assumption/opening rows.
+
+    Phone scans on lined paper can produce slanted proof bars whose detected
+    vertical mask starts just below the assumption line.  This repair looks for
+    a compact text row immediately above and to the right of each bar, then
+    extends the bar upward to include it.
     """
-    Returns a list of (x, y, w, h) tuples for vertical proof bars.
+    if not boxes:
+        return boxes
+
+    binary = _dark_pixel_mask(img)
+    img_h, img_w = binary.shape[:2]
+    repaired: List[Tuple[int, int, int, int]] = []
+
+    for x, y, w, h in boxes:
+        search_y1 = max(0, y - 90)
+        search_y2 = y
+        search_x1 = min(img_w - 1, x + w + 2)
+        search_x2 = min(img_w, x + w + 220)
+        new_y = y
+
+        if search_y2 > search_y1 and search_x2 > search_x1:
+            roi = binary[search_y1:search_y2, search_x1:search_x2]
+            row_counts = (roi > 0).sum(axis=1)
+            min_row_count = max(6, int(0.03 * (search_x2 - search_x1)))
+            active_rows = [idx for idx, count in enumerate(row_counts) if count >= min_row_count]
+
+            segments: List[Tuple[int, int]] = []
+            if active_rows:
+                seg_start = active_rows[0]
+                prev = active_rows[0]
+                for idx in active_rows[1:]:
+                    if idx <= prev + 2:
+                        prev = idx
+                    else:
+                        segments.append((seg_start, prev))
+                        seg_start = idx
+                        prev = idx
+                segments.append((seg_start, prev))
+
+            candidates = [
+                (search_y1 + start, search_y1 + end)
+                for start, end in segments
+                if 3 <= (end - start + 1) <= 45
+            ]
+            if candidates:
+                opener_y1, opener_y2 = max(candidates, key=lambda item: item[1])
+                if y - opener_y2 <= 45:
+                    new_y = opener_y1
+
+        repaired.append((x, new_y, w, h + (y - new_y)))
+
+    return repaired
+
+
+def _trim_nested_bars_at_text_gap(
+    img: np.ndarray,
+    boxes: List[Tuple[int, int, int, int]],
+) -> List[Tuple[int, int, int, int]]:
+    """Trim nested bars before a large text-row gap to avoid swallowing conclusions.
+
+    The slanted-bar repair can correctly extend a bar upward, but on lined
+    paper a child bar may also be vertically smeared down toward the
+    post-subproof conclusion.  For non-leftmost bars, look at text rows to the
+    right of the bar and trim before a large late gap.
     """
+    if not boxes:
+        return boxes
+
+    binary = _dark_pixel_mask(img)
+    _img_h, img_w = binary.shape[:2]
+    min_x = min(box[0] for box in boxes)
+    repaired: List[Tuple[int, int, int, int]] = []
+
+    for x, y, w, h in boxes:
+        new_h = h
+        x1 = min(img_w - 1, x + w + 5)
+        x2 = min(img_w, x + w + 420)
+
+        if x2 > x1 and h > 100 and x > min_x + 10:
+            roi = binary[y:y + h, x1:x2]
+            hline_mask = cv2.morphologyEx(
+                roi,
+                cv2.MORPH_OPEN,
+                cv2.getStructuringElement(cv2.MORPH_RECT, (55, 1)),
+            )
+            text_mask = cv2.subtract(roi, hline_mask)
+            row_counts = (text_mask > 0).sum(axis=1)
+            min_row_count = max(4, int(0.02 * (x2 - x1)))
+            active_rows = [idx for idx, count in enumerate(row_counts) if count >= min_row_count]
+
+            segments: List[Tuple[int, int]] = []
+            if active_rows:
+                seg_start = active_rows[0]
+                prev = active_rows[0]
+                for idx in active_rows[1:]:
+                    if idx <= prev + 3:
+                        prev = idx
+                    else:
+                        segments.append((seg_start, prev))
+                        seg_start = idx
+                        prev = idx
+                segments.append((seg_start, prev))
+
+            segments = [
+                (start, end)
+                for start, end in segments
+                if (end - start + 1) >= 10
+            ]
+            gaps = [
+                (segments[idx - 1][1], segments[idx][0], segments[idx][0] - segments[idx - 1][1])
+                for idx in range(1, len(segments))
+            ]
+            if gaps:
+                prev_end, next_start, gap = max(gaps, key=lambda item: item[2])
+                if gap >= 28 and next_start >= h * 0.55:
+                    new_h = min(h, prev_end + 10)
+
+        repaired.append((x, y, w, new_h))
+
+    return repaired
+
+
+def _detect_vertical_bars_standard(img: np.ndarray) -> List[Tuple[int, int, int, int]]:
+    """Standard vertical-bar detector for clean-ish handwritten fixtures."""
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     
     # Adaptive Threshold (same params as bold_fitch_lines.py)
@@ -455,25 +616,7 @@ def detect_vertical_bars(img: np.ndarray) -> List[Tuple[int, int, int, int]]:
 
     # 4. Merge Logic (Simplified version of bold_fitch_lines.merge_vertical_segments)
     boxes = [cv2.boundingRect(c) for c in contours]
-    boxes.sort(key=lambda b: (b[0], b[1])) # Sort by X then Y
-
-    merged = []
-    if not boxes:
-        return []
-
-    curr_x, curr_y, curr_w, curr_h = boxes[0]
-    for nx, ny, nw, nh in boxes[1:]:
-        # Merge if close in X (same column) and Y (close vertically)
-        if abs(curr_x - nx) < 20 and (ny - (curr_y + curr_h) < 100):
-            new_x = min(curr_x, nx)
-            new_y = min(curr_y, ny)
-            new_w = max(curr_x + curr_w, nx + nw) - new_x
-            new_h = max(curr_y + curr_h, ny + nh) - new_y
-            curr_x, curr_y, curr_w, curr_h = new_x, new_y, new_w, new_h
-        else:
-            merged.append((curr_x, curr_y, curr_w, curr_h))
-            curr_x, curr_y, curr_w, curr_h = nx, ny, nw, nh
-    merged.append((curr_x, curr_y, curr_w, curr_h))
+    merged = _merge_vertical_bar_boxes(boxes)
 
     # Post-merge: split bars that have significant vertical gaps (e.g. two
     # adjacent subproofs at the same X position that were erroneously merged).
@@ -482,6 +625,38 @@ def detect_vertical_bars(img: np.ndarray) -> List[Tuple[int, int, int, int]]:
     # Filter out noise (very short lines)
     final_boxes = [b for b in split if b[3] > 50]
     return final_boxes
+
+
+def _detect_vertical_bars_slanted_repair(img: np.ndarray) -> List[Tuple[int, int, int, int]]:
+    """Slant-tolerant detector for normalized phone crops on lined paper.
+
+    This is deliberately opt-in. It widens the horizontal smear before vertical
+    opening so slightly slanted Fitch bars survive, extends bars upward to
+    nearby opener rows, and trims nested bars before large row gaps so they do
+    not swallow post-subproof conclusion lines.
+    """
+    binary = _dark_pixel_mask(img)
+
+    dilate_width = max(6, _env_int("TFL_FITCH_SLANTED_BAR_DILATE_WIDTH", 22) or 22)
+    dilated = cv2.dilate(binary, np.ones((1, dilate_width), np.uint8), iterations=1)
+    vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 80))
+    vertical_mask = cv2.morphologyEx(dilated, cv2.MORPH_OPEN, vertical_kernel)
+
+    contours, _ = cv2.findContours(vertical_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    boxes = [cv2.boundingRect(c) for c in contours]
+    merged = _merge_vertical_bar_boxes(boxes)
+    split = [box for box in _split_bars_on_gaps(img, merged) if box[3] > 50]
+    extended = _extend_bars_to_nearby_openers(img, split)
+    return _trim_nested_bars_at_text_gap(img, extended)
+
+
+def detect_vertical_bars(img: np.ndarray) -> List[Tuple[int, int, int, int]]:
+    """
+    Returns a list of (x, y, w, h) tuples for vertical proof bars.
+    """
+    if _env_flag("TFL_FITCH_SLANTED_BAR_REPAIR"):
+        return _detect_vertical_bars_slanted_repair(img)
+    return _detect_vertical_bars_standard(img)
 
 
 def filter_scaffold_bars(

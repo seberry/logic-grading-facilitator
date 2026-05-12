@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from scripts import debug_fitch_ocr
 
@@ -56,6 +57,30 @@ class TestCountTextLinesInRegion(unittest.TestCase):
         img[40:60, 50:250] = 0   # band 1
         img[130:150, 50:250] = 0  # band 2
         self.assertEqual(count_text_lines_in_region(img), 2)
+
+
+class TestSlantedBarRepair(unittest.TestCase):
+    def test_slanted_bar_repair_extends_nested_bar_to_opener_row(self) -> None:
+        import cv2
+        import numpy as np
+        from proofs_ocr.pipelines.tfl_fitch import detect_vertical_bars
+
+        img = np.ones((430, 700, 3), dtype=np.uint8) * 255
+        cv2.line(img, (125, 25), (110, 370), (0, 0, 0), 3)
+        cv2.line(img, (165, 105), (150, 350), (0, 0, 0), 3)
+
+        # Dark text rows to the right of the bars.  The row at y=70 stands in
+        # for an assumption/opener that the slanted inner bar should include.
+        for y in [70, 105, 155, 205, 255, 345]:
+            cv2.rectangle(img, (180, y), (300, y + 18), (0, 0, 0), -1)
+
+        with patch.dict("os.environ", {"TFL_FITCH_SLANTED_BAR_REPAIR": "1"}):
+            boxes = detect_vertical_bars(img)
+
+        self.assertEqual(len(boxes), 2)
+        outer, inner = sorted(boxes, key=lambda box: box[0])
+        self.assertLessEqual(outer[1], 30)
+        self.assertLessEqual(inner[1], 75)
 
 
 class TestBuildOcrPromptWithExpectedLines(unittest.TestCase):
