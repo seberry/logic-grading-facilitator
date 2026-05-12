@@ -349,7 +349,10 @@ def _split_bars_on_gaps(
         gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
         cv2.THRESH_BINARY_INV, 91, 15,
     )
-    dilate_kernel = np.ones((1, 6), np.uint8)
+    dilate_width = 6
+    if _env_flag("TFL_FITCH_SLANTED_BAR_REPAIR"):
+        dilate_width = max(6, _env_int("TFL_FITCH_SLANTED_BAR_DILATE_WIDTH", 22) or 22)
+    dilate_kernel = np.ones((1, dilate_width), np.uint8)
     dilated = cv2.dilate(binary, dilate_kernel, iterations=1)
     vert_kern = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 80))
     vert_mask = cv2.morphologyEx(dilated, cv2.MORPH_OPEN, vert_kern)
@@ -1140,6 +1143,35 @@ def _estimate_lined_paper_line_count(img: np.ndarray) -> int:
             count += max(1, round(height / ref_height))
         else:
             count += 1
+
+    if count == 2:
+        # Short phone-crop subproofs can merge two adjacent handwritten rows
+        # into one smoothed band when a long justification bridges the rows.
+        # Use a stricter unsmoothed projection only when it cleanly separates
+        # the crop into exactly three substantial text rows.
+        high_threshold = max(20.0, float(row_counts.max()) * 0.20)
+        high_active = np.where(row_counts >= high_threshold)[0]
+        high_bands: List[Tuple[int, int]] = []
+        if high_active.size:
+            start = int(high_active[0])
+            prev = int(high_active[0])
+            for row in high_active[1:]:
+                row = int(row)
+                if row <= prev + 3:
+                    prev = row
+                    continue
+                high_bands.append((start, prev))
+                start = row
+                prev = row
+            high_bands.append((start, prev))
+        high_bands = [
+            (start, end)
+            for start, end in high_bands
+            if (end - start + 1) >= 3
+        ]
+        if len(high_bands) == 3:
+            return 3
+
     return count
 
 
@@ -1658,9 +1690,10 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
             rel_child = SubproofNode(child.id, rel_box)
             current_img = mask_subproof_in_parent(current_img, rel_child)
 
-    # Capture the original crop height before any letterboxing changes it,
-    # since the context-crop decision should be based on the real content size.
+    # Capture the real crop before any letterboxing changes it, since context
+    # decisions and line counting should be based on the actual crop geometry.
     original_crop_h = current_img.shape[0]
+    line_count_img = current_img
     is_leaf = not sorted_children
 
     # 3. Save & OCR
@@ -1724,7 +1757,7 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
         # hallucinations.  Controlled by USE_LINE_COUNT_CONSTRAINT flag.
         expected_lines = None
         if USE_LINE_COUNT_CONSTRAINT and is_leaf:
-            expected_lines = estimate_line_count(current_img)
+            expected_lines = estimate_line_count(line_count_img)
             print(f"   [LineCount] Node {node.id}: detected {expected_lines} text line(s)")
 
         # Model routing: use the larger 27b model for small leaf crops where

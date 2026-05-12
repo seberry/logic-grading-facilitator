@@ -292,6 +292,25 @@ Shadow-preprocess probe on remaining fake candidate crops:
   failures from those cleaned preflight artifacts rather than from the old
   global-threshold blobs
 
+Completed scratch crop follow-up after `eefa14b`:
+
+- refreshed preflight artifacts are under
+  `working/tfl_candidate_scans/geometry_preflight_auto_after_linecount_fix/`
+- `fake_long_disjunction_elim` is still reserve-only: it detects 2 bars but
+  the line-count signal is implausible (`ROOT`/full-width count 44)
+- `fake_nested_disjunction_scratch_completed` now has plausible geometry after
+  making slanted gap-splitting use the same wider smear as slanted detection:
+  4 bars, tree `ROOT -> 1 -> 2 -> {3,4}`, and child crop counts 4 and 3
+- the completed scratch crop has been promoted as
+  `tfl_fake_nested_disjunction_scratch_completed` with sanitized gold and
+  semantic notes for `X 7` and the intentional `∧E 9` citation error
+- no-27b canary still fails structurally:
+  `working/tfl_fake_nested_disjunction_scratch_completed_no27b_final/`
+  accepted the two inner leaf OCR calls at 4 and 3 lines, but parent OCR
+  omitted `<SUBPROOF_ID_2>` and collapsed the result to the two premises plus
+  final `A→C`; treat this as a parent-token/prompt issue, not a bar-geometry
+  issue
+
 Suggested next-conversation prompt:
 
 > Continue the TFL/Fitch OCR fake phone-crop work after commit `5fed00c`.

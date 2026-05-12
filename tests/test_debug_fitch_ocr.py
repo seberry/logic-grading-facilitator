@@ -229,6 +229,55 @@ class TestSlantedBarRepair(unittest.TestCase):
         self.assertLess(outer[0], inner[0])
         self.assertGreaterEqual(inner[3], 100)
 
+    def test_slanted_phone_preprocess_recovers_completed_scratch_geometry(self) -> None:
+        import cv2
+        from pathlib import Path
+        from proofs_ocr.pipelines.tfl_fitch import (
+            build_proof_tree,
+            crop_region,
+            detect_vertical_bars,
+            estimate_line_count,
+            filter_scaffold_bars,
+            preprocess_slanted_phone_crop,
+        )
+
+        fixture_path = (
+            Path(__file__).resolve().parents[1]
+            / "proofs_ocr"
+            / "regression"
+            / "fixtures"
+            / "tfl"
+            / "handwritten"
+            / "fake_nested_disjunction_scratch_completed"
+            / "image.png"
+        )
+        img = cv2.imread(str(fixture_path))
+        self.assertIsNotNone(img)
+
+        with patch.dict("os.environ", {
+            "TFL_FITCH_SLANTED_BAR_REPAIR": "1",
+            "TFL_FITCH_SLANTED_PHONE_PREPROCESS_MODE": "auto",
+        }):
+            normalized = preprocess_slanted_phone_crop(img)
+            bars = filter_scaffold_bars(
+                detect_vertical_bars(normalized),
+                img_w=normalized.shape[1],
+                img_h=normalized.shape[0],
+            )
+            tree = build_proof_tree(bars, normalized.shape[1], normalized.shape[0])
+            outer = tree.children[0]
+            disjunction_block = outer.children[0]
+            child_line_counts = [
+                estimate_line_count(crop_region(normalized, child.box))
+                for child in disjunction_block.children
+            ]
+
+        self.assertEqual(len(bars), 4)
+        self.assertEqual(len(tree.children), 1)
+        self.assertEqual(len(outer.children), 1)
+        self.assertEqual(len(disjunction_block.children), 2)
+        self.assertEqual(child_line_counts, [4, 3])
+
 
 class TestBuildOcrPromptWithExpectedLines(unittest.TestCase):
     """Tests for the expected_lines parameter in build_ocr_prompt."""

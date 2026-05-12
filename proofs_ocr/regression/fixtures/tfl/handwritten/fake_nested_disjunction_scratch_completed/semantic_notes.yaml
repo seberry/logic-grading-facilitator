@@ -1,0 +1,8 @@
+case_id: tfl_fake_nested_disjunction_scratch_completed
+notes:
+  - line: 8
+    kind: "derived_rule"
+    note: "The handwritten proof uses X for explosion / ex falso from contradiction on line 7."
+  - line: 11
+    kind: "intentional_error"
+    note: "The image is transcribed as written: line 11 cites ∧E 9. The semantically correct citation would be ∧E 10."
