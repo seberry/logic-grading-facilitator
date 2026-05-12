@@ -36,6 +36,16 @@ Treat these as local/manual workflows. They may require LM Studio or another
 running local VLM endpoint. When a live OCR run is enabled, expect strict
 gold-match failures until the handwritten pipeline actually improves.
 
+For OCR behavior changes, assume the user usually wants a bounded slow run
+after the fast tests pass. Default to the smallest relevant live case first
+using `--case ... --output-root working/<descriptive_run_name>`, then summarize
+whether the change helped before proposing broader runs.
+
+Before a live OCR run on new proof geometry, confirm the pre-VLM structure first:
+bar count, subproof tree shape, and leaf line counts should be plausible. Small
+leaf crops can route to slower verifier/larger-model paths, so bar
+over-detection can multiply expensive calls quickly.
+
 ## OCR architecture
 
 Handwritten Fitch/TFL OCR currently flows through:

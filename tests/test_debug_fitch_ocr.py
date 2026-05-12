@@ -58,6 +58,50 @@ class TestCountTextLinesInRegion(unittest.TestCase):
         img[130:150, 50:250] = 0  # band 2
         self.assertEqual(count_text_lines_in_region(img), 2)
 
+    def test_slanted_repair_line_count_ignores_lined_paper_and_clipped_top_row(self) -> None:
+        import cv2
+        import numpy as np
+        from proofs_ocr.pipelines.tfl_fitch import estimate_line_count
+
+        img = np.ones((620, 900, 3), dtype=np.uint8) * 236
+        for y in [20, 120, 220, 320, 420, 520, 610]:
+            cv2.line(img, (0, y), (899, y), (145, 145, 145), 2)
+
+        # Clipped carryover from the row above the child crop.
+        cv2.putText(img, "A ->", (80, 28), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (25, 25, 25), 4)
+
+        for index, y in enumerate([95, 205, 315, 425, 535], start=2):
+            cv2.putText(img, f"A{index}", (120, y + 35), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (25, 25, 25), 4)
+            cv2.putText(img, f"E {index}", (500, y + 38), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (25, 25, 25), 4)
+
+        with patch.dict("os.environ", {"TFL_FITCH_SLANTED_BAR_REPAIR": "1"}):
+            self.assertEqual(estimate_line_count(img), 5)
+
+    def test_slanted_repair_line_count_handles_fake_implication_child_crop(self) -> None:
+        import cv2
+        from pathlib import Path
+        from proofs_ocr.pipelines.tfl_fitch import estimate_line_count
+
+        fixture_path = (
+            Path(__file__).resolve().parents[1]
+            / "proofs_ocr"
+            / "regression"
+            / "fixtures"
+            / "tfl"
+            / "handwritten"
+            / "fake_implication_intro"
+            / "image.png"
+        )
+        img = cv2.imread(str(fixture_path))
+        self.assertIsNotNone(img)
+
+        # Approximate the 5-line child subproof crop after slanted-bar repair.
+        # The top padding intentionally includes clipped ink from line 1.
+        child_crop = img[518:1588, 379:]
+
+        with patch.dict("os.environ", {"TFL_FITCH_SLANTED_BAR_REPAIR": "1"}):
+            self.assertEqual(estimate_line_count(child_crop), 5)
+
 
 class TestSlantedBarRepair(unittest.TestCase):
     def test_slanted_bar_repair_extends_nested_bar_to_opener_row(self) -> None:
@@ -81,6 +125,45 @@ class TestSlantedBarRepair(unittest.TestCase):
         outer, inner = sorted(boxes, key=lambda box: box[0])
         self.assertLessEqual(outer[1], 30)
         self.assertLessEqual(inner[1], 75)
+
+    def test_slanted_phone_preprocess_recovers_fake_implication_geometry(self) -> None:
+        import cv2
+        from pathlib import Path
+        from proofs_ocr.pipelines.tfl_fitch import (
+            build_proof_tree,
+            detect_vertical_bars,
+            filter_scaffold_bars,
+            preprocess_slanted_phone_crop,
+        )
+
+        fixture_path = (
+            Path(__file__).resolve().parents[1]
+            / "proofs_ocr"
+            / "regression"
+            / "fixtures"
+            / "tfl"
+            / "handwritten"
+            / "fake_implication_intro"
+            / "image.png"
+        )
+        img = cv2.imread(str(fixture_path))
+        self.assertIsNotNone(img)
+
+        with patch.dict("os.environ", {"TFL_FITCH_SLANTED_BAR_REPAIR": "1"}):
+            normalized = preprocess_slanted_phone_crop(img)
+            bars = filter_scaffold_bars(
+                detect_vertical_bars(normalized),
+                img_w=normalized.shape[1],
+                img_h=normalized.shape[0],
+            )
+            tree = build_proof_tree(bars, normalized.shape[1], normalized.shape[0])
+
+        self.assertEqual(len(bars), 2)
+        self.assertEqual(len(tree.children), 1)
+        self.assertEqual(len(tree.children[0].children), 1)
+        outer = tree.children[0].box
+        inner = tree.children[0].children[0].box
+        self.assertLess(inner[0] - outer[0], 80)
 
 
 class TestBuildOcrPromptWithExpectedLines(unittest.TestCase):

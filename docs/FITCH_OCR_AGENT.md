@@ -129,22 +129,83 @@ Best probe result on the easiest fake proof:
 - remaining miss: the post-subproof conclusion justification was read as
   `2-6`/blank instead of `→I 2-6`
 
+Follow-up implemented after `62d4c68`:
+
+- chose the 5-line child-count repair as the next lowest-risk step
+- when `TFL_FITCH_SLANTED_BAR_REPAIR=1`, leaf line counting now uses a
+  ruled-paper-aware text mask that removes horizontal ruling and vertical
+  scope bars, then drops clipped top-edge carryover from the previous row
+- the fake implication child crop now estimates 5 lines instead of the
+  default detector's 7-line count; this keeps the separated-list prompt on
+  the intended shape
+- the final `→I 2-6` miss remains a visual reread/forced-choice candidate;
+  do not silently infer that rule head from checker context alone
+
+Slow canary result:
+
+- command attempted:
+  `python -m proofs_ocr.regression.tfl_runner run-gold --case tfl_fake_implication_intro --output-root working/tfl_fake_implication_slanted_linecount`
+  with `TFL_FITCH_SLANTED_BAR_REPAIR=1`
+- the run was stopped after it spent too long OCRing over-detected crop nodes
+- `debug_bars.jpg` showed about 50 detected bar-like boxes, mostly handwriting
+  strokes and rule/letter artifacts, so this did not reach the clean two-bar
+  geometry needed for the new 5-line child-count repair to matter end-to-end
+- partial OCR evidence still matched the known direction: a large whole-proof
+  crop could read most lines, but the geometry split the proof into many
+  irrelevant child crops
+- next live work should add a cheap geometry-only canary before VLM calls:
+  detect/filter bars, write `debug_bars.jpg`, report bar count/tree shape and
+  candidate child line counts, then only run VLM when geometry is plausible
+- reason: small leaf crops can trigger the slower larger-model routing, so
+  over-detected bars can multiply expensive LLM calls before the proof-level
+  result has any chance of improving
+
+Follow-up geometry port:
+
+- the slow run was broken because it used the raw tracked fixture directly,
+  while the good probe used a normalized phone crop (`no_hlines...scale...`):
+  downscaled, thresholded, and rough horizontal ruling removed
+- `TFL_FITCH_SLANTED_BAR_REPAIR=1` now also normalizes high-resolution phone
+  crops before geometry unless `TFL_FITCH_SLANTED_PHONE_PREPROCESS=0`
+- a pre-OCR guard writes `debug_bars.jpg` and aborts if slanted mode still
+  detects more than `TFL_FITCH_SLANTED_MAX_BARS_BEFORE_OCR` bars
+- geometry-only fake implication preflight now recovers two bars, one nested
+  child, and a 5-line child crop before any VLM calls
+- bounded live rerun after geometry preflight:
+  `python -m proofs_ocr.regression.tfl_runner run-gold --case tfl_fake_implication_intro --output-root working/tfl_fake_implication_slanted_preprocessed`
+  with `TFL_FITCH_SLANTED_BAR_REPAIR=1`
+- result: completed quickly with 2 bars, 7 lines, 1 premise; structure 7/7,
+  formulas 7/7, justifications 5/7
+- remaining misses: child line 5 justification read as `∧I 3,4` instead of
+  `∧E 2`, and final line's visible `→I 2-6` was still only read as `2-`/blank
+  before defaulting to `Hyp`
+
 Important caution for grading: do not silently infer a missing rule head unless
 there is enough visual/textual evidence. This may be a good candidate for a
 review flag or forced-choice reread rather than an automatic proof repair.
 
+Recommended next step:
+
+Investigate what the local model is seeing for the two remaining justification
+misses before moving to the next fixture or trying to make this path automatic.
+The current fake implication run has good geometry and perfect formula/structure
+metrics, so the remaining uncertainty is now crop/prompt/justification-reading
+quality, not tree construction. Use saved artifacts from
+`working/tfl_fake_implication_slanted_preprocessed/tfl_fake_implication_intro/`
+or rerun the single case after a targeted reread/probe change.
+
 Suggested next-conversation prompt:
 
-> Continue the TFL/Fitch OCR fake phone-crop work. Start from commit after
-> `TFL_FITCH_SLANTED_BAR_REPAIR`. Read `docs/FITCH_OCR_AGENT.md`, especially
-> "Fake phone-crop slant repair probe (2026-05-12)". Focus on the easiest fake
-> implication proof. Decide whether to: (1) find a safe trigger for slanted-bar
-> repair without regressing clean fixtures, (2) repair the line counter for
-> lined-paper child crops so separated-list OCR gets the correct 5-line count,
-> (3) investigate the final `→I 2-6` miss as a visual reread/forced-choice
-> problem, or (4) move on to the next fake fixture after documenting the current
-> geometry result. Keep FERPA-safe boundaries; these fake scans are
-> instructor-authored, but real student handwriting should remain external.
+> Continue the TFL/Fitch OCR fake phone-crop work after the commit that ports
+> slanted phone-crop preprocessing. Read `docs/FITCH_OCR_AGENT.md`, especially
+> "Fake phone-crop slant repair probe (2026-05-12)". Current state on
+> `tfl_fake_implication_intro`: opt-in slanted mode now completes quickly with
+> 2 bars, 7/7 structure, 7/7 formulas, and 5/7 justifications. Focus next on
+> what the local model is seeing for the two remaining justification misses:
+> child line 5 (`∧I 3,4` vs expected `∧E 2`) and final line 7 (`2-`/blank vs
+> expected `→I 2-6`). Prefer a cheap targeted crop/reread probe before broader
+> live runs. Keep FERPA-safe boundaries; these fake scans are instructor-authored,
+> but real student handwriting should remain external.
 
 ### Test files
 
@@ -279,6 +340,17 @@ The main development loop is:
 6. **Report** — Summarize what changed vs. the previous baseline: line counts, formula/justification match rates, new passes or regressions
 7. **Commit results** — After a successful iteration (tests pass, regressions improve or hold steady), commit all changes including documentation updates: `git add -A && git commit -m "feat: description of improvement and results"`
 8. **Plan next tweak** — Based on failure patterns
+
+Default slow-test habit: after implementing an OCR fix/change and passing fast
+tests, run the smallest relevant live gold case unless the user says not to.
+Prefer `python -m proofs_ocr.regression.tfl_runner run-gold --case <case_id>
+--output-root working/<descriptive_run_name>` before spending time on the full
+suite. Report whether the slow run improved, held steady, or regressed.
+
+Before invoking the live VLM on a new crop class, do a geometry-only preflight:
+write/inspect `debug_bars.jpg`, confirm the subproof tree shape, and check leaf
+line counts. This matters because small detected leaf crops can route to the
+super-slow larger-model path, so over-detection can create many expensive calls.
 
 ### Commit Policy
 

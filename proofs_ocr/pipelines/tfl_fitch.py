@@ -647,7 +647,29 @@ def _detect_vertical_bars_slanted_repair(img: np.ndarray) -> List[Tuple[int, int
     merged = _merge_vertical_bar_boxes(boxes)
     split = [box for box in _split_bars_on_gaps(img, merged) if box[3] > 50]
     extended = _extend_bars_to_nearby_openers(img, split)
-    return _trim_nested_bars_at_text_gap(img, extended)
+    trimmed = _trim_nested_bars_at_text_gap(img, extended)
+    return _filter_slanted_repair_bar_candidates(trimmed, img_shape=img.shape)
+
+
+def _filter_slanted_repair_bar_candidates(
+    boxes: List[Tuple[int, int, int, int]],
+    *,
+    img_shape: Tuple[int, ...],
+) -> List[Tuple[int, int, int, int]]:
+    """Drop obvious right-side handwriting strokes from phone-crop repair mode."""
+    if len(boxes) <= 2:
+        return boxes
+
+    img_h, img_w = img_shape[:2]
+    min_x = min(box[0] for box in boxes)
+    max_scope_x = min_x + max(120, int(img_w * 0.18))
+    min_scope_height = max(50, int(img_h * 0.12))
+    filtered = [
+        box
+        for box in boxes
+        if box[0] <= max_scope_x and box[3] >= min_scope_height
+    ]
+    return filtered or boxes
 
 
 def detect_vertical_bars(img: np.ndarray) -> List[Tuple[int, int, int, int]]:
@@ -657,6 +679,40 @@ def detect_vertical_bars(img: np.ndarray) -> List[Tuple[int, int, int, int]]:
     if _env_flag("TFL_FITCH_SLANTED_BAR_REPAIR"):
         return _detect_vertical_bars_slanted_repair(img)
     return _detect_vertical_bars_standard(img)
+
+
+def preprocess_slanted_phone_crop(img: np.ndarray) -> np.ndarray:
+    """Normalize high-resolution lined-paper phone crops before geometry.
+
+    The fake phone-crop probes that produced good geometry did not feed the raw
+    camera crop directly to bar detection.  They first downscaled the image,
+    thresholded it, and removed long horizontal ruling.  Keep this behavior
+    behind the slanted repair flag so clean handwritten fixtures still use the
+    historical image path.
+    """
+    if img.size == 0:
+        return img
+
+    if not _env_flag("TFL_FITCH_SLANTED_PHONE_PREPROCESS", True):
+        return img
+
+    img_h, img_w = img.shape[:2]
+    target_max_dim = max(100, _env_int("TFL_FITCH_SLANTED_PREPROCESS_MAX_DIM", 714) or 714)
+    scale = min(1.0, target_max_dim / max(img_h, img_w))
+    if scale < 1.0:
+        img = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img
+    threshold = max(0, min(255, _env_int("TFL_FITCH_SLANTED_PREPROCESS_THRESHOLD", 110) or 110))
+    _, bw = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY)
+
+    inv = 255 - bw
+    h, w = bw.shape[:2]
+    horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (max(30, int(w * 0.20)), 1))
+    horizontal_mask = cv2.morphologyEx(inv, cv2.MORPH_OPEN, horizontal_kernel)
+    bw[horizontal_mask > 0] = 255
+
+    return cv2.cvtColor(bw, cv2.COLOR_GRAY2BGR)
 
 
 def filter_scaffold_bars(
@@ -900,6 +956,11 @@ def estimate_line_count(img: np.ndarray) -> int:
 
     Returns 0 if the image is too small or no bands are found.
     """
+    if _env_flag("TFL_FITCH_SLANTED_BAR_REPAIR"):
+        lined_count = _estimate_lined_paper_line_count(img)
+        if lined_count > 0:
+            return lined_count
+
     bands = detect_text_row_bands(img)
     if not bands:
         return 0
@@ -921,6 +982,91 @@ def estimate_line_count(img: np.ndarray) -> int:
         else:
             count += 1
     return count
+
+
+def _estimate_lined_paper_line_count(img: np.ndarray) -> int:
+    """Estimate text rows for phone crops on ruled paper.
+
+    The default row-band detector works well on clean crops, but lined-paper
+    phone crops can leave ruling/shadow residuals that merge several proof rows
+    into oversized bands.  This opt-in counter removes long horizontal ruling
+    and vertical scope bars before grouping the remaining handwriting pixels.
+    It also drops a clipped top-edge band, which occurs when a child subproof
+    crop begins just below the previous parent row but padding still includes
+    its descenders/underline.
+    """
+    if img.size == 0:
+        return 0
+
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if len(img.shape) == 3 else img
+    img_h, img_w = gray.shape[:2]
+    if img_h < 20 or img_w < 40:
+        return 0
+
+    dark = cv2.adaptiveThreshold(
+        gray,
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV,
+        91,
+        15,
+    )
+
+    horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (max(80, int(img_w * 0.12)), 1))
+    vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, max(80, int(img_h * 0.22))))
+    horizontal_mask = cv2.morphologyEx(dark, cv2.MORPH_OPEN, horizontal_kernel)
+    vertical_mask = cv2.morphologyEx(dark, cv2.MORPH_OPEN, vertical_kernel)
+
+    text_mask = dark.copy()
+    text_mask[horizontal_mask > 0] = 0
+    text_mask[vertical_mask > 0] = 0
+
+    left = min(img_w - 1, max(24, int(img_w * 0.04)))
+    right = max(left + 1, min(img_w, int(img_w * 0.94)))
+    focused = text_mask[:, left:right]
+    if focused.size == 0:
+        return 0
+
+    row_counts = focused.sum(axis=1).astype(np.float32) / 255.0
+    if float(row_counts.max(initial=0.0)) <= 0:
+        return 0
+
+    smooth_window = max(9, min(25, img_h // 45 if img_h >= 405 else 9))
+    if smooth_window % 2 == 0:
+        smooth_window += 1
+    smoothed = np.convolve(row_counts, np.ones(smooth_window, dtype=np.float32) / smooth_window, mode="same")
+    threshold = max(8.0, float(smoothed.max()) * 0.18)
+    active_rows = np.where(smoothed >= threshold)[0]
+    if active_rows.size == 0:
+        return 0
+
+    max_gap = max(5, img_h // 120)
+    bands: List[Tuple[int, int]] = []
+    start = int(active_rows[0])
+    prev = int(active_rows[0])
+    for row in active_rows[1:]:
+        row = int(row)
+        if row <= prev + max_gap:
+            prev = row
+            continue
+        bands.append((start, prev))
+        start = row
+        prev = row
+    bands.append((start, prev))
+
+    min_height = max(9, img_h // 140)
+    bands = [(start, end) for start, end in bands if (end - start + 1) >= min_height]
+    if not bands:
+        return 0
+
+    if len(bands) >= 2 and bands[0][0] <= max(8, img_h // 80):
+        first_height = bands[0][1] - bands[0][0] + 1
+        next_gap = bands[1][0] - bands[0][1] - 1
+        median_height = sorted(end - start + 1 for start, end in bands)[len(bands) // 2]
+        if first_height >= median_height * 1.15 or next_gap >= max(18, img_h // 45):
+            bands = bands[1:]
+
+    return len(bands)
 
 
 #: Enable line-count estimation for leaf crops using the shared morphological
@@ -1704,6 +1850,8 @@ def run_fitch_ocr_pipeline(
     img = cv2.imread(str(image_path))
     if img is None:
         raise FileNotFoundError(f"Could not read image: {image_path}")
+    if _env_flag("TFL_FITCH_SLANTED_BAR_REPAIR"):
+        img = preprocess_slanted_phone_crop(img)
 
     # 2. Detect bars & build tree
     bars = detect_vertical_bars(img)
@@ -1715,6 +1863,14 @@ def run_fitch_ocr_pipeline(
         cv2.rectangle(debug_img, (x, y), (x + w, y + h), (0, 255, 0), 2)
         cv2.putText(debug_img, str(i + 1), (x, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
     cv2.imwrite(str(output_dir / "debug_bars.jpg"), debug_img)
+
+    max_slanted_bars = _env_int("TFL_FITCH_SLANTED_MAX_BARS_BEFORE_OCR", 6) or 6
+    if _env_flag("TFL_FITCH_SLANTED_BAR_REPAIR") and len(bars) > max_slanted_bars:
+        raise RuntimeError(
+            "Slanted phone-crop geometry is implausible before OCR: "
+            f"detected {len(bars)} bar candidates after preprocessing "
+            f"(max {max_slanted_bars})."
+        )
 
     tree_root = build_proof_tree(bars, img.shape[1], img.shape[0])
 
@@ -1785,6 +1941,8 @@ def main():
 
     # 1. Load Image
     img = cv2.imread(str(raw_scan_path))
+    if _env_flag("TFL_FITCH_SLANTED_BAR_REPAIR"):
+        img = preprocess_slanted_phone_crop(img)
     
     # 2. Detect Bars & Build Tree
     bars = detect_vertical_bars(img)
@@ -1797,6 +1955,14 @@ def main():
         cv2.rectangle(debug_img, (x, y), (x+w, y+h), (0, 255, 0), 2)
         cv2.putText(debug_img, str(i+1), (x, y-5), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
     cv2.imwrite(str(output_base / "debug_bars.jpg"), debug_img)
+
+    max_slanted_bars = _env_int("TFL_FITCH_SLANTED_MAX_BARS_BEFORE_OCR", 6) or 6
+    if _env_flag("TFL_FITCH_SLANTED_BAR_REPAIR") and len(bars) > max_slanted_bars:
+        raise RuntimeError(
+            "Slanted phone-crop geometry is implausible before OCR: "
+            f"detected {len(bars)} bar candidates after preprocessing "
+            f"(max {max_slanted_bars})."
+        )
 
     tree_root = build_proof_tree(bars, img.shape[1], img.shape[0])
     
