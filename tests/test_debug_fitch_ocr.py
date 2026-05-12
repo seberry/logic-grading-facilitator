@@ -116,7 +116,7 @@ class TestCountTextLinesInRegion(unittest.TestCase):
 
         # Approximate the 5-line child subproof crop after slanted-bar repair.
         # The top padding intentionally includes clipped ink from line 1.
-        child_crop = img[518:1588, 379:]
+        child_crop = img[518:1588, 160:]
 
         with patch.dict("os.environ", {"TFL_FITCH_SLANTED_BAR_REPAIR": "1"}):
             self.assertEqual(estimate_line_count(child_crop), 5)
