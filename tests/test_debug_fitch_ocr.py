@@ -150,7 +150,10 @@ class TestSlantedBarRepair(unittest.TestCase):
         from pathlib import Path
         from proofs_ocr.pipelines.tfl_fitch import (
             build_proof_tree,
+            crop_full_width,
+            crop_region,
             detect_vertical_bars,
+            estimate_line_count,
             filter_scaffold_bars,
             preprocess_slanted_phone_crop,
         )
@@ -181,8 +184,11 @@ class TestSlantedBarRepair(unittest.TestCase):
         self.assertEqual(len(tree.children), 1)
         self.assertEqual(len(tree.children[0].children), 1)
         outer = tree.children[0].box
-        inner = tree.children[0].children[0].box
+        inner_node = tree.children[0].children[0]
+        inner = inner_node.box
         self.assertLess(inner[0] - outer[0], 80)
+        self.assertEqual(estimate_line_count(crop_region(normalized, inner_node.box)), 5)
+        self.assertEqual(estimate_line_count(crop_full_width(normalized, inner_node)), 5)
 
 
 class TestBuildOcrPromptWithExpectedLines(unittest.TestCase):

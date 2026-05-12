@@ -1060,10 +1060,8 @@ def _estimate_lined_paper_line_count(img: np.ndarray) -> int:
         return 0
 
     if len(bands) >= 2 and bands[0][0] <= max(8, img_h // 80):
-        first_height = bands[0][1] - bands[0][0] + 1
         next_gap = bands[1][0] - bands[0][1] - 1
-        median_height = sorted(end - start + 1 for start, end in bands)[len(bands) // 2]
-        if first_height >= median_height * 1.15 or next_gap >= max(18, img_h // 45):
+        if next_gap >= max(18, img_h // 45):
             bands = bands[1:]
 
     return len(bands)
