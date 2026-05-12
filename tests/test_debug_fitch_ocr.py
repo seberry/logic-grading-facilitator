@@ -486,6 +486,22 @@ class DebugFitchOcrNormalizationTests(unittest.TestCase):
 
         self.assertEqual([row["wffstr"] for row in repaired], ["A → (B ∨ C)", "A → ¬B", "<SUBPROOF_ID_2>", "A → C"])
 
+    def test_repair_missing_child_tokens_inserts_before_trailing_intro_line(self) -> None:
+        from proofs_ocr.pipelines.tfl_fitch import repair_missing_child_tokens
+
+        child = debug_fitch_ocr.SubproofNode("2", (30, 60, 20, 280))
+        ocr_result = [
+            {"line": 1, "wffstr": "A → (B → C)", "jstr": ""},
+            {"line": 2, "wffstr": "(A ∧ B) → C", "jstr": "→I 2-6"},
+        ]
+
+        repaired = repair_missing_child_tokens(ocr_result, [child], img_shape=(360, 500, 3))
+
+        self.assertEqual(
+            [row["wffstr"] for row in repaired],
+            ["A → (B → C)", "<SUBPROOF_ID_2>", "(A ∧ B) → C"],
+        )
+
     def test_repair_missing_child_tokens_orders_before_existing_lower_sibling(self) -> None:
         from proofs_ocr.pipelines.tfl_fitch import repair_missing_child_tokens
 
@@ -566,6 +582,22 @@ class DebugFitchOcrNormalizationTests(unittest.TestCase):
         filtered = drop_trailing_parent_bleed_artifact(ocr_result)
 
         self.assertIs(filtered, ocr_result)
+
+    def test_repair_trailing_child_token_order_moves_token_before_intro_line(self) -> None:
+        from proofs_ocr.pipelines.tfl_fitch import repair_trailing_child_token_order
+
+        ocr_result = [
+            {"line": 1, "wffstr": "A → (B → C)", "jstr": ""},
+            {"line": 2, "wffstr": "(A ∧ B) → C", "jstr": "→I 2-6"},
+            {"line": 3, "wffstr": "<SUBPROOF_ID_2>", "jstr": ""},
+        ]
+
+        repaired = repair_trailing_child_token_order(ocr_result)
+
+        self.assertEqual(
+            [row["wffstr"] for row in repaired],
+            ["A → (B → C)", "<SUBPROOF_ID_2>", "(A ∧ B) → C"],
+        )
 
 
 if __name__ == "__main__":

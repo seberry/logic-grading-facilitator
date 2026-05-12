@@ -1050,6 +1050,9 @@ def repair_missing_child_tokens(
     def fallback_index(child: SubproofNode) -> int:
         if not repaired:
             return 0
+        last = repaired[-1]
+        if isinstance(last, dict) and re.search(r"[IΙ]\s*\d+\s*-\s*\d+", str(last.get("jstr") or "")):
+            return len(repaired) - 1
         child_bottom = int(child.box[1] + child.box[3])
         post_child_room = img_h - child_bottom
         if len(repaired) >= 2 and post_child_room > max(48, int(img_h * 0.12)):
@@ -1094,6 +1097,24 @@ def drop_trailing_parent_bleed_artifact(ocr_result: object) -> object:
     if not re.fullmatch(r"[\d,\-\s]+", jstr):
         return ocr_result
     return ocr_result[:-1]
+
+
+def repair_trailing_child_token_order(ocr_result: object) -> object:
+    """Move a child token before a trailing intro-conclusion row when OCR flips them."""
+    if not isinstance(ocr_result, list) or len(ocr_result) < 2:
+        return ocr_result
+    last = ocr_result[-1]
+    prev = ocr_result[-2]
+    if not isinstance(last, dict) or not isinstance(prev, dict):
+        return ocr_result
+    if _subproof_token_id(last.get("wffstr")) is None:
+        return ocr_result
+    prev_jstr = str(prev.get("jstr") or "")
+    if not re.search(r"[IΙ]\s*\d+\s*-\s*\d+", prev_jstr):
+        return ocr_result
+    repaired = list(ocr_result[:-2])
+    repaired.extend([last, prev])
+    return repaired
 
 
 # ==============================================================================
@@ -2051,6 +2072,10 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
                 ocr_result = kept
 
         if not is_leaf:
+            ordered_ocr_result = repair_trailing_child_token_order(ocr_result)
+            if ordered_ocr_result is not ocr_result:
+                print(f"   [TokenRepair] Node {node.id}: moved trailing child token before intro row")
+                ocr_result = ordered_ocr_result
             repaired_ocr_result = repair_missing_child_tokens(
                 ocr_result,
                 masked_child_nodes,
