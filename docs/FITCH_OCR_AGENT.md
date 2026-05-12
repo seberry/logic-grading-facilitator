@@ -194,6 +194,23 @@ quality, not tree construction. Use saved artifacts from
 `working/tfl_fake_implication_slanted_preprocessed/tfl_fake_implication_intro/`
 or rerun the single case after a targeted reread/probe change.
 
+Targeted probe result after `1a52a25`:
+
+- visual inspection of `crop_2_4b_fullwidth.jpg` shows child line 5's printed
+  justification as an `8E 2`-shaped handwritten `∧E 2`; this is visible in the
+  saved crop and was not a geometry miss
+- whole-child rereads were unstable: one ordered-justification prompt returned
+  `→E 2` for that row, while a separated-list prompt omitted one justification
+- a tight line-5 justification crop returned `8 ∈ Z`; normalization now repairs
+  this kind of already-read glyph confusion to `∧E 2` (`59900ef`), but the main
+  pipeline does not yet perform that row-level reread
+- visual inspection of `crop_1.jpg` shows the final line's printed justification
+  as only `→I 2-`; the terminal `6` is not visible in the saved parent crop, so
+  `→I 2-6` would require inference from proof structure rather than direct OCR
+- a tight final-line reread saw the rule head in one crop (`→I 2-`) but still
+  could not recover the missing endpoint; keep this as a review/forced-choice
+  candidate rather than a silent repair
+
 Suggested next-conversation prompt:
 
 > Continue the TFL/Fitch OCR fake phone-crop work after the commit that ports
