@@ -295,6 +295,71 @@ class TestBuildOcrPromptWithExpectedLines(unittest.TestCase):
         prompt = build_ocr_prompt(has_children=True, expected_lines=2)
         self.assertNotIn("exactly 2 proof line(s)", prompt)
 
+    def test_27b_fullwidth_prompt_is_compact_and_gutter_aware(self):
+        from proofs_ocr.pipelines.tfl_fitch import build_27b_fullwidth_prompt
+
+        prompt = build_27b_fullwidth_prompt(expected_lines=2)
+
+        self.assertIn("Return only a JSON array", prompt)
+        self.assertIn("left-gutter line numbers", prompt)
+        self.assertIn("do not renumber the crop from 1", prompt)
+        self.assertIn("exactly 2 proof line(s)", prompt)
+        self.assertNotIn("Role:", prompt)
+        self.assertNotIn("Context:", prompt)
+
+
+class TestVlmFailureDiagnostics(unittest.TestCase):
+    def test_process_node_saves_thinking_metadata_and_error_on_vlm_failure(self) -> None:
+        import json
+        import tempfile
+        from pathlib import Path
+
+        import numpy as np
+
+        from proofs_ocr.pipelines.tfl_fitch import SubproofNode, process_node_recursive
+
+        class FailingClient:
+            def __init__(self) -> None:
+                self.last_thinking = ""
+                self.last_response_metadata = {}
+
+            def build_messages_for_prompt(self, image_path, prompt, system_prompt=None):
+                return [{"role": "user", "content": prompt}]
+
+            def chat(self, messages, *, model=None, timeout=None, max_tokens=None, extra_payload=None):
+                self.last_thinking = "reasoning before empty content"
+                self.last_response_metadata = {
+                    "model": model or "qwen/qwen3-vl-4b",
+                    "thinking_chars": len(self.last_thinking),
+                    "content_chars": 0,
+                    "finish_reason": "length",
+                    "usage": {"completion_tokens_details": {"reasoning_tokens": 99}},
+                }
+                raise RuntimeError("LM Studio returned an empty completion content")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            img = np.ones((120, 240, 3), dtype=np.uint8) * 255
+            img[35:55, 40:180] = 0
+            node = SubproofNode("1", (10, 10, 40, 90))
+            client = FailingClient()
+
+            result = process_node_recursive(node, img, tmp_path, {}, client)
+
+            self.assertEqual(result, [])
+            self.assertEqual((tmp_path / "response_1.json").read_text().strip(), "[]")
+            self.assertEqual(
+                (tmp_path / "thinking_1.txt").read_text(encoding="utf-8"),
+                "reasoning before empty content",
+            )
+            self.assertIn(
+                "empty completion",
+                (tmp_path / "error_1.txt").read_text(encoding="utf-8"),
+            )
+            metadata = json.loads((tmp_path / "response_metadata_1.json").read_text(encoding="utf-8"))
+            self.assertEqual(metadata["thinking_chars"], len("reasoning before empty content"))
+            self.assertEqual(metadata["content_chars"], 0)
+
 
 class TestSeparatedNestedLeafOcr(unittest.TestCase):
     def test_stitch_separated_nested_leaf_ocr_accepts_expected_shape(self) -> None:

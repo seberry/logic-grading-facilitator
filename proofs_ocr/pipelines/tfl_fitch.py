@@ -1670,35 +1670,29 @@ def stitch_separated_nested_leaf_ocr(payload, expected_lines: int | None = None)
 
 
 def build_27b_fullwidth_prompt(expected_lines: int | None = None) -> str:
-    """Build the proven manual prompt for 27b full-width crop OCR.
+    """Build a compact prompt for 27b full-width crop OCR.
 
-    This prompt was validated on Q4 crop_3 (K∧W subproof) with the 27b model
-    and produces correct results after normalization.  It assumes the crop
-    includes the line-number gutter (full image width, restricted Y range).
+    It assumes the crop includes the line-number gutter (full image width,
+    restricted Y range). Keep this prompt short: longer "transcriber" framing
+    has made Qwen3.x models spend the whole token budget in reasoning_content.
     """
     prompt = (
-        "Role: You are a logic quiz transcriber performing OCR on subproof chunks "
-        "cropped out from the middle of handwritten Fitch-style natural deduction proofs.\n"
-        "Context: You will be given cropped images of specific subproofs (beginning with "
-        "an assumption with no justification above a horizontal line, and deriving various "
-        "consequences from that line and earlier lines). So don't worry that those are "
-        "missing, and remember that the top line in the crop you are seeing might not be "
-        "line 1 in the proof.\n"
-        "Task: Extract the logical formulas and their justifications.\n"
-        "Output format: JSON array of objects with keys 'line', 'wffstr', 'jstr'.\n"
-        "Handwriting Translation Guide (CRITICAL):\n"
-        "Students have sloppy handwriting. Use the following known distortions to correct "
-        "your visual reading:\n"
-        "- A sloppy K frequently looks like '1 <' or a vertical line next to a '<'.\n"
-        "- A sloppy ampersand & (conjunction) frequently looks like an '8'.\n"
-        "- A sloppy S frequently looks like a '5'.\n"
+        "Return only a JSON array. Do not write analysis, notes, markdown, or explanations.\n"
+        "OCR the visible handwritten Fitch subproof chunk.\n"
+        "Use the visible left-gutter line numbers as absolute proof line numbers; do not "
+        "renumber the crop from 1.\n"
+        "For each visible proof row output one object with keys \"line\", \"wffstr\", and "
+        "\"jstr\". Put only the formula in \"wffstr\" and only the printed rule/citations "
+        "in \"jstr\". If no justification is printed, use an empty string.\n"
+        "Handwriting guide: K may look like '1 <' or a vertical stroke next to '<'; "
+        "conjunction &/∧ may look like '8'; S may look like '5'.\n"
     )
     if expected_lines is not None and expected_lines >= 1:
         prompt += (
-            f"\nThis image contains exactly {expected_lines} proof line(s). "
-            f"Output exactly {expected_lines} line objects.\n"
+            f"The image contains exactly {expected_lines} proof line(s). "
+            f"Output exactly {expected_lines} object(s).\n"
         )
-    prompt += "Return JSON only, with no markdown fences or explanation."
+    prompt += "Return the JSON array now."
     return prompt
 
 
@@ -1740,7 +1734,7 @@ def call_vlm(
     )
     is_27b_route = bool(model_override)
     if is_27b_route and _env_flag("TFL_FITCH_27B_NO_THINK"):
-        prompt = f"{prompt} /no_think"
+        prompt = f"/no_think\n{prompt}"
 
     model_tag = f" (model={model_override})" if model_override else ""
     print(f"   [VLM] Sending {os.path.basename(image_path)}{model_tag}...")
@@ -1785,6 +1779,8 @@ def call_vlm(
             extra_payload = _get_27b_extra_payload()
             if extra_payload:
                 extra_kwargs["extra_payload"] = extra_payload
+        if hasattr(client, "last_vlm_error"):
+            client.last_vlm_error = ""
         content = client.chat(messages, model=model_override, **extra_kwargs)
 
         # Extract thinking/reasoning text from the VLM client (populated by
@@ -1809,8 +1805,20 @@ def call_vlm(
         return json.loads(content), thinking
 
     except Exception as e:
+        thinking = getattr(client, "last_thinking", "") or ""
+        metadata = getattr(client, "last_response_metadata", {}) or {}
+        if hasattr(client, "__dict__"):
+            client.last_vlm_error = str(e)
+        if metadata:
+            print(
+                "   [VLM] Metadata: "
+                f"elapsed={metadata.get('elapsed_s')}s "
+                f"thinking={metadata.get('thinking_chars')} "
+                f"content={metadata.get('content_chars')} "
+                f"finish={metadata.get('finish_reason')}"
+            )
         print(f"   [VLM Error] {e}")
-        return [], ""
+        return [], thinking
 
 # ==============================================================================
 # 4. Orchestration
@@ -2048,6 +2056,17 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
             thinking_path = output_dir / f"thinking_{node.id}.txt"
             thinking_path.write_text(thinking_text, encoding="utf-8")
             print(f"   [Thinking] Node {node.id}: saved {len(thinking_text)} chars to {thinking_path.name}")
+
+        response_metadata = getattr(client, "last_response_metadata", {}) or {}
+        if response_metadata:
+            metadata_path = output_dir / f"response_metadata_{node.id}.json"
+            with open(metadata_path, "w", encoding="utf-8") as f:
+                json.dump(response_metadata, f, indent=2, ensure_ascii=False)
+
+        vlm_error = str(getattr(client, "last_vlm_error", "") or "").strip()
+        if vlm_error:
+            error_path = output_dir / f"error_{node.id}.txt"
+            error_path.write_text(vlm_error, encoding="utf-8")
 
         # Truncate if VLM returned more dict items than expected.
         # Only applies when USE_LINE_COUNT_CONSTRAINT is enabled and we
