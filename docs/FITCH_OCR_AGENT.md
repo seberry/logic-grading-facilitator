@@ -640,10 +640,20 @@ Test-NetConnection 127.0.0.1 -Port 1234
 `TcpTestSucceeded : True` means the API server is reachable. If LM Studio is using a different port, set `LMSTUDIO_BASE_URL`, e.g. `http://127.0.0.1:PORT/v1`.
 
 **Best current 27b setup:**
-- In LM Studio GUI/model settings: turn off thinking, then unload/reload the model if needed.
-- Keep the local server running after reload.
+- In LM Studio, load `qwen/qwen3.6-27b`, open the model/runtime settings for
+  that loaded model, and turn off thinking/reasoning. If the setting was changed
+  while the model was already loaded, unload and reload the model before probing.
+- Keep the LM Studio local server running after reload. In current LM Studio
+  builds this is typically under the Developer/API server area; confirm the
+  OpenAI-compatible endpoint is listening on `http://127.0.0.1:1234/v1` or set
+  `LMSTUDIO_BASE_URL` to the port shown in the app.
 - Use the GUI-like single-user message shape for direct crop probes.
-- Keep `max_tokens` low enough to prevent long generations (`512` is enough for the successful Q4 crop_3 response).
+- Send the API-level no-thinking controls too: append `/no_think`, send
+  `chat_template_kwargs.enable_thinking=false`, and keep `max_tokens` low enough
+  to prevent long generations (`512` is enough for the successful Q4 crop_3
+  response).
+- Verify the setup in saved metadata: `thinking_chars` should be `0`, and
+  `usage.completion_tokens_details.reasoning_tokens` should be `0` or absent.
 
 **Probe command for Q4 crop_3:**
 
@@ -698,14 +708,37 @@ Then run a focused regression:
 python -m proofs_ocr.regression.tfl_runner run-gold --case tfl_handwritten_q4_N_or_K_and_W --output-root working/tfl_27b_probe
 ```
 
-**Remaining 27b issue:** The model can read the hard crop, but line numbering is still brittle. On tight crops it may infer absolute line numbers from local justification text, or it may assume crop-relative numbering depending on prompt and visible context. Downstream renumbering usually makes the raw `line` fields less important, but citation justifications (`∧E 5`, `↔E 2,3`, etc.) depend on absolute proof line numbers. This is the next integration problem.
+**Current 2026-05-14 probe result:** Turning off thinking now works through LM
+Studio plus the API payload controls. A completed nested-disjunction reread with
+`--manual-prompt --chunk-aware --no-think --enable-thinking-false --max-tokens
+512` produced `thinking_chars=0` and `reasoning_tokens=0`. A large full-width
+parent-block crop timed out at 90s, but a full-width single-row crop preserving
+the line-number gutter returned in about 20s and kept the visible absolute line
+number (`12`). It read `VE 4, 5-8 9-11`, which is normalizable to `∨E 4,5-8,9-11`.
+
+**Remaining 27b issue:** The model can read the hard crops, but line numbering
+is brittle when the crop does not show the gutter. On tight crops it may infer
+absolute line numbers from local justification text, or it may assume
+crop-relative numbering depending on prompt and visible context. Downstream
+renumbering usually makes the raw `line` fields less important, but citation
+justifications (`∧E 5`, `↔E 2,3`, etc.) depend on absolute proof line numbers.
+For verifier-guided rereads, prefer full-width leaf or single-row crops that
+preserve the left line-number gutter over large parent-block crops.
 
 **Recommended next direction:**
-1. Keep 27b as a targeted fallback for hard tiny crops, not as the default for every leaf, until latency is measured after thinking is disabled.
-2. Add an experiment that gives 27b a slightly wider crop including the line-number gutter, but only for 27b fallback calls. Do not undo ROOT line-number blotting for the normal 4b path.
-3. If wider crops cause leakage/hallucination, add prompt metadata instead: "This crop begins at absolute proof line N; output line numbers N..N+k-1." The tree/row detector may be able to provide `N` after global row counting.
-4. Keep `max_tokens=512` for these tiny crops unless a probe proves it truncates useful output.
-5. Record elapsed time, thinking chars, content chars, and `usage.completion_tokens_details.reasoning_tokens` from each probe. A successful no-thinking setup should show zero or near-zero reasoning tokens.
+1. Keep 27b as a targeted fallback/reread model, not as the default for every
+   crop.
+2. For checker-suspicious rows, generate a full-width row crop from the
+   node/full-width crop so the left line-number gutter remains visible.
+3. Ask 27b to reread only the suspicious row or very small section. Avoid whole
+   parent-block rereads unless there is no row-level alternative.
+4. Do not undo ROOT line-number blotting for the normal 4b path; only the
+   targeted 27b reread/full-width path should expose line numbers.
+5. Keep `max_tokens=512` or lower for these tiny rereads unless a probe proves
+   it truncates useful output.
+6. Record elapsed time, thinking chars, content chars, and
+   `usage.completion_tokens_details.reasoning_tokens` from each probe. A
+   successful no-thinking setup should show zero or near-zero reasoning tokens.
 
 **Relevant files:**
 - `scripts/probe_27b_crop.py` — direct crop diagnostic probe.

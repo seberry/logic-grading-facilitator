@@ -36,6 +36,13 @@ Treat these as local/manual workflows. They may require LM Studio or another
 running local VLM endpoint. When a live OCR run is enabled, expect strict
 gold-match failures until the handwritten pipeline actually improves.
 
+For TFL/Fitch runs that exercise the 27b reread/fallback path, confirm LM
+Studio has thinking/reasoning disabled for the loaded 27b model before timing
+or judging failures. The API payload also sends no-thinking controls when the
+`TFL_FITCH_27B_*` flags are set, but the LM Studio runtime setting is the
+important control. Check `response_metadata_*.json`: successful no-thinking
+probes should show `thinking_chars=0` and `reasoning_tokens=0`.
+
 For OCR behavior changes, assume the user usually wants a bounded slow run
 after the fast tests pass. Default to the smallest relevant live case first
 using `--case ... --output-root working/<descriptive_run_name>`, then summarize

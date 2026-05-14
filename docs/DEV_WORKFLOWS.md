@@ -179,6 +179,15 @@ Key test files:
 
 The gold regression suite re-runs the full TFL Fitch OCR pipeline against curated handwritten proof images and compares results line-by-line against a hand-curated "expected" structure. **This calls a live VLM endpoint** (LM Studio or similar) and costs real tokens/time.
 
+Before running TFL/Fitch live OCR with the 27b reread/fallback model, make sure
+LM Studio is running and the 27b model has thinking/reasoning disabled in the
+LM Studio model/runtime settings. If you change that setting while the model is
+loaded, unload and reload the model before testing. The pipeline also sends
+`/no_think`, `chat_template_kwargs.enable_thinking=false`, and low token caps
+when the relevant `TFL_FITCH_27B_*` environment variables are enabled, but the
+GUI/runtime setting is still important. A healthy no-thinking run reports
+`thinking_chars=0` and `reasoning_tokens=0` in `response_metadata_*.json`.
+
 ```bash
 # Run all TFL gold regressions
 python -m proofs_ocr.regression.tfl_runner run-gold
