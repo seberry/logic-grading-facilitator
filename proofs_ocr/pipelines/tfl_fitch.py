@@ -20,6 +20,11 @@ import numpy as np
 from proofs_ocr.common.rows import band_height, detect_text_row_bands
 from proofs_ocr.common.stitch import recursive_stitch, renumber_lines
 from proofs_ocr.domains.shared import parse_vlm_json_response
+from proofs_ocr.pipelines.tfl_line_reread import (
+    collect_verifier_reread_candidates,
+    strip_ocr_metadata,
+    tag_ocr_result_lines,
+)
 from proofs_ocr.tricks.justification_snaps import (
     TFL_KNOWN_RULE_HEADS,
     TFL_VALID_RULE_HEADS,
@@ -918,6 +923,192 @@ def build_proof_tree(boxes: List[Tuple[int, int, int, int]], img_w: int, img_h: 
         best_parent.children.append(node)
 
     return root
+
+
+def _flatten_subproof_nodes(node: SubproofNode) -> List[SubproofNode]:
+    nodes: List[SubproofNode] = []
+    for child in node.children:
+        nodes.append(child)
+        nodes.extend(_flatten_subproof_nodes(child))
+    return nodes
+
+
+def _subproof_tree_shape(node: SubproofNode) -> str:
+    if not node.children:
+        return str(node.id)
+    return f"{node.id}->[" + ",".join(_subproof_tree_shape(child) for child in node.children) + "]"
+
+
+def _subproof_tree_max_depth(node: SubproofNode) -> int:
+    if not node.children:
+        return int(node.depth)
+    return max(_subproof_tree_max_depth(child) for child in node.children)
+
+
+def _with_env_flag(name: str, value: str | None, fn):
+    old_value = os.environ.get(name)
+    try:
+        if value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = value
+        return fn()
+    finally:
+        if old_value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = old_value
+
+
+def _estimate_leaf_rows_for_geometry(img: np.ndarray, node: SubproofNode, *, slanted: bool) -> Dict[str, object]:
+    def estimate() -> Dict[str, object]:
+        tight = crop_region(img, node.box)
+        full = crop_full_width(img, node)
+        return {
+            "id": str(node.id),
+            "box": [int(value) for value in node.box],
+            "tight_rows": int(estimate_line_count(tight)),
+            "full_rows": int(estimate_line_count(full)),
+        }
+
+    return _with_env_flag("TFL_FITCH_SLANTED_BAR_REPAIR", "1" if slanted else None, estimate)
+
+
+def _geometry_candidate_summary(
+    *,
+    mode: str,
+    img: np.ndarray,
+    bars: List[Tuple[int, int, int, int]],
+    tree: SubproofNode,
+) -> Dict[str, object]:
+    nodes = _flatten_subproof_nodes(tree)
+    leaves = [node for node in nodes if not node.children]
+    slanted = mode == "slanted"
+    leaf_rows = [
+        _estimate_leaf_rows_for_geometry(img, node, slanted=slanted)
+        for node in leaves
+    ]
+
+    flags: List[str] = []
+    if not bars:
+        flags.append("no_bars")
+    if len(bars) == 1:
+        flags.append("single_bar")
+    if len(bars) > max(2, _env_int("TFL_FITCH_PREFLIGHT_MAX_BARS", 8) or 8):
+        flags.append("too_many_bars")
+
+    row_values: List[int] = []
+    for row in leaf_rows:
+        for key in ("tight_rows", "full_rows"):
+            value = row.get(key)
+            if isinstance(value, int):
+                row_values.append(value)
+    if any(value >= (_env_int("TFL_FITCH_PREFLIGHT_HUGE_ROW_COUNT", 20) or 20) for value in row_values):
+        flags.append("huge_leaf_row_count")
+    if leaves and any(value == 0 for value in row_values):
+        flags.append("zero_row_leaf")
+
+    return {
+        "mode": mode,
+        "image_size": [int(img.shape[1]), int(img.shape[0])],
+        "bars": len(bars),
+        "bar_boxes": [[int(value) for value in bar] for bar in bars],
+        "node_count": len(nodes),
+        "leaf_count": len(leaves),
+        "max_depth": _subproof_tree_max_depth(tree),
+        "shape": _subproof_tree_shape(tree),
+        "leaf_rows": leaf_rows,
+        "flags": flags,
+    }
+
+
+def _has_major_geometry_failure(summary: Dict[str, object]) -> bool:
+    flags = set(summary.get("flags") or [])
+    return bool(flags.intersection({"no_bars", "too_many_bars", "huge_leaf_row_count"}))
+
+
+def _choose_preflight_geometry(
+    standard: Dict[str, object],
+    slanted: Dict[str, object],
+) -> str:
+    std_major = _has_major_geometry_failure(standard)
+    slanted_major = _has_major_geometry_failure(slanted)
+
+    if std_major and not slanted_major:
+        return "slanted"
+    if not std_major:
+        return "standard"
+    if slanted_major:
+        return "manual"
+    return "standard"
+
+
+def _detect_geometry_candidate(raw_img: np.ndarray, *, mode: str) -> Dict[str, object]:
+    if mode == "slanted":
+        img = preprocess_slanted_phone_crop(raw_img)
+        bars = _detect_vertical_bars_slanted_repair(img)
+    elif mode == "standard":
+        img = raw_img
+        bars = _detect_vertical_bars_standard(img)
+    else:
+        raise ValueError(f"Unknown geometry mode: {mode}")
+
+    bars = filter_scaffold_bars(bars, img_w=img.shape[1], img_h=img.shape[0])
+    tree = build_proof_tree(bars, img.shape[1], img.shape[0])
+    return {
+        "mode": mode,
+        "img": img,
+        "bars": bars,
+        "tree": tree,
+        "summary": _geometry_candidate_summary(mode=mode, img=img, bars=bars, tree=tree),
+    }
+
+
+def select_fitch_geometry(raw_img: np.ndarray) -> Dict[str, object]:
+    """Select standard or slanted geometry before making any VLM calls.
+
+    ``TFL_FITCH_GEOMETRY_MODE`` may force ``standard``, ``slanted``, or ``auto``.
+    For backward compatibility, ``TFL_FITCH_SLANTED_BAR_REPAIR=1`` still forces
+    the slanted path unless ``TFL_FITCH_GEOMETRY_MODE=auto`` is explicitly set.
+    """
+    requested = (os.getenv("TFL_FITCH_GEOMETRY_MODE") or "").strip().lower()
+    if requested not in {"", "auto", "standard", "slanted"}:
+        requested = ""
+
+    if requested == "standard":
+        candidate = _detect_geometry_candidate(raw_img, mode="standard")
+        candidate["selected_mode"] = "standard"
+        candidate["preflight"] = {"selected_mode": "standard", "standard": candidate["summary"]}
+        return candidate
+
+    if requested == "slanted" or (not requested and _env_flag("TFL_FITCH_SLANTED_BAR_REPAIR")):
+        candidate = _detect_geometry_candidate(raw_img, mode="slanted")
+        candidate["selected_mode"] = "slanted"
+        candidate["preflight"] = {"selected_mode": "slanted", "slanted": candidate["summary"]}
+        return candidate
+
+    standard = _detect_geometry_candidate(raw_img, mode="standard")
+    slanted = _detect_geometry_candidate(raw_img, mode="slanted")
+    selected_mode = _choose_preflight_geometry(standard["summary"], slanted["summary"])
+    preflight = {
+        "selected_mode": selected_mode,
+        "standard": standard["summary"],
+        "slanted": slanted["summary"],
+    }
+    if selected_mode == "manual":
+        return {
+            "selected_mode": "manual",
+            "img": standard["img"],
+            "bars": standard["bars"],
+            "tree": standard["tree"],
+            "summary": standard["summary"],
+            "preflight": preflight,
+        }
+    candidate = slanted if selected_mode == "slanted" else standard
+    candidate["selected_mode"] = selected_mode
+    candidate["preflight"] = preflight
+    return candidate
+
 
 # ==============================================================================
 # 2. Image Manipulation (Masking & Cropping)
@@ -1889,10 +2080,12 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
     original_crop_h = current_img.shape[0]
     line_count_img = current_img
     is_leaf = not sorted_children
+    expected_lines = None
 
     # 3. Save & OCR
     filename = f"crop_{node.id}.jpg"
     save_path = output_dir / filename
+    vlm_image_path = str(save_path)
 
     # Apply letterboxing to small leaf crops so the VLM's internal resizing
     # doesn't distort the handwriting.  Context crops are already large
@@ -1949,7 +2142,6 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
         # For leaf nodes, optionally estimate expected line count from
         # horizontal projection profiling to constrain the VLM and truncate
         # hallucinations.  Controlled by USE_LINE_COUNT_CONSTRAINT flag.
-        expected_lines = None
         if USE_LINE_COUNT_CONSTRAINT and is_leaf:
             expected_lines = estimate_line_count(line_count_img)
             print(f"   [LineCount] Node {node.id}: detected {expected_lines} text line(s)")
@@ -1958,7 +2150,6 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
         # the 4b model struggles with handwriting recognition.
         model_override = None
         prompt_override = None
-        vlm_image_path = str(save_path)  # default: tight (letterboxed) crop
         use_separated_nested_leaf_ocr = False
 
         if (
@@ -2115,6 +2306,14 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
     with open(output_dir / f"response_{node.id}.json", "w") as f:
         json.dump(ocr_result, f, indent=2)
 
+    tag_ocr_result_lines(
+        ocr_result,
+        node_id=node.id,
+        crop_path=vlm_image_path,
+        expected_lines=expected_lines,
+        is_leaf=is_leaf,
+    )
+
     # Add to library
     library[node.id] = ocr_result
 
@@ -2198,12 +2397,24 @@ def run_fitch_ocr_pipeline(
     img = cv2.imread(str(image_path))
     if img is None:
         raise FileNotFoundError(f"Could not read image: {image_path}")
-    if _env_flag("TFL_FITCH_SLANTED_BAR_REPAIR"):
-        img = preprocess_slanted_phone_crop(img)
 
-    # 2. Detect bars & build tree
-    bars = detect_vertical_bars(img)
-    bars = filter_scaffold_bars(bars, img_w=img.shape[1], img_h=img.shape[0])
+    # 2. Select geometry, detect bars, and build tree before any VLM calls.
+    geometry = select_fitch_geometry(img)
+    preflight = geometry.get("preflight") or {}
+    (output_dir / "geometry_preflight.json").write_text(
+        json.dumps(preflight, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    selected_mode = str(geometry.get("selected_mode") or "standard")
+    if selected_mode == "manual":
+        raise RuntimeError(
+            "Fitch geometry preflight could not choose a reliable OCR mode. "
+            f"See {output_dir / 'geometry_preflight.json'} for standard/slanted diagnostics."
+        )
+
+    img = geometry["img"]
+    bars = geometry["bars"]
+    tree_root = geometry["tree"]
 
     # Draw debug bars
     debug_img = img.copy()
@@ -2213,18 +2424,20 @@ def run_fitch_ocr_pipeline(
     cv2.imwrite(str(output_dir / "debug_bars.jpg"), debug_img)
 
     max_slanted_bars = _env_int("TFL_FITCH_SLANTED_MAX_BARS_BEFORE_OCR", 6) or 6
-    if _env_flag("TFL_FITCH_SLANTED_BAR_REPAIR") and len(bars) > max_slanted_bars:
+    if selected_mode == "slanted" and len(bars) > max_slanted_bars:
         raise RuntimeError(
             "Slanted phone-crop geometry is implausible before OCR: "
             f"detected {len(bars)} bar candidates after preprocessing "
             f"(max {max_slanted_bars})."
         )
 
-    tree_root = build_proof_tree(bars, img.shape[1], img.shape[0])
-
     # 3. Recursive process
     library: Dict = {}
-    process_node_recursive(tree_root, img, output_dir, library, client=client)
+    _with_env_flag(
+        "TFL_FITCH_SLANTED_BAR_REPAIR",
+        "1" if selected_mode == "slanted" else None,
+        lambda: process_node_recursive(tree_root, img, output_dir, library, client=client),
+    )
 
     # 4. Stitch & Renumber
     root_has_content = any(line.get("wffstr", "").strip() for line in library.get("ROOT", []))
@@ -2252,13 +2465,31 @@ def run_fitch_ocr_pipeline(
     infer_missing_rule_heads(stitched_structure)
     apply_default_justifications(stitched_structure, numprems)
 
+    if _env_flag("TFL_FITCH_VERIFIER_REREAD"):
+        reread_records = collect_verifier_reread_candidates(
+            stitched_structure,
+            output_dir=output_dir,
+            client=client,
+            numprems=numprems,
+            model=os.getenv("TFL_FITCH_VERIFIER_REREAD_MODEL") or None,
+            timeout=max(1, _env_int("TFL_FITCH_VERIFIER_REREAD_TIMEOUT_SECONDS", 120) or 120),
+        )
+        reread_path = output_dir / "verifier_line_reread_candidates.json"
+        reread_path.write_text(json.dumps(reread_records, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"   [VerifierReread] Wrote {len(reread_records)} record(s) to {reread_path.name}")
+
+    strip_ocr_metadata(stitched_structure)
+
     # Save final structure
     final_json_path = output_dir / "final_structure.json"
     with open(final_json_path, "w", encoding="utf-8") as f:
         json.dump(stitched_structure, f, indent=2, ensure_ascii=False)
 
     line_count = total_lines - 1
-    run_summary = f"Fitch OCR pipeline: {len(bars)} bars, {line_count} lines, {numprems} premises"
+    run_summary = (
+        f"Fitch OCR pipeline: {len(bars)} bars, {line_count} lines, "
+        f"{numprems} premises, geometry={selected_mode}"
+    )
 
     return {"run_summary": run_summary, "line_count": line_count}
 
@@ -2289,13 +2520,27 @@ def main():
 
     # 1. Load Image
     img = cv2.imread(str(raw_scan_path))
-    if _env_flag("TFL_FITCH_SLANTED_BAR_REPAIR"):
-        img = preprocess_slanted_phone_crop(img)
+    if img is None:
+        raise FileNotFoundError(f"Could not read image: {raw_scan_path}")
     
-    # 2. Detect Bars & Build Tree
-    bars = detect_vertical_bars(img)
-    bars = filter_scaffold_bars(bars, img_w=img.shape[1], img_h=img.shape[0])
-    print(f"Detected {len(bars)} vertical bars.")
+    # 2. Select Geometry, Detect Bars & Build Tree
+    geometry = select_fitch_geometry(img)
+    preflight = geometry.get("preflight") or {}
+    (output_base / "geometry_preflight.json").write_text(
+        json.dumps(preflight, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    selected_mode = str(geometry.get("selected_mode") or "standard")
+    if selected_mode == "manual":
+        raise RuntimeError(
+            "Fitch geometry preflight could not choose a reliable OCR mode. "
+            f"See {output_base / 'geometry_preflight.json'} for standard/slanted diagnostics."
+        )
+
+    img = geometry["img"]
+    bars = geometry["bars"]
+    tree_root = geometry["tree"]
+    print(f"Detected {len(bars)} vertical bars using {selected_mode} geometry.")
     
     # Draw debug bars
     debug_img = img.copy()
@@ -2305,19 +2550,21 @@ def main():
     cv2.imwrite(str(output_base / "debug_bars.jpg"), debug_img)
 
     max_slanted_bars = _env_int("TFL_FITCH_SLANTED_MAX_BARS_BEFORE_OCR", 6) or 6
-    if _env_flag("TFL_FITCH_SLANTED_BAR_REPAIR") and len(bars) > max_slanted_bars:
+    if selected_mode == "slanted" and len(bars) > max_slanted_bars:
         raise RuntimeError(
             "Slanted phone-crop geometry is implausible before OCR: "
             f"detected {len(bars)} bar candidates after preprocessing "
             f"(max {max_slanted_bars})."
         )
 
-    tree_root = build_proof_tree(bars, img.shape[1], img.shape[0])
-    
     # 3. Recursive Process
     library = {}
     print("\n--- Recursive Processing (Bottom-Up) ---")
-    process_node_recursive(tree_root, img, output_base, library, client=vlm_client)
+    _with_env_flag(
+        "TFL_FITCH_SLANTED_BAR_REPAIR",
+        "1" if selected_mode == "slanted" else None,
+        lambda: process_node_recursive(tree_root, img, output_base, library, client=vlm_client),
+    )
     
     # 4. Stitch & Renumber
     print("\n--- Stitching Results ---")
@@ -2365,6 +2612,21 @@ def main():
     # C. Backfill remaining blank justifications using the inferred premise count.
     print("   [Logic] Filling blank justifications with Pr/Hyp defaults...")
     apply_default_justifications(stitched_structure, numprems)
+
+    if _env_flag("TFL_FITCH_VERIFIER_REREAD"):
+        reread_records = collect_verifier_reread_candidates(
+            stitched_structure,
+            output_dir=output_base,
+            client=vlm_client,
+            numprems=numprems,
+            model=os.getenv("TFL_FITCH_VERIFIER_REREAD_MODEL") or None,
+            timeout=max(1, _env_int("TFL_FITCH_VERIFIER_REREAD_TIMEOUT_SECONDS", 120) or 120),
+        )
+        reread_path = output_base / "verifier_line_reread_candidates.json"
+        reread_path.write_text(json.dumps(reread_records, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"   [VerifierReread] Wrote {len(reread_records)} record(s) to {reread_path.name}")
+
+    strip_ocr_metadata(stitched_structure)
     
     print("\n--- Final JSON Structure ---")
     print(json.dumps(stitched_structure, indent=2, ensure_ascii=False))

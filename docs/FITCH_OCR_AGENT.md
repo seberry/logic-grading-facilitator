@@ -329,6 +329,24 @@ Follow-up after `1bce994`:
   heads on `→E`/`∨E`, `X 7` read as a cross glyph, two off-by-one conjunction
   citations, and final `→I 3-12` still read as `→I 3-2`
 
+Verifier-guided small-model reread scaffold:
+
+- `proofs_ocr/pipelines/tfl_line_reread.py` now contains an opt-in probe path
+  for replacing broad/large-model retries with targeted single-line small-model
+  rereads
+- `process_node_recursive()` tags stitched line dictionaries with transient OCR
+  provenance; `final_structure.json` is still scrubbed before writing
+- set `TFL_FITCH_VERIFIER_REREAD=1` to run the verifier after stitching and
+  write `verifier_line_reread_candidates.json` plus `verifier_line_rereads/`
+  row crops for suspicious leaf-derived lines
+- the probe does not auto-apply candidate rereads; verifier errors can be real
+  student mistakes, so use the output to evaluate visual reread quality before
+  wiring any guarded replacement policy
+- current limitation: parent-derived lines are identified as suspicious but
+  skipped because robust final-line-to-parent-row cropping is not implemented
+  yet; the first useful targets are leaf justifications such as off-by-one
+  citation rows or `X 7`-style OCR misses
+
 Suggested next-conversation prompt:
 
 > Continue the TFL/Fitch OCR fake phone-crop work after commit `5fed00c`.

@@ -1,9 +1,23 @@
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import cv2
 
 from scripts import debug_fitch_ocr
+
+
+def _tfl_handwritten_fixture(name: str) -> Path:
+    return (
+        Path(__file__).resolve().parents[1]
+        / "proofs_ocr"
+        / "regression"
+        / "fixtures"
+        / "tfl"
+        / "handwritten"
+        / name
+        / "image.png"
+    )
 
 
 class TestFuzzySnapJustification(unittest.TestCase):
@@ -125,6 +139,102 @@ class TestCountTextLinesInRegion(unittest.TestCase):
 
 
 class TestSlantedBarRepair(unittest.TestCase):
+    def test_geometry_preflight_keeps_clean_two_branch_fixture_on_standard_path(self) -> None:
+        from proofs_ocr.pipelines.tfl_fitch import select_fitch_geometry
+
+        img = cv2.imread(str(_tfl_handwritten_fixture("q4_N_or_K_and_W")))
+        self.assertIsNotNone(img)
+
+        with patch.dict("os.environ", {"TFL_FITCH_GEOMETRY_MODE": "auto"}):
+            geometry = select_fitch_geometry(img)
+
+        self.assertEqual(geometry["selected_mode"], "standard")
+        self.assertEqual(geometry["preflight"]["standard"]["bars"], 3)
+        self.assertEqual(geometry["preflight"]["slanted"]["bars"], 1)
+        self.assertIn("single_bar", geometry["preflight"]["slanted"]["flags"])
+
+    def test_geometry_preflight_switches_overdetecting_lined_crop_to_slanted_path(self) -> None:
+        from proofs_ocr.pipelines.tfl_fitch import select_fitch_geometry
+
+        img = cv2.imread(str(_tfl_handwritten_fixture("fake_implication_intro")))
+        self.assertIsNotNone(img)
+
+        with patch.dict("os.environ", {"TFL_FITCH_GEOMETRY_MODE": "auto"}):
+            geometry = select_fitch_geometry(img)
+
+        self.assertEqual(geometry["selected_mode"], "slanted")
+        self.assertIn("too_many_bars", geometry["preflight"]["standard"]["flags"])
+        self.assertEqual(geometry["preflight"]["slanted"]["bars"], 2)
+
+    def test_geometry_preflight_preserves_legacy_slanted_flag_override(self) -> None:
+        from proofs_ocr.pipelines.tfl_fitch import select_fitch_geometry
+
+        img = cv2.imread(str(_tfl_handwritten_fixture("q4_N_or_K_and_W")))
+        self.assertIsNotNone(img)
+
+        with patch.dict("os.environ", {"TFL_FITCH_SLANTED_BAR_REPAIR": "1"}):
+            geometry = select_fitch_geometry(img)
+
+        self.assertEqual(geometry["selected_mode"], "slanted")
+        self.assertEqual(geometry["preflight"]["slanted"]["bars"], 1)
+
+    def test_geometry_mode_standard_overrides_legacy_slanted_flag(self) -> None:
+        from proofs_ocr.pipelines.tfl_fitch import select_fitch_geometry
+
+        img = cv2.imread(str(_tfl_handwritten_fixture("q4_N_or_K_and_W")))
+        self.assertIsNotNone(img)
+
+        with patch.dict(
+            "os.environ",
+            {"TFL_FITCH_GEOMETRY_MODE": "standard", "TFL_FITCH_SLANTED_BAR_REPAIR": "1"},
+        ):
+            geometry = select_fitch_geometry(img)
+
+        self.assertEqual(geometry["selected_mode"], "standard")
+        self.assertEqual(geometry["preflight"]["standard"]["bars"], 3)
+
+    def test_pipeline_writes_preflight_and_processes_selected_slanted_mode(self) -> None:
+        import json
+        import tempfile
+        import os
+
+        from proofs_ocr.pipelines.tfl_fitch import run_fitch_ocr_pipeline
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.slanted_flags = []
+                self.last_thinking = ""
+                self.last_response_metadata = {
+                    "elapsed_s": 0.01,
+                    "thinking_chars": 0,
+                    "content_chars": 2,
+                    "finish_reason": "stop",
+                }
+
+            def build_messages_for_prompt(self, image_path, prompt, system_prompt=None):
+                return [{"role": "user", "content": prompt}]
+
+            def chat(self, messages, *, model=None, timeout=None, max_tokens=None, extra_payload=None):
+                self.slanted_flags.append(os.getenv("TFL_FITCH_SLANTED_BAR_REPAIR"))
+                return "[]"
+
+        client = FakeClient()
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict("os.environ", {"TFL_FITCH_GEOMETRY_MODE": "auto"}):
+                result = run_fitch_ocr_pipeline(
+                    image_path=_tfl_handwritten_fixture("fake_implication_intro"),
+                    output_dir=Path(tmp),
+                    client=client,
+                )
+
+            preflight = json.loads((Path(tmp) / "geometry_preflight.json").read_text(encoding="utf-8"))
+
+        self.assertIn("geometry=slanted", result["run_summary"])
+        self.assertEqual(preflight["selected_mode"], "slanted")
+        self.assertIn("too_many_bars", preflight["standard"]["flags"])
+        self.assertTrue(client.slanted_flags)
+        self.assertTrue(all(value == "1" for value in client.slanted_flags))
+
     def test_slanted_bar_repair_extends_nested_bar_to_opener_row(self) -> None:
         import cv2
         import numpy as np
@@ -389,6 +499,105 @@ class TestSeparatedNestedLeafOcr(unittest.TestCase):
         }
 
         self.assertIsNone(stitch_separated_nested_leaf_ocr(payload, expected_lines=4))
+
+
+class TestVerifierGuidedLineReread(unittest.TestCase):
+    def test_find_verifier_suspicions_reports_bad_line_with_ocr_provenance(self) -> None:
+        from proofs_ocr.pipelines.tfl_line_reread import find_verifier_suspicions
+
+        structure = [
+            {"line": 1, "wffstr": "A", "jstr": "Pr"},
+            {"line": 2, "wffstr": "A→B", "jstr": "Pr"},
+            {
+                "line": 3,
+                "wffstr": "B",
+                "jstr": "→E 1,3",
+                "_ocr_node_id": "ROOT",
+                "_ocr_local_index": 3,
+                "_ocr_crop_path": "crop_ROOT.jpg",
+                "_ocr_expected_lines": 3,
+                "_ocr_is_leaf": True,
+            },
+        ]
+
+        suspicions = find_verifier_suspicions(structure, numprems=2)
+
+        self.assertEqual([item["line"] for item in suspicions], [3])
+        self.assertEqual(suspicions[0]["ocr"]["node_id"], "ROOT")
+        self.assertTrue(any("Cites itself" in issue for issue in suspicions[0]["issues"]))
+
+    def test_strip_ocr_metadata_removes_nested_transient_keys(self) -> None:
+        from proofs_ocr.pipelines.tfl_line_reread import strip_ocr_metadata
+
+        structure = [
+            {"line": 1, "wffstr": "A", "jstr": "Pr", "_ocr_node_id": "ROOT"},
+            [{"line": 2, "wffstr": "B", "jstr": "Hyp", "_ocr_crop_path": "crop_1.jpg"}],
+        ]
+
+        strip_ocr_metadata(structure)
+
+        self.assertNotIn("_ocr_node_id", structure[0])
+        self.assertNotIn("_ocr_crop_path", structure[1][0])
+
+    def test_collect_verifier_reread_candidates_calls_small_model_for_leaf_line(self) -> None:
+        import json
+        import tempfile
+        from pathlib import Path
+
+        import numpy as np
+
+        from proofs_ocr.pipelines.tfl_line_reread import collect_verifier_reread_candidates
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls = []
+                self.last_response_metadata = {"elapsed_s": 0.01}
+
+            def build_messages_for_prompt(self, image_path, prompt, system_prompt=None):
+                self.calls.append((Path(image_path), prompt))
+                return [{"role": "user", "content": prompt}]
+
+            def chat(self, messages, *, model=None, timeout=None, max_tokens=None):
+                return json.dumps({"line": 3, "wffstr": "B", "jstr": "→E 1,2"})
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            crop_path = tmp_path / "crop_ROOT.jpg"
+            img = np.ones((180, 320, 3), dtype=np.uint8) * 255
+            img[25:45, 40:180] = 0
+            img[85:105, 40:180] = 0
+            img[145:165, 40:180] = 0
+            self.assertTrue(cv2.imwrite(str(crop_path), img))
+
+            structure = [
+                {"line": 1, "wffstr": "A", "jstr": "Pr"},
+                {"line": 2, "wffstr": "A→B", "jstr": "Pr"},
+                {
+                    "line": 3,
+                    "wffstr": "B",
+                    "jstr": "→E 1,3",
+                    "_ocr_node_id": "ROOT",
+                    "_ocr_local_index": 3,
+                    "_ocr_crop_path": str(crop_path),
+                    "_ocr_expected_lines": 3,
+                    "_ocr_is_leaf": True,
+                },
+            ]
+            client = FakeClient()
+
+            records = collect_verifier_reread_candidates(
+                structure,
+                output_dir=tmp_path,
+                client=client,
+                numprems=2,
+            )
+
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0]["status"], "candidate")
+            self.assertEqual(records[0]["parsed"]["jstr"], "→E 1,2")
+            self.assertTrue(Path(records[0]["row_crop"]).exists())
+            self.assertEqual(len(client.calls), 1)
+            self.assertIn("Do not infer a valid proof", client.calls[0][1])
 
 
 class DebugFitchOcrNormalizationTests(unittest.TestCase):
