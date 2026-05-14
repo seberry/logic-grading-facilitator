@@ -79,15 +79,14 @@ Each fixture directory contains: `image.png`, `expected_structure.json`, optiona
 | `tfl_handwritten_q6_S_iff_W` | ↔I with two subproofs, intentional errors on lines 6 and 10. | Nested subproofs, biconditional intro |
 | `tfl_fake_implication_intro` | Fake instructor-authored scan: `A→(B→C) ⊢ (A∧B)→C`. | Clean one-subproof case from phone crop |
 | `tfl_fake_neg_intro_error` | Fake instructor-authored scan: `(A∧B)→C, ¬C, A ⊢ ¬B`. | Short phone crop with a long outer proof spine and one nested `B...⊥` subproof |
-| `tfl_fake_nested_disjunction_scratch` | Fake instructor-authored scan: `A→(B∨C), A→¬B ⊢ A→C`, with scratch-outs and intentional `∧E 9` error. | Scratch-outs, nested ∨E, explosion `X`, intentional rule error |
+| `tfl_fake_nested_disjunction_scratch_completed` | Completed fake handwritten scan for the same `A→(B∨C), A→¬B ⊢ A→C` target. | Harder nested ∨E phone crop with curated gold answers |
 
 The fake-data fixtures are deliberately not real student submissions. They were
 created as phone scans of instructor-authored messy proofs and cropped to the
 proof region, matching the intended human-corrected crop boundary for the
-grading workflow. A longer fake disjunction-elimination proof crop is retained
-under `working/tfl_candidate_scans/` as a reserve stress case, but it is not in
-the active manifest because its length and messiness are less representative of
-ordinary quiz proofs.
+grading workflow. An earlier incomplete scratch-only nested-disjunction crop was
+moved out of the active tracked fixtures to
+`working/tfl_candidate_scans/deferred_fake_nested_disjunction_scratch/`.
 
 ### Fake phone-crop slant repair probe (2026-05-12)
 

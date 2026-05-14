@@ -543,8 +543,18 @@ TFL_HANDWRITTEN_CASE_IDS = [
     "tfl_handwritten_q5_P_or_K_biconditional",
     "tfl_handwritten_q6_S_iff_W",
     "tfl_fake_implication_intro",
-    "tfl_fake_nested_disjunction_scratch",
+    "tfl_fake_neg_intro_error",
+    "tfl_fake_nested_disjunction_scratch_completed",
 ]
+
+
+class TFLLiveCaseListTests(unittest.TestCase):
+    """CI-safe checks for the opt-in live OCR case registry."""
+
+    def test_live_case_ids_match_manifest_tfl_handwritten_gold(self) -> None:
+        manifest = load_manifest()
+        selected = tfl_runner.select_tfl_cases(manifest)
+        self.assertEqual(TFL_HANDWRITTEN_CASE_IDS, [str(case["id"]) for case in selected])
 
 
 @unittest.skipUnless(_LIVE_TFL_OCR, "Set RUN_LIVE_TFL_OCR=1 to run live OCR regressions")

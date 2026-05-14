@@ -1046,7 +1046,11 @@ def _choose_preflight_geometry(
 def _detect_geometry_candidate(raw_img: np.ndarray, *, mode: str) -> Dict[str, object]:
     if mode == "slanted":
         img = preprocess_slanted_phone_crop(raw_img)
-        bars = _detect_vertical_bars_slanted_repair(img)
+        bars = _with_env_flag(
+            "TFL_FITCH_SLANTED_BAR_REPAIR",
+            "1",
+            lambda: _detect_vertical_bars_slanted_repair(img),
+        )
     elif mode == "standard":
         img = raw_img
         bars = _detect_vertical_bars_standard(img)

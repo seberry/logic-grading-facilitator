@@ -390,6 +390,24 @@ class TestSlantedBarRepair(unittest.TestCase):
         self.assertEqual(len(disjunction_block.children), 2)
         self.assertEqual(child_line_counts, [4, 3])
 
+    def test_auto_geometry_uses_slanted_split_settings_for_completed_scratch(self) -> None:
+        import cv2
+        from proofs_ocr.pipelines.tfl_fitch import select_fitch_geometry
+
+        img = cv2.imread(str(_tfl_handwritten_fixture("fake_nested_disjunction_scratch_completed")))
+        self.assertIsNotNone(img)
+
+        with patch.dict("os.environ", {"TFL_FITCH_GEOMETRY_MODE": "auto"}):
+            geometry = select_fitch_geometry(img)
+
+        slanted = geometry["preflight"]["slanted"]
+        self.assertEqual(geometry["selected_mode"], "slanted")
+        self.assertEqual(slanted["shape"], "ROOT->[1->[2->[3,4]]]")
+        self.assertEqual(
+            [row["tight_rows"] for row in slanted["leaf_rows"]],
+            [4, 3],
+        )
+
 
 class TestBuildOcrPromptWithExpectedLines(unittest.TestCase):
     """Tests for the expected_lines parameter in build_ocr_prompt."""
