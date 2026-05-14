@@ -441,6 +441,88 @@ class TestBuildOcrPromptWithExpectedLines(unittest.TestCase):
         self.assertNotIn("Context:", prompt)
 
 
+class TestMovedTflFitchVlmHelpers(unittest.TestCase):
+    def test_call_vlm_uses_moved_prompt_helper_and_parses_fenced_json(self) -> None:
+        import json
+        import tempfile
+        from pathlib import Path
+
+        from proofs_ocr.pipelines.tfl_fitch_vlm import call_vlm
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls = []
+                self.last_thinking = "short reasoning"
+                self.last_response_metadata = {"elapsed_s": 0.01, "thinking_chars": 15}
+
+            def build_messages_for_prompt(self, image_path, prompt, system_prompt=None):
+                self.calls.append((Path(image_path), prompt, system_prompt))
+                return [{"role": "user", "content": prompt}]
+
+            def chat(self, messages, *, model=None, timeout=None, max_tokens=None, extra_payload=None):
+                return "```json\n" + json.dumps([{"line": 1, "wffstr": "A", "jstr": ""}]) + "\n```"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            image_path = Path(tmp) / "crop_ROOT.jpg"
+            image_path.write_bytes(b"not-an-image")
+            client = FakeClient()
+
+            parsed, thinking = call_vlm(
+                str(image_path),
+                client,
+                has_children=False,
+                expected_lines=1,
+            )
+
+        self.assertEqual(parsed, [{"line": 1, "wffstr": "A", "jstr": ""}])
+        self.assertEqual(thinking, "short reasoning")
+        self.assertIn("exactly 1 proof line(s)", client.calls[0][2])
+
+
+class TestMovedTflFitchRuntimeHelpers(unittest.TestCase):
+    def test_prepare_node_image_blots_root_line_number_gutter(self) -> None:
+        import numpy as np
+
+        from proofs_ocr.pipelines.tfl_fitch import SubproofNode
+        from proofs_ocr.pipelines.tfl_fitch_runtime import prepare_node_image
+
+        img = np.zeros((20, 30, 3), dtype=np.uint8)
+        root = SubproofNode("ROOT", (0, 0, 30, 20))
+        child = SubproofNode("1", (7, 2, 4, 15))
+        child.parent = root
+        root.children.append(child)
+
+        prepared = prepare_node_image(root, img)
+
+        self.assertTrue(np.all(prepared[:, :7] == 255))
+        self.assertTrue(np.all(prepared[:, 7:] == 0))
+
+    def test_truncate_to_expected_lines_is_importable_runtime_helper(self) -> None:
+        from unittest.mock import patch
+
+        from proofs_ocr.pipelines import tfl_fitch
+        from proofs_ocr.pipelines.tfl_fitch_runtime import truncate_to_expected_lines
+
+        class Node:
+            id = "leaf"
+
+        rows = [
+            {"line": 1, "wffstr": "A", "jstr": ""},
+            {"line": 2, "wffstr": "B", "jstr": ""},
+            {"line": 3, "wffstr": "C", "jstr": ""},
+        ]
+
+        with patch.object(tfl_fitch, "USE_LINE_COUNT_CONSTRAINT", True):
+            truncated = truncate_to_expected_lines(
+                node=Node(),
+                ocr_result=rows,
+                is_leaf=True,
+                expected_lines=2,
+            )
+
+        self.assertEqual(truncated, rows[:2])
+
+
 class TestVlmFailureDiagnostics(unittest.TestCase):
     def test_process_node_saves_thinking_metadata_and_error_on_vlm_failure(self) -> None:
         import json

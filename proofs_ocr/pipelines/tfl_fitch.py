@@ -19,12 +19,26 @@ import numpy as np
 
 from proofs_ocr.common.rows import band_height, detect_text_row_bands
 from proofs_ocr.common.stitch import recursive_stitch, renumber_lines
-from proofs_ocr.domains.shared import parse_vlm_json_response
 from proofs_ocr.pipelines.tfl_line_reread import (
     collect_verifier_reread_candidates,
-    detect_ocr_row_bounds,
     strip_ocr_metadata,
-    tag_ocr_result_lines,
+)
+from proofs_ocr.pipelines.tfl_fitch_vlm import (
+    USE_SIMPLE_PROMPT,
+    build_27b_fullwidth_prompt,
+    build_nested_leaf_separated_prompt,
+    build_ocr_prompt,
+    call_vlm,
+    env_flag as _env_flag,
+    env_int as _env_int,
+    get_27b_extra_payload as _get_27b_extra_payload,
+    get_27b_max_tokens as _get_27b_max_tokens,
+    get_27b_timeout_seconds as _get_27b_timeout_seconds,
+    get_4b_fullwidth_max_lines as _get_4b_fullwidth_max_lines,
+    get_model_27b as _get_model_27b,
+    model_27b_available as _model_27b_available,
+    stitch_separated_nested_leaf_ocr,
+    use_separated_nested_leaf_ocr as _use_separated_nested_leaf_ocr,
 )
 from proofs_ocr.tricks.justification_snaps import (
     TFL_KNOWN_RULE_HEADS,
@@ -1660,675 +1674,27 @@ def build_context_crop(
 # 3. VLM Interaction (Mockable)
 # ==============================================================================
 
-#: When True, use a stripped-down prompt for leaf crops.  The full prompt
-#: stacks ~6 instruction blocks which may overwhelm a 4b model; this variant
-#: keeps only the essentials.  Toggle to compare regression scores.
-USE_SIMPLE_PROMPT = False
-
-#: Model routing for small leaf crops.  When a leaf crop has ≤ this many
+#: Model routing for small leaf crops.  When a leaf crop has <= this many
 #: expected lines, the pipeline routes it to a larger model (27b) for better
 #: handwriting recognition.  Set to 0 to disable routing.
 SMALL_LEAF_MODEL_ROUTING_THRESHOLD = 3
-
-#: LM Studio model identifier for the larger VLM used on small leaf crops.
-#: This is Qwen 3.6 27B (qwen/qwen3.6-27b), a significantly more capable
-#: model than the default 4b for handwriting recognition on small crops.
-#: Loaded from LMSTUDIO_MODEL_27B env var.
-def _get_model_27b() -> str:
-    return os.getenv("LMSTUDIO_MODEL_27B", "qwen/qwen3.6-27b").strip()
-
-def _model_27b_available() -> bool:
-    """Check if a 27b model is specified and differs from the default 4b."""
-    return bool(_get_model_27b().strip())
-
-
-def _env_flag(name: str, default: bool = False) -> bool:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    return raw.strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _env_int(name: str, default: int | None = None) -> int | None:
-    raw = (os.getenv(name) or "").strip()
-    if not raw:
-        return default
-    try:
-        return int(raw)
-    except ValueError:
-        return default
-
-
-def _get_27b_timeout_seconds() -> int:
-    return max(1, _env_int("TFL_FITCH_27B_TIMEOUT_SECONDS", 600) or 600)
-
-
-def _get_27b_max_tokens() -> int | None:
-    return _env_int("TFL_FITCH_27B_MAX_TOKENS")
-
-
-def _get_27b_extra_payload() -> Dict[str, object]:
-    extra_payload: Dict[str, object] = {}
-    if _env_flag("TFL_FITCH_27B_ENABLE_THINKING_FALSE"):
-        extra_payload["chat_template_kwargs"] = {"enable_thinking": False}
-    return extra_payload
-
-
-def _get_4b_fullwidth_max_lines() -> int:
-    """Return max nested leaf line count for default-model full-width crops."""
-    return max(0, _env_int("TFL_FITCH_4B_FULLWIDTH_MAX_LINES", 99) or 0)
-
-
-def _use_separated_nested_leaf_ocr() -> bool:
-    return _env_flag("TFL_FITCH_SEPARATED_NESTED_LEAF_OCR", True)
-
-
-def build_ocr_prompt(
-    *,
-    has_children: bool = True,
-    highlighted_box: bool = False,
-    expected_lines: int | None = None,
-) -> str:
-    """Build the VLM OCR prompt for a Fitch proof crop.
-
-    Parameters
-    ----------
-    has_children:
-        When *True* (the default), the crop contains red-box tokens that
-        reference masked child subproofs, so the prompt instructs the VLM to
-        copy those tokens verbatim.  When *False* the crop is a leaf node with
-        no red stamps, so token instructions are omitted entirely — this
-        prevents the VLM from hallucinating placeholder tokens that don't
-        exist in the image.
-    highlighted_box:
-        When *True*, the image is a parent-context crop with a bright green
-        rectangle drawn around the target subproof region.  The prompt
-        instructs the VLM to OCR only the lines inside that box.
-    expected_lines:
-        When provided (and *has_children* is False), injects an explicit line
-        count into the prompt so the VLM knows exactly how many line objects
-        to produce.  This is derived from horizontal projection profiling of
-        the crop and helps prevent the VLM from hallucinating extra lines.
-    """
-    # ---- Simple prompt path ------------------------------------------------
-    if USE_SIMPLE_PROMPT and not has_children:
-        parts = [
-            "Transcribe this Fitch proof image into a JSON array.",
-            "Each element: {\"line\": <num>, \"wffstr\": \"<formula>\", \"jstr\": \"<justification>\"}.",
-            "wffstr = formula on the left.  jstr = rule + line refs on the right.  Keep them separate.",
-        ]
-        if expected_lines is not None and expected_lines >= 1:
-            parts.append(f"Output exactly {expected_lines} line(s).")
-        parts.append("Return JSON only. No markdown.")
-        return " ".join(parts)
-
-    # ---- Full prompt path (non-leaf or simple disabled) --------------------
-    base = (
-        "Transcribe the Fitch-style proof in this image into a JSON list of objects. "
-        "Each object must have exactly these keys: 'line', 'wffstr', and 'jstr'. "
-        "Use 'wffstr' only for the formula on that line. Use 'jstr' only for the justification. "
-        "Do not place justification text inside 'wffstr'. "
-        "If a line is a premise or assumption and no justification is printed, leave 'jstr' as an empty string. "
-    )
-    # Handwriting Translation Guide — helps the VLM correctly interpret
-    # common sloppy handwritten symbols that it would otherwise misread
-    # as digits or punctuation.  Validated on Q4 crop_3 (K∧W subproof)
-    # with the 27b model: baseline+guide passed 2/2 formulas, 2/2 justifications.
-    base += (
-        "Handwriting Translation Guide (CRITICAL): "
-        "Students have sloppy handwriting. Use these known distortions to correct your visual reading: "
-        "- A sloppy K frequently looks like '1 <' or a vertical line next to a '<'. "
-        "- A sloppy ampersand & (conjunction) frequently looks like an '8'. "
-        "- A sloppy S frequently looks like a '5'. "
-        "- A handwritten implication-introduction justification may look like an arrow followed by a tall capital I; transcribe that rule head as '→I' before the cited range. "
-    )
-    if has_children:
-        base += (
-            "Every red box token like <SUBPROOF_ID_X> marks one masked child subproof. "
-            "You MUST output one proof-line object for each red token in its top-to-bottom position. "
-            "Copy the token exactly as the entire 'wffstr' value for that line and leave 'jstr' empty. "
-            "Treat a red token as a real proof row even when it appears alone in a large blank erased area. "
-            "Do not skip a red token because no black handwriting is next to it. "
-            "Also transcribe every visible black proof line above and below each red token; "
-            "a red token does not replace nearby visible proof lines. "
-        )
-    if highlighted_box:
-        base += (
-            "OCR only the proof lines inside the bright green highlighted box. "
-            "There are typically 1-3 lines inside the box. "
-            "Ignore all other text outside the green box. "
-        )
-    if not has_children:
-        base += "Transcribe only the lines actually visible in this image. "
-        if expected_lines is not None and expected_lines >= 1:
-            base += f"This image contains exactly {expected_lines} proof line(s). Output exactly {expected_lines} line objects. "
-            if expected_lines <= 4:
-                base += (
-                    f"Each of the {expected_lines} line(s) has a formula on the LEFT and a justification on the RIGHT. "
-                    "Formula goes in 'wffstr', justification goes in 'jstr'. Keep them separate. "
-                )
-    base += "Return JSON only, with no markdown fences or explanation."
-    return base
-
-
-def build_nested_leaf_separated_prompt(expected_lines: int | None = None) -> str:
-    """Build prompt for nested leaf OCR as formula/justification lists."""
-    prompt = (
-        "You are transcribing a cropped handwritten Fitch subproof. "
-        "Return exactly one JSON object with keys 'formulas' and 'justifications'. "
-        "'formulas' is a top-to-bottom array of every formula visible in the subproof. "
-        "The first/top formula is the child subproof assumption or premise. "
-        "The first/top formula has no printed justification. Do not include a justification for it. "
-        "'justifications' is a top-to-bottom array of the printed right-side justifications "
-        "for only the derived lines after the first formula. "
-        "Preserve citation numbers exactly as written. They are absolute proof line numbers, "
-        "not local crop numbers. "
-        "Do not infer corrections or validate the proof. "
-        "Handwriting guide: sloppy ampersand/conjunction may look like '8'; sloppy S may look like '5'. "
-    )
-    if expected_lines is not None and expected_lines >= 2:
-        prompt += (
-            f"This image contains exactly {expected_lines} proof line(s). "
-            f"Return exactly {expected_lines} formulas and exactly {expected_lines - 1} justifications. "
-        )
-    prompt += (
-        "Example output shape: "
-        "{\"formulas\": [\"W∧A\", \"W\", \"S\", \"S∧A\"], "
-        "\"justifications\": [\"∧E 7\", \"→E 2,8\", \"∧I 8,9\"]}. "
-        "Return JSON only, with no markdown fences or explanation."
-    )
-    return prompt
-
-
-def stitch_separated_nested_leaf_ocr(payload, expected_lines: int | None = None) -> List[Dict] | None:
-    """Convert separated formula/justification OCR into line dictionaries.
-
-    Accept only the strict nested-leaf shape: one opening assumption formula
-    with no justification, followed by exactly one justification per derived
-    formula.  Returning ``None`` lets the caller fall back to normal OCR.
-    """
-    if not isinstance(payload, dict):
-        return None
-    formulas = payload.get("formulas")
-    justifications = payload.get("justifications")
-    if not isinstance(formulas, list) or not isinstance(justifications, list):
-        return None
-    if expected_lines is not None and len(formulas) != expected_lines:
-        return None
-    if len(formulas) < 2 or len(justifications) != len(formulas) - 1:
-        return None
-
-    stitched: List[Dict] = []
-    for index, formula in enumerate(formulas):
-        jstr = "" if index == 0 else str(justifications[index - 1] or "")
-        stitched.append({"line": index + 1, "wffstr": str(formula or ""), "jstr": jstr})
-    return stitched
-
-
-def build_27b_fullwidth_prompt(expected_lines: int | None = None) -> str:
-    """Build a compact prompt for 27b full-width crop OCR.
-
-    It assumes the crop includes the line-number gutter (full image width,
-    restricted Y range). Keep this prompt short: longer "transcriber" framing
-    has made Qwen3.x models spend the whole token budget in reasoning_content.
-    """
-    prompt = (
-        "Return only a JSON array. Do not write analysis, notes, markdown, or explanations.\n"
-        "OCR the visible handwritten Fitch subproof chunk.\n"
-        "Use the visible left-gutter line numbers as absolute proof line numbers; do not "
-        "renumber the crop from 1.\n"
-        "For each visible proof row output one object with keys \"line\", \"wffstr\", and "
-        "\"jstr\". Put only the formula in \"wffstr\" and only the printed rule/citations "
-        "in \"jstr\". If no justification is printed, use an empty string.\n"
-        "Handwriting guide: K may look like '1 <' or a vertical stroke next to '<'; "
-        "conjunction &/∧ may look like '8'; S may look like '5'.\n"
-    )
-    if expected_lines is not None and expected_lines >= 1:
-        prompt += (
-            f"The image contains exactly {expected_lines} proof line(s). "
-            f"Output exactly {expected_lines} object(s).\n"
-        )
-    prompt += "Return the JSON array now."
-    return prompt
-
-
-def call_vlm(
-    image_path: str,
-    client,
-    *,
-    has_children: bool = True,
-    highlighted_box: bool = False,
-    expected_lines: int | None = None,
-    model_override: str | None = None,
-    prompt_override: str | None = None,
-) -> Tuple[object, str]:
-    """
-    Real VLM call. expects client to be compatible with typical OpenAI/LocalAI SDKs.
-
-    Returns
-    -------
-    Tuple[object, str]
-        (parsed OCR result, model thinking/reasoning text).
-
-    Parameters
-    ----------
-    model_override:
-        When set, passed through to ``client.chat(model=...)`` to route the
-        request to a different LM Studio model (e.g. the 27b variant for
-        small leaf crops).
-    prompt_override:
-        When set, use this string as the prompt instead of building one via
-        :func:`build_ocr_prompt`.  Used for the 27b full-width crop path.
-    """
-    if prompt_override:
-        prompt = prompt_override
-    else:
-        prompt = build_ocr_prompt(
-        has_children=has_children,
-        highlighted_box=highlighted_box,
-        expected_lines=expected_lines,
-    )
-    is_27b_route = bool(model_override)
-    if is_27b_route and _env_flag("TFL_FITCH_27B_NO_THINK"):
-        prompt = f"/no_think\n{prompt}"
-
-    model_tag = f" (model={model_override})" if model_override else ""
-    print(f"   [VLM] Sending {os.path.basename(image_path)}{model_tag}...")
-
-    # Mock response if no client provided
-    if client is None:
-        return [{"line": "?", "wffstr": "VLM_NOT_CONFIGURED", "jstr": "Error"}], ""
-
-    try:
-        image_path_obj = Path(image_path)
-        if is_27b_route and _env_flag("TFL_FITCH_27B_SINGLE_USER_MESSAGE"):
-            messages = client.build_single_user_image_message(image_path_obj, prompt)
-        elif hasattr(client, "build_messages_for_prompt"):
-            messages = client.build_messages_for_prompt(image_path_obj, "Provide the transcription as instructed.", system_prompt=prompt)
-        else:
-            import base64
-
-            with open(image_path, "rb") as f:
-                base64_image = base64.b64encode(f.read()).decode("utf-8")
-
-            messages = [
-                {"role": "system", "content": prompt},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": "Provide the transcription as instructed."},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"},
-                        },
-                    ],
-                },
-            ]
-
-        # Use extended timeout for larger model requests
-        extra_kwargs = {}
-        if is_27b_route:
-            extra_kwargs["timeout"] = _get_27b_timeout_seconds()
-            max_tokens = _get_27b_max_tokens()
-            if max_tokens is not None:
-                extra_kwargs["max_tokens"] = max_tokens
-            extra_payload = _get_27b_extra_payload()
-            if extra_payload:
-                extra_kwargs["extra_payload"] = extra_payload
-        if hasattr(client, "last_vlm_error"):
-            client.last_vlm_error = ""
-        content = client.chat(messages, model=model_override, **extra_kwargs)
-
-        # Extract thinking/reasoning text from the VLM client (populated by
-        # LMStudioQwenClient.chat() from the reasoning_content field).
-        thinking = getattr(client, "last_thinking", "") or ""
-        metadata = getattr(client, "last_response_metadata", {}) or {}
-        if metadata:
-            print(
-                "   [VLM] Metadata: "
-                f"elapsed={metadata.get('elapsed_s')}s "
-                f"thinking={metadata.get('thinking_chars')} "
-                f"content={metadata.get('content_chars')} "
-                f"finish={metadata.get('finish_reason')}"
-            )
-
-        # Extract JSON from markdown blocks if present
-        if "```json" in content:
-            content = content.split("```json")[1].split("```")[0]
-        elif "```" in content:
-            content = content.split("```")[1].split("```")[0]
-
-        return json.loads(content), thinking
-
-    except Exception as e:
-        thinking = getattr(client, "last_thinking", "") or ""
-        metadata = getattr(client, "last_response_metadata", {}) or {}
-        if hasattr(client, "__dict__"):
-            client.last_vlm_error = str(e)
-        if metadata:
-            print(
-                "   [VLM] Metadata: "
-                f"elapsed={metadata.get('elapsed_s')}s "
-                f"thinking={metadata.get('thinking_chars')} "
-                f"content={metadata.get('content_chars')} "
-                f"finish={metadata.get('finish_reason')}"
-            )
-        print(f"   [VLM Error] {e}")
-        return [], thinking
 
 # ==============================================================================
 # 4. Orchestration
 # ==============================================================================
 
 def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path, library: Dict, client) -> List[Dict]:
-    """
-    Bottom-up processing:
-    1. Process children first.
-    2. Mask children on current image.
-    3. Save current image -> OCR -> Store result in library.
-    """
-    
-    # 1. Prepare the image for THIS node
-    # Start with the raw crop of this node's area
-    if node.id == "ROOT":
-        current_img = img.copy()
+    """Process a proof-tree node while preserving the historical public helper."""
+    from proofs_ocr.pipelines.tfl_fitch_runtime import process_node_recursive as _runtime_process_node_recursive
 
-        # Blot out line numbers to the LEFT of the outermost bar so the VLM
-        # doesn't read them as formula content.  When we have detected bars,
-        # the leftmost bar's X position marks the boundary — everything left
-        # of that is line numbers (or blank margin).
-        if node.children:
-            leftmost_bar_x = min(c.box[0] for c in node.children)
-            if leftmost_bar_x > 0:
-                current_img[:, :leftmost_bar_x] = 255  # fill with white
-    else:
-        if node.parent and node.parent.id == "ROOT":
-            # Extend crop to image bottom to capture post-subproof conclusion
-            # lines that sit below the outermost Fitch bar.  Only done for
-            # direct children of ROOT because deeper nesting never has
-            # post-subproof content outside the parent bar's Y span.
-            extended_h = img.shape[0] - node.box[1]
-            current_img = crop_region(img, (node.box[0], node.box[1], node.box[2], extended_h))
-        else:
-            current_img = crop_region(img, node.box)
-
-    # 2. Process Children (Deepest first)
-    # We sort children by vertical position just in case, though order doesn't strictly matter for masking
-    sorted_children = sorted(node.children, key=lambda c: c.box[1])
-    masked_child_nodes: List[SubproofNode] = []
-    
-    for child in sorted_children:
-        # RECURSE: This will populate the library with the child's JSON
-        process_node_recursive(child, img, output_dir, library, client)
-        
-        # MASK: Now we hide the child on our current image
-        # Note: We must translate child coordinates to the cropped frame of the parent
-        mask_box = adjusted_child_box_for_parent_mask(child, img)
-        mask_child = SubproofNode(child.id, mask_box)
-        if node.id == "ROOT":
-            # Child coordinates are already global
-            current_img = mask_subproof_in_parent(current_img, mask_child)
-            masked_child_nodes.append(mask_child)
-        else:
-            # Adjust child global coords to be relative to parent crop
-            px, py, _, _ = node.box
-            offset_x = max(0, px - 10)
-            offset_y = max(0, py - 10)
-            # Create a temporary relative node for masking
-            rel_box = (mask_box[0] - offset_x, mask_box[1] - offset_y, mask_box[2], mask_box[3])
-            rel_child = SubproofNode(child.id, rel_box)
-            current_img = mask_subproof_in_parent(current_img, rel_child)
-            masked_child_nodes.append(rel_child)
-
-    # Capture the real crop before any letterboxing changes it, since context
-    # decisions and line counting should be based on the actual crop geometry.
-    original_crop_h = current_img.shape[0]
-    line_count_img = current_img
-    is_leaf = not sorted_children
-    expected_lines = None
-
-    # 3. Save & OCR
-    filename = f"crop_{node.id}.jpg"
-    save_path = output_dir / filename
-    vlm_image_path = str(save_path)
-
-    # Apply letterboxing to small leaf crops so the VLM's internal resizing
-    # doesn't distort the handwriting.  Context crops are already large
-    # enough (they embed the parent image) so they don't need letterboxing.
-    if is_leaf and original_crop_h < SMALL_CROP_THRESHOLD:
-        current_img = letterbox_crop(current_img)
-
-    cv2.imwrite(str(save_path), current_img)
-
-    # --- Context-aware crop for small leaf subproofs ---
-    # DISABLED (2026-04-25): The VLM (qwen3-vl-4b) ignores the green box
-    # instruction and reads the entire parent image, producing 2–3× more
-    # lines than expected.  Using letterboxed tight crops instead limits
-    # what the model can physically see.
-    use_context_crop = False
-
-    if False and use_context_crop:
-        parent_node = node.parent
-        px, py, pw, ph = parent_node.box
-
-        # Build the parent's unmasked crop the same way it would be built
-        # in process_node_recursive for the parent.
-        if parent_node.parent and parent_node.parent.id == "ROOT":
-            p_extended_h = img.shape[0] - py
-            parent_crop = crop_region(img, (px, py, pw, p_extended_h))
-        else:
-            parent_crop = crop_region(img, parent_node.box)
-
-        # Compute the offset that crop_region applied (padding-aware).
-        p_offset_x = max(0, px - 10)
-        p_offset_y = max(0, py - 10)
-
-        # Draw the highlight rectangle on the parent crop.
-        context_img = build_context_crop(parent_crop, node.box, (p_offset_x, p_offset_y))
-
-        # Save context crop for debugging comparison.
-        context_filename = f"crop_{node.id}_context.jpg"
-        context_save_path = output_dir / context_filename
-        cv2.imwrite(str(context_save_path), context_img)
-
-        print(
-            f"Processing Node {node.id} (Depth {node.depth})... "
-            f"Using context-aware crop ({original_crop_h}px < {SMALL_CROP_THRESHOLD}px)"
-        )
-
-        ocr_result, _thinking = call_vlm(
-            str(context_save_path), client,
-            has_children=False,
-            highlighted_box=True,
-        )
-    else:
-        print(f"Processing Node {node.id} (Depth {node.depth})... Saved to {save_path.name}")
-
-        # For leaf nodes, optionally estimate expected line count from
-        # horizontal projection profiling to constrain the VLM and truncate
-        # hallucinations.  Controlled by USE_LINE_COUNT_CONSTRAINT flag.
-        if USE_LINE_COUNT_CONSTRAINT and is_leaf:
-            expected_lines = estimate_line_count(line_count_img)
-            print(f"   [LineCount] Node {node.id}: detected {expected_lines} text line(s)")
-
-        # Model routing: use the larger 27b model for small leaf crops where
-        # the 4b model struggles with handwriting recognition.
-        model_override = None
-        prompt_override = None
-        use_separated_nested_leaf_ocr = False
-
-        if (
-            is_leaf
-            and SMALL_LEAF_MODEL_ROUTING_THRESHOLD > 0
-            and expected_lines is not None
-            and expected_lines <= SMALL_LEAF_MODEL_ROUTING_THRESHOLD
-            and _model_27b_available()
-        ):
-            model_override = _get_model_27b()
-            print(f"   [ModelRoute] Node {node.id}: routing to {model_override} (<={SMALL_LEAF_MODEL_ROUTING_THRESHOLD} lines)")
-
-            # Generate a full-width crop for 27b — preserves the line-number
-            # gutter for citation context.  No letterboxing needed since the
-            # aspect ratio is already reasonable at full image width.
-            fw_img = crop_full_width(img, node)
-            fw_img = trim_lined_paper_top_carryover_for_ocr(
-                fw_img,
-                expected_lines=expected_lines,
-            )
-            fw_filename = f"crop_{node.id}_fullwidth.jpg"
-            fw_save_path = output_dir / fw_filename
-            cv2.imwrite(str(fw_save_path), fw_img)
-            print(f"   [FullWidth] Node {node.id}: saved full-width crop to {fw_filename}")
-
-            vlm_image_path = str(fw_save_path)
-            prompt_override = build_27b_fullwidth_prompt(expected_lines=expected_lines)
-        else:
-            four_b_fullwidth_max_lines = _get_4b_fullwidth_max_lines()
-            is_nested_leaf = is_leaf and node.parent is not None and node.parent.id != "ROOT"
-            if (
-                is_nested_leaf
-                and four_b_fullwidth_max_lines > 0
-                and expected_lines is not None
-                and expected_lines <= four_b_fullwidth_max_lines
-            ):
-                print(
-                    f"   [FullWidth4B] Node {node.id}: using full-width crop "
-                    f"(<= {four_b_fullwidth_max_lines} lines)"
-                )
-                fw_img = crop_full_width(img, node)
-                fw_img = trim_lined_paper_top_carryover_for_ocr(
-                    fw_img,
-                    expected_lines=expected_lines,
-                )
-                fw_filename = f"crop_{node.id}_4b_fullwidth.jpg"
-                fw_save_path = output_dir / fw_filename
-                cv2.imwrite(str(fw_save_path), fw_img)
-                vlm_image_path = str(fw_save_path)
-                if expected_lines is not None and expected_lines >= 2 and _use_separated_nested_leaf_ocr():
-                    use_separated_nested_leaf_ocr = True
-                    prompt_override = build_nested_leaf_separated_prompt(expected_lines=expected_lines)
-                    print(f"   [SeparatedLeaf] Node {node.id}: requesting formulas/justifications lists")
-
-        # Call VLM — leaf nodes (no masked children) get a simpler prompt that
-        # omits the <SUBPROOF_ID_X> instructions, preventing hallucinated tokens.
-        ocr_result, thinking_text = call_vlm(
-            vlm_image_path, client,
-            has_children=bool(sorted_children),
-            expected_lines=expected_lines,
-            model_override=model_override,
-            prompt_override=prompt_override,
-        )
-
-        if use_separated_nested_leaf_ocr:
-            separated_payload = ocr_result
-            separated_path = output_dir / f"response_{node.id}_separated_raw.json"
-            with open(separated_path, "w", encoding="utf-8") as f:
-                json.dump(separated_payload, f, indent=2, ensure_ascii=False)
-            stitched_separated = stitch_separated_nested_leaf_ocr(
-                separated_payload,
-                expected_lines=expected_lines,
-            )
-            if stitched_separated is not None:
-                print(
-                    f"   [SeparatedLeaf] Node {node.id}: accepted "
-                    f"{len(stitched_separated)} stitched line(s)"
-                )
-                ocr_result = stitched_separated
-            else:
-                print(f"   [SeparatedLeaf] Node {node.id}: count/shape mismatch; falling back to row-object OCR")
-                ocr_result, fallback_thinking = call_vlm(
-                    vlm_image_path,
-                    client,
-                    has_children=bool(sorted_children),
-                    expected_lines=expected_lines,
-                    model_override=model_override,
-                )
-                if fallback_thinking:
-                    thinking_text = f"{thinking_text}\n\n--- fallback ---\n\n{fallback_thinking}" if thinking_text else fallback_thinking
-
-        # Save thinking/reasoning text for debugging (especially useful for
-        # diagnosing when the 27b model gets stuck in infinite thinking loops).
-        if thinking_text:
-            thinking_path = output_dir / f"thinking_{node.id}.txt"
-            thinking_path.write_text(thinking_text, encoding="utf-8")
-            print(f"   [Thinking] Node {node.id}: saved {len(thinking_text)} chars to {thinking_path.name}")
-
-        response_metadata = getattr(client, "last_response_metadata", {}) or {}
-        if response_metadata:
-            metadata_path = output_dir / f"response_metadata_{node.id}.json"
-            with open(metadata_path, "w", encoding="utf-8") as f:
-                json.dump(response_metadata, f, indent=2, ensure_ascii=False)
-
-        vlm_error = str(getattr(client, "last_vlm_error", "") or "").strip()
-        if vlm_error:
-            error_path = output_dir / f"error_{node.id}.txt"
-            error_path.write_text(vlm_error, encoding="utf-8")
-
-        # Truncate if VLM returned more dict items than expected.
-        # Only applies when USE_LINE_COUNT_CONSTRAINT is enabled and we
-        # have a line estimate for this leaf node.
-        if USE_LINE_COUNT_CONSTRAINT and is_leaf and expected_lines is not None:
-            dict_items = [item for item in ocr_result if isinstance(item, dict)]
-            if len(dict_items) > expected_lines:
-                print(
-                    f"   [Truncate] Node {node.id}: VLM returned "
-                    f"{len(dict_items)} lines, truncating to {expected_lines}"
-                )
-                # Keep only the first expected_lines dict items (preserve
-                # any non-dict entries like sub-lists, though leaf nodes
-                # shouldn't have them).
-                kept = []
-                for item in ocr_result:
-                    if isinstance(item, dict):
-                        if len(kept) < expected_lines:
-                            kept.append(item)
-                    else:
-                        kept.append(item)
-                ocr_result = kept
-
-        if not is_leaf:
-            ordered_ocr_result = repair_trailing_child_token_order(ocr_result)
-            if ordered_ocr_result is not ocr_result:
-                print(f"   [TokenRepair] Node {node.id}: moved trailing child token before intro row")
-                ocr_result = ordered_ocr_result
-            repaired_ocr_result = repair_missing_child_tokens(
-                ocr_result,
-                masked_child_nodes,
-                img_shape=current_img.shape,
-            )
-            if repaired_ocr_result is not ocr_result:
-                print(
-                    f"   [TokenRepair] Node {node.id}: restored "
-                    f"{len(repaired_ocr_result) - len(ocr_result)} missing child token(s)"
-                )
-                ocr_result = repaired_ocr_result
-            filtered_ocr_result = drop_trailing_parent_bleed_artifact(ocr_result)
-            if filtered_ocr_result is not ocr_result:
-                print(f"   [BleedFilter] Node {node.id}: dropped trailing parent-line artifact")
-                ocr_result = filtered_ocr_result
-
-    # Save raw VLM response for debug
-    with open(output_dir / f"response_{node.id}.json", "w") as f:
-        json.dump(ocr_result, f, indent=2)
-
-    row_count_for_bounds = len([item for item in ocr_result if isinstance(item, dict)])
-    row_bounds = detect_ocr_row_bounds(Path(vlm_image_path), row_count=row_count_for_bounds)
-
-    tag_ocr_result_lines(
-        ocr_result,
-        node_id=node.id,
-        crop_path=vlm_image_path,
-        expected_lines=expected_lines,
-        is_leaf=is_leaf,
-        node_box=node.box,
-        parent_id=node.parent.id if node.parent else None,
-        row_bounds=row_bounds,
+    return _runtime_process_node_recursive(
+        node,
+        img,
+        output_dir,
+        library,
+        client,
+        call_vlm_fn=call_vlm,
     )
-
-    # Add to library
-    library[node.id] = ocr_result
-
-    return ocr_result
 
 # ==============================================================================
 # 5. Stitching — uses shared recursive_stitch from proofs_ocr.common.stitch
@@ -2506,152 +1872,7 @@ def run_fitch_ocr_pipeline(
     return {"run_summary": run_summary, "line_count": line_count}
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Debug the Recursive Fitch OCR Pipeline")
-    parser.add_argument(
-        "filename",
-        help="Name of file in raw_scans (e.g., quiz1_studentA_p1.jpg)",
-    )
-    args = parser.parse_args()
-
-    # Setup Paths
-    raw_scan_path = RAW_SCANS_DIR / args.filename
-    if not raw_scan_path.exists():
-        print(f"Error: File not found at {raw_scan_path}")
-        return
-
-    output_base = DEBUG_FITCH_DIR / raw_scan_path.stem
-    if output_base.exists():
-        import shutil
-        shutil.rmtree(output_base)
-    output_base.mkdir(parents=True, exist_ok=True)
-
-    print(f"=== Starting Fitch OCR Debug ===")
-    print(f"Input: {raw_scan_path}")
-    print(f"Output: {output_base}")
-
-    # 1. Load Image
-    img = cv2.imread(str(raw_scan_path))
-    if img is None:
-        raise FileNotFoundError(f"Could not read image: {raw_scan_path}")
-    
-    # 2. Select Geometry, Detect Bars & Build Tree
-    geometry = select_fitch_geometry(img)
-    preflight = geometry.get("preflight") or {}
-    (output_base / "geometry_preflight.json").write_text(
-        json.dumps(preflight, indent=2, ensure_ascii=False),
-        encoding="utf-8",
-    )
-    selected_mode = str(geometry.get("selected_mode") or "standard")
-    if selected_mode == "manual":
-        raise RuntimeError(
-            "Fitch geometry preflight could not choose a reliable OCR mode. "
-            f"See {output_base / 'geometry_preflight.json'} for standard/slanted diagnostics."
-        )
-
-    img = geometry["img"]
-    bars = geometry["bars"]
-    tree_root = geometry["tree"]
-    print(f"Detected {len(bars)} vertical bars using {selected_mode} geometry.")
-    
-    # Draw debug bars
-    debug_img = img.copy()
-    for i, (x, y, w, h) in enumerate(bars):
-        cv2.rectangle(debug_img, (x, y), (x+w, y+h), (0, 255, 0), 2)
-        cv2.putText(debug_img, str(i+1), (x, y-5), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-    cv2.imwrite(str(output_base / "debug_bars.jpg"), debug_img)
-
-    max_slanted_bars = _env_int("TFL_FITCH_SLANTED_MAX_BARS_BEFORE_OCR", 6) or 6
-    if selected_mode == "slanted" and len(bars) > max_slanted_bars:
-        raise RuntimeError(
-            "Slanted phone-crop geometry is implausible before OCR: "
-            f"detected {len(bars)} bar candidates after preprocessing "
-            f"(max {max_slanted_bars})."
-        )
-
-    # 3. Recursive Process
-    library = {}
-    print("\n--- Recursive Processing (Bottom-Up) ---")
-    _with_env_flag(
-        "TFL_FITCH_SLANTED_BAR_REPAIR",
-        "1" if selected_mode == "slanted" else None,
-        lambda: process_node_recursive(tree_root, img, output_base, library, client=vlm_client),
-    )
-    
-    # 4. Stitch & Renumber
-    print("\n--- Stitching Results ---")
-    
-    # HEURISTIC: If ROOT is empty/garbage but has children, 
-    # use the first child (ID_1) as the main proof.
-    # We check if ROOT has any actual content strings or just empty ones.
-    root_has_content = any(line.get("wffstr", "").strip() for line in library.get("ROOT", []))
-    
-    if not root_has_content and "1" in library:
-        print("   [Fix] ROOT was empty. Promoting 'ID_1' to top level.")
-        top_level_structure = library["1"]
-    else:
-        top_level_structure = library.get("ROOT", [])
-
-    # A. Stitch: Replace token strings with actual lists
-    stitched_structure = recursive_stitch(top_level_structure, library)
-
-    # Unwrap unnecessary nesting 
-    # The stitching or VLM results often create layers like [[[ {line1}, ... ]]].
-    # We need to peel these layers off until we find the actual list of logic lines.
-    while (isinstance(stitched_structure, list) 
-           and len(stitched_structure) == 1 
-           and isinstance(stitched_structure[0], list)):
-        print("   [Structure] Unwrapping nested list layer...")
-        stitched_structure = stitched_structure[0]
-    
-    # NEW: Normalize VLM Output ---
-    print("   [Logic] Normalizing symbols and justifications...")
-    normalize_proof_structure(stitched_structure)
-    remove_empty_lines(stitched_structure)
-
-    # Identify Premises ---
-    # We do this BEFORE renumbering or flattening, while structure is clear.
-    print(f"   [Logic] Inferring premises from top-level structure...")
-    numprems = label_and_count_premises(stitched_structure)
-    print(f"   [Logic] Identified {numprems} premises.")
-    
-    # B. Renumber: Fix the line numbers 1..N
-    total_lines = renumber_lines(stitched_structure)
-    print(f"   [Renumber] Proof contains {total_lines - 1} lines.")
-
-    infer_missing_rule_heads(stitched_structure)
-
-    # C. Backfill remaining blank justifications using the inferred premise count.
-    print("   [Logic] Filling blank justifications with Pr/Hyp defaults...")
-    apply_default_justifications(stitched_structure, numprems)
-
-    if _env_flag("TFL_FITCH_VERIFIER_REREAD"):
-        reread_records = collect_verifier_reread_candidates(
-            stitched_structure,
-            output_dir=output_base,
-            client=vlm_client,
-            numprems=numprems,
-            model=os.getenv("TFL_FITCH_VERIFIER_REREAD_MODEL") or None,
-            timeout=max(1, _env_int("TFL_FITCH_VERIFIER_REREAD_TIMEOUT_SECONDS", 120) or 120),
-            source_image=img,
-        )
-        reread_path = output_base / "verifier_line_reread_candidates.json"
-        reread_path.write_text(json.dumps(reread_records, indent=2, ensure_ascii=False), encoding="utf-8")
-        print(f"   [VerifierReread] Wrote {len(reread_records)} record(s) to {reread_path.name}")
-
-    strip_ocr_metadata(stitched_structure)
-    
-    print("\n--- Final JSON Structure ---")
-    print(json.dumps(stitched_structure, indent=2, ensure_ascii=False))
-
-    # Save Final
-    final_json_path = output_base / "final_structure.json"
-    with open(final_json_path, "w") as f:
-        json.dump(stitched_structure, f, indent=2)
-        
-    print(f"Final stitched structure saved to {final_json_path}")
-
-    # 5. Verification
+def _print_proof_checker_report(stitched_structure: list, numprems: int) -> None:
     print("\n--- Proof Checker ---")
     if not proof_checker_available:
         print("   [Verifier] Proof checker unavailable (imports failed).")
@@ -2663,14 +1884,11 @@ def main():
         return
 
     flattened = flatten_proof(proofline_structure, [])
-    
-    # We grab the conclusion from the very last line of the flattened proof
     conc_guess = flattened[-1].wffstr if flattened else ""
-    
+
     print(f"   [Verifier] Inferred premises: {numprems}")
     print(f"   [Verifier] Target conclusion: {conc_guess or '(empty)'}")
 
-    # Pass the explicitly counted 'numprems' to the verifier
     result = check_proof(proofline_structure, numprems=numprems, conc=conc_guess)
     print(f"   [Verifier] Conclusion reached? {'Yes' if result.conc_reached else 'No'}")
 
@@ -2680,6 +1898,49 @@ def main():
             print(f"      - {issue}")
     else:
         print("   [Verifier] No issues detected.")
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Debug the Recursive Fitch OCR Pipeline")
+    parser.add_argument(
+        "filename",
+        help="Name of file in raw_scans (e.g., quiz1_studentA_p1.jpg)",
+    )
+    args = parser.parse_args()
+
+    raw_scan_path = RAW_SCANS_DIR / args.filename
+    if not raw_scan_path.exists():
+        print(f"Error: File not found at {raw_scan_path}")
+        return
+
+    output_base = DEBUG_FITCH_DIR / raw_scan_path.stem
+    if output_base.exists():
+        import shutil
+
+        shutil.rmtree(output_base)
+    output_base.mkdir(parents=True, exist_ok=True)
+
+    print("=== Starting Fitch OCR Debug ===")
+    print(f"Input: {raw_scan_path}")
+    print(f"Output: {output_base}")
+
+    result = run_fitch_ocr_pipeline(
+        image_path=raw_scan_path,
+        output_dir=output_base,
+        client=vlm_client,
+    )
+    print(result["run_summary"])
+
+    final_json_path = output_base / "final_structure.json"
+    stitched_structure = json.loads(final_json_path.read_text(encoding="utf-8"))
+
+    print("\n--- Final JSON Structure ---")
+    print(json.dumps(stitched_structure, indent=2, ensure_ascii=False))
+    print(f"Final stitched structure saved to {final_json_path}")
+
+    premise_match = re.search(r"(\d+) premises", str(result.get("run_summary") or ""))
+    numprems = int(premise_match.group(1)) if premise_match else 0
+    _print_proof_checker_report(stitched_structure, numprems)
     
 if __name__ == "__main__":
     main()
