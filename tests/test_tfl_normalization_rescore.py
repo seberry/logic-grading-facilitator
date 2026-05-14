@@ -145,6 +145,10 @@ class TestEightAsAndJustificationRepair(unittest.TestCase):
         result = canonicalize_justification_for_comparison("∨∈ 3")
         self.assertEqual(result, "∨E 3")
 
+    def test_multiplication_sign_repairs_to_x_rule(self):
+        """OCR '×7' should normalize as the X rule with citation 7."""
+        self.assertEqual(canonicalize_justification_for_comparison("×7"), "X 7")
+
     def test_eight_not_replaced_when_not_EI(self):
         """'8 X 3' should NOT get 8 replaced (X is not E or I rule letter)."""
         result = canonicalize_justification_for_comparison("8 X 3")

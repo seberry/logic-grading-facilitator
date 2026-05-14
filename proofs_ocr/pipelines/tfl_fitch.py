@@ -22,6 +22,7 @@ from proofs_ocr.common.stitch import recursive_stitch, renumber_lines
 from proofs_ocr.domains.shared import parse_vlm_json_response
 from proofs_ocr.pipelines.tfl_line_reread import (
     collect_verifier_reread_candidates,
+    detect_ocr_row_bounds,
     strip_ocr_metadata,
     tag_ocr_result_lines,
 )
@@ -2310,12 +2311,18 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
     with open(output_dir / f"response_{node.id}.json", "w") as f:
         json.dump(ocr_result, f, indent=2)
 
+    row_count_for_bounds = len([item for item in ocr_result if isinstance(item, dict)])
+    row_bounds = detect_ocr_row_bounds(Path(vlm_image_path), row_count=row_count_for_bounds)
+
     tag_ocr_result_lines(
         ocr_result,
         node_id=node.id,
         crop_path=vlm_image_path,
         expected_lines=expected_lines,
         is_leaf=is_leaf,
+        node_box=node.box,
+        parent_id=node.parent.id if node.parent else None,
+        row_bounds=row_bounds,
     )
 
     # Add to library
@@ -2477,6 +2484,7 @@ def run_fitch_ocr_pipeline(
             numprems=numprems,
             model=os.getenv("TFL_FITCH_VERIFIER_REREAD_MODEL") or None,
             timeout=max(1, _env_int("TFL_FITCH_VERIFIER_REREAD_TIMEOUT_SECONDS", 120) or 120),
+            source_image=img,
         )
         reread_path = output_dir / "verifier_line_reread_candidates.json"
         reread_path.write_text(json.dumps(reread_records, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -2625,6 +2633,7 @@ def main():
             numprems=numprems,
             model=os.getenv("TFL_FITCH_VERIFIER_REREAD_MODEL") or None,
             timeout=max(1, _env_int("TFL_FITCH_VERIFIER_REREAD_TIMEOUT_SECONDS", 120) or 120),
+            source_image=img,
         )
         reread_path = output_base / "verifier_line_reread_candidates.json"
         reread_path.write_text(json.dumps(reread_records, indent=2, ensure_ascii=False), encoding="utf-8")

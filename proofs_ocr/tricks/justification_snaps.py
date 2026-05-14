@@ -445,6 +445,7 @@ def clean_justification_for_tfl(jstr: str) -> str:
         return ""
     jstr = jstr.replace("->", "→").replace("<->", "↔").replace("<→", "↔")
     jstr = jstr.replace("←", "↔")
+    jstr = jstr.replace("×", "X")
     jstr = snap_epsilon_to_e(jstr)
     # Collapse spaces: "8 E" -> "8E", "8 I" -> "8I" (handwritten ∧ looks like 8)
     jstr = re.sub(r"\b8\s+([IE])\b", r"8\1", jstr)

@@ -54,6 +54,11 @@ class TestFuzzySnapJustification(unittest.TestCase):
             "∧E 2",
         )
 
+    def test_clean_justification_repairs_multiplication_sign_to_x_rule(self):
+        from proofs_ocr.tricks.justification_snaps import clean_justification_for_tfl
+
+        self.assertEqual(clean_justification_for_tfl("×7"), "X 7")
+
     def test_unknown_head_no_unique_match_returns_tail_fixed(self):
         from proofs_ocr.tricks.justification_snaps import fuzzy_snap_justification
         # "XX" has no unique valid mapping, tail still gets S→5
@@ -616,6 +621,174 @@ class TestVerifierGuidedLineReread(unittest.TestCase):
             self.assertTrue(Path(records[0]["row_crop"]).exists())
             self.assertEqual(len(client.calls), 1)
             self.assertIn("Do not infer a valid proof", client.calls[0][1])
+
+    def test_parse_citation_line_numbers_expands_ranges(self) -> None:
+        from proofs_ocr.pipelines.tfl_line_reread import parse_citation_line_numbers
+
+        self.assertEqual(parse_citation_line_numbers("∨E 2, 4-6, 9"), [2, 4, 5, 6, 9])
+
+    def test_collect_verifier_reread_derives_fullwidth_and_reads_cited_lines(self) -> None:
+        import json
+        import tempfile
+        from pathlib import Path
+
+        import numpy as np
+
+        from proofs_ocr.pipelines.tfl_line_reread import collect_verifier_reread_candidates
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls = []
+                self.last_response_metadata = {
+                    "elapsed_s": 0.02,
+                    "thinking_chars": 0,
+                    "usage": {"completion_tokens_details": {"reasoning_tokens": 0}},
+                }
+
+            def build_single_user_image_message(self, image_path, prompt):
+                self.calls.append((Path(image_path), prompt, "single"))
+                return [{"role": "user", "content": prompt}]
+
+            def build_messages_for_prompt(self, image_path, prompt, system_prompt=None):
+                self.calls.append((Path(image_path), prompt, "split"))
+                return [{"role": "user", "content": prompt}]
+
+            def chat(self, messages, *, model=None, timeout=None, max_tokens=None, extra_payload=None):
+                if len(self.calls) == 1:
+                    return json.dumps({"line": 3, "wffstr": "B", "jstr": "→E 1,3"})
+                return json.dumps({"line": 1, "wffstr": "A", "jstr": "Pr"})
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            tight_crop = tmp_path / "crop_ROOT.jpg"
+            source = np.ones((180, 320, 3), dtype=np.uint8) * 255
+            source[25:45, 5:25] = 0
+            source[25:45, 40:180] = 0
+            source[85:105, 5:25] = 0
+            source[85:105, 40:180] = 0
+            source[145:165, 5:25] = 0
+            source[145:165, 40:180] = 0
+            tight = source.copy()
+            tight[:, :35] = 255
+            self.assertTrue(cv2.imwrite(str(tight_crop), tight))
+
+            structure = [
+                {
+                    "line": 1,
+                    "wffstr": "A",
+                    "jstr": "Pr",
+                    "_ocr_node_id": "ROOT",
+                    "_ocr_local_index": 1,
+                    "_ocr_crop_path": str(tight_crop),
+                    "_ocr_expected_lines": 3,
+                    "_ocr_is_leaf": False,
+                    "_ocr_node_box": [0, 0, 320, 180],
+                    "_ocr_parent_id": None,
+                },
+                {"line": 2, "wffstr": "A→B", "jstr": "Pr"},
+                {
+                    "line": 3,
+                    "wffstr": "B",
+                    "jstr": "→E 1,3",
+                    "_ocr_node_id": "ROOT",
+                    "_ocr_local_index": 3,
+                    "_ocr_crop_path": str(tight_crop),
+                    "_ocr_expected_lines": 3,
+                    "_ocr_is_leaf": False,
+                    "_ocr_node_box": [0, 0, 320, 180],
+                    "_ocr_parent_id": None,
+                },
+            ]
+            client = FakeClient()
+
+            with patch.dict(
+                "os.environ",
+                {
+                    "TFL_FITCH_27B_SINGLE_USER_MESSAGE": "1",
+                    "TFL_FITCH_27B_NO_THINK": "1",
+                    "TFL_FITCH_27B_ENABLE_THINKING_FALSE": "1",
+                },
+            ):
+                records = collect_verifier_reread_candidates(
+                    structure,
+                    output_dir=tmp_path,
+                    client=client,
+                    numprems=2,
+                    source_image=source,
+                )
+
+            self.assertEqual([record["target_kind"] for record in records], ["rejected", "cited"])
+            self.assertFalse(records[0]["material_change"])
+            self.assertEqual(records[0]["full_width_crop_source"], "derived_from_source")
+            self.assertTrue(Path(records[0]["full_width_crop"]).exists())
+            self.assertIn("/no_think", records[0]["prompt"])
+            self.assertEqual(len(client.calls), 2)
+            self.assertTrue(all(call[2] == "single" for call in client.calls))
+
+    def test_extract_single_line_crop_uses_stored_row_bounds_for_parent_rows(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        import numpy as np
+
+        from proofs_ocr.pipelines.tfl_line_reread import extract_single_line_crop
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            crop_path = tmp_path / "fullwidth.jpg"
+            output_path = tmp_path / "row.jpg"
+            img = np.ones((220, 360, 3), dtype=np.uint8) * 255
+            img[20:35, 40:170] = 0
+            img[90:105, 40:170] = 0
+            img[165:180, 40:170] = 0
+            self.assertTrue(cv2.imwrite(str(crop_path), img))
+
+            extract_single_line_crop(
+                crop_path,
+                local_index=1,
+                expected_lines=3,
+                output_path=output_path,
+                row_bounds=(150, 195),
+            )
+
+            row = cv2.imread(str(output_path))
+            self.assertIsNotNone(row)
+            self.assertEqual(row.shape[0], 45)
+            # The stored y-window should select the third visual band even
+            # though local_index points at the first row.
+            self.assertLess(row[:, 40:170].mean(), 250)
+
+    def test_detect_visible_gutter_line_bounds_selects_absolute_line(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        import numpy as np
+
+        from proofs_ocr.pipelines.tfl_line_reread import detect_visible_gutter_line_bounds
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            crop_path = tmp_path / "fullwidth.jpg"
+            img = np.ones((240, 360, 3), dtype=np.uint8) * 255
+            for offset, line_no in enumerate(range(3, 9)):
+                y = 25 + offset * 35
+                cv2.putText(img, str(line_no), (42, y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+                cv2.putText(img, f"L{line_no}", (150, y), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 2)
+            self.assertTrue(cv2.imwrite(str(crop_path), img))
+
+            bounds = detect_visible_gutter_line_bounds(
+                crop_path,
+                target_line=4,
+                first_line=3,
+                last_line=8,
+                node_box=[130, 0, 20, 240],
+                padding=8,
+            )
+
+            self.assertIsNotNone(bounds)
+            y1, y2 = bounds
+            self.assertLessEqual(y1, 38)
+            self.assertGreaterEqual(y2, 58)
 
 
 class DebugFitchOcrNormalizationTests(unittest.TestCase):

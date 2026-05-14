@@ -135,6 +135,8 @@ def canonicalize_justification_for_comparison(value: Any) -> str:
     # Normalise arrows / symbols that may appear in rule heads
     for src, tgt in _SYMBOL_REPLACEMENTS:
         normalized = normalized.replace(src, tgt)
+    normalized = normalized.replace("×", "X")
+    normalized = re.sub(r"\b(X)(?=\d)", r"\1 ", normalized)
 
     # Phase 2a: repair epsilon/greek-epsilon misread as OCR artifact for E.
     # ∈ (U+2208) and ε (U+03B5) never appear in TFL justifications;
