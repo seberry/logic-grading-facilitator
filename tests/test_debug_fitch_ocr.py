@@ -623,9 +623,74 @@ class TestVerifierGuidedLineReread(unittest.TestCase):
             self.assertIn("Do not infer a valid proof", client.calls[0][1])
 
     def test_parse_citation_line_numbers_expands_ranges(self) -> None:
-        from proofs_ocr.pipelines.tfl_line_reread import parse_citation_line_numbers
+        from proofs_ocr.pipelines.tfl_line_reread_candidates import parse_citation_line_numbers
 
         self.assertEqual(parse_citation_line_numbers("∨E 2, 4-6, 9"), [2, 4, 5, 6, 9])
+
+    def test_candidate_classification_requires_target_line_match(self) -> None:
+        from proofs_ocr.pipelines.tfl_line_reread_candidates import candidate_materially_changed
+
+        suspicion = {"line": 3, "wffstr": "B", "jstr": "→E 1,3"}
+
+        self.assertTrue(
+            candidate_materially_changed(
+                suspicion,
+                {"line": 3, "wffstr": "B", "jstr": "→E 1,2"},
+                line_matches_target=True,
+            )
+        )
+        self.assertFalse(
+            candidate_materially_changed(
+                suspicion,
+                {"line": 2, "wffstr": "A", "jstr": "Pr"},
+                line_matches_target=False,
+            )
+        )
+
+    def test_single_line_reread_model_helper_uses_single_user_message_flag(self) -> None:
+        import json
+        import tempfile
+        from pathlib import Path
+
+        from proofs_ocr.pipelines.tfl_line_reread_vlm import call_single_line_reread
+
+        class FakeClient:
+            def __init__(self) -> None:
+                self.calls = []
+
+            def build_single_user_image_message(self, image_path, prompt):
+                self.calls.append(("single", Path(image_path), prompt))
+                return [{"role": "user", "content": prompt}]
+
+            def build_messages_for_prompt(self, image_path, prompt, system_prompt=None):
+                self.calls.append(("split", Path(image_path), prompt))
+                return [{"role": "user", "content": prompt}]
+
+            def chat(self, messages, *, model=None, timeout=None, max_tokens=None, extra_payload=None):
+                self.calls.append(("chat", model, timeout, max_tokens, extra_payload))
+                return json.dumps({"line": 3, "wffstr": "B", "jstr": "→E 1,2"})
+
+        with tempfile.TemporaryDirectory() as tmp:
+            row_path = Path(tmp) / "row.jpg"
+            row_path.write_bytes(b"not-an-image")
+            client = FakeClient()
+
+            with patch.dict("os.environ", {"TFL_FITCH_27B_SINGLE_USER_MESSAGE": "1"}):
+                raw, parsed = call_single_line_reread(
+                    client=client,
+                    row_path=row_path,
+                    prompt="prompt",
+                    model="fake-27b",
+                    timeout=7,
+                    max_tokens=42,
+                    extra_payload={"chat_template_kwargs": {"enable_thinking": False}},
+                )
+
+        self.assertIn('"line": 3', raw)
+        self.assertEqual(parsed["jstr"], "→E 1,2")
+        self.assertEqual(client.calls[0][0], "single")
+        self.assertEqual(client.calls[1][1], "fake-27b")
+        self.assertEqual(client.calls[1][4], {"chat_template_kwargs": {"enable_thinking": False}})
 
     def test_collect_verifier_reread_derives_fullwidth_and_reads_cited_lines(self) -> None:
         import json
@@ -731,7 +796,7 @@ class TestVerifierGuidedLineReread(unittest.TestCase):
 
         import numpy as np
 
-        from proofs_ocr.pipelines.tfl_line_reread import extract_single_line_crop
+        from proofs_ocr.pipelines.tfl_line_reread_geometry import extract_single_line_crop
 
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
@@ -764,7 +829,7 @@ class TestVerifierGuidedLineReread(unittest.TestCase):
 
         import numpy as np
 
-        from proofs_ocr.pipelines.tfl_line_reread import detect_visible_gutter_line_bounds
+        from proofs_ocr.pipelines.tfl_line_reread_geometry import detect_visible_gutter_line_bounds
 
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
