@@ -456,6 +456,81 @@ class TFLRunnerIntegrationTests(unittest.TestCase):
         self.assertEqual(metrics["justification_correct_line_count"], 6)
         self.assertEqual(metrics["both_correct_line_count"], 6)
 
+    def test_run_tfl_gold_regressions_enriches_verifier_reread_summary_with_gold(self) -> None:
+        fixtures_dir = self.tmp_dir / "fixtures_reread_summary"
+        fixtures_dir.mkdir(parents=True, exist_ok=True)
+        image_path = fixtures_dir / "proof.png"
+        image_path.write_bytes(b"fake")
+        expected_path = fixtures_dir / "expected.json"
+        expected = [
+            {"line": 1, "wffstr": "A", "jstr": "Pr"},
+            {"line": 2, "wffstr": "A→B", "jstr": "Pr"},
+            {"line": 3, "wffstr": "B", "jstr": "→E 1,2"},
+        ]
+        expected_path.write_text(json.dumps(expected), encoding="utf-8")
+
+        manifest = {
+            "cases": [
+                {
+                    "id": "tfl_reread_summary_test",
+                    "domain": "tfl",
+                    "kind": "handwritten",
+                    "oracle_kind": "gold_curated_from_image",
+                    "image_path": str(image_path.relative_to(self.tmp_dir)).replace("\\", "/"),
+                    "expected_structure_path": str(expected_path.relative_to(self.tmp_dir)).replace("\\", "/"),
+                },
+            ]
+        }
+
+        actual = [
+            {"line": 1, "wffstr": "A", "jstr": "Pr"},
+            {"line": 2, "wffstr": "A→B", "jstr": "Pr"},
+            {"line": 3, "wffstr": "B", "jstr": "→E 1,3"},
+        ]
+
+        def fake_transcribe(*, image_path, output_dir):
+            (output_dir / "final_structure.json").write_text(
+                json.dumps(actual, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            candidate_records = [
+                {
+                    "line": 3,
+                    "target_kind": "rejected",
+                    "source_rejected_line": None,
+                    "status": "candidate",
+                    "suspicion": {"line": 3, "wffstr": "B", "jstr": "→E 1,3"},
+                    "parsed": {"line": 3, "wffstr": "B", "jstr": "→E 1,2"},
+                    "parsed_line": 3,
+                    "line_matches_target": True,
+                    "material_change": True,
+                }
+            ]
+            (output_dir / "verifier_line_reread_candidates.json").write_text(
+                json.dumps(candidate_records, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            return {"run_summary": "fake reread summary"}
+
+        output_root = self.tmp_dir / "out_reread_summary"
+        tfl_runner.run_tfl_gold_regressions(
+            manifest,
+            repo_root=self.tmp_dir,
+            output_root=output_root,
+            transcribe_fn=fake_transcribe,
+        )
+
+        summary_path = output_root / "tfl_reread_summary_test" / "verifier_line_reread_summary.json"
+        self.assertTrue(summary_path.exists())
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+        self.assertTrue(summary["gold_metrics_available"])
+        self.assertEqual(summary["records"][0]["candidate_class"], "would_match_gold")
+        self.assertTrue(summary["records"][0]["gold"]["candidate_matches_gold"]["both"])
+        self.assertEqual(
+            json.loads((output_root / "tfl_reread_summary_test" / "final_structure.json").read_text(encoding="utf-8")),
+            actual,
+        )
+
     def test_render_tfl_gold_regression_summary(self) -> None:
         fixtures_dir = self.tmp_dir / "fixtures_summary"
         fixtures_dir.mkdir(parents=True, exist_ok=True)

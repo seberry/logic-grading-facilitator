@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Sequence
 
 from proofs_ocr.domains import tfl as tfl_domain
+from proofs_ocr.pipelines.tfl_line_reread_candidates import write_verifier_reread_summary
 from proofs_ocr.regression.runner import (
     GoldRegressionResult,
     case_expected_path,
@@ -254,6 +255,24 @@ def _load_actual_final_structure(output_dir: Path) -> Any:
     return json.loads(final_path.read_text(encoding="utf-8"))
 
 
+def _maybe_write_verifier_reread_summary(
+    *,
+    output_dir: Path,
+    granular_metrics: Mapping[str, Any],
+) -> None:
+    candidates_path = output_dir / "verifier_line_reread_candidates.json"
+    if not candidates_path.exists():
+        return
+    records = json.loads(candidates_path.read_text(encoding="utf-8"))
+    if not isinstance(records, list):
+        return
+    write_verifier_reread_summary(
+        output_dir=output_dir,
+        records=records,
+        gold_metrics=granular_metrics,
+    )
+
+
 def select_tfl_cases(
     manifest: Dict[str, Any],
     *,
@@ -331,6 +350,10 @@ def run_tfl_gold_regressions(
             expected = load_expected_structure(case, repo_root=root)
             passed, diff_text = compare_proof_structures(actual, expected)
             granular_metrics = compare_proof_structures_granular(actual, expected)
+            _maybe_write_verifier_reread_summary(
+                output_dir=output_dir,
+                granular_metrics=granular_metrics,
+            )
             run_summary = str(state.get("run_summary") or "").strip()
             _write_regression_report(
                 output_dir=output_dir,

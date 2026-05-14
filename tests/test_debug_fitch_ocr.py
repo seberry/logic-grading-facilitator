@@ -729,6 +729,56 @@ class TestVerifierGuidedLineReread(unittest.TestCase):
             )
         )
 
+    def test_candidate_classification_normalizes_tfl_justification_snaps(self) -> None:
+        from proofs_ocr.pipelines.tfl_line_reread_candidates import (
+            candidate_materially_changed,
+            normalize_candidate_justification,
+        )
+
+        self.assertEqual(normalize_candidate_justification("8 E S"), "∧E 5")
+        self.assertFalse(
+            candidate_materially_changed(
+                {"line": 6, "wffstr": "W", "jstr": "∧E 5"},
+                {"line": 6, "wffstr": "W", "jstr": "8 E S"},
+                line_matches_target=True,
+            )
+        )
+
+    def test_score_verifier_reread_candidates_records_gold_match(self) -> None:
+        from proofs_ocr.pipelines.tfl_line_reread_candidates import score_verifier_reread_candidates
+
+        records = [
+            {
+                "line": 3,
+                "target_kind": "rejected",
+                "source_rejected_line": None,
+                "status": "candidate",
+                "suspicion": {"line": 3, "wffstr": "B", "jstr": "→E 1,3"},
+                "parsed": {"line": 3, "wffstr": "B", "jstr": "→E 1,2"},
+                "parsed_line": 3,
+                "line_matches_target": True,
+                "material_change": True,
+            }
+        ]
+        gold_metrics = {
+            "line_records": [
+                {
+                    "order_index": 3,
+                    "expected": {"wffstr": "B", "jstr": "→E 1,2"},
+                    "actual": {"wffstr": "B", "jstr": "→E 1,3"},
+                }
+            ]
+        }
+
+        summary = score_verifier_reread_candidates(records, gold_metrics=gold_metrics)
+
+        self.assertTrue(summary["gold_metrics_available"])
+        scored = summary["records"][0]
+        self.assertEqual(scored["candidate_class"], "would_match_gold")
+        self.assertEqual(scored["changed_fields"], ["jstr"])
+        self.assertTrue(scored["gold"]["candidate_matches_gold"]["both"])
+        self.assertFalse(scored["gold"]["original_matches_gold"]["justification"])
+
     def test_single_line_reread_model_helper_uses_single_user_message_flag(self) -> None:
         import json
         import tempfile

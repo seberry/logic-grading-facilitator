@@ -23,6 +23,7 @@ from proofs_ocr.pipelines.tfl_line_reread import (
     collect_verifier_reread_candidates,
     strip_ocr_metadata,
 )
+from proofs_ocr.pipelines.tfl_line_reread_candidates import write_verifier_reread_summary
 from proofs_ocr.pipelines.tfl_fitch_vlm import (
     USE_SIMPLE_PROMPT,
     build_27b_fullwidth_prompt,
@@ -1854,6 +1855,7 @@ def run_fitch_ocr_pipeline(
         )
         reread_path = output_dir / "verifier_line_reread_candidates.json"
         reread_path.write_text(json.dumps(reread_records, indent=2, ensure_ascii=False), encoding="utf-8")
+        write_verifier_reread_summary(output_dir=output_dir, records=reread_records)
         print(f"   [VerifierReread] Wrote {len(reread_records)} record(s) to {reread_path.name}")
 
     strip_ocr_metadata(stitched_structure)
