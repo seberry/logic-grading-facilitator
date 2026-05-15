@@ -302,6 +302,55 @@ Invariants:
   including `final_structure.json`, `debug_bars.jpg`, VLM responses, and
   verifier reread files.
 
+## 9.1 Private TFL/Fitch OCR Evaluation Manifest
+
+Real student proof crops and human-checked gold structures must stay outside the
+repo. The private runner uses an external YAML manifest with anonymous case ids:
+
+```yaml
+suite:
+  name: "exam1_spring2026_private_tfl"
+
+cases:
+  - id: "exam1_q6_case_0001"
+    split: "dev_regression"
+    image_path: "crops/q6/exam1_q6_case_0001.jpg"
+    expected_structure_path: "gold/q6/exam1_q6_case_0001.json"
+    gold_status: "human_checked"
+    tags: ["student_scan", "tfl", "nested_subproofs"]
+```
+
+Path rules:
+
+- `image_path` and `expected_structure_path` may be absolute, or relative to the
+  manifest file.
+- The manifest, crops, gold files, and run outputs should live under an external
+  private folder such as `C:\grading-data\ocr-eval\...`.
+- Default CLI behavior refuses private paths inside the repo. Use
+  `--allow-repo-paths` only for fake tests.
+
+Gold structure rules:
+
+- `expected_structure_path` may contain either the plain nested proof list or the
+  debug-page shape `{ "lines": [...], "meta": {...} }`.
+- Gold should transcribe what is visible. Do not infer clipped or unreadable
+  citation endpoints just to make a proof verify.
+- Use `gold_status: human_checked` only after manual review. Candidate OCR output
+  that still needs review should use a different status such as
+  `needs_human_check`.
+
+Split rules:
+
+- `discovery`: cases you actively inspect while developing.
+- `dev_regression`: recurring private regression cases.
+- `blind_holdout`: cases not used for debugging; report aggregate results only.
+
+The private runner writes detailed local artifacts under the selected external
+run directory, including diffs and per-line records. It also writes
+`shareable_summary.txt` and `shareable_summary.json`, which are designed to omit
+paths, images, line text, diffs, and timestamps so their aggregate results can be
+reported back safely.
+
 ## 10. Proposed Rubric Extension (draft)
 
 This section documents a proposed rubric/schema change for future autograde workflows.

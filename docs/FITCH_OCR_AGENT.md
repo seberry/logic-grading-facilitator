@@ -65,6 +65,99 @@ Default output location: `working/tfl_gold_regressions/<case_id>/`
 
 ---
 
+## Private Real-Scan Evaluation Plan
+
+Goal: build a FERPA-safe local benchmark loop for real student TFL/Fitch proof
+scans. The benchmark should answer whether the OCR pipeline generalizes beyond
+fake/instructor-authored samples, while keeping raw scans, crops, names,
+rosters, LMS ids, local paths, and handwriting images outside tracked fixtures
+and outside agent conversations.
+
+### Overall design target
+
+1. Use the existing strip-view segmentation and Fitch debug/correction pages to
+   create proof crops and corrected `final_structure.json` files.
+2. Seed an external private eval corpus with anonymous case ids, copied proof
+   crops, and human-checked gold structures.
+3. Split private cases into `discovery`, `dev_regression`, and `blind_holdout`
+   so OCR changes can be debugged without overfitting the holdout set.
+4. Run the normal TFL/Fitch OCR pipeline against that external corpus.
+5. Write detailed local reports for the instructor and a redacted
+   `shareable_summary.txt/json` that contains only aggregate metrics, anonymous
+   case ids, split labels, and failure categories.
+6. Later: add a local-model case narrator that describes geometry/OCR failures
+   in words without exposing handwriting images or PII to cloud tools.
+
+### Implemented so far
+
+- `proofs_ocr/regression/private_tfl_runner.py`
+  - loads an external private manifest
+  - enforces an outside-repo path guard by default
+  - runs private gold regressions through `run_fitch_ocr_pipeline()`
+  - compares against human-checked gold using the same TFL canonicalization as
+    the tracked gold runner
+  - writes local detailed artifacts plus redacted `shareable_summary.txt/json`
+- `proofs_ocr/regression/private_tfl_exporter.py`
+  - seeds private manifest cases from existing strip-page Fitch OCR review state
+  - exports accepted/corrected debug folders into an external eval root
+  - copies the proof crop and saved `final_structure.json`
+  - appends anonymous case ids such as `exam1_spring2026_q6_case_0001`
+- Tests:
+  - `tests/test_tfl_private_runner.py`
+  - `tests/test_tfl_private_exporter.py`
+- Schema/operation docs:
+  - `docs/SCHEMA.md`, section `9.1`
+  - `docs/AI_WORKFLOW.md`, private runner/exporter commands
+
+### Instructor workflow
+
+1. Keep real data outside the repo, e.g.
+   `C:\grading-data\live` for active grading and
+   `C:\grading-data\ocr-eval\exam1` for the private benchmark.
+2. In the strip view, tag the problem as `fitch_proof`, run TFL/Fitch OCR, open
+   the debug page for a proof, and manually correct `final_structure.json`.
+3. Only click/record `accepted` after the crop and JSON are good enough to serve
+   as gold. Gold should transcribe what is visible; do not infer clipped or
+   unreadable citations just to make a proof verify.
+4. Seed accepted cases into the private corpus:
+
+```powershell
+python -m proofs_ocr.regression.private_tfl_exporter seed-from-strip `
+  --eval-root C:\grading-data\ocr-eval\exam1 `
+  --assignment-id exam1_spring2026 `
+  --problem-id Q6 `
+  --grades-dir C:\grading-data\live\grades `
+  --debug-fitch-dir C:\grading-data\live\debug_fitch `
+  --split dev_regression
+```
+
+5. Check the external `manifest.yaml`, `crops/<problem>/`, and
+   `gold/<problem>/` folders. Move especially useful cases between
+   `discovery`, `dev_regression`, and `blind_holdout` by editing only the
+   manifest split label.
+6. Run private regressions locally:
+
+```powershell
+python -m proofs_ocr.regression.private_tfl_runner `
+  --manifest C:\grading-data\ocr-eval\exam1\manifest.yaml `
+  run-gold --split dev_regression
+```
+
+7. Share only `shareable_summary.txt/json` back with coding agents, unless the
+   underlying case is fake or fully sanitized.
+
+### Not built yet
+
+- A one-click UI action in strip view to export accepted OCR directly into a
+  private eval corpus.
+- A human review queue that distinguishes `accepted_for_grading_view` from
+  `gold_human_checked`; for now, treat `accepted` as the export gate.
+- Local-model narrative reports for private failures.
+- A holdout discipline helper that warns before exporting `blind_holdout` cases
+  from material you have already used for debugging.
+
+---
+
 ## Key Files
 
 ### Pipeline core
@@ -82,6 +175,8 @@ Default output location: `working/tfl_gold_regressions/<case_id>/`
 |---|---|
 | `proofs_ocr/regression/manifest.yaml` | **Test case registry.** Defines all fixtures (TFL + modal) with IDs, paths, tags, oracle kind. |
 | `proofs_ocr/regression/tfl_runner.py` | **Gold regression runner.** `run_tfl_gold_regressions()` runs the pipeline on all TFL handwritten fixtures, compares output to expected structures, writes granular per-line reports. |
+| `proofs_ocr/regression/private_tfl_runner.py` | **Private real-scan runner.** Runs external, anonymous, FERPA-local TFL/Fitch cases and writes redacted shareable summaries. |
+| `proofs_ocr/regression/private_tfl_exporter.py` | **Private corpus seeder.** Exports accepted strip-page Fitch OCR debug artifacts into an external private eval manifest. |
 | `proofs_ocr/regression/runner.py` | **Shared regression helpers.** `load_manifest()`, `select_cases()`, `GoldRegressionResult` dataclass. |
 
 ### Test fixtures (TFL handwritten)

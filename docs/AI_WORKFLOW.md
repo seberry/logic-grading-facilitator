@@ -17,6 +17,7 @@ the repo before changing OCR or regression code.
 - `pytest tests/test_debug_fitch_ocr.py -q`
 - `pytest tests/test_tfl_fitch_gold_fixtures.py -q`
 - `pytest tests/test_tfl_fitch_ocr_regression.py -q`
+- `pytest tests/test_tfl_private_runner.py tests/test_tfl_private_exporter.py -q`
 - `pytest tests/test_proofs_ocr_regression_runner.py -q`
 - `python -m proofs_ocr.regression summary`
 - `python -m proofs_ocr.regression.tfl_runner summary`
@@ -29,6 +30,7 @@ quality of live handwritten OCR.
 
 - `python -m proofs_ocr.regression run-gold ...`
 - `python -m proofs_ocr.regression.tfl_runner run-gold ...`
+- `python -m proofs_ocr.regression.private_tfl_runner --manifest <external_manifest.yaml> run-gold ...`
 - `RUN_LIVE_TFL_OCR=1 pytest tests/test_tfl_fitch_ocr_regression.py -q -k Live`
 - `python scripts/debug_fitch_ocr.py <scan>.jpg`
 
@@ -52,6 +54,21 @@ Before a live OCR run on new proof geometry, confirm the pre-VLM structure first
 bar count, subproof tree shape, and leaf line counts should be plausible. Small
 leaf crops can route to slower verifier/larger-model paths, so bar
 over-detection can multiply expensive calls quickly.
+
+For real student proof crops, use the private TFL runner instead of adding
+fixtures to the repo manifest. The manifest, crops, gold files, and run outputs
+must stay outside the repo, for example under `C:\grading-data\ocr-eval\...`.
+The runner writes local detailed reports plus `shareable_summary.txt/json`,
+which omit paths, images, line text, diffs, and timestamps:
+
+```powershell
+python -m proofs_ocr.regression.private_tfl_exporter seed-from-strip --eval-root C:\grading-data\ocr-eval\exam1 --assignment-id exam1_spring2026 --problem-id Q6 --grades-dir C:\grading-data\live\grades --debug-fitch-dir C:\grading-data\live\debug_fitch --split dev_regression
+python -m proofs_ocr.regression.private_tfl_runner --manifest C:\grading-data\ocr-eval\exam1\manifest.yaml summary
+python -m proofs_ocr.regression.private_tfl_runner --manifest C:\grading-data\ocr-eval\exam1\manifest.yaml run-gold --split dev_regression
+```
+
+Only paste the shareable summary back into agent conversations unless the case is
+fake or fully sanitized.
 
 ## OCR architecture
 
