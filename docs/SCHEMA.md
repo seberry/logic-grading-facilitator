@@ -351,6 +351,65 @@ run directory, including diffs and per-line records. It also writes
 paths, images, line text, diffs, and timestamps so their aggregate results can be
 reported back safely.
 
+## 9.2 FOL Model OCR Review State
+
+For `fol_model` strip grading, inline OCR/checker review state is stored outside
+`session.json` so the grader can edit proposed model text per strip without
+turning checker suggestions into authoritative grades.
+
+Path:
+
+```text
+data/grades/fol_model_ocr/fol_model_<problem_id>.json
+```
+
+Example:
+
+```json
+{
+  "problem_id": "Q3",
+  "kind": "fol_model",
+  "updated_at": "2026-05-15T12:00:00+00:00",
+  "items": {
+    "7": {
+      "unit_id": 7,
+      "page_filename": "quiz1_student_p01.jpg",
+      "slug": "q3_7_quiz1_student_p01",
+      "status": "checker_passed",
+      "message": "Checker passed.",
+      "debug_url": "/debug/fol-model?scan=q3_7_quiz1_student_p01",
+      "image_url": "/debug_fol_model_assets/q3_7_quiz1_student_p01/q3_7_quiz1_student_p01.jpg",
+      "model_text": "Domain: 1,2 P: 1",
+      "requirement_text": "Need: the two target sentences have different truth values.",
+      "passed": true,
+      "summary": "The two formulas differ in truth value in this model, so they are not logically equivalent.",
+      "suggested_score": 3.0,
+      "suggested_comment": "Question: FOL model\n...",
+      "trace_blocks": [
+        {
+          "title": "Sentence 1: \u2200x Px",
+          "result": "False",
+          "body": "\u2200xPx\nx=1: P1 = TRUE\n..."
+        }
+      ]
+    }
+  }
+}
+```
+
+Valid statuses:
+
+- `not_started`: strip panel placeholder only; no persisted OCR/checker result required
+- `queued`, `processing`: OCR job state
+- `checker_passed`, `checker_failed`: deterministic checker ran
+- `invalid_input`: checker could not parse or evaluate the proposed model
+- `ocr_failed`: local model or crop preparation failed
+
+The normal `WorkUnit.per_problem` score and `per_problem_comments` remain the
+authoritative grading fields. The FOL panel's score/comment are suggestions
+until the grader applies or copies them into the regular strip score/comment
+controls.
+
 ## 10. Proposed Rubric Extension (draft)
 
 This section documents a proposed rubric/schema change for future autograde workflows.

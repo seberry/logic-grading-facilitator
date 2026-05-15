@@ -580,22 +580,70 @@ def _build_model_summary(model: FolModel) -> str:
 def _parse_sections(text: str) -> Dict[str, List[str]]:
     sections: Dict[str, List[str]] = {}
     current_name: Optional[str] = None
+
     for raw_line in text.splitlines():
         line = raw_line.strip()
         if not line:
             continue
-        section_match = re.match(r"^(DOMAIN|CONSTANTS|PREDICATES|SENTENCES):\s*(.*)$", line, re.IGNORECASE)
-        if section_match:
-            current_name = section_match.group(1).strip().upper()
-            sections[current_name] = []
-            trailing = section_match.group(2).strip()
-            if trailing:
-                sections[current_name].append(trailing)
+
+        records = _extract_labeled_records(line)
+        if not records:
+            if current_name is None:
+                raise FolModelParseError(f"Line is outside any section: {raw_line}")
+            sections.setdefault(current_name, []).append(line)
             continue
-        if current_name is None:
-            raise FolModelParseError(f"Line is outside any section: {raw_line}")
-        sections[current_name].append(line)
+
+        for label, value in records:
+            normalized_label = _normalize_section_label(label)
+            if normalized_label in {"DOMAIN", "CONSTANTS", "PREDICATES", "SENTENCES"}:
+                current_name = normalized_label
+                sections.setdefault(current_name, [])
+                if value:
+                    sections[current_name].append(value)
+                continue
+
+            if re.fullmatch(r"[a-z]", label):
+                target_section = "CONSTANTS"
+            elif re.fullmatch(r"[A-Z]", label):
+                target_section = "PREDICATES"
+            elif current_name in {"CONSTANTS", "PREDICATES"}:
+                target_section = current_name
+            else:
+                raise FolModelParseError(f"Unknown model label '{label}'.")
+
+            current_name = target_section
+            sections.setdefault(target_section, []).append(f"{label}: {value}")
+
     return sections
+
+
+def _extract_labeled_records(line: str) -> List[Tuple[str, str]]:
+    matches = list(
+        re.finditer(
+            r"(?<![A-Za-z0-9_])"
+            r"(DOMAIN|UNIVERSE|CONSTANTS|PREDICATES|SENTENCES|[A-Za-z])"
+            r"\s*:",
+            line,
+            flags=re.IGNORECASE,
+        )
+    )
+    records: List[Tuple[str, str]] = []
+    for idx, match in enumerate(matches):
+        label = match.group(1).strip()
+        start = match.end()
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(line)
+        value = line[start:end].strip()
+        value = re.sub(r"^[,;]\s*", "", value)
+        value = re.sub(r"\s*[,;]\s*$", "", value)
+        records.append((label, value))
+    return records
+
+
+def _normalize_section_label(label: str) -> str:
+    upper = label.strip().upper()
+    if upper == "UNIVERSE":
+        return "DOMAIN"
+    return upper
 
 
 def _split_mapping(raw: str, kind: str) -> Tuple[str, str]:
@@ -606,23 +654,23 @@ def _split_mapping(raw: str, kind: str) -> Tuple[str, str]:
 
 
 def _parse_number_set(raw: str, label: str) -> List[int]:
-    inner = _unwrap_braces(raw, label)
+    inner = _unwrap_optional_braces(raw)
     if not inner.strip():
         return []
-    values = [_parse_int(part.strip(), label) for part in inner.split(",") if part.strip()]
+    values = [_parse_int(part.strip(), label) for part in re.split(r"[,;]", inner) if part.strip()]
     if len(set(values)) != len(values):
         raise FolModelParseError(f"{label} contains duplicates.")
     return values
 
 
 def _parse_predicate_value(name: str, raw: str, domain: List[int]) -> PredicateInterpretation:
-    inner = _unwrap_braces(raw, f"predicate {name}")
+    inner = _unwrap_optional_braces(raw)
     if not inner.strip():
         return PredicateInterpretation(name=name, arity=None, tuples=set())
 
-    if "(" in inner:
+    if "(" in inner or "<" in inner:
         tuples: Set[Tuple[int, ...]] = set()
-        for pair_text in re.findall(r"\([^()]+\)", inner):
+        for pair_text in re.findall(r"\([^()]+\)|<[^<>]+>", inner):
             members = [item.strip() for item in pair_text[1:-1].split(",")]
             if len(members) != 2:
                 raise FolModelParseError(f"Predicate '{name}' only supports binary pairs in this checker.")
@@ -647,6 +695,13 @@ def _unwrap_braces(raw: str, label: str) -> str:
     if not (text.startswith("{") and text.endswith("}")):
         raise FolModelParseError(f"{label} must use set notation with braces.")
     return text[1:-1].strip()
+
+
+def _unwrap_optional_braces(raw: str) -> str:
+    text = raw.strip()
+    if text.startswith("{") and text.endswith("}"):
+        return text[1:-1].strip()
+    return text
 
 
 def _parse_int(raw: str, label: str) -> int:

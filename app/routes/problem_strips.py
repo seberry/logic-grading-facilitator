@@ -15,6 +15,12 @@ from PIL import Image
 
 from app.helpers import _build_page_options, _is_image_filename, _select_display_filename
 from app.models import Session
+from app.fol_model_review import (
+    check_fol_model_text,
+    enqueue_fol_model_ocr_jobs,
+    public_fol_model_status,
+    requirement_text_from_config,
+)
 from app.proof_ocr_review import (
     accept_fitch_ocr_review,
     enqueue_fitch_ocr_jobs,
@@ -23,7 +29,7 @@ from app.proof_ocr_review import (
 from app.segmentation_core import QuestionSegment, segment_page_for_problem
 from app.routes import modal_proof_debug as modal_proof_debug_routes
 from app.session_state import _segmentation_lock, _session_lock, get_session, persist_session
-from app.storage import DEBUG_FITCH_DIR, DEBUG_MODAL_PROOF_DIR, GRADES_DIR, RAW_SCANS_DIR
+from app.storage import DEBUG_FITCH_DIR, DEBUG_FOL_MODEL_DIR, DEBUG_MODAL_PROOF_DIR, GRADES_DIR, RAW_SCANS_DIR
 from app.vlm_client import LMStudioQwenClient
 
 router = APIRouter()
@@ -386,6 +392,11 @@ def _build_fitch_ocr_targets(
     return targets
 
 
+def _require_autograde_config(spec) -> Dict[str, Any]:
+    autograde = getattr(spec, "autograde", None)
+    return dict(autograde) if isinstance(autograde, dict) else {}
+
+
 async def _run_subprocess_with_logs(command: List[str]) -> tuple[int, str]:
     proc = await asyncio.create_subprocess_exec(
         *command,
@@ -471,6 +482,20 @@ def get_fitch_ocr_status(problem_id: str):
     return public_fitch_ocr_status(GRADES_DIR, problem_id)
 
 
+@router.get("/problem/{problem_id}/fol_model_ocr/status")
+def get_fol_model_ocr_status(problem_id: str):
+    session = get_session()
+    spec = next((p for p in session.grading_key.problems if p.id == problem_id), None)
+    if spec is None:
+        raise HTTPException(status_code=404, detail=f"Unknown problem id {problem_id!r}")
+
+    effective_type = _effective_problem_type(session, problem_id, spec)
+    if effective_type != "fol_model":
+        raise HTTPException(status_code=400, detail=f"Problem {problem_id!r} is not tagged as fol_model.")
+
+    return public_fol_model_status(GRADES_DIR, problem_id)
+
+
 @router.post("/problem/{problem_id}/fitch_ocr/start")
 async def start_fitch_ocr_for_problem(
     problem_id: str,
@@ -526,6 +551,69 @@ def accept_fitch_ocr_for_unit(problem_id: str, unit_id: int):
     return {"status": "ok", "item": item}
 
 
+@router.post("/problem/{problem_id}/fol_model_ocr/start")
+async def start_fol_model_ocr_for_problem(
+    problem_id: str,
+    force: int = Form(0),
+):
+    session = get_session()
+    spec = next((p for p in session.grading_key.problems if p.id == problem_id), None)
+    if spec is None:
+        raise HTTPException(status_code=404, detail=f"Unknown problem id {problem_id!r}")
+
+    effective_type = _effective_problem_type(session, problem_id, spec)
+    if effective_type != "fol_model":
+        raise HTTPException(status_code=400, detail=f"Problem {problem_id!r} is not tagged as fol_model.")
+
+    segments_data = ensure_segments_cached(
+        session=session,
+        spec=spec,
+        refresh=False,
+        blocking=True,
+    )
+    if segments_data is None:
+        raise HTTPException(status_code=503, detail="Segmentation currently busy")
+
+    targets = _build_fitch_ocr_targets(session, problem_id, segments_data)
+    return enqueue_fol_model_ocr_jobs(
+        problem_id=problem_id,
+        targets=targets,
+        raw_scans_dir=RAW_SCANS_DIR,
+        debug_fol_model_dir=DEBUG_FOL_MODEL_DIR,
+        grades_dir=GRADES_DIR,
+        autograde_config=_require_autograde_config(spec),
+        force=bool(force),
+    )
+
+
+@router.post("/problem/{problem_id}/fol_model_ocr/{unit_id}/check")
+async def check_fol_model_for_unit(
+    problem_id: str,
+    unit_id: int,
+    model_text: str = Form(""),
+):
+    session = get_session()
+    spec = next((p for p in session.grading_key.problems if p.id == problem_id), None)
+    if spec is None:
+        raise HTTPException(status_code=404, detail=f"Unknown problem id {problem_id!r}")
+
+    effective_type = _effective_problem_type(session, problem_id, spec)
+    if effective_type != "fol_model":
+        raise HTTPException(status_code=400, detail=f"Problem {problem_id!r} is not tagged as fol_model.")
+    if not any(wu.unit_id == unit_id for wu in session.work_units):
+        raise HTTPException(status_code=404, detail=f"Unknown work unit {unit_id}.")
+
+    item = check_fol_model_text(
+        grades_dir=GRADES_DIR,
+        problem_id=problem_id,
+        unit_id=unit_id,
+        model_text=model_text,
+        autograde_config=_require_autograde_config(spec),
+        trace_mode="terse",
+    )
+    return {"status": "ok", "item": item}
+
+
 @router.get("/problem/{problem_id}/strips", response_class=HTMLResponse)
 def get_problem_strips(
     request: Request,
@@ -561,6 +649,15 @@ def get_problem_strips(
             unit_id = item.get("unit_id")
             if isinstance(unit_id, int):
                 fitch_ocr_by_unit[unit_id] = item
+    fol_model_by_unit: Dict[int, Dict[str, Any]] = {}
+    if effective_problem_type == "fol_model":
+        fol_status = public_fol_model_status(GRADES_DIR, problem_id)
+        for item in fol_status.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            unit_id = item.get("unit_id")
+            if isinstance(unit_id, int):
+                fol_model_by_unit[unit_id] = item
 
     def lookup_student_name(student_id):
         if not student_id:
@@ -599,6 +696,19 @@ def get_problem_strips(
                 page_filename=display_filename,
             )
 
+        fol_model_review = None
+        if effective_problem_type == "fol_model":
+            fol_model_review = fol_model_by_unit.get(wu.unit_id)
+            if fol_model_review is None and display_filename:
+                fol_model_review = {
+                    "unit_id": wu.unit_id,
+                    "page_filename": display_filename,
+                    "status": "not_started",
+                    "message": "Enter or OCR a proposed model.",
+                    "model_text": "",
+                    "requirement_text": requirement_text_from_config(_require_autograde_config(spec)),
+                }
+
         strips.append(
             {
                 "work_unit": wu,
@@ -609,6 +719,7 @@ def get_problem_strips(
                 "page_options": page_options,
                 "modal_preview": modal_preview,
                 "fitch_ocr": fitch_ocr_by_unit.get(wu.unit_id),
+                "fol_model": fol_model_review,
             }
         )
 

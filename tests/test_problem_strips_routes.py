@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from app import server
+from app import fol_model_review
 from app.models import GradingKey, ProblemSpec, RosterEntry, Session, WorkUnit
 from app.routes import modal_proof_debug as modal_proof_debug_routes
 from app.routes import problem_strips as problem_strips_routes
@@ -104,6 +105,10 @@ class ProblemStripsRoutesTests(unittest.TestCase):
     def test_problem_strips_prefers_rubric_problem_type(self) -> None:
         session = _build_session()
         session.grading_key.problems[0].problem_type = "fol_model"
+        session.grading_key.problems[0].autograde = {
+            "task_kind": "non_equivalence",
+            "prompt_data": {"formulas": ["∀x Px", "∃x Px"]},
+        }
         session.problem_types["Q1"] = "fitch_proof"
         segments = [
             {
@@ -126,6 +131,83 @@ class ProblemStripsRoutesTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("fol model", response.text.lower())
         self.assertIn('data-type="fol_model"', response.text)
+        self.assertIn("FOL model checker", response.text)
+        self.assertIn("Need: the two target sentences have different truth values.", response.text)
+
+    def test_fol_model_check_endpoint_saves_and_runs_checker(self) -> None:
+        session = _build_session()
+        session.grading_key.problems[0].problem_type = "fol_model"
+        session.grading_key.problems[0].autograde = {
+            "task_kind": "non_equivalence",
+            "default_score_correct": 3,
+            "default_score_incorrect": 0,
+            "prompt_data": {"formulas": ["∀x Px", "∃x Px"]},
+        }
+        grades_dir = self.tmp_dir / "grades"
+
+        with (
+            patch.object(problem_strips_routes, "get_session", return_value=session),
+            patch.object(problem_strips_routes, "GRADES_DIR", grades_dir),
+        ):
+            response = self.client.post(
+                "/problem/Q1/fol_model_ocr/1/check",
+                data={"model_text": "Domain: 1,2 P: 1"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        item = response.json()["item"]
+        self.assertEqual(item["status"], "checker_passed")
+        self.assertTrue(item["passed"])
+        self.assertEqual(item["suggested_score"], 3.0)
+        self.assertIn("not logically equivalent", item["summary"])
+        saved = json.loads(fol_model_review.fol_model_state_path(grades_dir, "Q1").read_text(encoding="utf-8"))
+        self.assertEqual(saved["items"]["1"]["model_text"], "Domain: 1,2 P: 1")
+
+    def test_start_fol_model_ocr_endpoint_queues_cropped_jobs_without_blocking(self) -> None:
+        session = _build_session()
+        session.grading_key.problems[0].problem_type = "fol_model"
+        session.grading_key.problems[0].autograde = {
+            "task_kind": "non_equivalence",
+            "prompt_data": {"formulas": ["∀x Px", "∃x Px"]},
+        }
+        raw_dir = self.tmp_dir / "raw_scans"
+        debug_dir = self.tmp_dir / "debug_fol_model"
+        grades_dir = self.tmp_dir / "grades"
+        raw_dir.mkdir(parents=True, exist_ok=True)
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        grades_dir.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (100, 200), color="white").save(raw_dir / "quiz1_berry_sharon_p01.jpg")
+        segments = [
+            {
+                "unit_id": 1,
+                "page_filename": "quiz1_berry_sharon_p01.jpg",
+                "page_index": 0,
+                "bbox": [0.1, 0.2, 0.8, 0.9],
+                "present": True,
+            }
+        ]
+
+        with (
+            patch.object(problem_strips_routes, "get_session", return_value=session),
+            patch.object(problem_strips_routes, "ensure_segments_cached", return_value=segments),
+            patch.object(problem_strips_routes, "RAW_SCANS_DIR", raw_dir),
+            patch.object(problem_strips_routes, "DEBUG_FOL_MODEL_DIR", debug_dir),
+            patch.object(problem_strips_routes, "GRADES_DIR", grades_dir),
+            patch("app.fol_model_review.submit_fol_model_ocr_job") as submit_job,
+        ):
+            response = self.client.post("/problem/Q1/fol_model_ocr/start", data={"force": "0"})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["queued"], 1)
+        submit_job.assert_called_once()
+
+        slug_dir = debug_dir / "q1_1_quiz1_berry_sharon_p01"
+        self.assertTrue(slug_dir.exists())
+        self.assertTrue(any(path.suffix.lower() == ".jpg" for path in slug_dir.iterdir()))
+        self.assertTrue((slug_dir / "state.json").exists())
+        state = json.loads(fol_model_review.fol_model_state_path(grades_dir, "Q1").read_text(encoding="utf-8"))
+        self.assertEqual(state["items"]["1"]["status"], "queued")
 
     def test_problem_strips_renders_fitch_action_when_problem_type_is_fitch(self) -> None:
         session = _build_session()

@@ -244,7 +244,8 @@
       font-size: 0.79rem;
       white-space: pre-wrap;
     }
-    .fitch-ocr-toolbar {
+    .fitch-ocr-toolbar,
+    .fol-model-toolbar {
       max-width: 920px;
       margin: 0 0 1.5rem 0;
       padding: 0.85rem 1rem;
@@ -256,14 +257,137 @@
       justify-content: space-between;
       gap: 1rem;
     }
-    .fitch-ocr-toolbar-title {
+    .fitch-ocr-toolbar-title,
+    .fol-model-toolbar-title {
       font-weight: 700;
       color: #0f172a;
     }
-    .fitch-ocr-toolbar-status {
+    .fitch-ocr-toolbar-status,
+    .fol-model-toolbar-status {
       color: #475569;
       font-size: 0.88rem;
       margin-top: 0.15rem;
+    }
+    .fol-model-panel {
+      border: 1px solid #dbe4f0;
+      border-radius: 8px;
+      background: #fbfdff;
+      padding: 0.85rem 0.9rem;
+      display: grid;
+      gap: 0.65rem;
+    }
+    .fol-model-panel.is-empty {
+      background: #f8fafc;
+    }
+    .fol-model-panel.is-passed {
+      border-color: #bbf7d0;
+      background: #f4fff7;
+    }
+    .fol-model-panel.is-failed {
+      border-color: #fed7aa;
+      background: #fffaf0;
+    }
+    .fol-model-panel.is-invalid,
+    .fol-model-panel.is-ocr-failed {
+      border-color: #fecaca;
+      background: #fff7f7;
+    }
+    .fol-model-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 0.75rem;
+    }
+    .fol-model-title {
+      font-weight: 700;
+      font-size: 0.95rem;
+      color: #0f172a;
+    }
+    .fol-model-requirement,
+    .fol-model-meta {
+      color: #64748b;
+      font-size: 0.8rem;
+      margin-top: 0.15rem;
+      line-height: 1.35;
+    }
+    .fol-model-text {
+      width: 100%;
+      min-height: 9rem;
+      box-sizing: border-box;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 0.55rem 0.65rem;
+      font-family: Consolas, "SFMono-Regular", Menlo, Monaco, monospace;
+      font-size: 0.86rem;
+      line-height: 1.35;
+      resize: vertical;
+      background: #fff;
+      color: #0f172a;
+    }
+    .fol-model-verdict {
+      border: 1px solid #e5e7eb;
+      border-left: 4px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 0.55rem 0.65rem;
+      background: #fff;
+      color: #334155;
+      font-size: 0.85rem;
+      line-height: 1.35;
+      white-space: pre-wrap;
+    }
+    .fol-model-panel.is-passed .fol-model-verdict {
+      border-left-color: #22c55e;
+    }
+    .fol-model-panel.is-failed .fol-model-verdict {
+      border-left-color: #f59e0b;
+    }
+    .fol-model-panel.is-invalid .fol-model-verdict,
+    .fol-model-panel.is-ocr-failed .fol-model-verdict {
+      border-left-color: #dc2626;
+    }
+    .fol-model-suggestion-grid {
+      display: grid;
+      grid-template-columns: 120px minmax(0, 1fr);
+      gap: 0.55rem;
+      align-items: start;
+    }
+    .fol-model-score {
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 0.45rem 0.5rem;
+      font: inherit;
+      background: #fff;
+    }
+    .fol-model-comment {
+      width: 100%;
+      min-height: 5rem;
+      box-sizing: border-box;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 0.5rem 0.55rem;
+      font: inherit;
+      font-size: 0.85rem;
+      line-height: 1.35;
+      resize: vertical;
+      background: #fff;
+    }
+    .fol-model-trace {
+      border-top: 1px solid #e5e7eb;
+      padding-top: 0.45rem;
+      font-size: 0.8rem;
+    }
+    .fol-model-trace summary {
+      cursor: pointer;
+      color: #1d4ed8;
+      font-weight: 600;
+    }
+    .fol-model-trace pre {
+      white-space: pre-wrap;
+      margin: 0.4rem 0 0 0;
+      font-family: Consolas, "SFMono-Regular", Menlo, Monaco, monospace;
+      color: #334155;
     }
     .fitch-ocr-panel {
       border: 1px solid #dbe4f0;
@@ -677,6 +801,25 @@
       </div>
     </section>
 
+    <section class="fol-model-toolbar type-action"
+             data-action-type="fol_model"
+             {% if problem_type != "fol_model" %}hidden{% endif %}>
+      <div>
+        <div class="fol-model-toolbar-title">FOL model OCR review</div>
+        <div id="fol-model-summary" class="fol-model-toolbar-status">
+          Start OCR to populate model text, or type a model directly in any strip and check it.
+        </div>
+      </div>
+      <div class="btn-row" style="max-width: 24rem;">
+        <button id="btn-start-fol-model-ocr" class="btn btn-secondary" type="button">
+          Start OCR
+        </button>
+        <button id="btn-refresh-fol-model-ocr" class="btn" type="button">
+          Refresh
+        </button>
+      </div>
+    </section>
+
   {% for item in strips %}
     
     {% set wu = item.work_unit %}
@@ -840,6 +983,74 @@
                 </div>
               {% endif %}
             </div>
+          </section>
+        {% endif %}
+
+        {% if problem_type == "fol_model" %}
+          {% set fol = item.fol_model or {} %}
+          <section class="fol-model-panel{% if not fol or fol.status == 'not_started' %} is-empty{% elif fol.status == 'checker_passed' %} is-passed{% elif fol.status == 'checker_failed' %} is-failed{% elif fol.status == 'invalid_input' %} is-invalid{% elif fol.status == 'ocr_failed' %} is-ocr-failed{% endif %}"
+                   data-fol-model-card
+                   data-unit-id="{{ wu.unit_id }}">
+            <div class="fol-model-header">
+              <div>
+                <div class="fol-model-title">FOL model checker</div>
+                <div class="fol-model-requirement" data-fol-model-requirement>
+                  {{ fol.requirement_text or "Need: configured target truth values." }}
+                </div>
+                <div class="fol-model-meta" data-fol-model-message>
+                  {{ fol.message or "Enter or OCR a proposed model." }}
+                </div>
+              </div>
+              {% if fol.debug_url %}
+                <a class="fitch-ocr-link" href="{{ fol.debug_url }}">Open debug</a>
+              {% endif %}
+            </div>
+
+            <textarea class="fol-model-text"
+                      data-fol-model-text
+                      spellcheck="false"
+                      placeholder="Domain: 1,2,3&#10;P: 1,3&#10;R: &lt;1,2&gt;,&lt;2,1&gt;">{{ fol.model_text or "" }}</textarea>
+
+            <div class="btn-row">
+              <button class="btn btn-secondary"
+                      type="button"
+                      data-unit-id="{{ wu.unit_id }}"
+                      onclick="checkFolModel(this)">
+                Save + Check
+              </button>
+              <button class="btn"
+                      type="button"
+                      data-unit-id="{{ wu.unit_id }}"
+                      onclick="applyFolSuggestion(this)">
+                Apply Suggestion
+              </button>
+            </div>
+
+            <div class="fol-model-verdict" data-fol-model-verdict>
+              {{ fol.summary or "No checker result yet." }}
+            </div>
+
+            <div class="fol-model-suggestion-grid">
+              <input class="fol-model-score"
+                     type="number"
+                     step="0.01"
+                     data-fol-model-score
+                     value="{{ '' if fol.suggested_score is none else fol.suggested_score }}"
+                     placeholder="score">
+              <textarea class="fol-model-comment"
+                        data-fol-model-comment
+                        placeholder="suggested comment">{{ fol.suggested_comment or "" }}</textarea>
+            </div>
+
+            <details class="fol-model-trace" data-fol-model-trace{% if not fol.trace_blocks %} hidden{% endif %}>
+              <summary>Trace</summary>
+              <div data-fol-model-trace-body>
+                {% for block in fol.trace_blocks or [] %}
+                  <pre>{{ block.title }} — {{ block.result }}
+{{ block.body }}</pre>
+                {% endfor %}
+              </div>
+            </details>
           </section>
         {% endif %}
 
@@ -1639,6 +1850,154 @@ const croppers = {};
         });
     }
 
+    function folStatusLabel(status) {
+      const labels = {
+        not_started: 'Not started',
+        queued: 'Queued',
+        processing: 'Processing',
+        checker_passed: 'Passed',
+        checker_failed: 'Failed',
+        invalid_input: 'Parse issue',
+        ocr_failed: 'OCR failed',
+        needs_review: 'Needs review'
+      };
+      return labels[status] || status || 'Not started';
+    }
+
+    function renderFolSummary(payload) {
+      const el = document.getElementById('fol-model-summary');
+      if (!el || !payload) return;
+      const counts = payload.counts || {};
+      const parts = [];
+      ['queued', 'processing', 'checker_passed', 'checker_failed', 'invalid_input', 'ocr_failed', 'not_started'].forEach((key) => {
+        if (counts[key]) parts.push(`${folStatusLabel(key)} ${counts[key]}`);
+      });
+      el.textContent = parts.length ? parts.join(' · ') : 'No FOL model OCR results have been saved for this problem.';
+    }
+
+    function renderFolCard(item) {
+      if (!item || item.unit_id === undefined || item.unit_id === null) return;
+      const card = document.querySelector(`[data-fol-model-card][data-unit-id="${item.unit_id}"]`);
+      if (!card) return;
+
+      card.classList.remove('is-empty', 'is-passed', 'is-failed', 'is-invalid', 'is-ocr-failed');
+      if (!item.status || item.status === 'not_started') card.classList.add('is-empty');
+      if (item.status === 'checker_passed') card.classList.add('is-passed');
+      if (item.status === 'checker_failed') card.classList.add('is-failed');
+      if (item.status === 'invalid_input') card.classList.add('is-invalid');
+      if (item.status === 'ocr_failed') card.classList.add('is-ocr-failed');
+
+      const requirement = card.querySelector('[data-fol-model-requirement]');
+      if (requirement) requirement.textContent = item.requirement_text || 'Need: configured target truth values.';
+
+      const message = card.querySelector('[data-fol-model-message]');
+      if (message) message.textContent = `${folStatusLabel(item.status)}. ${item.message || ''}`.trim();
+
+      const text = card.querySelector('[data-fol-model-text]');
+      if (text && item.model_text !== undefined && document.activeElement !== text) {
+        text.value = item.model_text || '';
+      }
+
+      const verdict = card.querySelector('[data-fol-model-verdict]');
+      if (verdict) verdict.textContent = item.summary || item.message || 'No checker result yet.';
+
+      const score = card.querySelector('[data-fol-model-score]');
+      if (score) score.value = item.suggested_score === null || item.suggested_score === undefined ? '' : item.suggested_score;
+
+      const comment = card.querySelector('[data-fol-model-comment]');
+      if (comment) comment.value = item.suggested_comment || '';
+
+      const trace = card.querySelector('[data-fol-model-trace]');
+      const traceBody = card.querySelector('[data-fol-model-trace-body]');
+      const blocks = Array.isArray(item.trace_blocks) ? item.trace_blocks : [];
+      if (trace && traceBody) {
+        trace.hidden = blocks.length === 0;
+        traceBody.innerHTML = blocks.map((block) => (
+          `<pre>${escapeHtml(block.title || '')} — ${escapeHtml(block.result || '')}\n${escapeHtml(block.body || '')}</pre>`
+        )).join('');
+      }
+    }
+
+    function renderFolStatus(payload) {
+      renderFolSummary(payload);
+      (payload.items || []).forEach(renderFolCard);
+    }
+
+    function refreshFolModelStatus() {
+      if ("{{ problem_type or 'none' }}" !== 'fol_model') return Promise.resolve(null);
+      const url = `/problem/${encodeURIComponent("{{ problem_id }}")}/fol_model_ocr/status`;
+      return fetch(url)
+        .then((resp) => resp.ok ? resp.json() : null)
+        .then((payload) => {
+          if (payload) renderFolStatus(payload);
+          return payload;
+        })
+        .catch((err) => {
+          console.warn('FOL model status refresh failed', err);
+          return null;
+        });
+    }
+
+    function startFolModelOcrQueue(force = false) {
+      const url = `/problem/${encodeURIComponent("{{ problem_id }}")}/fol_model_ocr/start`;
+      const payload = new FormData();
+      payload.set('force', force ? '1' : '0');
+      return fetch(url, { method: 'POST', body: payload })
+        .then((resp) => {
+          if (!resp.ok) throw new Error(`Start failed: ${resp.status}`);
+          return resp.json();
+        })
+        .then((data) => {
+          renderFolStatus({ items: data.items || [], counts: {} });
+          return refreshFolModelStatus();
+        })
+        .catch((err) => {
+          alert('Could not start FOL model OCR jobs. Check the server log for details.');
+          console.warn('FOL model OCR start failed', err);
+        });
+    }
+
+    function checkFolModel(btn) {
+      const unitId = btn.dataset.unitId;
+      const card = document.querySelector(`[data-fol-model-card][data-unit-id="${unitId}"]`);
+      const text = card ? card.querySelector('[data-fol-model-text]') : null;
+      const modelText = text ? text.value : '';
+      const url = `/problem/${encodeURIComponent("{{ problem_id }}")}/fol_model_ocr/${encodeURIComponent(unitId)}/check`;
+      const payload = new FormData();
+      payload.set('model_text', modelText);
+      btn.disabled = true;
+      btn.textContent = 'Checking...';
+      fetch(url, { method: 'POST', body: payload })
+        .then((resp) => {
+          if (!resp.ok) throw new Error(`Check failed: ${resp.status}`);
+          return resp.json();
+        })
+        .then((payload) => {
+          if (payload && payload.item) renderFolCard(payload.item);
+          refreshFolModelStatus();
+        })
+        .catch((err) => {
+          alert('Could not check this FOL model.');
+          console.warn('FOL model check failed', err);
+        })
+        .finally(() => {
+          btn.disabled = false;
+          btn.textContent = 'Save + Check';
+        });
+    }
+
+    function applyFolSuggestion(btn) {
+      const unitId = btn.dataset.unitId;
+      const card = document.querySelector(`[data-fol-model-card][data-unit-id="${unitId}"]`);
+      if (!card) return;
+      const suggestedScore = card.querySelector('[data-fol-model-score]');
+      const suggestedComment = card.querySelector('[data-fol-model-comment]');
+      const scoreInput = document.querySelector(`input[name="score_${unitId}"]`);
+      const commentInput = document.querySelector(`textarea[name="comment_${unitId}"]`);
+      if (scoreInput && suggestedScore) scoreInput.value = suggestedScore.value;
+      if (commentInput && suggestedComment) commentInput.value = suggestedComment.value;
+    }
+
     const startFitchBtn = document.getElementById('btn-start-fitch-ocr');
     if (startFitchBtn) {
       startFitchBtn.addEventListener('click', () => startFitchOcrQueue(false));
@@ -1650,6 +2009,19 @@ const croppers = {};
     if ("{{ problem_type or 'none' }}" === 'fitch_proof') {
       refreshFitchOcrStatus();
       setInterval(refreshFitchOcrStatus, 4000);
+    }
+
+    const startFolBtn = document.getElementById('btn-start-fol-model-ocr');
+    if (startFolBtn) {
+      startFolBtn.addEventListener('click', () => startFolModelOcrQueue(false));
+    }
+    const refreshFolBtn = document.getElementById('btn-refresh-fol-model-ocr');
+    if (refreshFolBtn) {
+      refreshFolBtn.addEventListener('click', () => refreshFolModelStatus());
+    }
+    if ("{{ problem_type or 'none' }}" === 'fol_model') {
+      refreshFolModelStatus();
+      setInterval(refreshFolModelStatus, 4000);
     }
 
     document.querySelectorAll('.type-wheel input[type="radio"]').forEach((input) => {

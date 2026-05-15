@@ -14,6 +14,37 @@ class FolModelCheckerTests(unittest.TestCase):
         self.assertIn((1,), model.predicates["P"].tuples)
         self.assertIn((1, 2), model.predicates["R"].tuples)
 
+    def test_parse_model_text_accepts_loose_student_format(self) -> None:
+        model = parse_model_text("Domain: 1,2,3, 4, P: 1,3 R:<1,2>,<2,1>")
+
+        self.assertEqual(model.domain, [1, 2, 3, 4])
+        self.assertEqual(model.constants, {})
+        self.assertEqual(model.predicates["P"].arity, 1)
+        self.assertEqual(model.predicates["P"].tuples, {(1,), (3,)})
+        self.assertEqual(model.predicates["R"].arity, 2)
+        self.assertEqual(model.predicates["R"].tuples, {(1, 2), (2, 1)})
+
+    def test_parse_model_text_accepts_loose_sections_without_braces(self) -> None:
+        model = parse_model_text(
+            "Domain: 1, 2\n"
+            "Constants:\n"
+            "a: 1\n"
+            "Predicates:\n"
+            "P: 1\n"
+            "R: (1,2), (2,1)\n"
+        )
+
+        self.assertEqual(model.domain, [1, 2])
+        self.assertEqual(model.constants["a"], 1)
+        self.assertEqual(model.predicates["P"].tuples, {(1,)})
+        self.assertEqual(model.predicates["R"].tuples, {(1, 2), (2, 1)})
+
+    def test_parse_model_text_infers_uppercase_predicates_after_constants(self) -> None:
+        model = parse_model_text("Domain: 1,2\nConstants:\na: 1\nP: 1")
+
+        self.assertEqual(model.constants["a"], 1)
+        self.assertEqual(model.predicates["P"].tuples, {(1,)})
+
     def test_check_sentences_reports_truth_and_falsehood(self) -> None:
         result = check_sentences(
             "DOMAIN: {1,2}\n\nCONSTANTS:\na: 1\n\nPREDICATES:\nP: {1}\nQ: {2}\n",
