@@ -18,6 +18,7 @@ the repo before changing OCR or regression code.
 - `pytest tests/test_tfl_fitch_gold_fixtures.py -q`
 - `pytest tests/test_tfl_fitch_ocr_regression.py -q`
 - `pytest tests/test_tfl_private_runner.py tests/test_tfl_private_exporter.py -q`
+- `pytest tests/test_tfl_private_narrator.py -q`
 - `pytest tests/test_proofs_ocr_regression_runner.py -q`
 - `python -m proofs_ocr.regression summary`
 - `python -m proofs_ocr.regression.tfl_runner summary`
@@ -65,6 +66,9 @@ which omit paths, images, line text, diffs, and timestamps:
 python -m proofs_ocr.regression.private_tfl_exporter seed-from-strip --eval-root C:\grading-data\ocr-eval\exam1 --assignment-id exam1_spring2026 --problem-id Q6 --grades-dir C:\grading-data\live\grades --debug-fitch-dir C:\grading-data\live\debug_fitch --split dev_regression
 python -m proofs_ocr.regression.private_tfl_runner --manifest C:\grading-data\ocr-eval\exam1\manifest.yaml summary
 python -m proofs_ocr.regression.private_tfl_runner --manifest C:\grading-data\ocr-eval\exam1\manifest.yaml run-gold --split dev_regression
+python -m proofs_ocr.regression.private_tfl_narrator suggest-cases --summary C:\grading-data\ocr-eval\exam1\runs\tfl_private_gold_regressions\shareable_summary.json --category structure
+python -m proofs_ocr.regression.private_tfl_narrator list-artifacts --manifest C:\grading-data\ocr-eval\exam1\manifest.yaml --run-root C:\grading-data\ocr-eval\exam1\runs\tfl_private_gold_regressions --case exam1_spring2026_q6_case_0007
+python -m proofs_ocr.regression.private_tfl_narrator ask --manifest C:\grading-data\ocr-eval\exam1\manifest.yaml --run-root C:\grading-data\ocr-eval\exam1\runs\tfl_private_gold_regressions --case exam1_spring2026_q6_case_0007 --artifact debug_bars --model qwen/qwen3-vl-27b --question "Why might the bar detector or line grouping be failing here?"
 ```
 
 Only paste the shareable summary back into agent conversations unless the case is

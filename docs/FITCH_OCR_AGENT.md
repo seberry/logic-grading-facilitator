@@ -88,6 +88,15 @@ and outside agent conversations.
 6. Later: add a local-model case narrator that describes geometry/OCR failures
    in words without exposing handwriting images or PII to cloud tools.
 
+### Naming policy
+
+Private eval crops are copied to names based on anonymous case ids, not student
+names or LMS ids. The exporter currently uses stable sequential ids such as
+`exam1_spring2026_q6_case_0001`. This is good for reproducible debugging and
+safe to share as long as the private manifest/id map stays local. If ordering
+itself becomes sensitive, add a shuffled/random-id export mode before sharing
+case ids outside the local machine.
+
 ### Implemented so far
 
 - `proofs_ocr/regression/private_tfl_runner.py`
@@ -102,9 +111,17 @@ and outside agent conversations.
   - exports accepted/corrected debug folders into an external eval root
   - copies the proof crop and saved `final_structure.json`
   - appends anonymous case ids such as `exam1_spring2026_q6_case_0001`
+- `proofs_ocr/regression/private_tfl_narrator.py`
+  - suggests failed anonymous cases from a private run's
+    `shareable_summary.json`
+  - lists available per-case artifacts such as `proof_crop`, `debug_bars`, and
+    `crop_ROOT`
+  - asks a local LM Studio vision model about one selected artifact and writes a
+    redacted narration record
 - Tests:
   - `tests/test_tfl_private_runner.py`
   - `tests/test_tfl_private_exporter.py`
+  - `tests/test_tfl_private_narrator.py`
 - Schema/operation docs:
   - `docs/SCHEMA.md`, section `9.1`
   - `docs/AI_WORKFLOW.md`, private runner/exporter commands
@@ -146,13 +163,52 @@ python -m proofs_ocr.regression.private_tfl_runner `
 7. Share only `shareable_summary.txt/json` back with coding agents, unless the
    underlying case is fake or fully sanitized.
 
+### Tight debug loop for slow private runs
+
+1. Run a bounded private regression on `dev_regression` or one selected case.
+2. Use the redacted summary to pick examples:
+
+```powershell
+python -m proofs_ocr.regression.private_tfl_narrator suggest-cases `
+  --summary C:\grading-data\ocr-eval\exam1\runs\tfl_private_gold_regressions\shareable_summary.json `
+  --category structure `
+  --split dev_regression
+```
+
+3. List the available images/artifacts for one anonymous case:
+
+```powershell
+python -m proofs_ocr.regression.private_tfl_narrator list-artifacts `
+  --manifest C:\grading-data\ocr-eval\exam1\manifest.yaml `
+  --run-root C:\grading-data\ocr-eval\exam1\runs\tfl_private_gold_regressions `
+  --case exam1_spring2026_q6_case_0007
+```
+
+4. Ask the local 27B/Gemma vision model about the proof crop, bar overlay, or a
+   specific pipeline crop:
+
+```powershell
+python -m proofs_ocr.regression.private_tfl_narrator ask `
+  --manifest C:\grading-data\ocr-eval\exam1\manifest.yaml `
+  --run-root C:\grading-data\ocr-eval\exam1\runs\tfl_private_gold_regressions `
+  --case exam1_spring2026_q6_case_0007 `
+  --artifact debug_bars `
+  --model qwen/qwen3-vl-27b `
+  --question "Why might the bar detector or line grouping be failing here?"
+```
+
+5. Share the anonymous case id, aggregate metrics, and the local model's
+   redacted observations back to coding agents. Do not paste private images,
+   raw OCR diffs, names, rosters, LMS ids, or local paths.
+
 ### Not built yet
 
 - A one-click UI action in strip view to export accepted OCR directly into a
   private eval corpus.
 - A human review queue that distinguishes `accepted_for_grading_view` from
   `gold_human_checked`; for now, treat `accepted` as the export gate.
-- Local-model narrative reports for private failures.
+- One-click local-model narrative reports from the browser UI. The CLI narrator
+  exists, but it is not yet integrated into the grading/debug pages.
 - A holdout discipline helper that warns before exporting `blind_holdout` cases
   from material you have already used for debugging.
 
@@ -177,6 +233,7 @@ python -m proofs_ocr.regression.private_tfl_runner `
 | `proofs_ocr/regression/tfl_runner.py` | **Gold regression runner.** `run_tfl_gold_regressions()` runs the pipeline on all TFL handwritten fixtures, compares output to expected structures, writes granular per-line reports. |
 | `proofs_ocr/regression/private_tfl_runner.py` | **Private real-scan runner.** Runs external, anonymous, FERPA-local TFL/Fitch cases and writes redacted shareable summaries. |
 | `proofs_ocr/regression/private_tfl_exporter.py` | **Private corpus seeder.** Exports accepted strip-page Fitch OCR debug artifacts into an external private eval manifest. |
+| `proofs_ocr/regression/private_tfl_narrator.py` | **Private local-model narrator.** Suggests failed cases, lists artifacts, and asks a local vision model for redacted diagnostic observations. |
 | `proofs_ocr/regression/runner.py` | **Shared regression helpers.** `load_manifest()`, `select_cases()`, `GoldRegressionResult` dataclass. |
 
 ### Test fixtures (TFL handwritten)
