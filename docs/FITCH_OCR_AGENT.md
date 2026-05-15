@@ -206,6 +206,38 @@ many tokens in `reasoning_content` before emitting a short visible answer.
    redacted observations back to coding agents. Do not paste private images,
    raw OCR diffs, names, rosters, LMS ids, or local paths.
 
+### Local model eye-test verdicts
+
+Probe artifact: `working/local_model_eye_probe/`, using the tracked fake
+`tfl_fake_implication_intro` crop. This is instructor-authored fake data, not
+FERPA data.
+
+- `qwen/qwen3.6-27b` is the best default narrator model so far.
+  - Text sanity response: about 8 seconds.
+  - Full diagnostic image prompt: about 245 seconds on the large crop.
+  - Short narrator prompt at `--max-image-dim 900 --max-tokens 360`: about 68
+    seconds.
+  - Useful observations: bottom crop truncation/partial final line, ghosting or
+    bleed-through noise, tight left margin near scope bars, stylized `&`/`∧`
+    likely to be read as `8`, and bar/scope ambiguity.
+  - Recommended settings: use `--disable-thinking`, a smaller `--max-image-dim`
+    for quick triage, and targeted questions about one suspected failure mode.
+- `google/gemma-4-26b-a4b` can work, but needs different API settings.
+  - With the Qwen-style `enable_thinking=false` payload and low token cap, it
+    returned only `reasoning_content` and no visible content.
+  - With no `--disable-thinking`, a simpler prompt, and `--max-tokens 2048`, it
+    produced a short visible answer after about 76 seconds, while spending most
+    generated tokens in reasoning.
+  - Recommended use: second-opinion checks on a very short prompt, not the
+    default narrator until we learn better Gemma runtime settings.
+- Most useful prompt targets for the current pipeline:
+  - crop starts/ends mid-line or includes partial neighboring lines
+  - proof crop cuts off conclusion or justification text
+  - dappled/shadow preprocessing artifacts where no real letters are visible
+  - bar overlay misses: false bars, split bars, slanted bars, or merged bars
+  - formula/justification column confusion such as handwritten `∧E` looking
+    like `8E`
+
 ### Not built yet
 
 - A one-click UI action in strip view to export accepted OCR directly into a
