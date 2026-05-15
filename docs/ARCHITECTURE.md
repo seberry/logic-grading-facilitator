@@ -42,6 +42,12 @@ The backend service (FastAPI) maintains the state of the grading session.
     * Generated lazily by the VLM.
     * Located at: `data/grades/segments_{problem_id}.json`.
 
+4.  **`proof_ocr/*.json` (Per-question proof OCR review state):**
+    * Stores asynchronous TFL/Fitch proof OCR status by `WorkUnit`.
+    * Located at: `data/grades/proof_ocr/tfl_fitch_{problem_id}.json`.
+    * Contains only review state and normalized OCR/checker summaries; cropped
+      proof images and OCR artifacts remain under `data/debug_fitch/<slug>/`.
+
 ---
 
 # 3. UI Flow & Views
@@ -59,7 +65,43 @@ The frontend serves specific interfaces for different phases of the grading life
 * **Display:**
     * Shows a cropped "strip" of the student's answer (via segmentation).
     * Provides full-page toggle and scoring inputs.
+    * For `fitch_proof` problems, shows a TFL/Fitch OCR review card beside
+      each strip and polls for status updates while OCR continues in the
+      background.
 * **Navigation:** "Save & Next" moves linearly through the rubric.
+
+#### TFL/Fitch OCR review in Strip View
+
+For TFL/Fitch proof problems, the strip page exposes a lightweight asynchronous
+review lane:
+
+* `POST /problem/{problem_id}/fitch_ocr/start` queues OCR for the current
+  question's proof strips. The route uses the cached/manual segmentation boxes,
+  crops each proof into `data/debug_fitch/<slug>/`, initializes per-strip state,
+  and submits jobs to a single background worker.
+* `GET /problem/{problem_id}/fitch_ocr/status` returns per-strip status for
+  polling. The browser updates proof cards in place, so a grader can review
+  finished strips without waiting for later OCR jobs.
+* `POST /problem/{problem_id}/fitch_ocr/{unit_id}/accept` marks a reviewed OCR
+  result as accepted. This records human confirmation in the OCR review state;
+  it does not currently overwrite scores or auto-apply verifier reread
+  candidates.
+
+The review statuses are:
+
+* `queued` - crop prepared and waiting for the background worker.
+* `processing` - the importable TFL/Fitch OCR pipeline is running.
+* `needs_review` - OCR completed and no verifier/reread flags were surfaced.
+* `verifier_issue` - OCR completed with proof-checker issues or reread report
+  records that need human attention.
+* `accepted` - the grader accepted the displayed OCR result.
+* `ocr_failed` - crop preparation or OCR execution failed; the debug folder is
+  still the place to inspect available artifacts.
+
+Verifier reread outputs are report-only in this workflow. When available, the
+strip card can display original OCR text, candidate reread text,
+`candidate_class`, concise reason text, and row-crop thumbnails. Candidates are
+not auto-applied because verifier failures may be real student mistakes.
 
 ### C. WorkUnit View (Legacy/Detail) (`GET /grade/{unit_id}/page`)
 * **Purpose:** Detailed view of a single student's full exam.
@@ -67,7 +109,7 @@ The frontend serves specific interfaces for different phases of the grading life
 
 ### D. Fitch Debug & Human-Correction View (`GET /debug/fitch`)
 * **Purpose:** Inspect highlighted proof scans, hand-edit stitched `final_structure.json`, and run the verifier inline.
-* **Inputs:** Reads artifacts from `data/debug_fitch/<scan_stem>/` (produced by `scripts/debug_fitch_ocr.py` against a cropped proof scan).
+* **Inputs:** Reads artifacts from `data/debug_fitch/<scan_stem>/` (produced by `scripts/debug_fitch_ocr.py`, the strip-page one-proof debug action, or the asynchronous strip OCR queue).
 * **Actions:**
   * Re-run the OCR/parse pipeline on demand to refresh the JSON and log output.
   * Edit and save `final_structure.json` directly in the browser; persists to the same folder.
@@ -133,6 +175,22 @@ This section explains how data transforms from "Raw Images" to "Graded Assignmen
     3.  **Cache Hit:** If present, loads boxes instantly.
 * **Result:** User sees cropped answers. Scores are written back to `session.json`.
 
+### Phase 4: Optional TFL/Fitch OCR Review
+* **Trigger:** For a `fitch_proof` problem, the user clicks **Start OCR** on
+  `/problem/{problem_id}/strips`.
+* **Logic:**
+    1. Server reads the current segmentation cache and selected page for each
+       `WorkUnit`.
+    2. It writes cropped proof images under `data/debug_fitch/<slug>/`.
+    3. It stores queue/review state in
+       `data/grades/proof_ocr/tfl_fitch_{problem_id}.json`.
+    4. A single background worker runs `proofs_ocr.pipelines.tfl_fitch.run_fitch_ocr_pipeline()`
+       for one crop at a time.
+    5. The strip page polls the status endpoint and updates cards as each proof
+       reaches `needs_review`, `verifier_issue`, `accepted`, or `ocr_failed`.
+* **Result:** The grader can scan down the same per-question page and review
+  finished proof OCR results while later proofs are still processing.
+
 ---
 
 # 7. Caching Strategy
@@ -152,14 +210,44 @@ Used by the Strip View to show cropped answers.
 * **Validation before reuse:** must match current WorkUnits (`unit_id`s), each cached `page_filename` must belong to that WorkUnit, and bbox must be normalized `[x1,y1,x2,y2]` in `[0,1]`.
 * **Behavior:** Lazy-loaded. The first time you grade "Q1", you pay the wait time. Subsequent loads are instant.
 
+### C. TFL/Fitch OCR Review State
+Used by the Strip View for asynchronous proof OCR review.
+* **Location:** `data/grades/proof_ocr/tfl_fitch_{problem_id}.json`.
+* **Artifacts:** cropped proof images, `final_structure.json`, `debug_bars.jpg`,
+  VLM response files, verifier reread reports, and row-crop thumbnails live
+  under `data/debug_fitch/<slug>/`.
+* **Invalidation:** currently explicit. Re-clicking **Start OCR** skips queued,
+  running, ready, flagged, or accepted items unless the backend is called with
+  `force=1`.
+* **Concurrency:** a process-local single-worker queue runs one TFL/Fitch OCR
+  job at a time. Restarting the server does not resume in-memory jobs, but the
+  JSON state and debug artifacts remain for inspection or requeueing.
+
 ---
 
 # 8. Repository Layout (Code vs Data)
+
+## Active Route/Data Map
+
+This map is intentionally narrower than the full repository. It lists the
+current exam-grading surfaces most likely to be touched by UI, OCR, and export
+work.
+
+| Workflow | Routes / modules | Primary persisted state | Notes |
+|---|---|---|---|
+| Setup and name review | `app/server.py` (`/setup`, `/name_review`) | `data/name_review_cache/*.json`, `data/grades/session.json` | Creates canonical `WorkUnit`s and redirects into strip grading. |
+| Per-question strip grading | `app/routes/problem_strips.py`, `app/templates/problem_strips.html` | `data/grades/session.json`, `data/grades/segments_{problem_id}.json` | Main "one question across all students" grading surface. |
+| TFL/Fitch strip OCR review | `app/proof_ocr_review.py`, `app/routes/problem_strips.py` (`/problem/{problem_id}/fitch_ocr/*`) | `data/grades/proof_ocr/tfl_fitch_{problem_id}.json`, `data/debug_fitch/<slug>/` | Async review lane for `fitch_proof` problems. Uses polling and a process-local single-worker queue. |
+| Fitch debug / correction | `app/routes/fitch_debug.py`, `app/templates/debug_fitch.html` | `data/debug_fitch/<slug>/final_structure.json` and sibling artifacts | Deep inspection/editing path for one proof crop. |
+| Modal proof debug | `app/routes/modal_proof_debug*.py`, `app/templates/debug_modal_proof.html` | `data/debug_modal_proof/<slug>/state.json` and checker artifacts | Separate modal proof scaffold/debug path. |
+| Exam exports/finalize | `app/routes/exam_exports.py`, `app/exam_exports_core.py` | `data/grades/session.json`, export ZIP/CSV responses, archive snapshots | Human scores in `session.json` remain authoritative. |
+| Classwork workflows | `app/routes/classwork.py`, `app/classwork_core.py` | `data/classwork/`, `data/canvas_cache/`, classwork state in session | Semi-independent from exam strip grading. |
 
 * `app/server.py` – FastAPI app shell plus the remaining exam setup/import and legacy grading routes.
 * `app/routes/classwork.py` – Classwork workflow routes, including Canvas classwork integration.
 * `app/routes/exam_exports.py` – Exam finish/export/finalize routes.
 * `app/routes/problem_strips.py` – Per-problem strip grading routes and segmentation entry points.
+* `app/proof_ocr_review.py` – TFL/Fitch strip-review queue, state file helpers, proof crop preparation, status summaries, and acceptance persistence.
 * `app/routes/flashcards.py` – Student-name flashcards workflow.
 * `app/routes/fitch_debug.py` – Fitch debug / human-correction workflow.
 * `app/classwork_core.py` – Classwork-specific helper and export logic.

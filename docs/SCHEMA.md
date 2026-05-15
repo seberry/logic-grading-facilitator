@@ -233,12 +233,81 @@ The Session model now includes an optional `pinned_note` field:
 Stores per-problem type tags used for future autograde workflows (e.g., Fitch proofs).
 These can be set from the Problem Strips UI via the "Problem type wheel."
 
-## 9. Proposed Rubric Extension (draft)
+# 9. TFL/Fitch OCR Review State (current)
+
+For `fitch_proof` strip grading, asynchronous OCR review state is stored outside
+`session.json` so scores remain human-authored and the proof OCR queue can be
+refreshed independently.
+
+Path:
+
+```text
+data/grades/proof_ocr/tfl_fitch_<problem_id>.json
+```
+
+Example:
+
+```json
+{
+  "problem_id": "Q5",
+  "kind": "tfl_fitch",
+  "updated_at": "2026-05-14T12:00:00+00:00",
+  "items": {
+    "7": {
+      "unit_id": 7,
+      "page_filename": "quiz1_student_p01.jpg",
+      "slug": "q5_7_quiz1_student_p01",
+      "status": "verifier_issue",
+      "message": "OCR ready with verifier/reread flags.",
+      "debug_url": "/debug/fitch?scan=q5_7_quiz1_student_p01",
+      "proof_image_url": "/debug_fitch_assets/q5_7_quiz1_student_p01/q5_7_quiz1_student_p01.jpg",
+      "run_summary": "Fitch OCR pipeline: 2 bars, 7 lines, 2 premises, geometry=standard",
+      "line_count": 7,
+      "preview_lines": [
+        {"line": 1, "depth": 0, "wffstr": "A", "jstr": "Pr"},
+        {"line": 2, "depth": 0, "wffstr": "B", "jstr": "Pr"}
+      ],
+      "checker_issues": ["Line 5: Rule does not apply."],
+      "reread_summary": {
+        "record_count": 1,
+        "candidate_class_counts": {"changed_justification": 1},
+        "gold_metrics_available": false
+      },
+      "reread_records": [
+        {
+          "line": 5,
+          "target_kind": "rejected",
+          "candidate_class": "changed_justification",
+          "reason": "Candidate changes the normalized justification.",
+          "original": {"wffstr": "C", "jstr": "Hyp"},
+          "candidate": {"wffstr": "C", "jstr": "→E 1,4"},
+          "row_crop_url": "/debug_fitch_assets/q5_7_quiz1_student_p01/verifier_line_rereads_27b/rejected_line_05_node_2_row_3.jpg"
+        }
+      ]
+    }
+  }
+}
+```
+
+Invariants:
+
+- `items` is keyed by `WorkUnit.unit_id` as a string.
+- Valid `status` values are `queued`, `processing`, `needs_review`,
+  `verifier_issue`, `accepted`, and `ocr_failed`.
+- `debug_url` and asset URLs are local web URLs only; do not write absolute
+  live-data paths into tracked docs or fixtures.
+- `accepted` records human confirmation of the displayed OCR result. It does
+  not update `WorkUnit.per_problem` or apply reread candidates.
+- The canonical proof artifacts remain under `data/debug_fitch/<slug>/`,
+  including `final_structure.json`, `debug_bars.jpg`, VLM responses, and
+  verifier reread files.
+
+## 10. Proposed Rubric Extension (draft)
 
 This section documents a proposed rubric/schema change for future autograde workflows.
 It is a design target, not yet the current implementation.
 
-### 9.1 Motivation
+### 10.1 Motivation
 
 Right now `ProblemSpec` is minimal:
 
@@ -263,7 +332,7 @@ the rubric needs a place to store:
 - task-specific fixed logical inputs (`prompt_data`)
 - OCR/perception hints for the local model (`ocr`)
 
-### 9.2 Proposed `ProblemSpec` extension
+### 10.2 Proposed `ProblemSpec` extension
 
 Add these optional fields:
 
@@ -281,13 +350,13 @@ Conceptually:
 - `problem_type`: broad family such as `plain`, `fitch_proof`, `fol_model`
 - `autograde`: family-specific metadata preserved in the rubric
 
-### 9.2a Implementation note
+### 10.2a Implementation note
 
 The shared autograde scaffolding now exists in `app/autograde/`, but only `fol_model`
 is currently wired through a real deterministic engine. The presence of other engine
 modules should be read as reserved extension points, not as completed grading flows.
 
-### 9.3 Proposed shape for `fol_model`
+### 10.3 Proposed shape for `fol_model`
 
 Use one broad family plus a task-kind inside `autograde`.
 
@@ -321,7 +390,7 @@ Recommended `task_kind` values:
 - maybe later `non_logical_truth`
 - maybe later `non_logical_falsehood`
 
-### 9.4 Why not `left` / `right`?
+### 10.4 Why not `left` / `right`?
 
 For binary tasks such as non-equivalence, prefer:
 
@@ -343,7 +412,7 @@ prompt_data:
 Using `formulas` avoids building order assumptions into OCR, trace wording,
 or the student-facing interpretation of the task.
 
-### 9.5 Example task shapes
+### 10.5 Example task shapes
 
 Truth in a fixed model:
 
@@ -403,7 +472,7 @@ autograde:
     conclusion: "∀x Qx"
 ```
 
-### 9.6 Proposed shape for `fitch_proof`
+### 10.6 Proposed shape for `fitch_proof`
 
 Do not force Fitch proofs into the same low-level structure as FOL model tasks.
 Only share the top-level `problem_type` / `autograde` pattern.
@@ -421,7 +490,7 @@ Only share the top-level `problem_type` / `autograde` pattern.
       pipeline: "fitch_debug"
 ```
 
-### 9.7 Intended division of responsibility
+### 10.7 Intended division of responsibility
 
 For these richer workflows:
 

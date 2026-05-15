@@ -244,6 +244,141 @@
       font-size: 0.79rem;
       white-space: pre-wrap;
     }
+    .fitch-ocr-toolbar {
+      max-width: 920px;
+      margin: 0 0 1.5rem 0;
+      padding: 0.85rem 1rem;
+      background: #ffffff;
+      border: 1px solid #dbe4f0;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+    .fitch-ocr-toolbar-title {
+      font-weight: 700;
+      color: #0f172a;
+    }
+    .fitch-ocr-toolbar-status {
+      color: #475569;
+      font-size: 0.88rem;
+      margin-top: 0.15rem;
+    }
+    .fitch-ocr-panel {
+      border: 1px solid #dbe4f0;
+      border-radius: 8px;
+      background: #fbfdff;
+      padding: 0.85rem 0.9rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+    }
+    .fitch-ocr-panel.is-empty {
+      background: #f8fafc;
+    }
+    .fitch-ocr-panel.is-failed {
+      border-color: #fecaca;
+      background: #fff7f7;
+    }
+    .fitch-ocr-panel.is-flagged {
+      border-color: #fed7aa;
+      background: #fffaf0;
+    }
+    .fitch-ocr-panel.is-accepted {
+      border-color: #bbf7d0;
+      background: #f4fff7;
+    }
+    .fitch-ocr-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 0.75rem;
+    }
+    .fitch-ocr-title {
+      font-weight: 700;
+      font-size: 0.95rem;
+      color: #0f172a;
+    }
+    .fitch-ocr-meta {
+      color: #64748b;
+      font-size: 0.8rem;
+      margin-top: 0.15rem;
+    }
+    .fitch-ocr-actions {
+      display: flex;
+      gap: 0.45rem;
+      align-items: center;
+      white-space: nowrap;
+    }
+    .fitch-ocr-link {
+      color: #1d4ed8;
+      font-weight: 600;
+      text-decoration: none;
+      font-size: 0.85rem;
+    }
+    .fitch-ocr-link:hover {
+      text-decoration: underline;
+    }
+    .fitch-proof-lines {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+      max-height: 20rem;
+      overflow: auto;
+      font-family: Consolas, "SFMono-Regular", Menlo, Monaco, monospace;
+      font-size: 0.85rem;
+    }
+    .fitch-proof-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(95px, 0.45fr);
+      gap: 0.75rem;
+      border: 1px solid #e5e7eb;
+      border-left: 4px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 0.35rem 0.45rem;
+      background: #fff;
+    }
+    .fitch-proof-row span {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    .fitch-issue-list,
+    .fitch-reread-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      font-size: 0.82rem;
+      color: #475569;
+    }
+    .fitch-reread-item {
+      border: 1px solid #e5e7eb;
+      border-left: 4px solid #f59e0b;
+      border-radius: 6px;
+      padding: 0.45rem 0.5rem;
+      background: #fff;
+    }
+    .fitch-reread-thumb {
+      display: block;
+      max-width: 100%;
+      max-height: 6rem;
+      margin-top: 0.35rem;
+      border: 1px solid #e5e7eb;
+      background: #fff;
+    }
+    .mini-btn {
+      background: #fff;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+      padding: 0.3rem 0.55rem;
+      color: #334155;
+      cursor: pointer;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+    .mini-btn:hover {
+      background: #f8fafc;
+    }
 
       .btn-row {
         display: flex;
@@ -523,6 +658,25 @@
       </div>
     </section>
 
+    <section class="fitch-ocr-toolbar type-action"
+             data-action-type="fitch_proof"
+             {% if problem_type != "fitch_proof" %}hidden{% endif %}>
+      <div>
+        <div class="fitch-ocr-toolbar-title">TFL/Fitch OCR review queue</div>
+        <div id="fitch-ocr-summary" class="fitch-ocr-toolbar-status">
+          Start OCR to review proofs here as each strip finishes.
+        </div>
+      </div>
+      <div class="btn-row" style="max-width: 24rem;">
+        <button id="btn-start-fitch-ocr" class="btn btn-secondary" type="button">
+          Start OCR
+        </button>
+        <button id="btn-refresh-fitch-ocr" class="btn" type="button">
+          Refresh
+        </button>
+      </div>
+    </section>
+
   {% for item in strips %}
     
     {% set wu = item.work_unit %}
@@ -626,6 +780,66 @@
             {% else %}
               <div class="muted">No modal OCR preview is available for this strip yet.</div>
             {% endif %}
+          </section>
+        {% endif %}
+
+        {% if problem_type == "fitch_proof" %}
+          {% set fitch = item.fitch_ocr %}
+          <section class="fitch-ocr-panel{% if not fitch %} is-empty{% elif fitch.status == 'ocr_failed' %} is-failed{% elif fitch.status == 'verifier_issue' %} is-flagged{% elif fitch.status == 'accepted' %} is-accepted{% endif %}"
+                   data-fitch-ocr-card
+                   data-unit-id="{{ wu.unit_id }}">
+            <div class="fitch-ocr-header">
+              <div>
+                <div class="fitch-ocr-title">TFL/Fitch OCR</div>
+                <div class="fitch-ocr-meta" data-fitch-ocr-message>
+                  {% if fitch %}{{ fitch.message or fitch.status }}{% else %}Not queued yet.{% endif %}
+                </div>
+              </div>
+              <div class="fitch-ocr-actions" data-fitch-ocr-actions>
+                {% if fitch and fitch.debug_url %}
+                  <a class="fitch-ocr-link" href="{{ fitch.debug_url }}">Open debug</a>
+                {% endif %}
+                {% if fitch and fitch.status in ["needs_review", "verifier_issue"] %}
+                  <button class="mini-btn" type="button" onclick="acceptFitchOcr({{ wu.unit_id }})">Accept</button>
+                {% endif %}
+              </div>
+            </div>
+            <div data-fitch-ocr-body>
+              {% if fitch and fitch.preview_lines %}
+                <div class="fitch-proof-lines">
+                  {% for line in fitch.preview_lines %}
+                    <div class="fitch-proof-row">
+                      <span>{{ "  " * line.depth }}{{ line.line }}. {{ line.wffstr }}</span>
+                      <span>{{ line.jstr }}</span>
+                    </div>
+                  {% endfor %}
+                </div>
+              {% elif fitch and fitch.checker_issues %}
+                <div class="fitch-issue-list">
+                  {% for issue in fitch.checker_issues %}
+                    <div>{{ issue }}</div>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="muted">No OCR output for this strip yet.</div>
+              {% endif %}
+
+              {% if fitch and fitch.reread_records %}
+                <div class="fitch-reread-list">
+                  {% for record in fitch.reread_records %}
+                    <div class="fitch-reread-item">
+                      <strong>Line {{ record.line }}:</strong>
+                      {{ record.candidate_class }}. {{ record.reason }}
+                      <div>OCR: {{ record.original.wffstr }} / {{ record.original.jstr }}</div>
+                      <div>Reread: {{ record.candidate.wffstr }} / {{ record.candidate.jstr }}</div>
+                      {% if record.row_crop_url %}
+                        <img class="fitch-reread-thumb" src="{{ record.row_crop_url }}" alt="Line reread crop">
+                      {% endif %}
+                    </div>
+                  {% endfor %}
+                </div>
+              {% endif %}
+            </div>
           </section>
         {% endif %}
 
@@ -1260,6 +1474,182 @@ const croppers = {};
 
       document.body.appendChild(form);
       form.submit();
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function fitchStatusLabel(status) {
+      const labels = {
+        queued: 'Queued',
+        processing: 'Processing',
+        needs_review: 'Ready for review',
+        verifier_issue: 'Verifier flag',
+        accepted: 'Accepted',
+        ocr_failed: 'OCR failed'
+      };
+      return labels[status] || status || 'Not queued';
+    }
+
+    function renderFitchSummary(payload) {
+      const el = document.getElementById('fitch-ocr-summary');
+      if (!el || !payload) return;
+      const counts = payload.counts || {};
+      const parts = [];
+      ['queued', 'processing', 'needs_review', 'verifier_issue', 'accepted', 'ocr_failed'].forEach((key) => {
+        if (counts[key]) parts.push(`${fitchStatusLabel(key)} ${counts[key]}`);
+      });
+      el.textContent = parts.length ? parts.join(' · ') : 'No proof OCR jobs have been queued for this problem.';
+    }
+
+    function renderFitchCard(item) {
+      if (!item || item.unit_id === undefined || item.unit_id === null) return;
+      const card = document.querySelector(`[data-fitch-ocr-card][data-unit-id="${item.unit_id}"]`);
+      if (!card) return;
+
+      card.classList.remove('is-empty', 'is-failed', 'is-flagged', 'is-accepted');
+      if (!item.status) card.classList.add('is-empty');
+      if (item.status === 'ocr_failed') card.classList.add('is-failed');
+      if (item.status === 'verifier_issue') card.classList.add('is-flagged');
+      if (item.status === 'accepted') card.classList.add('is-accepted');
+
+      const message = card.querySelector('[data-fitch-ocr-message]');
+      if (message) {
+        const summary = item.run_summary ? ` ${item.run_summary}` : '';
+        message.textContent = `${fitchStatusLabel(item.status)}. ${item.message || ''}${summary}`.trim();
+      }
+
+      const actions = card.querySelector('[data-fitch-ocr-actions]');
+      if (actions) {
+        const links = [];
+        if (item.debug_url) {
+          links.push(`<a class="fitch-ocr-link" href="${escapeHtml(item.debug_url)}">Open debug</a>`);
+        }
+        if (item.status === 'needs_review' || item.status === 'verifier_issue') {
+          links.push(`<button class="mini-btn" type="button" onclick="acceptFitchOcr(${Number(item.unit_id)})">Accept</button>`);
+        }
+        actions.innerHTML = links.join('');
+      }
+
+      const body = card.querySelector('[data-fitch-ocr-body]');
+      if (!body) return;
+
+      const lines = Array.isArray(item.preview_lines) ? item.preview_lines : [];
+      const issues = Array.isArray(item.checker_issues) ? item.checker_issues : [];
+      const rereads = Array.isArray(item.reread_records) ? item.reread_records : [];
+      const chunks = [];
+
+      if (lines.length) {
+        chunks.push('<div class="fitch-proof-lines">');
+        lines.forEach((line) => {
+          const depth = Math.max(0, Number(line.depth || 0));
+          const prefix = '&nbsp;'.repeat(depth * 4);
+          chunks.push(
+            `<div class="fitch-proof-row"><span>${prefix}${escapeHtml(line.line)}. ${escapeHtml(line.wffstr)}</span><span>${escapeHtml(line.jstr)}</span></div>`
+          );
+        });
+        chunks.push('</div>');
+      } else if (issues.length) {
+        chunks.push('<div class="fitch-issue-list">');
+        issues.forEach((issue) => chunks.push(`<div>${escapeHtml(issue)}</div>`));
+        chunks.push('</div>');
+      } else {
+        chunks.push(`<div class="muted">${escapeHtml(item.message || 'No OCR output for this strip yet.')}</div>`);
+      }
+
+      if (rereads.length) {
+        chunks.push('<div class="fitch-reread-list">');
+        rereads.forEach((record) => {
+          const original = record.original || {};
+          const candidate = record.candidate || {};
+          chunks.push('<div class="fitch-reread-item">');
+          chunks.push(`<strong>Line ${escapeHtml(record.line)}:</strong> ${escapeHtml(record.candidate_class)}. ${escapeHtml(record.reason)}`);
+          chunks.push(`<div>OCR: ${escapeHtml(original.wffstr)} / ${escapeHtml(original.jstr)}</div>`);
+          chunks.push(`<div>Reread: ${escapeHtml(candidate.wffstr)} / ${escapeHtml(candidate.jstr)}</div>`);
+          if (record.row_crop_url) {
+            chunks.push(`<img class="fitch-reread-thumb" src="${escapeHtml(record.row_crop_url)}" alt="Line reread crop">`);
+          }
+          chunks.push('</div>');
+        });
+        chunks.push('</div>');
+      }
+
+      body.innerHTML = chunks.join('');
+    }
+
+    function renderFitchStatus(payload) {
+      renderFitchSummary(payload);
+      (payload.items || []).forEach(renderFitchCard);
+    }
+
+    function refreshFitchOcrStatus() {
+      if ("{{ problem_type or 'none' }}" !== 'fitch_proof') return Promise.resolve(null);
+      const url = `/problem/${encodeURIComponent("{{ problem_id }}")}/fitch_ocr/status`;
+      return fetch(url)
+        .then((resp) => resp.ok ? resp.json() : null)
+        .then((payload) => {
+          if (payload) renderFitchStatus(payload);
+          return payload;
+        })
+        .catch((err) => {
+          console.warn('Fitch OCR status refresh failed', err);
+          return null;
+        });
+    }
+
+    function startFitchOcrQueue(force = false) {
+      const url = `/problem/${encodeURIComponent("{{ problem_id }}")}/fitch_ocr/start`;
+      const payload = new FormData();
+      payload.set('force', force ? '1' : '0');
+      return fetch(url, { method: 'POST', body: payload })
+        .then((resp) => {
+          if (!resp.ok) throw new Error(`Start failed: ${resp.status}`);
+          return resp.json();
+        })
+        .then((data) => {
+          renderFitchStatus({ items: data.items || [], counts: {} });
+          return refreshFitchOcrStatus();
+        })
+        .catch((err) => {
+          alert('Could not start Fitch OCR jobs. Check the server log for details.');
+          console.warn('Fitch OCR start failed', err);
+        });
+    }
+
+    function acceptFitchOcr(unitId) {
+      const url = `/problem/${encodeURIComponent("{{ problem_id }}")}/fitch_ocr/${encodeURIComponent(unitId)}/accept`;
+      fetch(url, { method: 'POST' })
+        .then((resp) => {
+          if (!resp.ok) throw new Error(`Accept failed: ${resp.status}`);
+          return resp.json();
+        })
+        .then((payload) => {
+          if (payload && payload.item) renderFitchCard(payload.item);
+          refreshFitchOcrStatus();
+        })
+        .catch((err) => {
+          alert('Could not accept this OCR result.');
+          console.warn('Fitch OCR accept failed', err);
+        });
+    }
+
+    const startFitchBtn = document.getElementById('btn-start-fitch-ocr');
+    if (startFitchBtn) {
+      startFitchBtn.addEventListener('click', () => startFitchOcrQueue(false));
+    }
+    const refreshFitchBtn = document.getElementById('btn-refresh-fitch-ocr');
+    if (refreshFitchBtn) {
+      refreshFitchBtn.addEventListener('click', () => refreshFitchOcrStatus());
+    }
+    if ("{{ problem_type or 'none' }}" === 'fitch_proof') {
+      refreshFitchOcrStatus();
+      setInterval(refreshFitchOcrStatus, 4000);
     }
 
     document.querySelectorAll('.type-wheel input[type="radio"]').forEach((input) => {

@@ -15,6 +15,11 @@ from PIL import Image
 
 from app.helpers import _build_page_options, _is_image_filename, _select_display_filename
 from app.models import Session
+from app.proof_ocr_review import (
+    accept_fitch_ocr_review,
+    enqueue_fitch_ocr_jobs,
+    public_fitch_ocr_status,
+)
 from app.segmentation_core import QuestionSegment, segment_page_for_problem
 from app.routes import modal_proof_debug as modal_proof_debug_routes
 from app.session_state import _segmentation_lock, _session_lock, get_session, persist_session
@@ -352,6 +357,35 @@ def _bbox_for_strip(seg_data: Optional[Dict[str, Any]], bbox_override_raw: str) 
     return None
 
 
+def _build_fitch_ocr_targets(
+    session: Session,
+    problem_id: str,
+    segments_data: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    segments_map = {d["unit_id"]: d for d in segments_data if isinstance(d, dict) and "unit_id" in d}
+    targets: List[Dict[str, Any]] = []
+    for wu in session.work_units:
+        seg_data = segments_map.get(wu.unit_id)
+        page_filename = None
+        bbox = None
+        if seg_data and seg_data.get("present"):
+            page_filename = seg_data.get("page_filename")
+            if _is_normalized_bbox(seg_data.get("bbox")):
+                bbox = [float(v) for v in seg_data["bbox"]]
+
+        display_filename = _select_display_filename(wu.page_filenames, page_filename)
+        if not display_filename:
+            continue
+        targets.append(
+            {
+                "unit_id": wu.unit_id,
+                "page_filename": display_filename,
+                "bbox": bbox,
+            }
+        )
+    return targets
+
+
 async def _run_subprocess_with_logs(command: List[str]) -> tuple[int, str]:
     proc = await asyncio.create_subprocess_exec(
         *command,
@@ -423,6 +457,75 @@ def prefetch_problem(problem_id: str):
     return {"status": "cached", "segments": len(segments_data)}
 
 
+@router.get("/problem/{problem_id}/fitch_ocr/status")
+def get_fitch_ocr_status(problem_id: str):
+    session = get_session()
+    spec = next((p for p in session.grading_key.problems if p.id == problem_id), None)
+    if spec is None:
+        raise HTTPException(status_code=404, detail=f"Unknown problem id {problem_id!r}")
+
+    effective_type = _effective_problem_type(session, problem_id, spec)
+    if effective_type != "fitch_proof":
+        raise HTTPException(status_code=400, detail=f"Problem {problem_id!r} is not tagged as fitch_proof.")
+
+    return public_fitch_ocr_status(GRADES_DIR, problem_id)
+
+
+@router.post("/problem/{problem_id}/fitch_ocr/start")
+async def start_fitch_ocr_for_problem(
+    problem_id: str,
+    force: int = Form(0),
+):
+    session = get_session()
+    spec = next((p for p in session.grading_key.problems if p.id == problem_id), None)
+    if spec is None:
+        raise HTTPException(status_code=404, detail=f"Unknown problem id {problem_id!r}")
+
+    effective_type = _effective_problem_type(session, problem_id, spec)
+    if effective_type != "fitch_proof":
+        raise HTTPException(status_code=400, detail=f"Problem {problem_id!r} is not tagged as fitch_proof.")
+
+    segments_data = ensure_segments_cached(
+        session=session,
+        spec=spec,
+        refresh=False,
+        blocking=True,
+    )
+    if segments_data is None:
+        raise HTTPException(status_code=503, detail="Segmentation currently busy")
+
+    targets = _build_fitch_ocr_targets(session, problem_id, segments_data)
+    return enqueue_fitch_ocr_jobs(
+        problem_id=problem_id,
+        targets=targets,
+        raw_scans_dir=RAW_SCANS_DIR,
+        debug_fitch_dir=DEBUG_FITCH_DIR,
+        grades_dir=GRADES_DIR,
+        force=bool(force),
+    )
+
+
+@router.post("/problem/{problem_id}/fitch_ocr/{unit_id}/accept")
+def accept_fitch_ocr_for_unit(problem_id: str, unit_id: int):
+    session = get_session()
+    spec = next((p for p in session.grading_key.problems if p.id == problem_id), None)
+    if spec is None:
+        raise HTTPException(status_code=404, detail=f"Unknown problem id {problem_id!r}")
+
+    effective_type = _effective_problem_type(session, problem_id, spec)
+    if effective_type != "fitch_proof":
+        raise HTTPException(status_code=400, detail=f"Problem {problem_id!r} is not tagged as fitch_proof.")
+
+    if not any(wu.unit_id == unit_id for wu in session.work_units):
+        raise HTTPException(status_code=404, detail=f"Unknown work unit {unit_id}.")
+
+    try:
+        item = accept_fitch_ocr_review(GRADES_DIR, problem_id, unit_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {"status": "ok", "item": item}
+
+
 @router.get("/problem/{problem_id}/strips", response_class=HTMLResponse)
 def get_problem_strips(
     request: Request,
@@ -449,6 +552,15 @@ def get_problem_strips(
     segments_map = {d["unit_id"]: d for d in segments_data}
     strips = []
     effective_problem_type = _effective_problem_type(session, problem_id, spec)
+    fitch_ocr_by_unit: Dict[int, Dict[str, Any]] = {}
+    if effective_problem_type == "fitch_proof":
+        fitch_status = public_fitch_ocr_status(GRADES_DIR, problem_id)
+        for item in fitch_status.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            unit_id = item.get("unit_id")
+            if isinstance(unit_id, int):
+                fitch_ocr_by_unit[unit_id] = item
 
     def lookup_student_name(student_id):
         if not student_id:
@@ -496,6 +608,7 @@ def get_problem_strips(
                 "display_url": display_url,
                 "page_options": page_options,
                 "modal_preview": modal_preview,
+                "fitch_ocr": fitch_ocr_by_unit.get(wu.unit_id),
             }
         )
 

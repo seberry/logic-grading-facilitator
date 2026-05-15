@@ -4,6 +4,23 @@
 > Read this file first to get productive immediately on the Fitch OCR loop
 > without wading through unrelated grading/viewer code.
 
+## How To Use This Doc
+
+This file is currently both the TFL/Fitch OCR operating guide and the running
+experiment log. Treat the early sections as current guidance:
+
+- `Quick Start`
+- `Key Files`
+- current status notes before `Suggested next-conversation prompt`
+- `Pipeline Architecture`
+- test/debug command sections
+
+Treat later dated experiment history as historical evidence. It is useful for
+understanding why a choice was made, but it should not override the current
+status notes near the top. Future cleanup should split this file into a compact
+operating guide plus an archived experiment log; until then, keep new current
+facts near the top and avoid adding another one-off OCR markdown file.
+
 ---
 
 ## Quick Start
@@ -345,6 +362,31 @@ Verifier-guided small-model reread scaffold:
   skipped because robust final-line-to-parent-row cropping is not implemented
   yet; the first useful targets are leaf justifications such as off-by-one
   citation rows or `X 7`-style OCR misses
+
+Strip-view OCR review integration:
+
+- `app/proof_ocr_review.py` provides the first UI integration slice for
+  handwritten TFL/Fitch OCR inside exam strip grading.
+- `POST /problem/{problem_id}/fitch_ocr/start` crops all selected proof strips
+  for the question into `data/debug_fitch/<slug>/`, writes queue state under
+  `data/grades/proof_ocr/tfl_fitch_{problem_id}.json`, and submits OCR jobs to
+  a process-local single-worker queue.
+- `GET /problem/{problem_id}/fitch_ocr/status` returns per-strip status for
+  browser polling. `POST /problem/{problem_id}/fitch_ocr/{unit_id}/accept`
+  records human acceptance in the review state.
+- The strip page renders the states `queued`, `processing`, `needs_review`,
+  `verifier_issue`, `accepted`, and `ocr_failed`. It also links each finished
+  item back to `/debug/fitch?scan=<slug>` for full artifact inspection/editing.
+- When `verifier_line_reread_summary.json` and
+  `verifier_line_reread_candidates.json` are present, the review card surfaces
+  original OCR, candidate reread, `candidate_class`, reason text, and row-crop
+  thumbnails when the crop path is under `data/debug_fitch/`.
+- The UI deliberately does not auto-apply reread candidates or assign scores.
+  Verifier errors can be real student proof mistakes, so the first integration
+  is review/confirmation only.
+- Test coverage for this slice lives in
+  `tests/test_problem_strips_routes.py`; OCR pipeline and reread helper coverage
+  remains in `tests/test_debug_fitch_ocr.py`.
 
 Suggested next-conversation prompt:
 

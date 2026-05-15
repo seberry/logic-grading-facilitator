@@ -12,6 +12,7 @@ from app import server
 from app.models import GradingKey, ProblemSpec, RosterEntry, Session, WorkUnit
 from app.routes import modal_proof_debug as modal_proof_debug_routes
 from app.routes import problem_strips as problem_strips_routes
+from app.proof_ocr_review import fitch_ocr_state_path
 from app.storage import load_grading_key
 
 
@@ -149,6 +150,124 @@ class ProblemStripsRoutesTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("OCR Proof", response.text)
+        self.assertIn("TFL/Fitch OCR review queue", response.text)
+        self.assertIn('data-fitch-ocr-card', response.text)
+
+    def test_fitch_ocr_status_endpoint_returns_existing_review_state(self) -> None:
+        session = _build_session()
+        session.problem_types["Q1"] = "fitch_proof"
+        grades_dir = self.tmp_dir / "grades"
+        state_path = fitch_ocr_state_path(grades_dir, "Q1")
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(
+            json.dumps(
+                {
+                    "problem_id": "Q1",
+                    "kind": "tfl_fitch",
+                    "updated_at": "2026-05-14T12:00:00+00:00",
+                    "items": {
+                        "1": {
+                            "unit_id": 1,
+                            "page_filename": "quiz1_berry_sharon_p01.jpg",
+                            "slug": "q1_1_quiz1_berry_sharon_p01",
+                            "status": "needs_review",
+                            "message": "OCR ready for review.",
+                            "preview_lines": [
+                                {"line": 1, "depth": 0, "wffstr": "A", "jstr": "Pr"}
+                            ],
+                        }
+                    },
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+        with (
+            patch.object(problem_strips_routes, "get_session", return_value=session),
+            patch.object(problem_strips_routes, "GRADES_DIR", grades_dir),
+        ):
+            response = self.client.get("/problem/Q1/fitch_ocr/status")
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["counts"], {"needs_review": 1})
+        self.assertEqual(payload["items"][0]["preview_lines"][0]["wffstr"], "A")
+
+    def test_start_fitch_ocr_endpoint_queues_cropped_jobs_without_blocking(self) -> None:
+        session = _build_session()
+        session.problem_types["Q1"] = "fitch_proof"
+        raw_dir = self.tmp_dir / "raw_scans"
+        debug_dir = self.tmp_dir / "debug_fitch"
+        grades_dir = self.tmp_dir / "grades"
+        raw_dir.mkdir(parents=True, exist_ok=True)
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        grades_dir.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (100, 200), color="white").save(raw_dir / "quiz1_berry_sharon_p01.jpg")
+        segments = [
+            {
+                "unit_id": 1,
+                "page_filename": "quiz1_berry_sharon_p01.jpg",
+                "page_index": 0,
+                "bbox": [0.1, 0.2, 0.8, 0.9],
+                "present": True,
+            }
+        ]
+
+        with (
+            patch.object(problem_strips_routes, "get_session", return_value=session),
+            patch.object(problem_strips_routes, "ensure_segments_cached", return_value=segments),
+            patch.object(problem_strips_routes, "RAW_SCANS_DIR", raw_dir),
+            patch.object(problem_strips_routes, "DEBUG_FITCH_DIR", debug_dir),
+            patch.object(problem_strips_routes, "GRADES_DIR", grades_dir),
+            patch("app.proof_ocr_review.submit_fitch_ocr_job") as submit_job,
+        ):
+            response = self.client.post("/problem/Q1/fitch_ocr/start", data={"force": "0"})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["queued"], 1)
+        submit_job.assert_called_once()
+
+        slug_dir = debug_dir / "q1_1_quiz1_berry_sharon_p01"
+        self.assertTrue(slug_dir.exists())
+        self.assertTrue(any(path.suffix.lower() == ".jpg" for path in slug_dir.iterdir()))
+        state = json.loads(fitch_ocr_state_path(grades_dir, "Q1").read_text(encoding="utf-8"))
+        self.assertEqual(state["items"]["1"]["status"], "queued")
+
+    def test_accept_fitch_ocr_endpoint_marks_review_accepted(self) -> None:
+        session = _build_session()
+        session.problem_types["Q1"] = "fitch_proof"
+        grades_dir = self.tmp_dir / "grades"
+        state_path = fitch_ocr_state_path(grades_dir, "Q1")
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(
+            json.dumps(
+                {
+                    "problem_id": "Q1",
+                    "kind": "tfl_fitch",
+                    "items": {
+                        "1": {
+                            "unit_id": 1,
+                            "status": "needs_review",
+                            "message": "OCR ready for review.",
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with (
+            patch.object(problem_strips_routes, "get_session", return_value=session),
+            patch.object(problem_strips_routes, "GRADES_DIR", grades_dir),
+        ):
+            response = self.client.post("/problem/Q1/fitch_ocr/1/accept")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["item"]["status"], "accepted")
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self.assertEqual(state["items"]["1"]["status"], "accepted")
 
     def test_problem_strips_renders_modal_action_when_problem_type_is_modal(self) -> None:
         session = _build_session()

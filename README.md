@@ -249,7 +249,31 @@ Use the in-browser review page to inspect OCR artifacts, hand-edit the stitched 
    - **Save edits** after tweaking the JSON in the textarea (persists back to `data/debug_fitch/<slug>/final_structure.json`).
    - **Run grader** to push the saved structure through `app/verifier.py` and see rule issues + inferred conclusion inline.
 
-You can also start from strip grading for `fitch_proof` problems: open `/problem/{problem_id}/strips`, crop the proof grid, and click `OCR Proof` to create the debug artifacts and jump straight into `/debug/fitch`.
+You can also start from strip grading for `fitch_proof` problems:
+
+- open `/problem/{problem_id}/strips`
+- tag the problem as **Fitch proof** if it is not already set in the rubric
+- use the crop controls to confirm the proof region for each strip
+- click **Start OCR** to queue all proof strips for that question
+
+The strip page then polls the local server and updates each proof card as it
+finishes. This lets a grader review, edit scores/comments, and accept ready OCR
+results while later proofs continue processing. The one-strip **OCR Proof**
+button is still available when you want to create a cropped debug example and
+jump directly into `/debug/fitch`.
+
+The asynchronous review state is stored under:
+
+- `DATA_DIR/grades/proof_ocr/tfl_fitch_{problem_id}.json`
+
+Per-proof crops and OCR artifacts are stored under:
+
+- `DATA_DIR/debug_fitch/<problem_unit_page_slug>/`
+
+The UI may show verifier/reread report details when they exist, including the
+original OCR text, candidate reread text, `candidate_class`, concise reason
+text, proof-checker issues, and line-crop thumbnails. Reread candidates are
+report-only for now; the grader must confirm by hand.
 
 
 ---
