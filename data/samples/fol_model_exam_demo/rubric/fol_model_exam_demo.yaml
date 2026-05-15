@@ -1,0 +1,59 @@
+quiz_id: fol_model_exam_demo
+max_points: 9
+problems:
+- id: Q1
+  label: Give a model where the two sentences have different truth values.
+  points: 3
+  problem_type: fol_model
+  section: FOL Models
+  problem_number: '1'
+  prompt: Give a model showing that forall x Px and exists x Px are not equivalent.
+  segmentation_hint: Look for the printed Q1 model answer box.
+  autograde:
+    task_kind: non_equivalence
+    default_score_correct: 3
+    default_score_incorrect: 0
+    prompt_data:
+      formulas:
+      - ∀x Px
+      - ∃x Px
+    ocr:
+      expected_answer_shape: model_only
+- id: Q2
+  label: Give a countermodel to the argument.
+  points: 3
+  problem_type: fol_model
+  section: FOL Models
+  problem_number: '2'
+  prompt: Give a model making both premises true and the conclusion false.
+  segmentation_hint: Look for the printed Q2 model answer box.
+  autograde:
+    task_kind: non_validity
+    default_score_correct: 3
+    default_score_incorrect: 0
+    prompt_data:
+      premises:
+      - ∀x (Px → Qx)
+      - ∃x Px
+      conclusion: ∀x Qx
+    ocr:
+      expected_answer_shape: model_only
+- id: Q3
+  label: Give one model making all target sentences true.
+  points: 3
+  problem_type: fol_model
+  section: FOL Models
+  problem_number: '3'
+  prompt: Give a model witnessing joint consistency.
+  segmentation_hint: Look for the printed Q3 model answer box.
+  autograde:
+    task_kind: joint_consistency
+    default_score_correct: 3
+    default_score_incorrect: 0
+    prompt_data:
+      formulas:
+      - ∃x Px
+      - ∃x Qx
+      - ∀x (Px → ¬Qx)
+    ocr:
+      expected_answer_shape: model_only
