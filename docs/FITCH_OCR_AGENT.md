@@ -194,8 +194,13 @@ python -m proofs_ocr.regression.private_tfl_narrator ask `
   --case exam1_spring2026_q6_case_0007 `
   --artifact debug_bars `
   --model qwen/qwen3-vl-27b `
+  --disable-thinking `
   --question "Why might the bar detector or line grouping be failing here?"
 ```
+
+For Gemma 4 26B A4B, prefer leaving `--disable-thinking` off and use a larger
+visible-token budget such as `--max-tokens 2048`; in local probes, Gemma spent
+many tokens in `reasoning_content` before emitting a short visible answer.
 
 5. Share the anonymous case id, aggregate metrics, and the local model's
    redacted observations back to coding agents. Do not paste private images,

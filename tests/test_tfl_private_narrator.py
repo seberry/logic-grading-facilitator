@@ -131,3 +131,59 @@ def test_write_narration_record_is_redacted(tmp_path: Path) -> None:
     }
     assert str(tmp_path) not in target.read_text(encoding="utf-8")
     assert payload["privacy"]["contains_paths"] is False
+
+
+def test_ask_local_model_passes_budget_and_thinking_controls(monkeypatch, tmp_path: Path) -> None:
+    image_path = tmp_path / "case.jpg"
+    image_path.write_bytes(b"fake")
+    calls = {}
+
+    class FakeClient:
+        last_response_metadata = {"model": "fake-model"}
+
+        def __init__(self, *, base_url=None, model=None, timeout=None):
+            calls["init"] = {"base_url": base_url, "model": model, "timeout": timeout}
+
+        def build_messages_for_prompt(self, *, image_path, prompt, system_prompt, max_image_dim):
+            calls["message"] = {
+                "image_path": image_path,
+                "prompt": prompt,
+                "system_prompt": system_prompt,
+                "max_image_dim": max_image_dim,
+            }
+            return [{"role": "user", "content": prompt}]
+
+        def chat(self, messages, *, timeout=None, max_tokens=None, extra_payload=None):
+            calls["chat"] = {
+                "messages": messages,
+                "timeout": timeout,
+                "max_tokens": max_tokens,
+                "extra_payload": extra_payload,
+            }
+            return "visible diagnostic"
+
+    import app.vlm_client
+
+    monkeypatch.setattr(app.vlm_client, "LMStudioQwenClient", FakeClient)
+
+    response, metadata = private_tfl_narrator.ask_local_model_about_artifact(
+        image_path=image_path,
+        question="Check crop",
+        base_url="http://local",
+        model="qwen/qwen3.6-27b",
+        timeout=123,
+        max_tokens=2048,
+        max_image_dim=900,
+        disable_thinking=True,
+    )
+
+    assert response == "visible diagnostic"
+    assert metadata == {"model": "fake-model"}
+    assert calls["init"] == {
+        "base_url": "http://local",
+        "model": "qwen/qwen3.6-27b",
+        "timeout": 123,
+    }
+    assert calls["message"]["max_image_dim"] == 900
+    assert calls["chat"]["max_tokens"] == 2048
+    assert calls["chat"]["extra_payload"] == {"chat_template_kwargs": {"enable_thinking": False}}

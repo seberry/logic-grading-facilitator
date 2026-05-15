@@ -34,10 +34,12 @@ Privacy rules:
 DEFAULT_QUESTION = """Analyze this private TFL/Fitch OCR artifact.
 
 Focus on why an OCR pipeline might fail on this case. Comment on:
+- whether the crop cuts off the proof, starts/ends mid-line, or includes partial neighboring lines;
 - visible Fitch scope bars and whether they are complete, slanted, faint, fragmented, or confused with handwriting;
 - line count and row spacing;
 - whether formulas and justifications are visually separated or crowded;
 - clipped text, shadows, ruled-paper artifacts, scratch-outs, or neighboring content;
+- dappled/noisy dark regions where there are no real letters, especially in corners or shadowed areas;
 - which next diagnostic artifact would be most useful to inspect.
 
 Do not include names, ids, file paths, or timestamps.
@@ -268,6 +270,9 @@ def ask_local_model_about_artifact(
     base_url: str | None = None,
     model: str | None = None,
     timeout: int | None = None,
+    max_tokens: int | None = 2048,
+    max_image_dim: int | None = 1200,
+    disable_thinking: bool = False,
 ) -> tuple[str, Dict[str, Any]]:
     from app.vlm_client import LMStudioQwenClient
 
@@ -276,10 +281,18 @@ def ask_local_model_about_artifact(
         model=model or _default_model(),
         timeout=timeout,
     )
-    response = client.chat_with_image_prompt(
+    messages = client.build_messages_for_prompt(
         image_path=Path(image_path),
         prompt=question or DEFAULT_QUESTION,
         system_prompt=DEFAULT_SYSTEM_PROMPT,
+        max_image_dim=max_image_dim,
+    )
+    extra_payload = {"chat_template_kwargs": {"enable_thinking": False}} if disable_thinking else None
+    response = client.chat(
+        messages,
+        timeout=timeout,
+        max_tokens=max_tokens,
+        extra_payload=extra_payload,
     )
     return response, dict(client.last_response_metadata)
 
@@ -339,6 +352,13 @@ def main() -> int:
     ask_parser.add_argument("--lmstudio-base-url", default="", help="LM Studio OpenAI-compatible base URL.")
     ask_parser.add_argument("--model", default="", help="Local vision model id. Defaults to PRIVATE_TFL_NARRATOR_MODEL_ID/LMSTUDIO_* env.")
     ask_parser.add_argument("--timeout", type=int, default=300)
+    ask_parser.add_argument("--max-tokens", type=int, default=2048)
+    ask_parser.add_argument("--max-image-dim", type=int, default=1200)
+    ask_parser.add_argument(
+        "--disable-thinking",
+        action="store_true",
+        help="Send chat_template_kwargs.enable_thinking=false. Useful for Qwen; may be counterproductive for Gemma.",
+    )
 
     args = parser.parse_args()
 
@@ -369,6 +389,9 @@ def main() -> int:
             base_url=str(args.lmstudio_base_url or "").strip() or None,
             model=str(args.model or "").strip() or None,
             timeout=args.timeout,
+            max_tokens=args.max_tokens,
+            max_image_dim=args.max_image_dim,
+            disable_thinking=bool(args.disable_thinking),
         )
         output_dir = (
             Path(args.output_dir).expanduser().resolve()
