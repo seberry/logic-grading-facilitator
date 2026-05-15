@@ -278,6 +278,12 @@ def collect_verifier_reread_candidates(
                 expected_lines=expected_lines,
                 output_path=row_path,
                 row_bounds=row_bounds_tuple,
+                row_bounds_node_box=ocr.get("node_box")
+                if (
+                    not bool(ocr.get("is_leaf"))
+                    and isinstance(ocr.get("node_box"), list)
+                )
+                else None,
             )
             prompt = build_single_line_reread_prompt(target, target_kind=target_kind)
             if _env_flag("TFL_FITCH_27B_NO_THINK"):

@@ -173,6 +173,94 @@ def detect_visible_gutter_line_bounds(
     return max(0, int(y1) - padding), min(h_img, int(y2) + padding)
 
 
+def _anchor_row_bands(
+    img: np.ndarray,
+    *,
+    node_box: list[Any] | None = None,
+) -> list[tuple[int, int]]:
+    """Detect row bands in the left proof/gutter area for parent rereads."""
+    if img.ndim == 3:
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = img
+    h_img, w_img = gray.shape[:2]
+    if h_img < 10 or w_img < 20:
+        return []
+
+    if node_box and len(node_box) >= 1 and isinstance(node_box[0], (int, float)):
+        bar_x = int(node_box[0])
+        if bar_x >= 80:
+            x2 = min(w_img, max(40, bar_x - 5))
+        else:
+            x2 = min(w_img, max(35, bar_x))
+    else:
+        x2 = max(40, min(w_img, w_img // 4))
+    roi = gray[:, :x2]
+    if roi.size == 0:
+        return []
+
+    mask = roi < 160
+    projection = mask.sum(axis=1)
+    raw_bands: list[tuple[int, int]] = []
+    in_band = False
+    start = 0
+    min_row_ink = 1 if x2 <= 90 else 2
+    for y, value in enumerate(projection):
+        if value > min_row_ink and not in_band:
+            start = y
+            in_band = True
+        if (value <= min_row_ink or y == len(projection) - 1) and in_band:
+            end = y
+            in_band = False
+            if end - start >= 3:
+                raw_bands.append((start, end))
+
+    merged: list[tuple[int, int]] = []
+    for band in raw_bands:
+        if merged and band[0] - merged[-1][1] <= 6:
+            merged[-1] = (merged[-1][0], band[1])
+        else:
+            merged.append(band)
+    return [(int(y1), int(y2)) for y1, y2 in merged if y2 - y1 >= 3]
+
+
+def _refine_parent_row_bounds(
+    img: np.ndarray,
+    *,
+    row_bounds: tuple[int, int],
+    node_box: list[Any] | None = None,
+    padding: int,
+) -> tuple[int, int]:
+    """Snap stale parent OCR bounds to the nearest visible row anchor."""
+    y1, y2 = row_bounds
+    bands = _anchor_row_bands(img, node_box=node_box)
+    if not bands:
+        return row_bounds
+
+    anchor_y = int(y1)
+
+    def band_score(band: tuple[int, int]) -> tuple[int, int]:
+        band_y1, band_y2 = band
+        if band_y1 <= anchor_y <= band_y2:
+            distance = 0
+        elif band_y2 < anchor_y:
+            distance = anchor_y - band_y2
+        else:
+            distance = band_y1 - anchor_y
+        # Prefer a band at or above the stale upper edge when distances tie.
+        below_penalty = 1 if band_y1 > anchor_y else 0
+        return distance, below_penalty
+
+    best = min(bands, key=band_score)
+    distance, _below_penalty = band_score(best)
+    if distance > max(45, int((y2 - y1) * 0.55)):
+        return row_bounds
+
+    h_img = img.shape[0]
+    band_y1, band_y2 = best
+    return max(0, band_y1 - padding), min(h_img, band_y2 + padding)
+
+
 def extract_single_line_crop(
     crop_path: Path,
     *,
@@ -181,6 +269,7 @@ def extract_single_line_crop(
     output_path: Path,
     padding: int = 18,
     row_bounds: tuple[int, int] | None = None,
+    row_bounds_node_box: list[Any] | None = None,
 ) -> Path:
     """Extract a generous full-width row crop from a node crop."""
     img = cv2.imread(str(crop_path))
@@ -190,6 +279,13 @@ def extract_single_line_crop(
         raise ValueError(f"Invalid row {local_index} of {expected_lines} for {crop_path}")
 
     if row_bounds is not None:
+        if row_bounds_node_box is not None:
+            row_bounds = _refine_parent_row_bounds(
+                img,
+                row_bounds=row_bounds,
+                node_box=row_bounds_node_box,
+                padding=padding,
+            )
         y1, y2 = row_bounds
         y1 = max(0, int(y1))
         y2 = min(img.shape[0], int(y2))

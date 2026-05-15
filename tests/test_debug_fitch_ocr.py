@@ -955,6 +955,74 @@ class TestVerifierGuidedLineReread(unittest.TestCase):
             # though local_index points at the first row.
             self.assertLess(row[:, 40:170].mean(), 250)
 
+    def test_extract_single_line_crop_refines_stale_parent_bounds_to_anchor_band(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        import numpy as np
+
+        from proofs_ocr.pipelines.tfl_line_reread_geometry import extract_single_line_crop
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            crop_path = tmp_path / "fullwidth.jpg"
+            output_path = tmp_path / "row.jpg"
+            img = np.ones((360, 420, 3), dtype=np.uint8) * 255
+            # Target row, analogous to Q4 line 2.
+            img[115:145, 20:150] = 0
+            # A lower red token / next row region that stale bounds used to include.
+            img[220:250, 20:150] = (0, 0, 180)
+            self.assertTrue(cv2.imwrite(str(crop_path), img))
+
+            extract_single_line_crop(
+                crop_path,
+                local_index=2,
+                expected_lines=4,
+                output_path=output_path,
+                row_bounds=(145, 300),
+                row_bounds_node_box=[200, 0, 20, 360],
+            )
+
+            row = cv2.imread(str(output_path))
+            self.assertIsNotNone(row)
+            self.assertLess(row[:, 20:150].mean(), 250)
+            # The crop should be snapped around the target band, not the
+            # lower token band that made the old reread return line 3.
+            self.assertLess(row.shape[0], 80)
+
+    def test_extract_single_line_crop_refines_low_phone_parent_bounds_upward(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        import numpy as np
+
+        from proofs_ocr.pipelines.tfl_line_reread_geometry import extract_single_line_crop
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            crop_path = tmp_path / "phone_fullwidth.jpg"
+            output_path = tmp_path / "row.jpg"
+            img = np.ones((660, 320, 3), dtype=np.uint8) * 255
+            # Simulate a low-x phone crop where the target final row is just
+            # above stale stored bounds.
+            img[545:575, 5:75] = 0
+            img[610:625, 5:75] = 0
+            self.assertTrue(cv2.imwrite(str(crop_path), img))
+
+            extract_single_line_crop(
+                crop_path,
+                local_index=4,
+                expected_lines=5,
+                output_path=output_path,
+                row_bounds=(581, 635),
+                row_bounds_node_box=[92, 20, 35, 560],
+            )
+
+            row = cv2.imread(str(output_path))
+            self.assertIsNotNone(row)
+            self.assertLess(row[:, 5:75].mean(), 250)
+            self.assertLess(row.shape[0], 80)
+
     def test_detect_visible_gutter_line_bounds_selects_absolute_line(self) -> None:
         import tempfile
         from pathlib import Path
