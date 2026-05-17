@@ -10,7 +10,7 @@ new checkers should fit into.
 | --- | --- | --- |
 | `fol_model` | Implemented through shared orchestrator | Uses the existing deterministic FOL checker and emits normalized trace/comment output. The FOL debug page now calls this shared layer. |
 | `fitch_proof` | OCR + human-correction workflow wired; shared autograde adapter still scaffold-only | Strip view can now send cropped proof images into `/debug/fitch` for OCR, manual correction, and deterministic verification. The shared `app/autograde/fitch_proof.py` layer is still not the primary path. |
-| `kripke_model` | Scaffold only | Intended destination for the Kripke debug/checker flow. |
+| `kripke_model` | Initial deterministic checker wired through shared orchestrator | Accepts typed/canonical Kripke model text and checks truth, difference, non-entailment, and relation constraints. OCR and strip-review workflow are not wired yet. |
 | `modal_proof` | Implemented through shared orchestrator | Uses a separate `deduct` Rust CLI wrapper via subprocess; backend integration is in place and `/debug/modal-proof` provides a dedicated manual/typeset debug page. |
 
 ## Package layout
@@ -92,7 +92,7 @@ The orchestrator is deliberately small. It should stay boring.
 ## Current route ownership
 
 - `app/routes/fol_model_debug.py` should call `app.autograde.autograde_submission(...)` rather than reaching into `app.fol_model_checker` directly for live checker runs.
-- The checker module still owns FOL-specific logic and trace construction.
+- The checker modules still own domain-specific logic and trace construction (`app/fol_model_checker.py`, `app/kripke_model_checker.py`).
 - The route should own UI state, OCR reruns, artifact loading, and template shaping only.
 - `modal_proof` now has dedicated route ownership in `app/routes/modal_proof_debug.py` for backend-focused debugging of saved/manual proof examples.
 

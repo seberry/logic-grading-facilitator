@@ -124,9 +124,97 @@ All `data/...` paths below are relative to `DATA_DIR` (defaults to `data/samples
    - Click **Run checker** to evaluate the configured task through the shared `app/autograde/` layer and inspect the recursive trace.
 
 **Current scope / known limits**
-- OCR currently aims at canonical model transcription, not full grading.
-- The best-supported answer shape right now is `model_only`.
-- The page is meant for safe local debugging before wiring the same flow into strip grading.
+- OCR currently aims at canonical model transcription; deterministic grading
+  happens after the proposed text is accepted or edited.
+- The best-supported OCR answer shape right now is `model_only`.
+- The same OCR/checker path is now also available from strip grading for
+  rubric problems tagged `problem_type: fol_model`.
+
+## 6a. FOL model strip workflow
+**Goal:** Review one FOL model problem across all students with the image, OCR
+proposal, target requirement, verdict, and editable score/comment visible in
+each strip.
+
+1) Tag the rubric problem:
+   ```yaml
+   problem_type: fol_model
+   autograde:
+     task_kind: non_equivalence
+     default_score_correct: 4
+     default_score_incorrect: 0
+     prompt_data:
+       formulas:
+         - "∀x Px"
+         - "∃x Px"
+     ocr:
+       expected_answer_shape: model_only
+   ```
+
+2) Open `/problem/{problem_id}/strips`.
+
+3) Click **Start FOL model OCR**. The page crops each visible answer strip,
+   writes debug artifacts under `DATA_DIR/debug_fol_model/<slug>/`, and stores
+   review state in `DATA_DIR/grades/fol_model_ocr/fol_model_{problem_id}.json`.
+
+4) For each strip, edit the proposed model text if needed and click the
+   per-strip checker button. The checker verdict and suggested score/comment
+   update in place; the human-entered score remains authoritative.
+
+The OCR prompt infers expected constants and predicates from
+`prompt_data.formulas`. Use `ocr.constants` and `ocr.predicates` only when the
+rubric needs to pin the OCR vocabulary more explicitly.
+
+## 6b. Kripke model checker starter
+**Goal:** Autograde already-transcribed Kripke model text through the shared
+`app/autograde/` layer. OCR/strip review for graph drawings is not wired yet.
+
+Accepted model text can be compact:
+
+```text
+W: {0,1}
+R: <0,1>, <1,1>
+P: {1}
+Q: {}
+```
+
+The parser also accepts `w0` labels in `W`/`R` lines and worksheet-style
+valuation entries such as `ν: ν0(P) = F, ν1(P) = T`.
+
+Example rubric:
+
+```yaml
+problem_type: kripke_model
+autograde:
+  task_kind: non_entailment
+  default_score_correct: 4
+  default_score_incorrect: 0
+  prompt_data:
+    world: 0
+    premises:
+      - "<>P"
+    conclusion: "[]Q"
+```
+
+The checker also accepts worksheet-style explicit constraints:
+
+```yaml
+problem_type: kripke_model
+autograde:
+  task_kind: different
+  prompt_data:
+    constraints:
+      - type: different
+        world: 0
+        formulaA: "<>P"
+        formulaB: "[]P"
+      - type: relation
+        world: 0
+        property: reflexive
+        expected: true
+```
+
+Supported formula syntax includes `[]`, `<>`, `~`, `&`, `|`, `->`, and the
+Unicode variants `□`, `◇`, `¬`, `∧`, `∨`, `→`.
 
 ## 7. FOL OCR batch handoff test
 **Goal:** Exercise the full non-browser handoff:

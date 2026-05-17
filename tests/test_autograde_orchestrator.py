@@ -41,16 +41,26 @@ class AutoGradeOrchestratorTests(unittest.TestCase):
         self.assertEqual(result.problem_type, "fol_model")
         self.assertTrue(result.trace_blocks)
 
-    def test_stub_engine_reports_not_implemented(self) -> None:
+    def test_kripke_model_engine_scores_from_config(self) -> None:
         result = autograde_submission(
             problem_type="kripke_model",
-            answer_text="sample answer",
-            autograde_config={"task_kind": "non_validity"},
+            answer_text="W: {0,1}\nR: <0,1>\nP: {1}\nQ: {}\n",
+            autograde_config={
+                "task_kind": "non_entailment",
+                "default_score_correct": 4,
+                "default_score_incorrect": 0,
+                "prompt_data": {
+                    "world": 0,
+                    "premises": ["<>P"],
+                    "conclusion": "[]Q",
+                },
+            },
         )
 
-        self.assertEqual(result.status, "not_implemented")
-        self.assertIsNone(result.passed)
-        self.assertIn("scaffold", result.summary.lower())
+        self.assertEqual(result.status, "scored")
+        self.assertTrue(result.passed)
+        self.assertEqual(result.score, 4.0)
+        self.assertIn("countermodel", result.summary)
 
 
 if __name__ == "__main__":

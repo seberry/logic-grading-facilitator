@@ -155,15 +155,68 @@ More automation: See `docs/FUTURE_AUTOMATION.md` for details, but the major phas
 
 The repo now includes a small shared autograde package at `app/autograde/`.
 
-- `fol_model` is the first real engine wired through that shared layer.
+- `fol_model` is wired through that shared layer and has both a debug page and
+  strip-view OCR/checker review for canonical model answers.
+- `kripke_model` now has an initial deterministic checker for typed/canonical
+  model text. It checks modal truth constraints, formula-difference tasks,
+  non-entailment countermodels, and basic accessibility-relation properties.
+  OCR and strip-view review for Kripke drawings are still future work.
 - `modal_proof` now has backend checker integration through a separate `deduct` CLI wrapper, controlled by `DEDUCT_CHECKER_BIN`, plus a dedicated `/debug/modal-proof` page for manual/typeset proof debugging.
-- `fitch_proof` and `kripke_model` remain explicit scaffold modules only.
+- `fitch_proof` remains an explicit shared-autograde scaffold; its working
+  user-facing path is the separate strip OCR/debug verifier workflow.
 - The unfinished engines are present to define extension points and shared result shapes; they are not a claim that the user-facing workflows are finished.
 
 See [docs/MODAL_PROOF_DEDUCT_CLI.md](docs/MODAL_PROOF_DEDUCT_CLI.md)
 for the build/run boundary of the separate modal checker component.
 
 See [docs/AUTOGRADE_ARCHITECTURE.md](docs/AUTOGRADE_ARCHITECTURE.md) for the current contract and status table.
+
+## Kripke model checker starter
+
+The `kripke_model` autograde path currently expects already-transcribed model
+text, for example:
+
+```text
+W: {0,1}
+R: <0,1>, <1,1>
+P: {1}
+Q: {}
+```
+
+It also accepts `w0` labels in `W`/`R` lines and worksheet-style valuation
+entries such as `ν: ν0(P) = F, ν1(P) = T`.
+
+Rubric examples:
+
+```yaml
+problem_type: kripke_model
+autograde:
+  task_kind: non_entailment
+  default_score_correct: 4
+  default_score_incorrect: 0
+  prompt_data:
+    world: 0
+    premises:
+      - "<>P"
+    conclusion: "[]Q"
+```
+
+```yaml
+problem_type: kripke_model
+autograde:
+  task_kind: different
+  prompt_data:
+    constraints:
+      - type: different
+        world: 0
+        formulaA: "<>P"
+        formulaB: "[]P"
+```
+
+The first implementation ports the worksheet's verdict style into Python:
+lines such as `At w0: <>P is T (expected T)` and draft comments that include a
+model summary and per-constraint results. It intentionally does not yet OCR a
+drawn graph into model text.
 
 ## Modal proof debug page
 

@@ -68,6 +68,9 @@ The frontend serves specific interfaces for different phases of the grading life
     * For `fitch_proof` problems, shows a TFL/Fitch OCR review card beside
       each strip and polls for status updates while OCR continues in the
       background.
+    * For `fol_model` problems, shows the cropped answer, editable OCR/model
+      text, per-strip target details, checker verdict, suggested score/comment,
+      and a button to save edits and rerun the deterministic checker.
 * **Navigation:** "Save & Next" moves linearly through the rubric.
 
 #### TFL/Fitch OCR review in Strip View
@@ -223,6 +226,18 @@ Used by the Strip View for asynchronous proof OCR review.
   job at a time. Restarting the server does not resume in-memory jobs, but the
   JSON state and debug artifacts remain for inspection or requeueing.
 
+### D. FOL Model OCR Review State
+Used by the Strip View for asynchronous model OCR and inline checker review.
+* **Location:** `data/grades/fol_model_ocr/fol_model_{problem_id}.json`.
+* **Artifacts:** cropped answer images, OCR prompt/response files, proposed
+  canonical model text, and debug-page state live under
+  `data/debug_fol_model/<slug>/`.
+* **Invalidation:** explicit. Starting OCR skips queued/running/reviewed items
+  unless the route is called with `force=1`.
+* **Concurrency:** a process-local single-worker queue runs one FOL-model OCR
+  job at a time. Manual edits in the strip card can be checked immediately
+  through `app/autograde/fol_model.py`.
+
 ---
 
 # 8. Repository Layout (Code vs Data)
@@ -238,6 +253,7 @@ work.
 | Setup and name review | `app/server.py` (`/setup`, `/name_review`) | `data/name_review_cache/*.json`, `data/grades/session.json` | Creates canonical `WorkUnit`s and redirects into strip grading. |
 | Per-question strip grading | `app/routes/problem_strips.py`, `app/templates/problem_strips.html` | `data/grades/session.json`, `data/grades/segments_{problem_id}.json` | Main "one question across all students" grading surface. |
 | TFL/Fitch strip OCR review | `app/proof_ocr_review.py`, `app/routes/problem_strips.py` (`/problem/{problem_id}/fitch_ocr/*`) | `data/grades/proof_ocr/tfl_fitch_{problem_id}.json`, `data/debug_fitch/<slug>/` | Async review lane for `fitch_proof` problems. Uses polling and a process-local single-worker queue. |
+| FOL model strip OCR/checker review | `app/fol_model_review.py`, `app/routes/problem_strips.py` (`/problem/{problem_id}/fol_model_ocr/*`) | `data/grades/fol_model_ocr/fol_model_{problem_id}.json`, `data/debug_fol_model/<slug>/` | Async OCR lane plus inline deterministic checker for `fol_model` problems. |
 | Fitch debug / correction | `app/routes/fitch_debug.py`, `app/templates/debug_fitch.html` | `data/debug_fitch/<slug>/final_structure.json` and sibling artifacts | Deep inspection/editing path for one proof crop. |
 | Modal proof debug | `app/routes/modal_proof_debug*.py`, `app/templates/debug_modal_proof.html` | `data/debug_modal_proof/<slug>/state.json` and checker artifacts | Separate modal proof scaffold/debug path. |
 | Exam exports/finalize | `app/routes/exam_exports.py`, `app/exam_exports_core.py` | `data/grades/session.json`, export ZIP/CSV responses, archive snapshots | Human scores in `session.json` remain authoritative. |

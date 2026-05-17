@@ -588,7 +588,68 @@ autograde:
     conclusion: "∀x Qx"
 ```
 
-### 10.6 Proposed shape for `fitch_proof`
+### 10.6 Initial shape for `kripke_model`
+
+Use `kripke_model` when the answer is a Kripke model/countermodel rather than a
+FOL structure. The initial checker accepts already-transcribed model text; OCR
+for drawn graph answers is still a separate future step.
+
+Canonical model text:
+
+```text
+W: {0,1}
+R: <0,1>, <1,1>
+P: {1}
+Q: {}
+```
+
+The parser also accepts `w0` labels in `W`/`R` lines and worksheet-style
+valuation entries such as `ν: ν0(P) = F, ν1(P) = T`.
+
+Non-entailment / non-validity countermodel:
+
+```yaml
+problem_type: "kripke_model"
+autograde:
+  task_kind: "non_entailment"
+  default_score_correct: 4
+  default_score_incorrect: 0
+  prompt_data:
+    world: 0
+    premises:
+      - "<>P"
+    conclusion: "[]Q"
+```
+
+Worksheet-style constraints can be specified directly:
+
+```yaml
+problem_type: "kripke_model"
+autograde:
+  task_kind: "different"
+  prompt_data:
+    constraints:
+      - type: "different"
+        world: 0
+        formulaA: "<>P"
+        formulaB: "[]P"
+      - type: "relation"
+        world: 0
+        property: "reflexive"
+        expected: true
+```
+
+Supported `task_kind` values in the first checker pass:
+
+- `truth`, `truth_value`, `make_true`
+- `make_false`
+- `different`, `non_equivalence`
+- `non_entailment`, `non_validity`
+
+Supported formula syntax includes `[]`, `<>`, `~`, `&`, `|`, `->`, and the
+Unicode variants `□`, `◇`, `¬`, `∧`, `∨`, `→`.
+
+### 10.7 Proposed shape for `fitch_proof`
 
 Do not force Fitch proofs into the same low-level structure as FOL model tasks.
 Only share the top-level `problem_type` / `autograde` pattern.
