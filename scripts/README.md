@@ -26,6 +26,8 @@ production behavior.
 - `generate_synthetic_logic_exam.py` - checker-backed synthetic FOL model
   exam fixture generator with printed, handwriting-font, and light phone-scan
   styles.
+- `run_synthetic_fol_ocr_eval.py` - live OCR/checker report runner for the
+  synthetic FOL model fixtures.
 - `debug_segment_view.py`, `verify_llm_boxes.py` - segmentation/debug helpers.
 - `test_canvas_api.py`, `test_canvas_user_id_mapping.py` - Canvas smoke/probe
   scripts.

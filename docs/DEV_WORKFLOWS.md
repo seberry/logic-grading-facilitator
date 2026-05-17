@@ -200,6 +200,24 @@ The gold file records the intended model text and expected checker verdict for
 each student/problem. The image rendering is deliberately separate from the
 semantic gold data, so OCR failures can be distinguished from checker failures.
 
+To run a live OCR/checker report over the generated fixture:
+
+```powershell
+python scripts/run_synthetic_fol_ocr_eval.py `
+  --fixture-root data/samples/synthetic_fol_models `
+  --output-dir working/synthetic_fol_ocr_report `
+  --limit 6
+```
+
+The report writes:
+
+- `working/synthetic_fol_ocr_report/summary.json`
+- `working/synthetic_fol_ocr_report/summary.html`
+- per-case crops and OCR artifacts under `working/synthetic_fol_ocr_report/cases/`
+
+Use `--limit`, `--problem-id Q1`, or `--student-id SYN001` for small live-model
+probes before running the full fixture.
+
 ## 6c. Kripke model checker starter
 **Goal:** Autograde already-transcribed Kripke model text through the shared
 `app/autograde/` layer. OCR/strip review for graph drawings is not wired yet.

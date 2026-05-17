@@ -27,6 +27,14 @@ These are the preferred commands for CI-safe edits because they do not require a
 live vision model. They validate harness logic and fixture plumbing, not the
 quality of live handwritten OCR.
 
+For synthetic FOL model fixture work, the fast offline checks are:
+
+- `pytest tests/test_synthetic_logic_exam_generator.py tests/test_synthetic_fol_ocr_eval.py -q`
+- `python scripts/generate_synthetic_logic_exam.py --family fol_model --style printed --count 4 --output-dir working/synthetic_fol_smoke --force`
+
+The synthetic OCR evaluation runner also has unit coverage with a fake
+transcriber. Live runs against LM Studio are manual workflows, not default tests.
+
 ## Slow or live-model workflows
 
 - `python -m proofs_ocr.regression run-gold ...`
@@ -73,6 +81,49 @@ python -m proofs_ocr.regression.private_tfl_narrator ask --manifest C:\grading-d
 
 Only paste the shareable summary back into agent conversations unless the case is
 fake or fully sanitized.
+
+For synthetic FOL model OCR runs, use the generated fake fixture and report
+runner:
+
+```powershell
+python scripts/generate_synthetic_logic_exam.py --family fol_model --style phone_scan_light --count 8 --output-dir data/samples/synthetic_fol_models --force
+python scripts/run_synthetic_fol_ocr_eval.py --fixture-root data/samples/synthetic_fol_models --output-dir working/synthetic_fol_ocr_report --limit 6
+```
+
+Inspect `working/synthetic_fol_ocr_report/summary.html` locally. The summary is
+safe to discuss because the fixture is synthetic.
+
+## Synthetic Feature Playbook
+
+Use this pattern when adding a new autograded problem family or answer shape.
+It keeps fake-data work useful without pretending synthetic OCR equals real
+student performance.
+
+1. **Start with semantic gold.** Generate answer data from the checker contract:
+   the target rubric config, the intended answer text/structure, and the
+   expected pass/fail or score. The gold file should be independent of the image
+   renderer.
+2. **Render a clean baseline.** Produce complete `DATA_DIR` fixtures with
+   `roster.csv`, rubric YAML, `raw_scans/`, `grades/session.json`,
+   precomputed `grades/segments_*.json`, and a README. The clean version should
+   prove the session, strip view, and checker plumbing.
+3. **Add controlled visual styles.** Add one degradation axis at a time:
+   handwriting-like font, line jitter, paper texture, faint ink, blur, shadow,
+   rotation, crop padding. Keep these deterministic by seed.
+4. **Separate OCR stress from segmentation stress.** First keep crop boxes
+   correct and measure OCR/checker behavior. Then add a separate crop-stress mode
+   for cut-off answers, extra neighboring text, off-box writing, or shifted
+   boxes.
+5. **Write an evaluation report.** The runner should crop from the segment cache,
+   run OCR, run the deterministic checker, compare to gold, and write JSON/HTML
+   reports under `working/`.
+6. **Keep tests offline.** Unit tests should use fake transcribers and checker
+   calls. Live VLM runs belong in manual commands and should write only ignored
+   artifacts.
+7. **Document the family-specific plug-ins.** For FOL models this means model
+   text and formula targets. For truth tables it will mean table schemas and
+   expected rows. For Fitch/modal proofs it will need proof geometry, bar/line
+   structure, and verifier gold.
 
 ## OCR architecture
 
