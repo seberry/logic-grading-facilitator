@@ -37,6 +37,7 @@ class SyntheticFolOcrCaseResult:
     expected_passed: Optional[bool]
     ocr_passed: Optional[bool]
     verdict_match: Optional[bool]
+    failure_kind: str
     summary: str
     ocr_model_text: str = ""
     gold_model_text: str = ""
@@ -103,6 +104,13 @@ def run_evaluation(
                 )
                 expected_passed = _optional_bool(expected.get("expected_passed"))
                 verdict_match = checker.passed == expected_passed if expected_passed is not None else None
+                failure_kind = _classify_failure(
+                    checker_status=checker.status,
+                    verdict_match=verdict_match,
+                    ocr_model_text=ocr_model_text,
+                    error="; ".join(checker.errors),
+                    summary=checker.summary,
+                )
                 results.append(
                     SyntheticFolOcrCaseResult(
                         case_id=case_id,
@@ -117,6 +125,7 @@ def run_evaluation(
                         expected_passed=expected_passed,
                         ocr_passed=checker.passed,
                         verdict_match=verdict_match,
+                        failure_kind=failure_kind,
                         summary=checker.summary,
                         ocr_model_text=ocr_model_text,
                         gold_model_text=gold_model_text,
@@ -138,6 +147,7 @@ def run_evaluation(
                         expected_passed=_optional_bool(expected.get("expected_passed")),
                         ocr_passed=None,
                         verdict_match=None,
+                        failure_kind="ocr_error",
                         summary="Synthetic OCR evaluation failed before checker completed.",
                         ocr_model_text="",
                         gold_model_text=gold_model_text,
@@ -187,6 +197,9 @@ def _write_html_summary(results: List[SyntheticFolOcrCaseResult], output_path: P
     checker_ok = sum(1 for item in results if item.checker_status == "scored")
     matches = sum(1 for item in results if item.verdict_match is True)
     mismatches = sum(1 for item in results if item.verdict_match is False)
+    failure_counts: Dict[str, int] = {}
+    for item in results:
+        failure_counts[item.failure_kind] = failure_counts.get(item.failure_kind, 0) + 1
 
     rows = []
     for item in results:
@@ -203,6 +216,7 @@ def _write_html_summary(results: List[SyntheticFolOcrCaseResult], output_path: P
               <td>{item.expected_passed}</td>
               <td>{item.ocr_passed}</td>
               <td>{item.verdict_match}</td>
+              <td>{html.escape(item.failure_kind)}</td>
               <td><pre>{html.escape(item.ocr_model_text)}</pre></td>
               <td><pre>{html.escape(item.gold_model_text)}</pre></td>
               <td>{html.escape(item.summary)}<br /><pre>{html.escape(item.error)}</pre></td>
@@ -237,6 +251,7 @@ def _write_html_summary(results: List[SyntheticFolOcrCaseResult], output_path: P
     <div class="metric"><strong>Verdict matches</strong><br />{matches}</div>
     <div class="metric"><strong>Verdict mismatches</strong><br />{mismatches}</div>
   </div>
+  <p><strong>Failure kinds:</strong> {html.escape(json.dumps(failure_counts, sort_keys=True))}</p>
   <table>
     <thead>
       <tr>
@@ -248,6 +263,7 @@ def _write_html_summary(results: List[SyntheticFolOcrCaseResult], output_path: P
         <th>Expected</th>
         <th>OCR Verdict</th>
         <th>Match</th>
+        <th>Failure Kind</th>
         <th>OCR Model Text</th>
         <th>Gold Model Text</th>
         <th>Summary / Error</th>
@@ -271,6 +287,33 @@ def _optional_bool(value: Any) -> Optional[bool]:
     if value is None:
         return None
     return bool(value)
+
+
+def _classify_failure(
+    *,
+    checker_status: str,
+    verdict_match: Optional[bool],
+    ocr_model_text: str,
+    error: str,
+    summary: str,
+) -> str:
+    if checker_status == "scored" and verdict_match is True:
+        return "ok"
+    text = ocr_model_text.upper()
+    combined = f"{error}\n{summary}".lower()
+    if "missing domain" in combined or "DOMAIN" not in text:
+        return "missing_domain"
+    if "PREDICATES" not in text:
+        return "missing_predicates_section"
+    if "bad constant line" in combined or "constant" in combined and "expected '<symbol>: <value>'" in combined:
+        return "bad_constants_section"
+    if "parse" in combined or checker_status == "invalid_input":
+        return "checker_parse_failure"
+    if "A: 1" in ocr_model_text or "B: 2" in ocr_model_text:
+        return "invented_default_constants"
+    if verdict_match is False:
+        return "verdict_mismatch"
+    return "unknown"
 
 
 def _safe_relpath(path: Path, start: Path) -> str:

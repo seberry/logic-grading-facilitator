@@ -117,6 +117,10 @@ student performance.
 5. **Write an evaluation report.** The runner should crop from the segment cache,
    run OCR, run the deterministic checker, compare to gold, and write JSON/HTML
    reports under `working/`.
+   Add coarse failure labels so OCR runs can be skimmed before reading every
+   artifact. For FOL models the current labels include missing domain/predicate
+   sections, bad constants section, checker parse failure, invented default
+   constants, and verdict mismatch.
 6. **Keep tests offline.** Unit tests should use fake transcribers and checker
    calls. Live VLM runs belong in manual commands and should write only ignored
    artifacts.

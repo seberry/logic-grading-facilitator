@@ -185,6 +185,12 @@ Supported styles:
   faint lined paper, and mild degradation.
 - `phone_scan_light` - handwriting-font rendering plus mild skew, blur, noise,
   contrast loss, and a shadow gradient.
+- `phone_scan_medium` - stronger skew, blur, noise, contrast loss, and shadow
+  while keeping the answer inside the precomputed crop boxes.
+- `faint_pencil` - low-contrast gray writing with mild blur/noise.
+- `crowded_answer` - smaller, tighter handwriting to stress line separation.
+- `messy_layout` - display-only student-ish notation such as missing section
+  headers or compact predicate lines while preserving semantic gold text.
 
 The generator writes a complete `DATA_DIR` fixture:
 
@@ -217,6 +223,11 @@ The report writes:
 
 Use `--limit`, `--problem-id Q1`, or `--student-id SYN001` for small live-model
 probes before running the full fixture.
+
+The report includes first-pass failure labels such as `missing_domain`,
+`missing_predicates_section`, `bad_constants_section`, `checker_parse_failure`,
+`invented_default_constants`, and `verdict_mismatch`. These are heuristics for
+triage; inspect the crop and OCR text before treating a label as diagnostic.
 
 ## 6c. Kripke model checker starter
 **Goal:** Autograde already-transcribed Kripke model text through the shared

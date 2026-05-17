@@ -36,6 +36,15 @@ from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFo
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT_DIR = ROOT / "data" / "samples" / "synthetic_fol_models"
+STYLES = (
+    "printed",
+    "handwriting_font",
+    "phone_scan_light",
+    "phone_scan_medium",
+    "faint_pencil",
+    "crowded_answer",
+    "messy_layout",
+)
 
 PAGE_WIDTH = 1600
 PAGE_HEIGHT = 2100
@@ -157,8 +166,8 @@ def generate(
 ) -> None:
     if family != "fol_model":
         raise ValueError("Only family='fol_model' is supported in the first synthetic generator pass.")
-    if style not in {"printed", "handwriting_font", "phone_scan_light"}:
-        raise ValueError("style must be one of: printed, handwriting_font, phone_scan_light")
+    if style not in STYLES:
+        raise ValueError(f"style must be one of: {', '.join(STYLES)}")
     if count < 1:
         raise ValueError("count must be at least 1")
 
@@ -323,13 +332,13 @@ def _draw_student_page(
     paper = _paper_color(style)
     img = Image.new("RGB", (PAGE_WIDTH, PAGE_HEIGHT), paper)
     draw = ImageDraw.Draw(img)
-    if style in {"handwriting_font", "phone_scan_light"}:
+    if _uses_lined_paper(style):
         _draw_lined_paper(draw, rng)
 
     title_font = _load_font(48, role="body")
     body_font = _load_font(29, role="body")
     small_font = _load_font(23, role="body")
-    answer_font = _load_font(37 if style == "printed" else 41, role="answer" if style != "printed" else "mono")
+    answer_font = _load_font(_answer_font_size(style), role="answer" if style != "printed" else "mono")
 
     ink = _ink_color(style)
     draw.text((80, 55), "Synthetic FOL Model Exam", fill="#111111", font=title_font)
@@ -346,20 +355,23 @@ def _draw_student_page(
         outline = "#222222" if style == "printed" else "#7c8da0"
         draw.rounded_rectangle((x1, y1, x2, y2), radius=8, outline=outline, width=3)
         draw.text((x1 + 24, y1 + 18), f"{problem.problem_id}. {problem.prompt}", fill="#111111", font=body_font)
+        display_text = _display_model_text(answers[problem.problem_id].model_text, style=style)
         _draw_answer_text(
             draw,
             (x1 + 54, y1 + 84),
-            answers[problem.problem_id].model_text,
+            display_text,
             font=answer_font,
             fill=ink,
             style=style,
             rng=rng,
         )
 
-    if style == "phone_scan_light":
-        img = _apply_phone_scan_effects(img, rng)
-    elif style == "handwriting_font":
+    if style in {"phone_scan_light", "phone_scan_medium"}:
+        img = _apply_phone_scan_effects(img, rng, strength="medium" if style == "phone_scan_medium" else "light")
+    elif style in {"handwriting_font", "crowded_answer", "messy_layout"}:
         img = _apply_light_handwriting_effects(img, rng)
+    elif style == "faint_pencil":
+        img = _apply_faint_pencil_effects(img, rng)
 
     out_path = root / "raw_scans" / student["filename"]
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -379,13 +391,22 @@ def _draw_answer_text(
     base_x, y = xy
     for line in text.splitlines():
         x = base_x
-        if style in {"handwriting_font", "phone_scan_light"}:
-            x += rng.randint(-6, 10)
-            y += rng.randint(-2, 3)
+        if style in {"handwriting_font", "phone_scan_light", "phone_scan_medium", "messy_layout"}:
+            x += rng.randint(-7, 12)
+            y += rng.randint(-3, 4)
+        elif style in {"faint_pencil", "crowded_answer"}:
+            x += rng.randint(-4, 7)
+            y += rng.randint(-2, 2)
         draw.text((x, y), line, fill=fill, font=font)
         bbox = draw.textbbox((x, y), line or " ", font=font)
         line_height = bbox[3] - bbox[1]
-        y += line_height + (11 if style == "printed" else rng.randint(10, 18))
+        if style == "printed":
+            gap = 11
+        elif style == "crowded_answer":
+            gap = rng.randint(0, 6)
+        else:
+            gap = rng.randint(8, 17)
+        y += line_height + gap
 
 
 def _draw_lined_paper(draw: ImageDraw.ImageDraw, rng: random.Random) -> None:
@@ -405,18 +426,35 @@ def _apply_light_handwriting_effects(img: Image.Image, rng: random.Random) -> Im
     return img
 
 
-def _apply_phone_scan_effects(img: Image.Image, rng: random.Random) -> Image.Image:
-    img = _affine_jitter(img, rng)
-    img = ImageEnhance.Contrast(img).enhance(rng.uniform(0.82, 0.95))
-    img = ImageEnhance.Brightness(img).enhance(rng.uniform(0.94, 1.04))
-    img = img.filter(ImageFilter.GaussianBlur(radius=rng.uniform(0.25, 0.55)))
-    img = _add_shadow_gradient(img, rng)
-    img = _add_noise(img, rng)
+def _apply_phone_scan_effects(img: Image.Image, rng: random.Random, *, strength: str) -> Image.Image:
+    img = _affine_jitter(img, rng, strength=strength)
+    if strength == "medium":
+        img = ImageEnhance.Contrast(img).enhance(rng.uniform(0.68, 0.84))
+        img = ImageEnhance.Brightness(img).enhance(rng.uniform(0.88, 1.02))
+        img = img.filter(ImageFilter.GaussianBlur(radius=rng.uniform(0.45, 0.85)))
+        img = _add_shadow_gradient(img, rng, strength="medium")
+        img = _add_noise(img, rng, strength="medium")
+    else:
+        img = ImageEnhance.Contrast(img).enhance(rng.uniform(0.82, 0.95))
+        img = ImageEnhance.Brightness(img).enhance(rng.uniform(0.94, 1.04))
+        img = img.filter(ImageFilter.GaussianBlur(radius=rng.uniform(0.25, 0.55)))
+        img = _add_shadow_gradient(img, rng, strength="light")
+        img = _add_noise(img, rng, strength="light")
     return img
 
 
-def _affine_jitter(img: Image.Image, rng: random.Random) -> Image.Image:
-    shear = rng.uniform(-0.018, 0.018)
+def _apply_faint_pencil_effects(img: Image.Image, rng: random.Random) -> Image.Image:
+    img = ImageEnhance.Contrast(img).enhance(rng.uniform(0.72, 0.84))
+    img = ImageEnhance.Brightness(img).enhance(rng.uniform(1.02, 1.09))
+    img = img.filter(ImageFilter.GaussianBlur(radius=rng.uniform(0.15, 0.35)))
+    img = _add_noise(img, rng, strength="light")
+    return img
+
+
+def _affine_jitter(img: Image.Image, rng: random.Random, *, strength: str) -> Image.Image:
+    shear_limit = 0.03 if strength == "medium" else 0.018
+    angle_limit = 2.0 if strength == "medium" else 1.1
+    shear = rng.uniform(-shear_limit, shear_limit)
     shifted = img.transform(
         img.size,
         Image.Transform.AFFINE,
@@ -424,15 +462,15 @@ def _affine_jitter(img: Image.Image, rng: random.Random) -> Image.Image:
         resample=Image.Resampling.BICUBIC,
         fillcolor=_paper_color("phone_scan_light"),
     )
-    angle = rng.uniform(-1.1, 1.1)
+    angle = rng.uniform(-angle_limit, angle_limit)
     return shifted.rotate(angle, resample=Image.Resampling.BICUBIC, fillcolor=_paper_color("phone_scan_light"))
 
 
-def _add_shadow_gradient(img: Image.Image, rng: random.Random) -> Image.Image:
+def _add_shadow_gradient(img: Image.Image, rng: random.Random, *, strength: str) -> Image.Image:
     width, height = img.size
     overlay = Image.new("L", img.size, 0)
     draw = ImageDraw.Draw(overlay)
-    max_alpha = rng.randint(18, 36)
+    max_alpha = rng.randint(36, 72) if strength == "medium" else rng.randint(18, 36)
     for x in range(width):
         alpha = int(max_alpha * (x / width) ** 1.7)
         draw.line((x, 0, x, height), fill=alpha)
@@ -440,17 +478,17 @@ def _add_shadow_gradient(img: Image.Image, rng: random.Random) -> Image.Image:
     return Image.composite(shadow, img, overlay)
 
 
-def _add_noise(img: Image.Image, rng: random.Random) -> Image.Image:
-    noise = Image.effect_noise(img.size, rng.uniform(7.0, 14.0)).convert("L")
+def _add_noise(img: Image.Image, rng: random.Random, *, strength: str) -> Image.Image:
+    noise = Image.effect_noise(img.size, rng.uniform(12.0, 24.0) if strength == "medium" else rng.uniform(7.0, 14.0)).convert("L")
     noise_rgb = Image.merge("RGB", (noise, noise, noise))
-    blended = ImageChops.add(img, ImageEnhance.Contrast(noise_rgb).enhance(0.18), scale=2.0, offset=0)
-    return Image.blend(img, blended, 0.18)
+    blended = ImageChops.add(img, ImageEnhance.Contrast(noise_rgb).enhance(0.26 if strength == "medium" else 0.18), scale=2.0, offset=0)
+    return Image.blend(img, blended, 0.28 if strength == "medium" else 0.18)
 
 
 def _paper_color(style: str) -> str:
-    if style == "phone_scan_light":
+    if style in {"phone_scan_light", "phone_scan_medium"}:
         return "#fbf8ef"
-    if style == "handwriting_font":
+    if style in {"handwriting_font", "faint_pencil", "crowded_answer", "messy_layout"}:
         return "#fffdf7"
     return "white"
 
@@ -458,9 +496,48 @@ def _paper_color(style: str) -> str:
 def _ink_color(style: str) -> str:
     if style == "printed":
         return "#111111"
-    if style == "phone_scan_light":
+    if style == "faint_pencil":
+        return "#8a8d94"
+    if style in {"phone_scan_light", "phone_scan_medium"}:
         return "#253c78"
     return "#1f3e85"
+
+
+def _uses_lined_paper(style: str) -> bool:
+    return style in {"handwriting_font", "phone_scan_light", "phone_scan_medium", "faint_pencil", "crowded_answer", "messy_layout"}
+
+
+def _answer_font_size(style: str) -> int:
+    if style == "printed":
+        return 37
+    if style == "crowded_answer":
+        return 31
+    if style == "faint_pencil":
+        return 38
+    return 41
+
+
+def _display_model_text(model_text: str, *, style: str) -> str:
+    if style != "messy_layout":
+        return model_text
+    lines = [line.strip() for line in model_text.splitlines() if line.strip()]
+    if not lines:
+        return model_text
+    compact: List[str] = []
+    predicate_parts: List[str] = []
+    for line in lines:
+        lower = line.lower()
+        if lower.startswith("domain"):
+            compact.append(line.replace("DOMAIN:", "Domain").replace("Domain:", "Domain"))
+        elif lower in {"constants:", "predicates:"}:
+            continue
+        elif ":" in line and line[0].isupper():
+            predicate_parts.append(line.replace(": ", "=").replace(":", "="))
+        else:
+            compact.append(line)
+    if predicate_parts:
+        compact.append("  ".join(predicate_parts))
+    return "\n".join(compact)
 
 
 def _load_font(size: int, *, role: str) -> ImageFont.ImageFont:
@@ -538,7 +615,7 @@ def main() -> int:
     parser.add_argument(
         "--style",
         default="printed",
-        choices=["printed", "handwriting_font", "phone_scan_light"],
+        choices=list(STYLES),
         help="Visual rendering style.",
     )
     parser.add_argument("--count", type=int, default=8, help="Number of synthetic students/pages.")

@@ -35,6 +35,7 @@ class SyntheticFolOcrEvalTests(unittest.TestCase):
         self.assertTrue(all(item.ocr_status == "ok" for item in results))
         self.assertTrue(all(item.checker_status == "scored" for item in results))
         self.assertTrue(all(item.verdict_match for item in results))
+        self.assertTrue(all(item.failure_kind == "ok" for item in results))
         self.assertTrue((self.output_dir / "summary.json").exists())
         self.assertTrue((self.output_dir / "summary.html").exists())
 
@@ -46,7 +47,7 @@ class SyntheticFolOcrEvalTests(unittest.TestCase):
         generate(self.fixture_dir, style="printed", count=1, seed=22, force=True)
 
         def fake_transcribe(*, image_path: Path, output_dir: Path, autograde_config: dict):
-            model_text = "Domain: 1\nP: 1\nQ: 1\n"
+            model_text = "DOMAIN: {1}\n\nCONSTANTS:\n(none)\n\nPREDICATES:\nP: {1}\nQ: {1}\n"
             return model_text, model_text
 
         results = run_evaluation(
@@ -58,6 +59,7 @@ class SyntheticFolOcrEvalTests(unittest.TestCase):
 
         self.assertEqual(len(results), 1)
         self.assertFalse(results[0].verdict_match)
+        self.assertEqual(results[0].failure_kind, "verdict_mismatch")
 
 
 if __name__ == "__main__":

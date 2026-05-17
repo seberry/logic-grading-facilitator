@@ -436,9 +436,10 @@ $env:DATA_DIR='data/samples/synthetic_fol_models'
 python -m uvicorn app.server:app --reload --port 5000
 ```
 
-The supported synthetic FOL styles are `printed`, `handwriting_font`, and
-`phone_scan_light`. Gold model text and expected checker verdicts are written
-under `gold/fol_model_gold.json`.
+The supported synthetic FOL styles are `printed`, `handwriting_font`,
+`phone_scan_light`, `phone_scan_medium`, `faint_pencil`, `crowded_answer`, and
+`messy_layout`. Gold model text and expected checker verdicts are written under
+`gold/fol_model_gold.json`.
 
 ## Implementation Status (v0)
 

@@ -63,12 +63,14 @@ class SyntheticLogicExamGeneratorTests(unittest.TestCase):
         self.assertTrue(saw_pass)
         self.assertTrue(saw_fail)
 
-    def test_phone_scan_light_generates_images(self) -> None:
-        generate(self.tmp_dir, family="fol_model", style="phone_scan_light", count=2, seed=13, force=True)
+    def test_noisy_styles_generate_images(self) -> None:
+        for style in ("phone_scan_light", "phone_scan_medium", "faint_pencil", "crowded_answer", "messy_layout"):
+            style_dir = self.tmp_dir / style
+            generate(style_dir, family="fol_model", style=style, count=2, seed=13, force=True)
 
-        images = sorted((self.tmp_dir / "raw_scans").glob("*.png"))
-        self.assertEqual(len(images), 2)
-        self.assertTrue(all(path.stat().st_size > 10_000 for path in images))
+            images = sorted((style_dir / "raw_scans").glob("*.png"))
+            self.assertEqual(len(images), 2)
+            self.assertTrue(all(path.stat().st_size > 10_000 for path in images))
 
 
 if __name__ == "__main__":
