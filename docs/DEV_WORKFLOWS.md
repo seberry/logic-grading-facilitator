@@ -164,7 +164,43 @@ The OCR prompt infers expected constants and predicates from
 `prompt_data.formulas`. Use `ocr.constants` and `ocr.predicates` only when the
 rubric needs to pin the OCR vocabulary more explicitly.
 
-## 6b. Kripke model checker starter
+## 6b. Synthetic FOL model exam generator
+**Goal:** Create repeatable FERPA-safe fake assignments for initial OCR/checker
+debugging without waiting on new hand-made examples.
+
+```powershell
+python scripts/generate_synthetic_logic_exam.py `
+  --family fol_model `
+  --style phone_scan_light `
+  --count 8 `
+  --seed 1337 `
+  --output-dir data/samples/synthetic_fol_models `
+  --force
+```
+
+Supported styles:
+
+- `printed` - clean baseline for testing fixture/session/checker plumbing.
+- `handwriting_font` - locally available handwriting-like font, line jitter,
+  faint lined paper, and mild degradation.
+- `phone_scan_light` - handwriting-font rendering plus mild skew, blur, noise,
+  contrast loss, and a shadow gradient.
+
+The generator writes a complete `DATA_DIR` fixture:
+
+- `roster.csv`
+- `rubric/synthetic_fol_models.yaml`
+- `raw_scans/*.png`
+- `grades/session.json`
+- `grades/segments_Q*.json`
+- `gold/fol_model_gold.json`
+- `README.md`
+
+The gold file records the intended model text and expected checker verdict for
+each student/problem. The image rendering is deliberately separate from the
+semantic gold data, so OCR failures can be distinguished from checker failures.
+
+## 6c. Kripke model checker starter
 **Goal:** Autograde already-transcribed Kripke model text through the shared
 `app/autograde/` layer. OCR/strip review for graph drawings is not wired yet.
 

@@ -428,6 +428,18 @@ Create a minimal fake roster/rubric/scans set under `DATA_DIR`:
 python scripts/generate_fake_data.py
 ```
 
+For a checker-backed FOL-model OCR/debug fixture with noisier synthetic pages:
+
+```powershell
+python scripts/generate_synthetic_logic_exam.py --family fol_model --style phone_scan_light --count 8 --force
+$env:DATA_DIR='data/samples/synthetic_fol_models'
+python -m uvicorn app.server:app --reload --port 5000
+```
+
+The supported synthetic FOL styles are `printed`, `handwriting_font`, and
+`phone_scan_light`. Gold model text and expected checker verdicts are written
+under `gold/fol_model_gold.json`.
+
 ## Implementation Status (v0)
 
 Current working pieces:

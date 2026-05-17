@@ -23,6 +23,9 @@ production behavior.
   `split_to_images.py` - scan ingestion utilities.
 - `debug_modal_proof_ocr.py`, `debug_fol_model_ocr.py`,
   `run_fol_ocr_batch.py` - modal/FOL debug workflows.
+- `generate_synthetic_logic_exam.py` - checker-backed synthetic FOL model
+  exam fixture generator with printed, handwriting-font, and light phone-scan
+  styles.
 - `debug_segment_view.py`, `verify_llm_boxes.py` - segmentation/debug helpers.
 - `test_canvas_api.py`, `test_canvas_user_id_mapping.py` - Canvas smoke/probe
   scripts.
