@@ -85,6 +85,7 @@ class ProblemStripsRoutesTests(unittest.TestCase):
         self.assertIn("Berry, Sharon", response.text)
         self.assertIn("What the problem asked", response.text)
         self.assertIn("Create a model making the target sentence false.", response.text)
+        self.assertNotIn("Autograde target", response.text)
 
     def test_problem_type_post_updates_session(self) -> None:
         session = _build_session()
@@ -132,7 +133,9 @@ class ProblemStripsRoutesTests(unittest.TestCase):
         self.assertIn("fol model", response.text.lower())
         self.assertIn('data-type="fol_model"', response.text)
         self.assertIn("FOL model checker", response.text)
+        self.assertIn("Autograde target", response.text)
         self.assertIn("Need: the two target sentences have different truth values.", response.text)
+        self.assertIn("Targets: ∀x Px; ∃x Px", response.text)
 
     def test_fol_model_check_endpoint_saves_and_runs_checker(self) -> None:
         session = _build_session()

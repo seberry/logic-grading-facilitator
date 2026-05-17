@@ -7,7 +7,7 @@ problems:
   problem_type: fol_model
   section: FOL Models
   problem_number: '1'
-  prompt: Give a model showing that forall x Px and exists x Px are not equivalent.
+  prompt: Give a model showing that ∀x Px and ∃x Px are not equivalent.
   segmentation_hint: Look for the printed Q1 model answer box.
   autograde:
     task_kind: non_equivalence

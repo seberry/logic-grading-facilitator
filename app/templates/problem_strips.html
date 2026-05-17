@@ -643,6 +643,20 @@
       margin: 0;
       color: #334155;
     }
+    .problem-context .autograde-target {
+      margin-top: 0.75rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid #e5e7eb;
+    }
+    .problem-context .autograde-target ul {
+      margin: 0.35rem 0 0 1.2rem;
+      padding: 0;
+      color: #334155;
+      line-height: 1.4;
+    }
+    .problem-context .autograde-target li {
+      margin: 0.15rem 0;
+    }
 
     .problem-note label {
       display: block;
@@ -741,6 +755,16 @@
       <p><strong>What the problem asked:</strong> {{ problem_spec.prompt }}</p>
     {% else %}
       <p><strong>What the problem asked:</strong> No prompt saved in the rubric for this problem yet.</p>
+    {% endif %}
+    {% if fol_model_task_details %}
+      <div class="autograde-target">
+        <p><strong>Autograde target:</strong></p>
+        <ul>
+          {% for detail in fol_model_task_details %}
+            <li>{{ detail }}</li>
+          {% endfor %}
+        </ul>
+      </div>
     {% endif %}
   </section>
 

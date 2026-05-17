@@ -20,6 +20,7 @@ from app.fol_model_review import (
     enqueue_fol_model_ocr_jobs,
     public_fol_model_status,
     requirement_text_from_config,
+    task_details_from_config,
 )
 from app.proof_ocr_review import (
     accept_fitch_ocr_review,
@@ -747,6 +748,9 @@ def get_problem_strips(
             "problem_label": spec.label,
             "problem_spec": spec,
             "problem_locator_text": _build_problem_locator_text(spec),
+            "fol_model_task_details": task_details_from_config(_require_autograde_config(spec))
+            if effective_problem_type == "fol_model"
+            else [],
             "strips": strips,
             "max_points": spec.points,
             "problem_note": session.problem_notes.get(problem_id, ""),

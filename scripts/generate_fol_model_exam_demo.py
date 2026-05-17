@@ -94,7 +94,22 @@ STUDENTS: List[DemoStudent] = [
 
 
 def _load_font(size: int, *, mono: bool = False) -> ImageFont.ImageFont:
-    candidates = ["consola.ttf", "cour.ttf"] if mono else ["arial.ttf", "calibri.ttf"]
+    if mono:
+        candidates = [
+            "DejaVuSansMono.ttf",
+            str(Path("C:/Windows/Fonts/DejaVuSansMono.ttf")),
+            "consola.ttf",
+            "cour.ttf",
+        ]
+    else:
+        candidates = [
+            "DejaVuSans.ttf",
+            str(Path("C:/Windows/Fonts/DejaVuSans.ttf")),
+            "seguisym.ttf",
+            str(Path("C:/Windows/Fonts/seguisym.ttf")),
+            "arial.ttf",
+            "calibri.ttf",
+        ]
     for candidate in candidates:
         try:
             return ImageFont.truetype(candidate, size=size)
@@ -132,7 +147,7 @@ def _write_rubric(root: Path) -> None:
                 "problem_type": "fol_model",
                 "section": "FOL Models",
                 "problem_number": "1",
-                "prompt": "Give a model showing that forall x Px and exists x Px are not equivalent.",
+                "prompt": "Give a model showing that ∀x Px and ∃x Px are not equivalent.",
                 "segmentation_hint": "Look for the printed Q1 model answer box.",
                 "autograde": {
                     "task_kind": "non_equivalence",

@@ -29,6 +29,7 @@ class FolModelExamDemoTests(unittest.TestCase):
         self.assertEqual(session["grading_key"]["quiz_id"], "fol_model_exam_demo")
         self.assertEqual(len(session["work_units"]), len(STUDENTS))
         self.assertEqual(session["grading_key"]["problems"][0]["problem_type"], "fol_model")
+        self.assertIn("∀x Px", session["grading_key"]["problems"][0]["prompt"])
 
         for problem_id in ("Q1", "Q2", "Q3"):
             segments = json.loads((self.tmp_dir / "grades" / f"segments_{problem_id}.json").read_text(encoding="utf-8"))

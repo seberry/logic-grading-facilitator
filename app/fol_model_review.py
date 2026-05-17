@@ -414,6 +414,28 @@ def requirement_text_from_config(autograde_config: Mapping[str, Any]) -> str:
     return "Need: every target sentence true in this model."
 
 
+def task_details_from_config(autograde_config: Mapping[str, Any]) -> List[str]:
+    task_kind = str(autograde_config.get("task_kind") or "truth_value").strip() or "truth_value"
+    prompt_data = autograde_config.get("prompt_data") if isinstance(autograde_config.get("prompt_data"), dict) else {}
+    details = [requirement_text_from_config(autograde_config)]
+    if not isinstance(prompt_data, dict):
+        return details
+
+    if task_kind == "non_validity":
+        premises = prompt_data.get("premises")
+        if isinstance(premises, list) and premises:
+            details.append("Premises: " + "; ".join(str(item) for item in premises))
+        conclusion = prompt_data.get("conclusion")
+        if conclusion:
+            details.append("Conclusion: " + str(conclusion))
+        return details
+
+    formulas = prompt_data.get("formulas")
+    if isinstance(formulas, list) and formulas:
+        details.append("Targets: " + "; ".join(str(item) for item in formulas))
+    return details
+
+
 def _update_item(grades_dir: Path, problem_id: str, unit_id: int, updates: Mapping[str, Any]) -> None:
     with _state_lock:
         state = load_fol_model_state(grades_dir, problem_id)
