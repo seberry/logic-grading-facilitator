@@ -134,6 +134,7 @@ class ProblemStripsRoutesTests(unittest.TestCase):
         self.assertIn('data-type="fol_model"', response.text)
         self.assertIn("FOL model checker", response.text)
         self.assertIn("Autograde target", response.text)
+        self.assertGreaterEqual(response.text.count("Autograde target"), 2)
         self.assertIn("Need: the two target sentences have different truth values.", response.text)
         self.assertIn("Targets: ∀x Px; ∃x Px", response.text)
 

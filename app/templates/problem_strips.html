@@ -335,6 +335,27 @@
       line-height: 1.35;
       white-space: pre-wrap;
     }
+    .fol-model-target {
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      padding: 0.5rem 0.6rem;
+      background: #fff;
+      color: #334155;
+      font-size: 0.82rem;
+      line-height: 1.4;
+    }
+    .fol-model-target-title {
+      font-weight: 700;
+      color: #0f172a;
+      margin-bottom: 0.2rem;
+    }
+    .fol-model-target ul {
+      margin: 0.25rem 0 0 1.1rem;
+      padding: 0;
+    }
+    .fol-model-target li {
+      margin: 0.1rem 0;
+    }
     .fol-model-panel.is-passed .fol-model-verdict {
       border-left-color: #22c55e;
     }
@@ -1029,6 +1050,17 @@
                 <a class="fitch-ocr-link" href="{{ fol.debug_url }}">Open debug</a>
               {% endif %}
             </div>
+
+            {% if fol_model_task_details %}
+              <div class="fol-model-target">
+                <div class="fol-model-target-title">Autograde target</div>
+                <ul>
+                  {% for detail in fol_model_task_details %}
+                    <li>{{ detail }}</li>
+                  {% endfor %}
+                </ul>
+              </div>
+            {% endif %}
 
             <textarea class="fol-model-text"
                       data-fol-model-text

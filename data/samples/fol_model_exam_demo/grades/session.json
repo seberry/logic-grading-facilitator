@@ -101,7 +101,7 @@
     {
       "unit_id": 1,
       "page_filenames": [
-        "fol_model_demo_ada_example_p01.png"
+        "fol_model_demo_ada_example_quant_p01.png"
       ],
       "student_id": "FOL001",
       "per_problem": {
@@ -119,7 +119,7 @@
     {
       "unit_id": 2,
       "page_filenames": [
-        "fol_model_demo_bert_sample_p01.png"
+        "fol_model_demo_bert_sample_quant_p01.png"
       ],
       "student_id": "FOL002",
       "per_problem": {
@@ -137,7 +137,7 @@
     {
       "unit_id": 3,
       "page_filenames": [
-        "fol_model_demo_cleo_demo_p01.png"
+        "fol_model_demo_cleo_demo_quant_p01.png"
       ],
       "student_id": "FOL003",
       "per_problem": {
@@ -155,7 +155,7 @@
     {
       "unit_id": 4,
       "page_filenames": [
-        "fol_model_demo_dev_test_p01.png"
+        "fol_model_demo_dev_test_quant_p01.png"
       ],
       "student_id": "FOL004",
       "per_problem": {

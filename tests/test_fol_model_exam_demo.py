@@ -24,6 +24,7 @@ class FolModelExamDemoTests(unittest.TestCase):
         self.assertTrue(session_path.exists())
         self.assertTrue(rubric_path.exists())
         self.assertEqual(len(list((self.tmp_dir / "raw_scans").glob("*.png"))), len(STUDENTS))
+        self.assertTrue(all("_quant_" in student.filename for student in STUDENTS))
 
         session = json.loads(session_path.read_text(encoding="utf-8"))
         self.assertEqual(session["grading_key"]["quiz_id"], "fol_model_exam_demo")

@@ -53,7 +53,7 @@ STUDENTS: List[DemoStudent] = [
     DemoStudent(
         student_id="FOL001",
         name="Ada Example",
-        filename="fol_model_demo_ada_example_p01.png",
+        filename="fol_model_demo_ada_example_quant_p01.png",
         answers={
             "Q1": "Domain: 1,2\nP: 1",
             "Q2": "Domain: 1,2\nP: 1\nQ: 1",
@@ -63,7 +63,7 @@ STUDENTS: List[DemoStudent] = [
     DemoStudent(
         student_id="FOL002",
         name="Bert Sample",
-        filename="fol_model_demo_bert_sample_p01.png",
+        filename="fol_model_demo_bert_sample_quant_p01.png",
         answers={
             "Q1": "Domain: 1\nP: 1",
             "Q2": "Domain: 1,2\nP: 1\nQ: 1,2",
@@ -73,7 +73,7 @@ STUDENTS: List[DemoStudent] = [
     DemoStudent(
         student_id="FOL003",
         name="Cleo Demo",
-        filename="fol_model_demo_cleo_demo_p01.png",
+        filename="fol_model_demo_cleo_demo_quant_p01.png",
         answers={
             "Q1": "Domain: 1,2,3\nP: 1,3",
             "Q2": "Domain: 1,2,3\nP: 2\nQ: 2",
@@ -83,7 +83,7 @@ STUDENTS: List[DemoStudent] = [
     DemoStudent(
         student_id="FOL004",
         name="Dev Test",
-        filename="fol_model_demo_dev_test_p01.png",
+        filename="fol_model_demo_dev_test_quant_p01.png",
         answers={
             "Q1": "Domain: 1,2\nP: 1,2",
             "Q2": "Domain: 1,2\nP: 1\nQ: 1",

@@ -1,7 +1,7 @@
 [
   {
     "unit_id": 1,
-    "page_filename": "fol_model_demo_ada_example_p01.png",
+    "page_filename": "fol_model_demo_ada_example_quant_p01.png",
     "page_index": 0,
     "bbox": [
       0.06,
@@ -15,7 +15,7 @@
   },
   {
     "unit_id": 2,
-    "page_filename": "fol_model_demo_bert_sample_p01.png",
+    "page_filename": "fol_model_demo_bert_sample_quant_p01.png",
     "page_index": 0,
     "bbox": [
       0.06,
@@ -29,7 +29,7 @@
   },
   {
     "unit_id": 3,
-    "page_filename": "fol_model_demo_cleo_demo_p01.png",
+    "page_filename": "fol_model_demo_cleo_demo_quant_p01.png",
     "page_index": 0,
     "bbox": [
       0.06,
@@ -43,7 +43,7 @@
   },
   {
     "unit_id": 4,
-    "page_filename": "fol_model_demo_dev_test_p01.png",
+    "page_filename": "fol_model_demo_dev_test_quant_p01.png",
     "page_index": 0,
     "bbox": [
       0.06,
