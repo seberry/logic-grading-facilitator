@@ -79,7 +79,7 @@ def parse_model_text(text: str) -> FolModel:
 
     constants: Dict[str, int] = {}
     for raw in sections.get("CONSTANTS", []):
-        if not raw.strip():
+        if not raw.strip() or _is_empty_section_marker(raw):
             continue
         name, value_text = _split_mapping(raw, "constant")
         if not re.fullmatch(r"[a-z]", name):
@@ -91,7 +91,7 @@ def parse_model_text(text: str) -> FolModel:
 
     predicates: Dict[str, PredicateInterpretation] = {}
     for raw in sections.get("PREDICATES", []):
-        if not raw.strip():
+        if not raw.strip() or _is_empty_section_marker(raw):
             continue
         name, value_text = _split_mapping(raw, "predicate")
         if not re.fullmatch(r"[A-Z]", name):
@@ -651,6 +651,10 @@ def _split_mapping(raw: str, kind: str) -> Tuple[str, str]:
         raise FolModelParseError(f"Bad {kind} line '{raw}'. Expected '<symbol>: <value>'.")
     left, right = raw.split(":", 1)
     return left.strip(), right.strip()
+
+
+def _is_empty_section_marker(raw: str) -> bool:
+    return raw.strip().lower() in {"(none)", "none", "-", "—"}
 
 
 def _parse_number_set(raw: str, label: str) -> List[int]:

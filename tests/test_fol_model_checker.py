@@ -39,6 +39,19 @@ class FolModelCheckerTests(unittest.TestCase):
         self.assertEqual(model.predicates["P"].tuples, {(1,)})
         self.assertEqual(model.predicates["R"].tuples, {(1, 2), (2, 1)})
 
+    def test_parse_model_text_accepts_none_markers_from_ocr_prompt(self) -> None:
+        model = parse_model_text(
+            "DOMAIN: {1,2}\n\n"
+            "CONSTANTS:\n"
+            "(none)\n\n"
+            "PREDICATES:\n"
+            "P: {1}\n"
+        )
+
+        self.assertEqual(model.domain, [1, 2])
+        self.assertEqual(model.constants, {})
+        self.assertEqual(model.predicates["P"].tuples, {(1,)})
+
     def test_parse_model_text_infers_uppercase_predicates_after_constants(self) -> None:
         model = parse_model_text("Domain: 1,2\nConstants:\na: 1\nP: 1")
 
