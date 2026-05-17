@@ -3,9 +3,10 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set
 
 import yaml
 
@@ -61,6 +62,36 @@ def _formulas_for_hint(prompt_data: Dict[str, Any]) -> List[str]:
     return []
 
 
+def _symbols_from_formulas(formulas: List[str]) -> tuple[Set[str], Set[str]]:
+    constants: Set[str] = set()
+    predicates: Set[str] = set()
+    for formula in formulas:
+        predicates.update(re.findall(r"\b([A-Z])(?=[a-z])", formula))
+        bound_variables = set(re.findall(r"[∀∃]\s*([a-z])", formula))
+        for match in re.finditer(r"\b[A-Z]([a-z]+)", formula):
+            constants.update(ch for ch in match.group(1) if ch not in bound_variables)
+        for match in re.finditer(r"\b([a-z])\b", formula):
+            token = match.group(1)
+            if token not in bound_variables:
+                constants.add(token)
+    return constants, predicates
+
+
+def _expected_symbols(autograde: Dict[str, Any], formulas: List[str]) -> tuple[List[str], List[str]]:
+    constants, predicates = _symbols_from_formulas(formulas)
+    ocr = autograde.get("ocr") or {}
+    if isinstance(ocr, dict):
+        for item in ocr.get("constants") or []:
+            text = str(item).strip()
+            if re.fullmatch(r"[a-z]", text):
+                constants.add(text)
+        for item in ocr.get("predicates") or []:
+            text = str(item).strip()
+            if re.fullmatch(r"[A-Z]", text):
+                predicates.add(text)
+    return sorted(constants), sorted(predicates)
+
+
 def _expected_answer_shape(task_kind: str, autograde: Dict[str, Any]) -> str:
     ocr = autograde.get("ocr") or {}
     if isinstance(ocr, dict):
@@ -78,6 +109,7 @@ def build_prompt(autograde: Dict[str, Any]) -> str:
     if not isinstance(prompt_data, dict):
         prompt_data = {}
     formulas = _formulas_for_hint(prompt_data)
+    constants, predicates = _expected_symbols(autograde, formulas)
     answer_shape = _expected_answer_shape(task_kind, autograde)
 
     lines = [
@@ -90,6 +122,10 @@ def build_prompt(autograde: Dict[str, Any]) -> str:
     if formulas:
         lines.append("Relevant formulas from the rubric:")
         lines.extend(f"- {formula}" for formula in formulas)
+    if constants or predicates:
+        lines.append("Expected nonlogical symbols from the rubric:")
+        lines.append("- Constants: " + (", ".join(constants) if constants else "(none)"))
+        lines.append("- Predicates: " + (", ".join(predicates) if predicates else "(none)"))
     if answer_shape == "truth_value_only":
         lines.extend(
             [
@@ -109,21 +145,20 @@ def build_prompt(autograde: Dict[str, Any]) -> str:
             "DOMAIN: {1,2,3}",
             "",
             "CONSTANTS:",
-            "a: 1",
-            "b: 2",
+            "(none)",
             "",
             "PREDICATES:",
             "P: {1,2}",
-            "Q: {2}",
-            "R: {(1,2),(2,3)}",
             "",
             "Rules:",
             "- Use integers as domain objects.",
-            "- Use lowercase single letters for constants.",
-            "- Use uppercase single letters for predicates.",
+            "- Only include constants that are visible in the student's answer or listed above as expected constants.",
+            "- If no constants are visible or expected, leave the CONSTANTS section empty.",
+            "- Only include predicate letters that are visible in the student's answer or listed above as expected predicates.",
             "- Unary predicates use sets like {1,2}.",
             "- Binary predicates use sets like {(1,2),(2,3)}.",
             "- If a section is empty, still include its header.",
+            "- Do not invent default constants.",
             "- Do not explain your answer.",
             "- Do not include markdown fences.",
         ]

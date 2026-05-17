@@ -483,8 +483,16 @@ Use one broad family plus a task-kind inside `autograde`.
         - "∃x Px"
     ocr:
       expected_answer_shape: "model_only"
+      constants: []
+      predicates: ["P"]
       extra_prompt: "The student answer should mainly be a model, not a prose explanation."
 ```
+
+The FOL-model OCR prompt infers expected constants and predicates from
+`prompt_data.formulas` by default. Use `ocr.constants` and `ocr.predicates` only
+when the rubric needs to pin the OCR vocabulary more explicitly. This prevents
+the OCR pass from seeding default names for problems whose target sentences use
+only quantified variables.
 
 Recommended `task_kind` values:
 

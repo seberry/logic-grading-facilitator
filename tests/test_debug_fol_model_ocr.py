@@ -61,6 +61,31 @@ class DebugFolModelOcrTests(unittest.TestCase):
         self.assertTrue((output_dir / "ocr_raw_response.txt").exists())
         self.assertTrue((output_dir / "ocr_model_text.txt").exists())
 
+    def test_build_prompt_does_not_seed_default_constants(self) -> None:
+        prompt = debug_fol_model_ocr.build_prompt(
+            {
+                "task_kind": "non_equivalence",
+                "prompt_data": {"formulas": ["∀x Px", "∃x Px"]},
+            }
+        )
+
+        self.assertIn("Constants: (none)", prompt)
+        self.assertIn("Predicates: P", prompt)
+        self.assertIn("Do not invent default constants", prompt)
+        self.assertNotIn("a: 1", prompt)
+        self.assertNotIn("b: 2", prompt)
+
+    def test_build_prompt_lists_constants_that_appear_in_formulas(self) -> None:
+        prompt = debug_fol_model_ocr.build_prompt(
+            {
+                "task_kind": "truth_value",
+                "prompt_data": {"formulas": ["Pa"]},
+            }
+        )
+
+        self.assertIn("Constants: a", prompt)
+        self.assertIn("Predicates: P", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()
