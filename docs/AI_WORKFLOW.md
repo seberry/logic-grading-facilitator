@@ -93,6 +93,13 @@ python -m proofs_ocr.regression.private_tfl_narrator list-artifacts --manifest C
 python -m proofs_ocr.regression.private_tfl_narrator ask --manifest C:\grading-data\ocr-eval\exam1\manifest.yaml --run-root C:\grading-data\ocr-eval\exam1\runs\tfl_private_gold_regressions --case exam1_spring2026_q6_case_0007 --artifact debug_bars --model qwen/qwen3-vl-27b --disable-thinking --question "Why might the bar detector or line grouping be failing here?"
 ```
 
+Current private Q1 Fitch starter corpus:
+
+```powershell
+python -m proofs_ocr.regression.private_tfl_runner --manifest C:\grading-data\ocr-eval\real-fitch-q1\manifest.yaml summary
+python -m proofs_ocr.regression.private_tfl_runner --manifest C:\grading-data\ocr-eval\real-fitch-q1\manifest.yaml run-gold --split dev_regression
+```
+
 Only paste the shareable summary back into agent conversations unless the case is
 fake or fully sanitized.
 

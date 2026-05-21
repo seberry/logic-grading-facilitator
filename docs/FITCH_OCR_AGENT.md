@@ -223,6 +223,45 @@ failure category to track separately from symbol recognition: unusually small
 horizontal spacing between line content and justification can defeat the current
 formula/justification separation prompts.
 
+### Current private real-scan corpus
+
+The first external FERPA-local corpus is:
+
+```powershell
+C:\grading-data\ocr-eval\real-fitch-q1\manifest.yaml
+```
+
+It contains four anonymous Q1 TFL/Fitch cases in split `dev_regression`:
+
+- `real_fitch_q1_case_0001` and `real_fitch_q1_case_0002` are human-checked
+  transcriptions whose proofs pass the TFL checker.
+- `real_fitch_q1_case_0003` is a human-checked transcription of an invalid
+  proof that reaches into a closed subproof. The checker should fail.
+- `real_fitch_q1_case_0004` is a human-checked transcription of a highly
+  nonstandard invalid proof. Line 9 is intentionally transcribed as
+  `→I 6, 7-8`; the checker should fail.
+
+The live curation/debug cache for these same cases remains under:
+
+```powershell
+C:\grading-data\live-ocr-curation\debug_fitch\<anonymous_slug>\final_structure.json
+```
+
+Treat the `debug_fitch` cache as working state and the `ocr-eval\real-fitch-q1`
+manifest/gold files as the regression corpus. Agents may inspect and run local
+commands on these protected files when the user asks for FERPA-local OCR work,
+but must not copy images/crops/gold text into tracked fixtures, docs, commits,
+or chat beyond redacted summaries and aggregate metrics.
+
+Useful commands:
+
+```powershell
+python -m proofs_ocr.regression.private_tfl_runner --manifest C:\grading-data\ocr-eval\real-fitch-q1\manifest.yaml summary
+python -m proofs_ocr.regression.private_tfl_runner --manifest C:\grading-data\ocr-eval\real-fitch-q1\manifest.yaml run-gold --split dev_regression
+python -m proofs_ocr.regression.private_tfl_narrator list-artifacts --manifest C:\grading-data\ocr-eval\real-fitch-q1\manifest.yaml --run-root C:\grading-data\ocr-eval\real-fitch-q1\runs\tfl_private_gold_regressions --case real_fitch_q1_case_0003
+python -m proofs_ocr.regression.private_tfl_narrator ask --manifest C:\grading-data\ocr-eval\real-fitch-q1\manifest.yaml --run-root C:\grading-data\ocr-eval\real-fitch-q1\runs\tfl_private_gold_regressions --case real_fitch_q1_case_0003 --artifact debug_bars --model qwen/qwen3-vl-27b --disable-thinking --question "What visual/structural feature is likely causing this OCR failure?"
+```
+
 ### Tight debug loop for slow private runs
 
 1. Run a bounded private regression on `dev_regression` or one selected case.
