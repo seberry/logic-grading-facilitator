@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -14,6 +15,12 @@ from fastapi.templating import Jinja2Templates
 
 from app.storage import DEBUG_FITCH_DIR, RAW_SCANS_DIR
 from app.verifier import ProofLine, check_proof, flatten_proof
+from proofs_ocr.tricks.justification_snaps import (
+    TFL_VALID_RULE_HEADS,
+    clean_justification_for_tfl,
+    fuzzy_snap_justification,
+    snap_justification_rule_head,
+)
 
 router = APIRouter()
 
@@ -185,12 +192,58 @@ def _clean_meta(meta: Any) -> Dict[str, Any]:
             num_premises = None
 
     conclusion = meta.get("conclusion")
-    conclusion_str = str(conclusion) if conclusion is not None else ""
+    conclusion_str = normalize_tfl_formula_text(conclusion) if conclusion is not None else ""
 
     return {
         "num_premises": num_premises,
         "conclusion": conclusion_str,
     }
+
+
+def normalize_tfl_formula_text(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+
+    replacements = [
+        ("<->", "↔"),
+        ("<=>", "↔"),
+        ("<→", "↔"),
+        ("->", "→"),
+        ("=>", "→"),
+        ("/\\", "∧"),
+        ("\\/", "∨"),
+        ("^", "∧"),
+        ("&", "∧"),
+        ("~", "¬"),
+        ("-", "¬"),
+    ]
+    for old, new in replacements:
+        text = text.replace(old, new)
+    text = re.sub(r"\s+", "", text)
+    return "".join(char.upper() if char.isalpha() else char for char in text)
+
+
+def normalize_tfl_justification_text(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    cleaned = clean_justification_for_tfl(text)
+    snapped = snap_justification_rule_head(cleaned, valid_rules=TFL_VALID_RULE_HEADS)
+    return fuzzy_snap_justification(snapped, valid_rules=TFL_VALID_RULE_HEADS)
+
+
+def normalize_tfl_gold_lines(lines: List[Any]) -> List[Any]:
+    normalized: List[Any] = []
+    for item in lines:
+        if isinstance(item, list):
+            normalized.append(normalize_tfl_gold_lines(item))
+        elif isinstance(item, dict):
+            updated = dict(item)
+            updated["wffstr"] = normalize_tfl_formula_text(updated.get("wffstr", ""))
+            updated["jstr"] = normalize_tfl_justification_text(updated.get("jstr", ""))
+            normalized.append(updated)
+    return normalized
 
 
 def normalize_structure_payload(payload: Any) -> Dict[str, Any]:
@@ -210,8 +263,10 @@ def normalize_structure_payload(payload: Any) -> Dict[str, Any]:
     if not isinstance(lines, list):
         raise HTTPException(status_code=400, detail="'lines' must be a list (allowing nested subproofs).")
 
+    normalized_lines = normalize_logical_depths(strip_outer_proof_frame(lines))
+
     return {
-        "lines": normalize_logical_depths(strip_outer_proof_frame(lines)),
+        "lines": normalize_tfl_gold_lines(normalized_lines),
         "meta": _clean_meta(meta),
     }
 

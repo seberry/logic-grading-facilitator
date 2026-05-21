@@ -87,7 +87,31 @@ class TestFitchDebugStructureNormalization(unittest.TestCase):
         self.assertEqual(normalized["lines"][0]["wffstr"], "P")
         self.assertIsInstance(normalized["lines"][1], list)
         self.assertEqual(normalized["lines"][1][0]["wffstr"], "Q")
-        self.assertEqual(normalized["lines"][2]["wffstr"], "P → Q")
+        self.assertEqual(normalized["lines"][2]["wffstr"], "P→Q")
+
+    def test_normalize_structure_payload_canonicalizes_human_gold_text(self):
+        from app.routes.fitch_debug import normalize_structure_payload
+
+        payload = {
+            "lines": [
+                {"line": 1, "wffstr": "(p ^ q) -> r", "jstr": "prem"},
+                [
+                    {"line": 2, "wffstr": "p ", "jstr": "hyp"},
+                    {"line": 3, "wffstr": "q", "jstr": " ∧ E3"},
+                ],
+                {"line": 4, "wffstr": "p -> q", "jstr": " -> i 2-3"},
+            ],
+            "meta": {"conclusion": "p -> q"},
+        }
+
+        normalized = normalize_structure_payload(payload)
+
+        self.assertEqual(normalized["lines"][0]["wffstr"], "(P∧Q)→R")
+        self.assertEqual(normalized["lines"][0]["jstr"], "Pr")
+        self.assertEqual(normalized["lines"][1][0]["jstr"], "Hyp")
+        self.assertEqual(normalized["lines"][1][1]["jstr"], "∧E 3")
+        self.assertEqual(normalized["lines"][2]["jstr"], "→I 2-3")
+        self.assertEqual(normalized["meta"]["conclusion"], "P→Q")
 
     def test_fitch_debug_premise_counter_counts_existing_pr_labels(self):
         from app.routes.fitch_debug import label_and_count_premises
@@ -194,6 +218,11 @@ class TestFuzzySnapJustification(unittest.TestCase):
         from proofs_ocr.tricks.justification_snaps import clean_justification_for_tfl
 
         self.assertEqual(clean_justification_for_tfl("×7"), "X 7")
+
+    def test_clean_justification_collapses_spaced_symbol_rule_before_digit(self):
+        from proofs_ocr.tricks.justification_snaps import clean_justification_for_tfl
+
+        self.assertEqual(clean_justification_for_tfl("∧ E3"), "∧E 3")
 
     def test_unknown_head_no_unique_match_returns_tail_fixed(self):
         from proofs_ocr.tricks.justification_snaps import fuzzy_snap_justification
