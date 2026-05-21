@@ -101,7 +101,10 @@ python -m proofs_ocr.regression.private_tfl_runner --manifest C:\grading-data\oc
 ```
 
 Only paste the shareable summary back into agent conversations unless the case is
-fake or fully sanitized.
+fake or fully sanitized. For protected real scans, agents should not directly
+open or visually inspect images/crops or paste raw gold/OCR text; use
+`private_tfl_narrator ask` to have the local vision model inspect protected
+artifacts and return redacted observations.
 
 For synthetic FOL model OCR runs, use the generated fake fixture and report
 runner:

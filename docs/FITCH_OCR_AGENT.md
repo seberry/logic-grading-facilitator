@@ -248,10 +248,22 @@ C:\grading-data\live-ocr-curation\debug_fitch\<anonymous_slug>\final_structure.j
 ```
 
 Treat the `debug_fitch` cache as working state and the `ocr-eval\real-fitch-q1`
-manifest/gold files as the regression corpus. Agents may inspect and run local
-commands on these protected files when the user asks for FERPA-local OCR work,
-but must not copy images/crops/gold text into tracked fixtures, docs, commits,
-or chat beyond redacted summaries and aggregate metrics.
+manifest/gold files as the regression corpus.
+
+Privacy boundary for agents:
+
+- Do not directly open or visually inspect protected real-scan images/crops.
+- Do not paste raw gold transcriptions, raw OCR diffs, image paths, names,
+  rosters, LMS ids, timestamps, or other linkable details into chat, docs, or
+  tracked fixtures.
+- Use `private_tfl_runner` for redacted metrics and shareable summaries.
+- Use `private_tfl_narrator` when visual inspection is needed: it asks the
+  local vision model to inspect the protected artifact and records a redacted
+  observation. Agents may use those redacted observations and aggregate metrics
+  to guide code changes.
+- Only touch protected files directly for narrow local operations the user
+  explicitly requested, such as creating the private corpus or running the
+  private regression tools.
 
 Useful commands:
 
