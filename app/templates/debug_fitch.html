@@ -442,7 +442,7 @@
                 <button type="button" class="palette-btn" data-symbol="∃">∃</button>
                 <button type="button" class="palette-btn" data-symbol="⊥">⊥</button>
               </div>
-              <span class="editor-note">Line numbers are automatic; adjust depth and text directly in the grid.</span>
+              <span class="editor-note">Line numbers are automatic; displayed depth counts the visible outer Fitch spine.</span>
               <label class="toggle">
                 <input type="checkbox" id="raw-toggle">
                 Raw JSON
@@ -463,7 +463,7 @@
                   <tbody id="proof-table-body"></tbody>
                 </table>
               </div>
-              <div class="hint">Increase depth to nest inside a subproof; bars visualize indentation.</div>
+              <div class="hint">Use depth 1 for the ordinary outer proof area; increase depth to nest inside assumption subproofs.</div>
             </div>
             <div class="meta-grid">
               <div>
@@ -668,6 +668,18 @@
       return Math.max(0, Math.trunc(num));
     }
 
+    function displayDepthForLogical(value) {
+      return normalizeDepth(value) + 1;
+    }
+
+    function logicalDepthFromDisplay(value) {
+      const num = Number(value);
+      if (!Number.isFinite(num)) {
+        return 0;
+      }
+      return Math.max(0, Math.trunc(num) - 1);
+    }
+
     function closingCapDepth(rows, idx) {
       const currentDepth = normalizeDepth(rows[idx]?.depth);
       const nextDepth = idx + 1 < rows.length ? normalizeDepth(rows[idx + 1]?.depth) : 0;
@@ -675,6 +687,11 @@
         return 0;
       }
       return currentDepth;
+    }
+
+    function displayClosingCapDepth(rows, idx) {
+      const capDepth = closingCapDepth(rows, idx);
+      return capDepth > 0 ? capDepth + 1 : 0;
     }
 
     function computeRowWarnings(rows) {
@@ -716,7 +733,7 @@
       const nodes = document.querySelectorAll("[data-depth-bar-index]");
       nodes.forEach((node) => {
         const idx = Number(node.getAttribute("data-depth-bar-index"));
-        node.style.setProperty("--cap-depth", closingCapDepth(proofRows, idx));
+        node.style.setProperty("--cap-depth", displayClosingCapDepth(proofRows, idx));
       });
     }
 
@@ -864,16 +881,16 @@
         const bars = document.createElement("div");
         bars.className = "depth-bars";
         bars.setAttribute("data-depth-bar-index", String(idx));
-        bars.style.setProperty("--depth", normalizeDepth(row.depth));
-        bars.style.setProperty("--cap-depth", closingCapDepth(proofRows, idx));
+        bars.style.setProperty("--depth", displayDepthForLogical(row.depth));
+        bars.style.setProperty("--cap-depth", displayClosingCapDepth(proofRows, idx));
         const depthInput = document.createElement("input");
         depthInput.type = "number";
-        depthInput.min = "0";
-        depthInput.value = normalizeDepth(row.depth);
+        depthInput.min = "1";
+        depthInput.value = displayDepthForLogical(row.depth);
         depthInput.addEventListener("input", (event) => {
-          proofRows[idx].depth = event.target.value;
-          bars.style.setProperty("--depth", normalizeDepth(event.target.value));
-          bars.style.setProperty("--cap-depth", closingCapDepth(proofRows, idx));
+          proofRows[idx].depth = logicalDepthFromDisplay(event.target.value);
+          bars.style.setProperty("--depth", displayDepthForLogical(proofRows[idx].depth));
+          bars.style.setProperty("--cap-depth", displayClosingCapDepth(proofRows, idx));
           refreshWarnings();
           refreshDepthBarCaps();
         });
