@@ -45,6 +45,7 @@ from .segmentation_core import segment_page_for_problem, QuestionSegment
 from .models import (
     Session,
     WorkUnit,
+    GradingKey,
     RosterEntry,
     ClassworkModeState,
     ClassworkBatchState,
@@ -901,22 +902,30 @@ async def setup_import_canvas_zip(
     # A fresh import must not inherit stale per-problem segment caches.
     _clear_segment_caches()
 
-    roster = load_roster()
-    if not roster:
-        raise HTTPException(status_code=400, detail="Roster not found. Upload a roster first.")
+    anonymous_roster_from_zip = False
+    anonymous_by_prefix: Dict[str, RosterEntry] = {}
+    try:
+        roster = load_roster()
+    except FileNotFoundError:
+        roster = []
+        anonymous_roster_from_zip = True
 
     try:
         grading_key = load_grading_key()
     except Exception:
         raise HTTPException(status_code=400, detail="Rubric not found. Save a rubric first.")
 
-    roster_index, collisions = _build_roster_prefix_index(roster)
-    if collisions:
-        detail_lines = ["Duplicate roster name keys detected:"]
-        for key, entries in collisions.items():
-            names = ", ".join(e.name for e in entries)
-            detail_lines.append(f"{key}: {names}")
-        raise HTTPException(status_code=400, detail="; ".join(detail_lines))
+    roster_index: Dict[str, RosterEntry] = {}
+    if not anonymous_roster_from_zip:
+        if not roster:
+            raise HTTPException(status_code=400, detail="Roster not found. Upload a roster first.")
+        roster_index, collisions = _build_roster_prefix_index(roster)
+        if collisions:
+            detail_lines = ["Duplicate roster name keys detected:"]
+            for key, entries in collisions.items():
+                names = ", ".join(e.name for e in entries)
+                detail_lines.append(f"{key}: {names}")
+            raise HTTPException(status_code=400, detail="; ".join(detail_lines))
 
     staging_dir = DATA_DIR / "canvas_import" / uuid4().hex
     staging_dir.mkdir(parents=True, exist_ok=True)
@@ -943,7 +952,20 @@ async def setup_import_canvas_zip(
                     unsupported.append(filename)
                     continue
                 prefix_key = _filename_prefix_key(filename)
-                roster_entry = roster_index.get(prefix_key)
+                if anonymous_roster_from_zip:
+                    if not prefix_key:
+                        unmatched.append(filename)
+                        continue
+                    roster_entry = anonymous_by_prefix.get(prefix_key)
+                    if roster_entry is None:
+                        anon_index = len(anonymous_by_prefix) + 1
+                        roster_entry = RosterEntry(
+                            student_id=f"anon_{anon_index:04d}",
+                            name=f"Anonymous {anon_index:04d}",
+                        )
+                        anonymous_by_prefix[prefix_key] = roster_entry
+                else:
+                    roster_entry = roster_index.get(prefix_key)
                 if roster_entry is None:
                     unmatched.append(filename)
                     continue
@@ -974,6 +996,8 @@ async def setup_import_canvas_zip(
     if not records:
         shutil.rmtree(staging_dir, ignore_errors=True)
         raise HTTPException(status_code=400, detail="No valid scans found in ZIP.")
+    if anonymous_roster_from_zip:
+        roster = list(anonymous_by_prefix.values())
 
     per_student_paths: Dict[str, List[Path]] = {}
     per_student_originals: Dict[str, List[str]] = {}

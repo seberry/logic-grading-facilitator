@@ -70,7 +70,19 @@ must stay outside the repo, for example under `C:\grading-data\ocr-eval\...`.
 The runner writes local detailed reports plus `shareable_summary.txt/json`,
 which omit paths, images, line text, diffs, and timestamps:
 
+To bootstrap a new private curation pass from a Canvas ZIP, the setup wizard can
+also be used as an intake UI with an external production `DATA_DIR`. If no
+`roster.csv` exists, the Canvas ZIP importer creates anonymous work units from
+filename prefixes (`anon_0001`, etc.) so strip OCR can preserve page/problem
+grouping without loading a real roster. Use this for OCR-corpus curation, not
+for actual grade export.
+
 ```powershell
+$env:DATA_DIR='C:\grading-data\live-ocr-curation'
+$env:DATA_ARCHIVE_DIR='C:\grading-data\archive'
+$env:ENV_MODE='PRODUCTION'
+python -m uvicorn app.server:app --port 5001
+
 python -m proofs_ocr.regression.private_tfl_exporter seed-from-strip --eval-root C:\grading-data\ocr-eval\exam1 --assignment-id exam1_spring2026 --problem-id Q6 --grades-dir C:\grading-data\live\grades --debug-fitch-dir C:\grading-data\live\debug_fitch --split dev_regression
 python -m proofs_ocr.regression.private_tfl_runner --manifest C:\grading-data\ocr-eval\exam1\manifest.yaml summary
 python -m proofs_ocr.regression.private_tfl_runner --manifest C:\grading-data\ocr-eval\exam1\manifest.yaml run-gold --split dev_regression

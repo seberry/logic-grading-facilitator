@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -183,11 +184,21 @@ def ensure_raw_scan_available(scan_slug: str) -> Path:
 
 
 async def run_subprocess_with_logs(command: List[str]) -> tuple[int, str]:
+    repo_root = Path(__file__).resolve().parents[2]
+    env = os.environ.copy()
+    existing_pythonpath = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = (
+        str(repo_root)
+        if not existing_pythonpath
+        else str(repo_root) + os.pathsep + existing_pythonpath
+    )
+    env.setdefault("PYTHONIOENCODING", "utf-8")
     proc = await asyncio.create_subprocess_exec(
         *command,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
-        cwd=Path(__file__).resolve().parents[2],
+        cwd=repo_root,
+        env=env,
     )
     stdout, _ = await proc.communicate()
     output = stdout.decode("utf-8", errors="replace")

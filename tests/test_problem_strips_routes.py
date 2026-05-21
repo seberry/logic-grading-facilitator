@@ -1,4 +1,6 @@
 import unittest
+import zipfile
+from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 from uuid import uuid4
@@ -673,6 +675,69 @@ class NameReviewSubmitTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 303)
         self.assertEqual(response.headers["location"], "/problem/Q1/strips")
+
+
+class CanvasZipImportTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.client = TestClient(server.app)
+        self.tmp_dir = Path("working") / "test_tmp" / f"canvas_zip_{uuid4().hex}"
+        self.raw_scans_dir = self.tmp_dir / "raw_scans"
+        self.canvas_zip_dir = self.tmp_dir / "canvas_zips"
+        self.manifest_dir = self.tmp_dir / "manifests"
+        self.raw_scans_dir.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp_dir, ignore_errors=True)
+
+    def _zip_bytes(self) -> bytes:
+        buf = BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            zf.writestr("studentone_submission_1.jpg", b"page-one")
+            zf.writestr("studentone_submission_2.jpg", b"page-two")
+            zf.writestr("studenttwo_submission_1.jpg", b"page-three")
+        return buf.getvalue()
+
+    def test_canvas_zip_import_without_roster_creates_anonymous_work_units(self) -> None:
+        grading_key = GradingKey(
+            quiz_id="quiz1",
+            max_points=1,
+            problems=[ProblemSpec(id="Q1", label="Problem 1", points=1, problem_type="fitch_proof")],
+        )
+        saved_sessions = []
+
+        def capture_session(session, *args, **kwargs):
+            saved_sessions.append(session)
+
+        with (
+            patch.object(server, "_has_existing_session_state", return_value=False),
+            patch.object(server, "RAW_SCANS_DIR", self.raw_scans_dir),
+            patch.object(server, "DATA_DIR", self.tmp_dir),
+            patch.object(server, "CANVAS_REUPLOAD_ORIGINAL_ZIPS_DIR", self.canvas_zip_dir),
+            patch.object(server, "load_roster", side_effect=FileNotFoundError("no roster")),
+            patch.object(server, "load_grading_key", return_value=grading_key),
+            patch.object(server, "save_session", side_effect=capture_session),
+            patch("app.exam_shared.CANVAS_REUPLOAD_MANIFEST_DIR", self.manifest_dir),
+        ):
+            response = self.client.post(
+                "/setup/import_canvas_zip",
+                data={"quiz_id": "quiz1"},
+                files={"zip_file": ("submissions.zip", self._zip_bytes(), "application/zip")},
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(response.headers["location"], "/problem/Q1/strips")
+        self.assertEqual(len(saved_sessions), 1)
+
+        session = saved_sessions[0]
+        self.assertEqual([entry.student_id for entry in session.roster], ["anon_0001", "anon_0002"])
+        self.assertEqual([entry.name for entry in session.roster], ["Anonymous 0001", "Anonymous 0002"])
+        self.assertEqual(len(session.work_units), 2)
+        self.assertEqual(session.work_units[0].student_id, "anon_0001")
+        self.assertEqual(len(session.work_units[0].page_filenames), 2)
+        self.assertEqual(session.work_units[1].student_id, "anon_0002")
+        self.assertEqual(len(session.work_units[1].page_filenames), 1)
+        self.assertEqual(len(list(self.raw_scans_dir.glob("*.jpg"))), 3)
 
 
 if __name__ == "__main__":

@@ -208,7 +208,7 @@
             <input type="file" id="canvas_zip" name="zip_file" accept=".zip,application/zip">
             <label for="canvas_quiz_id">Quiz ID</label>
             <input type="text" id="canvas_quiz_id" name="quiz_id" value="{{ quiz_id }}">
-            <p class="muted">Requires a saved roster + rubric. Import will stop if any file doesn't match the roster.</p>
+            <p class="muted">Requires a saved rubric. If no roster is saved, the import creates anonymous work units from filename prefixes for OCR curation.</p>
             <button type="submit">Import ZIP and start grading</button>
           </form>
         </div>

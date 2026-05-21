@@ -11,11 +11,25 @@ import os
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
+
+
+def _safe_console_print(text: object = "") -> None:
+    rendered = str(text)
+    try:
+        print(rendered)
+    except UnicodeEncodeError:
+        encoded = rendered.encode(
+            getattr(sys.stdout, "encoding", None) or "utf-8",
+            errors="replace",
+        )
+        sys.stdout.buffer.write(encoded + b"\n")
+
 
 from proofs_ocr.common.rows import band_height, detect_text_row_bands
 from proofs_ocr.common.stitch import recursive_stitch, renumber_lines
@@ -1937,7 +1951,7 @@ def main():
     stitched_structure = json.loads(final_json_path.read_text(encoding="utf-8"))
 
     print("\n--- Final JSON Structure ---")
-    print(json.dumps(stitched_structure, indent=2, ensure_ascii=False))
+    _safe_console_print(json.dumps(stitched_structure, indent=2, ensure_ascii=False))
     print(f"Final stitched structure saved to {final_json_path}")
 
     premise_match = re.search(r"(\d+) premises", str(result.get("run_summary") or ""))

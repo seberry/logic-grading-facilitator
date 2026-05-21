@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import asyncio
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -399,11 +400,21 @@ def _require_autograde_config(spec) -> Dict[str, Any]:
 
 
 async def _run_subprocess_with_logs(command: List[str]) -> tuple[int, str]:
+    repo_root = Path(__file__).resolve().parents[2]
+    env = os.environ.copy()
+    existing_pythonpath = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = (
+        str(repo_root)
+        if not existing_pythonpath
+        else str(repo_root) + os.pathsep + existing_pythonpath
+    )
+    env.setdefault("PYTHONIOENCODING", "utf-8")
     proc = await asyncio.create_subprocess_exec(
         *command,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
-        cwd=Path(__file__).resolve().parents[2],
+        cwd=repo_root,
+        env=env,
     )
     stdout, _ = await proc.communicate()
     return proc.returncode, stdout.decode("utf-8", errors="replace")

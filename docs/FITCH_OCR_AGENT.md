@@ -163,6 +163,47 @@ python -m proofs_ocr.regression.private_tfl_runner `
 7. Share only `shareable_summary.txt/json` back with coding agents, unless the
    underlying case is fake or fully sanitized.
 
+### Bootstrap via setup wizard
+
+For a new real-scan curation pass, it is acceptable to use the normal exam
+setup/strip workflow as the intake UI before exporting a private corpus. Start
+the app with an external production data folder:
+
+```powershell
+$env:DATA_DIR='C:\grading-data\live-ocr-curation'
+$env:DATA_ARCHIVE_DIR='C:\grading-data\archive'
+$env:ENV_MODE='PRODUCTION'
+python -m uvicorn app.server:app --port 5001
+```
+
+Then open `/setup`, save a rubric whose Fitch problems use
+`problem_type: fitch_proof`, and import the Canvas ZIP. For OCR curation runs
+where student identity is unnecessary, the Canvas ZIP importer can now operate
+without `roster.csv`: it derives anonymous work units from the Canvas filename
+prefixes and assigns local ids such as `anon_0001`. This preserves page/problem
+grouping for strip OCR while avoiding a real roster in the curation session.
+
+After import, use `/problem/Q1/strips` (and then Q2-Q4, etc.) as the crop and
+OCR review surface. Correct the saved `final_structure.json` in the Fitch debug
+page, accept only cases good enough to become gold, then seed the external
+private eval corpus with `private_tfl_exporter`.
+
+Important operational note: strip/debug OCR launches `scripts/debug_fitch_ocr.py`
+in a subprocess. The route helpers set `PYTHONPATH` to the repo root and
+`PYTHONIOENCODING=utf-8` so Windows subprocesses can import `proofs_ocr` and
+print symbols like `∧` without crashing after a successful OCR run.
+
+### First real-scan observation
+
+The first anonymous Q1 curation case exposed a formula/justification column
+bleed issue. The corrected gold is an 8-line proof with two premises and a
+5-line subproof for `(P∧Q)→R, P→Q ⊢ (P∧S)→R`. Before correction, the model read
+some tight rows as if the justification text belonged to the formula column
+(for example, formula strings containing `→E 2,4` or `∧I 4,5`). This is a useful
+failure category to track separately from symbol recognition: unusually small
+horizontal spacing between line content and justification can defeat the current
+formula/justification separation prompts.
+
 ### Tight debug loop for slow private runs
 
 1. Run a bounded private regression on `dev_regression` or one selected case.
