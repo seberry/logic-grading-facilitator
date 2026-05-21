@@ -33,6 +33,16 @@ def _structure_to_proof_lines(structure: list) -> List[Union[ProofLine, List]]:
     return result
 
 
+def _line_depths(structure: list, depth: int = 0) -> List[int]:
+    depths: List[int] = []
+    for item in structure:
+        if isinstance(item, list):
+            depths.extend(_line_depths(item, depth + 1))
+        elif isinstance(item, dict):
+            depths.append(depth)
+    return depths
+
+
 class TFLGoldFixtureTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -100,6 +110,33 @@ class TFLGoldFixtureTests(unittest.TestCase):
             case = self.case_lookup[case_id]
             image_path = self.repo_root / str(case["image_path"])
             self.assertTrue(image_path.exists(), f"Image missing for {case_id}: {image_path}")
+
+    def test_tfl_gold_depths_are_logical_not_visual_outer_frame(self) -> None:
+        tfl_ids = [
+            "tfl_handwritten_q3_P_and_Q_imp_R",
+            "tfl_handwritten_q4_N_or_K_and_W",
+            "tfl_handwritten_q5_P_or_K_biconditional",
+            "tfl_handwritten_q6_S_iff_W",
+        ]
+        for case_id in tfl_ids:
+            expected = self._load_expected(case_id)
+            depths = _line_depths(expected)
+            self.assertTrue(depths, f"{case_id} has no proof lines")
+            self.assertEqual(depths[0], 0, f"{case_id} first line should be top-level")
+            self.assertEqual(min(depths), 0, f"{case_id} should not count the printed outer frame")
+
+    def test_checker_accepts_theorem_proof_with_top_level_conclusion(self) -> None:
+        proof = [
+            [
+                {"line": 1, "wffstr": "P", "jstr": "Hyp"},
+            ],
+            {"line": 2, "wffstr": "P→P", "jstr": "→I 1-1"},
+        ]
+
+        result = check_proof(_structure_to_proof_lines(proof), numprems=0, conc="P→P")
+
+        self.assertEqual(result.issues, [])
+        self.assertTrue(result.conc_reached)
 
     # -- Q3: Valid proof --
 
