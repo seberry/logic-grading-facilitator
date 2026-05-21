@@ -224,6 +224,11 @@ class TestFuzzySnapJustification(unittest.TestCase):
 
         self.assertEqual(clean_justification_for_tfl("∧ E3"), "∧E 3")
 
+    def test_clean_justification_accepts_caret_for_conjunction_rule(self):
+        from proofs_ocr.tricks.justification_snaps import clean_justification_for_tfl
+
+        self.assertEqual(clean_justification_for_tfl("^I 3,4"), "∧I 3,4")
+
     def test_unknown_head_no_unique_match_returns_tail_fixed(self):
         from proofs_ocr.tricks.justification_snaps import fuzzy_snap_justification
         # "XX" has no unique valid mapping, tail still gets S→5

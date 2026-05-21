@@ -455,7 +455,7 @@ def clean_justification_for_tfl(jstr: str) -> str:
         jstr,
     )
     jstr = re.sub(r"([¬∧∨→↔])\s+([IE])\b", r"\1\2", jstr)
-    jstr = jstr.replace("&", "∧").replace("~", "¬")
+    jstr = jstr.replace("&", "∧").replace("^", "∧").replace("~", "¬")
     jstr = re.sub(r"\b([∧∨¬→↔A-Z]{1,3})\s*([IE])(?=\d)", r"\1\2 ", jstr)
     jstr = re.sub(r"\b(X|IP|R|MT|DS|DNE|LEM|DeM|DEM)(?=\d)", r"\1 ", jstr)
     jstr = re.sub(r"\b([∧∨¬→↔A-Z]{1,4})(\d)", r"\1 \2", jstr)
