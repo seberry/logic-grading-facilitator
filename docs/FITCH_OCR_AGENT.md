@@ -188,11 +188,12 @@ OCR review surface. Correct the saved `final_structure.json` in the Fitch debug
 page, accept only cases good enough to become gold, then seed the external
 private eval corpus with `private_tfl_exporter`.
 
-The strip-page **OCR Proof** action is cache-first once a debug crop and
-`final_structure.json` already exist for the same anonymous slug: it redirects
-to `/debug/fitch?scan=...` without rerunning LM Studio. Use the debug page's
-**Re-run OCR/parse** button only when you intentionally want to overwrite the
-cached OCR artifacts.
+The strip-page **OCR Proof** action and the bulk **Start Fitch OCR** queue are
+cache-first once `debug_fitch/<slug>/final_structure.json` exists for the same
+anonymous slug: they open/rebuild review state from the cached structure without
+rerunning LM Studio. Use the debug page's **Re-run OCR/parse** button, or an
+explicit forced queue run, only when you intentionally want to overwrite cached
+OCR/gold artifacts.
 
 Depth in `final_structure.json` is logical, not a count of every printed
 vertical mark. The ordinary outer Fitch proof spine/premise separator is a page

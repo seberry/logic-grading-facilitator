@@ -178,6 +178,43 @@ def enqueue_fitch_ocr_jobs(
             slug = fitch_ocr_slug(problem_id, unit_id, page_filename)
             target_dir = Path(debug_fitch_dir) / slug
             target_image = target_dir / f"{slug}{image_path.suffix.lower() or '.jpg'}"
+            final_structure_path = target_dir / "final_structure.json"
+
+            if final_structure_path.exists() and not force:
+                final_structure = _load_json_file(final_structure_path, default=[])
+                proof_structure = (
+                    final_structure.get("lines", [])
+                    if isinstance(final_structure, dict)
+                    else final_structure
+                )
+                checker_issues = _checker_issues(proof_structure)
+                reread_summary, reread_records = _load_reread_reports(target_dir, Path(debug_fitch_dir))
+                ocr_diagnostics = _summarize_vlm_diagnostics(target_dir)
+                has_reread_flags = bool((reread_summary or {}).get("record_count"))
+                next_status = "verifier_issue" if checker_issues or has_reread_flags else "needs_review"
+                proof_image_url = (
+                    _debug_asset_url(slug, target_image.name)
+                    if target_image.exists()
+                    else _first_debug_image_url(target_dir, slug)
+                )
+                item = {
+                    "unit_id": unit_id,
+                    "page_filename": page_filename,
+                    "slug": slug,
+                    "status": next_status,
+                    "message": "Loaded cached TFL/Fitch OCR for review.",
+                    "updated_at": _now_iso(),
+                    "debug_url": _debug_url(slug),
+                    "proof_image_url": proof_image_url,
+                    "preview_lines": _preview_lines(proof_structure),
+                    "checker_issues": checker_issues,
+                    "reread_summary": reread_summary,
+                    "reread_records": reread_records,
+                    "ocr_diagnostics": ocr_diagnostics,
+                }
+                items[key] = item
+                skipped += 1
+                continue
 
             try:
                 _write_cropped_image(
@@ -436,6 +473,16 @@ def _debug_url(slug: str) -> str:
 
 def _debug_asset_url(slug: str, filename: str) -> str:
     return f"/debug_fitch_assets/{quote(slug)}/{quote(filename)}"
+
+
+def _first_debug_image_url(target_dir: Path, slug: str) -> Optional[str]:
+    if not target_dir.exists():
+        return None
+    for path in sorted(target_dir.iterdir(), key=lambda item: item.name.lower()):
+        if path.suffix.lower() not in {".jpg", ".jpeg", ".png"}:
+            continue
+        return _debug_asset_url(slug, path.name)
+    return None
 
 
 def _asset_url_for_path(path_text: Any, debug_fitch_dir: Path) -> Optional[str]:

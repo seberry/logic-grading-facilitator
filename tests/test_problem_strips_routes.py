@@ -367,6 +367,60 @@ class ProblemStripsRoutesTests(unittest.TestCase):
         state = json.loads(fitch_ocr_state_path(grades_dir, "Q1").read_text(encoding="utf-8"))
         self.assertEqual(state["items"]["1"]["status"], "queued")
 
+    def test_start_fitch_ocr_endpoint_uses_cached_final_structure_without_rerun(self) -> None:
+        session = _build_session()
+        session.problem_types["Q1"] = "fitch_proof"
+        raw_dir = self.tmp_dir / "raw_scans"
+        debug_dir = self.tmp_dir / "debug_fitch"
+        grades_dir = self.tmp_dir / "grades"
+        raw_dir.mkdir(parents=True, exist_ok=True)
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        grades_dir.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (100, 200), color="white").save(raw_dir / "quiz1_berry_sharon_p01.jpg")
+        cached_dir = debug_dir / "q1_1_quiz1_berry_sharon_p01"
+        cached_dir.mkdir(parents=True, exist_ok=True)
+        (cached_dir / "final_structure.json").write_text(
+            json.dumps(
+                {
+                    "lines": [
+                        {"line": 1, "wffstr": "P", "jstr": "Pr"},
+                        {"line": 2, "wffstr": "P", "jstr": "R 1"},
+                    ],
+                    "meta": {},
+                }
+            ),
+            encoding="utf-8",
+        )
+        segments = [
+            {
+                "unit_id": 1,
+                "page_filename": "quiz1_berry_sharon_p01.jpg",
+                "page_index": 0,
+                "bbox": [0.1, 0.2, 0.8, 0.9],
+                "present": True,
+            }
+        ]
+
+        with (
+            patch.object(problem_strips_routes, "get_session", return_value=session),
+            patch.object(problem_strips_routes, "ensure_segments_cached", return_value=segments),
+            patch.object(problem_strips_routes, "RAW_SCANS_DIR", raw_dir),
+            patch.object(problem_strips_routes, "DEBUG_FITCH_DIR", debug_dir),
+            patch.object(problem_strips_routes, "GRADES_DIR", grades_dir),
+            patch("app.proof_ocr_review.submit_fitch_ocr_job") as submit_job,
+        ):
+            response = self.client.post("/problem/Q1/fitch_ocr/start", data={"force": "0"})
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["queued"], 0)
+        self.assertEqual(payload["skipped"], 1)
+        submit_job.assert_not_called()
+        item = payload["items"][0]
+        self.assertEqual(item["status"], "needs_review")
+        self.assertEqual(item["debug_url"], "/debug/fitch?scan=q1_1_quiz1_berry_sharon_p01")
+        self.assertEqual(item["preview_lines"][0]["wffstr"], "P")
+
     def test_accept_fitch_ocr_endpoint_marks_review_accepted(self) -> None:
         session = _build_session()
         session.problem_types["Q1"] = "fitch_proof"
@@ -566,7 +620,6 @@ class ProblemStripsRoutesTests(unittest.TestCase):
 
         cached_dir = debug_dir / "q2_1_quiz1_berry_sharon_p01"
         cached_dir.mkdir(parents=True, exist_ok=True)
-        Image.new("RGB", (20, 20), color="white").save(cached_dir / "q2_1_quiz1_berry_sharon_p01.jpg")
         (cached_dir / "final_structure.json").write_text(
             '[{"line": 1, "wffstr": "P", "jstr": "Pr"}]',
             encoding="utf-8",
