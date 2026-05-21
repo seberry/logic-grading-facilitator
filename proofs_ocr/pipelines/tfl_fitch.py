@@ -1779,7 +1779,9 @@ def label_and_count_premises(proof_structure: List[Union[Dict, List]]) -> int:
             
             # If it already has a justification (e.g., "Taut Con"), 
             # the premise block is over.
-            elif jstr.lower() != "pr": 
+            elif jstr.lower() == "pr":
+                premise_count += 1
+            else:
                 break
                 
     return premise_count

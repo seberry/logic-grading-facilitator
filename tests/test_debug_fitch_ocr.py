@@ -89,6 +89,72 @@ class TestFitchDebugStructureNormalization(unittest.TestCase):
         self.assertEqual(normalized["lines"][1][0]["wffstr"], "Q")
         self.assertEqual(normalized["lines"][2]["wffstr"], "P → Q")
 
+    def test_fitch_debug_premise_counter_counts_existing_pr_labels(self):
+        from app.routes.fitch_debug import label_and_count_premises
+
+        structure = [
+            {"line": 1, "wffstr": "P", "jstr": "Pr"},
+            {"line": 2, "wffstr": "P→Q", "jstr": "Pr"},
+            [
+                {"line": 3, "wffstr": "P", "jstr": "Hyp"},
+            ],
+            {"line": 4, "wffstr": "P→P", "jstr": "→I 3-3"},
+        ]
+
+        self.assertEqual(label_and_count_premises(structure), 2)
+
+    def test_pipeline_premise_counter_counts_existing_pr_labels(self):
+        from proofs_ocr.pipelines.tfl_fitch import label_and_count_premises
+
+        structure = [
+            {"line": 1, "wffstr": "P", "jstr": "Pr"},
+            {"line": 2, "wffstr": "P→Q", "jstr": "Pr"},
+            [
+                {"line": 3, "wffstr": "P", "jstr": "Hyp"},
+            ],
+            {"line": 4, "wffstr": "P→P", "jstr": "→I 3-3"},
+        ]
+
+        self.assertEqual(label_and_count_premises(structure), 2)
+
+    def test_scan_pipeline_artifacts_groups_crop_and_response_variants(self):
+        import json
+        import tempfile
+
+        from app.routes import fitch_debug
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            debug_dir = root / "scan_a"
+            debug_dir.mkdir()
+            for name in ["crop_2.jpg", "crop_2_4b_fullwidth.jpg"]:
+                (debug_dir / name).write_bytes(b"fake-image")
+            (debug_dir / "response_2_separated_raw.json").write_text(
+                json.dumps({"formulas": ["P"], "justifications": []}),
+                encoding="utf-8",
+            )
+            (debug_dir / "response_2.json").write_text(
+                json.dumps([{"wffstr": "P", "jstr": "Pr"}]),
+                encoding="utf-8",
+            )
+            (debug_dir / "response_metadata_2.json").write_text(
+                json.dumps({"elapsed_s": 1.2}),
+                encoding="utf-8",
+            )
+
+            with patch.object(fitch_debug, "DEBUG_FITCH_DIR", root):
+                artifacts = fitch_debug.scan_pipeline_artifacts("scan_a")
+
+        self.assertEqual(len(artifacts["nodes"]), 1)
+        node = artifacts["nodes"][0]
+        self.assertEqual(node["id"], "2")
+        self.assertEqual([crop["label"] for crop in node["crops"]], ["node crop", "4b full-width crop"])
+        self.assertEqual(
+            [response["label"] for response in node["responses"]],
+            ["separated formulas/justifications response", "row-object response"],
+        )
+        self.assertIn("elapsed_s", node["metadata_text"])
+
 
 class TestFuzzySnapJustification(unittest.TestCase):
     """Tests for the combinatorial OCR justification repair."""

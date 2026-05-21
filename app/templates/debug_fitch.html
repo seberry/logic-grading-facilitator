@@ -537,13 +537,32 @@
         {% for node in pipeline_artifacts.nodes %}
         <div style="border:1px solid #e5e7eb;border-radius:0.65rem;padding:0.65rem;background:#fff;">
           <strong style="font-size:0.85rem;color:#4338ca;">Node {{ node.id }}</strong>
-          <div style="margin-top:0.35rem;background:#0b1224;border-radius:0.4rem;padding:0.4rem;">
-            <img src="{{ node.crop_url }}" alt="Crop for node {{ node.id }}" style="width:100%;max-height:260px;border-radius:0.3rem;">
-          </div>
-          {% if node.response_text %}
+          {% if node.crops %}
+            {% for crop in node.crops %}
+            <div style="margin-top:0.45rem;">
+              <div class="muted" style="font-size:0.78rem;">{{ crop.label }} — <code>{{ crop.filename }}</code></div>
+              <div style="margin-top:0.2rem;background:#0b1224;border-radius:0.4rem;padding:0.4rem;">
+                <img src="{{ crop.url }}" alt="{{ crop.label }} for node {{ node.id }}" style="width:100%;max-height:260px;border-radius:0.3rem;">
+              </div>
+            </div>
+            {% endfor %}
+          {% endif %}
+          {% for response in node.responses %}
           <details style="margin-top:0.4rem;">
-            <summary style="font-size:0.8rem;font-weight:600;cursor:pointer;color:#475569;">VLM response</summary>
-            <pre style="font-size:0.78rem;background:#f8fafc;border:1px solid #e5e7eb;border-radius:0.4rem;padding:0.5rem;max-height:240px;overflow:auto;white-space:pre-wrap;margin-top:0.25rem;">{{ node.response_text }}</pre>
+            <summary style="font-size:0.8rem;font-weight:600;cursor:pointer;color:#475569;">{{ response.label }} — {{ response.filename }}</summary>
+            <pre style="font-size:0.78rem;background:#f8fafc;border:1px solid #e5e7eb;border-radius:0.4rem;padding:0.5rem;max-height:240px;overflow:auto;white-space:pre-wrap;margin-top:0.25rem;">{{ response.text }}</pre>
+          </details>
+          {% endfor %}
+          {% if node.metadata_text %}
+          <details style="margin-top:0.4rem;">
+            <summary style="font-size:0.8rem;font-weight:600;cursor:pointer;color:#475569;">VLM metadata</summary>
+            <pre style="font-size:0.78rem;background:#f8fafc;border:1px solid #e5e7eb;border-radius:0.4rem;padding:0.5rem;max-height:180px;overflow:auto;white-space:pre-wrap;margin-top:0.25rem;">{{ node.metadata_text }}</pre>
+          </details>
+          {% endif %}
+          {% if node.error_text %}
+          <details style="margin-top:0.4rem;">
+            <summary style="font-size:0.8rem;font-weight:600;cursor:pointer;color:#b91c1c;">VLM error</summary>
+            <pre style="font-size:0.78rem;background:#fef2f2;border:1px solid #fecaca;border-radius:0.4rem;padding:0.5rem;max-height:180px;overflow:auto;white-space:pre-wrap;margin-top:0.25rem;">{{ node.error_text }}</pre>
           </details>
           {% endif %}
         </div>

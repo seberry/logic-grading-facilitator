@@ -23,35 +23,99 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG")
 
 
+def _artifact_url(scan_slug: str, filename: str) -> str:
+    return f"/debug_fitch_assets/{scan_slug}/{filename}"
+
+
+def _crop_node_and_variant(filename: str) -> tuple[str, str]:
+    stem = Path(filename).stem
+    token = stem[5:] if stem.startswith("crop_") else stem
+    suffixes = [
+        ("_4b_fullwidth", "4b full-width crop"),
+        ("_fullwidth", "full-width crop"),
+    ]
+    for suffix, label in suffixes:
+        if token.endswith(suffix):
+            return token[: -len(suffix)], label
+    return token, "node crop"
+
+
+def _response_node_and_label(filename: str) -> tuple[str, str] | None:
+    stem = Path(filename).stem
+    if not stem.startswith("response_"):
+        return None
+    if stem.startswith("response_metadata_"):
+        return None
+    token = stem[len("response_") :]
+    suffixes = [
+        ("_separated_raw", "separated formulas/justifications response"),
+    ]
+    for suffix, label in suffixes:
+        if token.endswith(suffix):
+            return token[: -len(suffix)], label
+    return token, "row-object response"
+
+
 def scan_pipeline_artifacts(scan_slug: str) -> Dict[str, Any]:
     """Scan debug dir for VLM pipeline artifacts (crops, responses, bar detection)."""
     debug_dir = DEBUG_FITCH_DIR / scan_slug
     if not debug_dir.exists():
         return {"nodes": [], "bar_image": None}
 
-    nodes: List[Dict[str, Any]] = []
+    grouped: Dict[str, Dict[str, Any]] = {}
 
-    # Find crop/response pairs
+    def node_for(node_id: str) -> Dict[str, Any]:
+        return grouped.setdefault(
+            node_id,
+            {"id": node_id, "crops": [], "responses": [], "metadata_text": "", "error_text": ""},
+        )
+
+    # Find crop variants, response variants, and per-node call metadata.
     for child in sorted(debug_dir.iterdir()):
         name = child.name
         if name.startswith("crop_") and name.rsplit(".", 1)[-1].lower() in ("jpg", "jpeg", "png"):
-            node_id = name[5:].rsplit(".", 1)[0]  # e.g. "ROOT", "1", "2"
-            response_path = debug_dir / f"response_{node_id}.json"
-            response_text = ""
-            if response_path.exists():
-                response_text = response_path.read_text(encoding="utf-8")
-            img_url = f"/debug_fitch_assets/{scan_slug}/{name}"
-            nodes.append({
-                "id": node_id,
-                "crop_url": img_url,
-                "response_text": response_text,
-            })
+            node_id, variant = _crop_node_and_variant(name)
+            node_for(node_id)["crops"].append(
+                {"label": variant, "url": _artifact_url(scan_slug, name), "filename": name}
+            )
+            continue
+
+        response_info = _response_node_and_label(name)
+        if response_info and child.suffix.lower() == ".json":
+            node_id, label = response_info
+            node_for(node_id)["responses"].append(
+                {"label": label, "filename": name, "text": child.read_text(encoding="utf-8")}
+            )
+            continue
+
+        if name.startswith("response_metadata_") and child.suffix.lower() == ".json":
+            node_id = child.stem[len("response_metadata_") :]
+            node_for(node_id)["metadata_text"] = child.read_text(encoding="utf-8")
+            continue
+
+        if name.startswith("error_") and child.suffix.lower() == ".txt":
+            node_id = child.stem[len("error_") :]
+            node_for(node_id)["error_text"] = child.read_text(encoding="utf-8", errors="replace")
+            continue
 
     bar_image = None
     bars_path = debug_dir / "debug_bars.jpg"
     if bars_path.exists():
-        bar_image = f"/debug_fitch_assets/{scan_slug}/debug_bars.jpg"
+        bar_image = _artifact_url(scan_slug, "debug_bars.jpg")
 
+    for node in grouped.values():
+        node["crops"].sort(key=lambda crop: (crop["label"] != "node crop", crop["filename"]))
+        node["responses"].sort(
+            key=lambda response: (
+                response["label"] != "separated formulas/justifications response",
+                response["filename"],
+            )
+        )
+
+    nodes = [
+        grouped[key]
+        for key in sorted(grouped, key=lambda value: (value != "ROOT", str(value).lower()))
+    ]
     return {"nodes": nodes, "bar_image": bar_image}
 
 
@@ -275,7 +339,9 @@ def label_and_count_premises(structure: List[Any]) -> int:
             if not jstr:
                 item["jstr"] = "Pr"
                 count += 1
-            elif jstr.lower() != "pr":
+            elif jstr.lower() == "pr":
+                count += 1
+            else:
                 break
     return count
 
