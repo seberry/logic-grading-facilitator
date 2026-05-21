@@ -1885,6 +1885,14 @@ def run_fitch_ocr_pipeline(
         f"{numprems} premises, geometry={selected_mode}"
     )
 
+    vlm_error_paths = sorted(output_dir.glob("error_*.txt"))
+    if line_count == 0 and vlm_error_paths:
+        error_names = ", ".join(path.name for path in vlm_error_paths[:5])
+        raise RuntimeError(
+            "Fitch OCR produced no proof lines because VLM calls failed. "
+            f"See {output_dir} ({error_names})."
+        )
+
     return {"run_summary": run_summary, "line_count": line_count}
 
 

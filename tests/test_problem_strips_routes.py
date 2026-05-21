@@ -15,7 +15,7 @@ from app import fol_model_review
 from app.models import GradingKey, ProblemSpec, RosterEntry, Session, WorkUnit
 from app.routes import modal_proof_debug as modal_proof_debug_routes
 from app.routes import problem_strips as problem_strips_routes
-from app.proof_ocr_review import fitch_ocr_state_path
+from app.proof_ocr_review import fitch_ocr_state_path, public_fitch_ocr_status, _summarize_vlm_diagnostics
 from app.storage import load_grading_key
 
 
@@ -282,6 +282,50 @@ class ProblemStripsRoutesTests(unittest.TestCase):
         self.assertEqual(payload["counts"], {"needs_review": 1})
         self.assertEqual(payload["items"][0]["preview_lines"][0]["wffstr"], "A")
 
+    def test_fitch_ocr_status_exposes_diagnostics_summary(self) -> None:
+        grades_dir = self.tmp_dir / "grades"
+        state_path = fitch_ocr_state_path(grades_dir, "Q1")
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(
+            json.dumps(
+                {
+                    "items": {
+                        "1": {
+                            "unit_id": 1,
+                            "status": "needs_review",
+                            "ocr_diagnostics": {"note": "VLM calls 3; elapsed 42.0s"},
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        payload = public_fitch_ocr_status(grades_dir, "Q1")
+        self.assertEqual(payload["items"][0]["ocr_diagnostics"]["note"], "VLM calls 3; elapsed 42.0s")
+
+    def test_vlm_diagnostics_summary_reads_response_metadata(self) -> None:
+        output_dir = self.tmp_dir / "debug_fitch" / "case"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        (output_dir / "response_metadata_ROOT.json").write_text(
+            json.dumps({"elapsed_s": 1.5, "thinking_chars": 0, "content_chars": 50, "finish_reason": "stop"}),
+            encoding="utf-8",
+        )
+        (output_dir / "response_metadata_2.json").write_text(
+            json.dumps({"elapsed_s": 3.25, "thinking_chars": 40, "content_chars": 90, "finish_reason": "length"}),
+            encoding="utf-8",
+        )
+        (output_dir / "thinking_2.txt").write_text("model thoughts", encoding="utf-8")
+
+        summary = _summarize_vlm_diagnostics(output_dir)
+
+        self.assertEqual(summary["call_count"], 2)
+        self.assertEqual(summary["total_elapsed_s"], 4.75)
+        self.assertEqual(summary["slowest_node"], "2")
+        self.assertEqual(summary["thinking_chars"], 40)
+        self.assertEqual(summary["thinking_file_count"], 1)
+        self.assertEqual(summary["finish_reasons"], {"stop": 1, "length": 1})
+
     def test_start_fitch_ocr_endpoint_queues_cropped_jobs_without_blocking(self) -> None:
         session = _build_session()
         session.problem_types["Q1"] = "fitch_proof"
@@ -488,7 +532,7 @@ class ProblemStripsRoutesTests(unittest.TestCase):
             patch.object(problem_strips_routes, "RAW_SCANS_DIR", raw_dir),
             patch.object(problem_strips_routes, "DEBUG_FITCH_DIR", debug_dir),
             patch.object(problem_strips_routes, "GRADES_DIR", grades_dir),
-            patch.object(problem_strips_routes, "_run_subprocess_with_logs", return_value=(0, "ok")),
+            patch.object(problem_strips_routes, "_run_subprocess_with_logs", return_value=(0, "ok")) as run_ocr,
         ):
             response = self.client.post(
                 "/problem/Q2/fitch_debug",
@@ -502,9 +546,52 @@ class ProblemStripsRoutesTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 303)
         self.assertIn("/debug/fitch?scan=", response.headers["location"])
+        run_ocr.assert_called_once()
 
         debug_files = list((debug_dir / "q2_1_quiz1_berry_sharon_p01").glob("*"))
         self.assertTrue(any(path.suffix.lower() == ".jpg" for path in debug_files))
+
+    def test_fitch_strip_route_uses_cached_debug_structure_without_rerunning_ocr(self) -> None:
+        session = _build_session()
+        session.problem_types["Q2"] = "fitch_proof"
+
+        raw_dir = self.tmp_dir / "raw_scans"
+        debug_dir = self.tmp_dir / "debug_fitch"
+        grades_dir = self.tmp_dir / "grades"
+        raw_dir.mkdir(parents=True, exist_ok=True)
+        grades_dir.mkdir(parents=True, exist_ok=True)
+
+        image_path = raw_dir / "quiz1_berry_sharon_p01.jpg"
+        Image.new("RGB", (100, 200), color="white").save(image_path)
+
+        cached_dir = debug_dir / "q2_1_quiz1_berry_sharon_p01"
+        cached_dir.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (20, 20), color="white").save(cached_dir / "q2_1_quiz1_berry_sharon_p01.jpg")
+        (cached_dir / "final_structure.json").write_text(
+            '[{"line": 1, "wffstr": "P", "jstr": "Pr"}]',
+            encoding="utf-8",
+        )
+
+        with (
+            patch.object(problem_strips_routes, "get_session", return_value=session),
+            patch.object(problem_strips_routes, "RAW_SCANS_DIR", raw_dir),
+            patch.object(problem_strips_routes, "DEBUG_FITCH_DIR", debug_dir),
+            patch.object(problem_strips_routes, "GRADES_DIR", grades_dir),
+            patch.object(problem_strips_routes, "_run_subprocess_with_logs", return_value=(0, "ok")) as run_ocr,
+        ):
+            response = self.client.post(
+                "/problem/Q2/fitch_debug",
+                data={
+                    "unit_id": "1",
+                    "page_filename": "quiz1_berry_sharon_p01.jpg",
+                    "bbox_json": "[0.1, 0.2, 0.8, 0.9]",
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 303)
+        self.assertIn("/debug/fitch?scan=q2_1_quiz1_berry_sharon_p01", response.headers["location"])
+        run_ocr.assert_not_called()
 
     def test_fitch_strip_route_rejects_non_fitch_problem(self) -> None:
         session = _build_session()

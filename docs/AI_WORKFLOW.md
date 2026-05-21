@@ -75,12 +75,14 @@ also be used as an intake UI with an external production `DATA_DIR`. If no
 `roster.csv` exists, the Canvas ZIP importer creates anonymous work units from
 filename prefixes (`anon_0001`, etc.) so strip OCR can preserve page/problem
 grouping without loading a real roster. Use this for OCR-corpus curation, not
-for actual grade export.
+for actual grade export. Keep `LMSTUDIO_MODEL_27B` unset or empty unless you are
+explicitly testing the larger small-crop route.
 
 ```powershell
 $env:DATA_DIR='C:\grading-data\live-ocr-curation'
 $env:DATA_ARCHIVE_DIR='C:\grading-data\archive'
 $env:ENV_MODE='PRODUCTION'
+$env:LMSTUDIO_MODEL_27B=''
 python -m uvicorn app.server:app --port 5001
 
 python -m proofs_ocr.regression.private_tfl_exporter seed-from-strip --eval-root C:\grading-data\ocr-eval\exam1 --assignment-id exam1_spring2026 --problem-id Q6 --grades-dir C:\grading-data\live\grades --debug-fitch-dir C:\grading-data\live\debug_fitch --split dev_regression

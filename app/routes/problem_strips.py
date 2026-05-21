@@ -939,6 +939,7 @@ async def open_fitch_debug_from_strip(
     unit_id: int = Form(...),
     page_filename: str = Form(...),
     bbox_json: str = Form(""),
+    force_rerun: bool = Form(False),
 ) -> Response:
     session = get_session()
     spec = next((p for p in session.grading_key.problems if p.id == problem_id), None)
@@ -975,6 +976,10 @@ async def open_fitch_debug_from_strip(
     target_dir = DEBUG_FITCH_DIR / slug
     target_dir.mkdir(parents=True, exist_ok=True)
     target_image = target_dir / f"{slug}{image_path.suffix.lower()}"
+    final_structure = target_dir / "final_structure.json"
+
+    if final_structure.exists() and target_image.exists() and not force_rerun:
+        return RedirectResponse(url=f"/debug/fitch?scan={quote(slug)}", status_code=303)
 
     with Image.open(image_path) as im:
         working = im.convert("RGB")

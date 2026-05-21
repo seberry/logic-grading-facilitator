@@ -20,6 +20,54 @@ def _tfl_handwritten_fixture(name: str) -> Path:
     )
 
 
+class TestFitchDebugStructureNormalization(unittest.TestCase):
+    def test_normalize_structure_payload_strips_single_outer_frame(self):
+        from app.routes.fitch_debug import normalize_structure_payload
+
+        payload = {
+            "lines": [
+                [
+                    {"line": 1, "wffstr": "P", "jstr": "Pr"},
+                    [
+                        {"line": 2, "wffstr": "Q", "jstr": "Hyp"},
+                    ],
+                    {"line": 3, "wffstr": "P", "jstr": "R 1"},
+                ]
+            ],
+            "meta": {"num_premises": 1, "conclusion": "P"},
+        }
+
+        normalized = normalize_structure_payload(payload)
+
+        self.assertEqual(normalized["lines"][0]["wffstr"], "P")
+        self.assertIsInstance(normalized["lines"][1], list)
+        self.assertEqual(normalized["meta"]["conclusion"], "P")
+
+    def test_normalize_structure_payload_shifts_minimum_depth_to_zero(self):
+        from app.routes.fitch_debug import normalize_structure_payload
+
+        payload = {
+            "lines": [
+                [
+                    {"line": 1, "wffstr": "P", "jstr": "Pr"},
+                    [
+                        {"line": 2, "wffstr": "Q", "jstr": "Hyp"},
+                    ],
+                ],
+                [
+                    {"line": 3, "wffstr": "P → Q", "jstr": "→I 1-2"},
+                ],
+            ],
+        }
+
+        normalized = normalize_structure_payload(payload)
+
+        self.assertEqual(normalized["lines"][0]["wffstr"], "P")
+        self.assertIsInstance(normalized["lines"][1], list)
+        self.assertEqual(normalized["lines"][1][0]["wffstr"], "Q")
+        self.assertEqual(normalized["lines"][2]["wffstr"], "P → Q")
+
+
 class TestFuzzySnapJustification(unittest.TestCase):
     """Tests for the combinatorial OCR justification repair."""
 
@@ -442,6 +490,17 @@ class TestBuildOcrPromptWithExpectedLines(unittest.TestCase):
 
 
 class TestMovedTflFitchVlmHelpers(unittest.TestCase):
+    def test_27b_model_routing_is_opt_in(self) -> None:
+        from proofs_ocr.pipelines.tfl_fitch_vlm import get_model_27b, model_27b_available
+
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(get_model_27b(), "")
+            self.assertFalse(model_27b_available())
+
+        with patch.dict("os.environ", {"LMSTUDIO_MODEL_27B": "qwen/qwen3.6-27b"}):
+            self.assertEqual(get_model_27b(), "qwen/qwen3.6-27b")
+            self.assertTrue(model_27b_available())
+
     def test_call_vlm_uses_moved_prompt_helper_and_parses_fenced_json(self) -> None:
         import json
         import tempfile

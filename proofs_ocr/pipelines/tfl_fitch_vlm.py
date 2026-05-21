@@ -16,7 +16,7 @@ USE_SIMPLE_PROMPT = False
 
 
 def get_model_27b() -> str:
-    return os.getenv("LMSTUDIO_MODEL_27B", "qwen/qwen3.6-27b").strip()
+    return os.getenv("LMSTUDIO_MODEL_27B", "").strip()
 
 
 def model_27b_available() -> bool:

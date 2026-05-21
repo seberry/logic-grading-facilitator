@@ -982,6 +982,11 @@
                 <div class="fitch-ocr-meta" data-fitch-ocr-message>
                   {% if fitch %}{{ fitch.message or fitch.status }}{% else %}Not queued yet.{% endif %}
                 </div>
+                {% if fitch and fitch.ocr_diagnostics and fitch.ocr_diagnostics.note %}
+                  <div class="fitch-ocr-meta" data-fitch-ocr-diagnostics>{{ fitch.ocr_diagnostics.note }}</div>
+                {% else %}
+                  <div class="fitch-ocr-meta" data-fitch-ocr-diagnostics></div>
+                {% endif %}
               </div>
               <div class="fitch-ocr-actions" data-fitch-ocr-actions>
                 {% if fitch and fitch.debug_url %}
@@ -1315,7 +1320,7 @@
     }
 
     // --- CROPPING LOGIC ---
-    const PADDING_FACTOR = 0.2; 
+    const PADDING_FACTOR = 0; 
     const MAX_SCALE = 2.5;
 
     function applyCrop(wrapperIndex, enable) {
@@ -1790,6 +1795,12 @@ const croppers = {};
       if (message) {
         const summary = item.run_summary ? ` ${item.run_summary}` : '';
         message.textContent = `${fitchStatusLabel(item.status)}. ${item.message || ''}${summary}`.trim();
+      }
+      const diagnostics = card.querySelector('[data-fitch-ocr-diagnostics]');
+      if (diagnostics) {
+        diagnostics.textContent = item.ocr_diagnostics && item.ocr_diagnostics.note
+          ? item.ocr_diagnostics.note
+          : '';
       }
 
       const actions = card.querySelector('[data-fitch-ocr-actions]');

@@ -690,7 +690,7 @@
           warnings[idx].push("Depth cannot be negative.");
         }
         if (idx === 0 && depth !== 0) {
-          warnings[idx].push("First line should start at depth 0.");
+          warnings[idx].push("First logical line should start at depth 0; do not count the printed outer proof frame.");
         }
         if (idx > 0 && depth - prevDepth > 1) {
           warnings[idx].push("Indent by +1 only after a subproof start.");
@@ -698,6 +698,18 @@
         prevDepth = depth;
       });
       return warnings;
+    }
+
+    function normalizeLogicalDepths(rows) {
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return [];
+      }
+      const depths = rows.map((row) => normalizeDepth(row.depth));
+      const minDepth = Math.min(...depths);
+      return rows.map((row, idx) => ({
+        ...row,
+        depth: Math.max(0, depths[idx] - minDepth),
+      }));
     }
 
     function refreshDepthBarCaps() {
@@ -948,7 +960,7 @@
       }
 
       if (Array.isArray(data)) {
-        proofRows = structureToRows(data);
+        proofRows = normalizeLogicalDepths(structureToRows(data));
         meta = { num_premises: null, conclusion: "" };
         renderTable();
         syncMetaInputs();
@@ -958,7 +970,7 @@
       if (data && typeof data === "object") {
         const lines = Array.isArray(data.lines) ? data.lines : Array.isArray(data.structure) ? data.structure : [];
         meta = normalizeMeta(data.meta);
-        proofRows = structureToRows(lines);
+        proofRows = normalizeLogicalDepths(structureToRows(lines));
         renderTable();
         syncMetaInputs();
         return;
@@ -970,6 +982,7 @@
     }
 
     function syncRawFromRows() {
+      proofRows = normalizeLogicalDepths(proofRows);
       const { structure } = rowsToStructure(proofRows);
       const payload = {
         lines: structure,
@@ -989,7 +1002,7 @@
       }
       if (Array.isArray(data)) {
         meta = { num_premises: null, conclusion: "" };
-        proofRows = structureToRows(data);
+        proofRows = normalizeLogicalDepths(structureToRows(data));
         renderTable();
         setStatus("");
         syncMetaInputs();
@@ -1003,7 +1016,7 @@
           return false;
         }
         meta = normalizeMeta(data.meta);
-        proofRows = structureToRows(lines);
+        proofRows = normalizeLogicalDepths(structureToRows(lines));
         renderTable();
         setStatus("");
         syncMetaInputs();
@@ -1046,9 +1059,11 @@
       if (rawToggle && rawToggle.checked && rawEditor) {
         return rawEditor.value || "[]";
       }
+      proofRows = normalizeLogicalDepths(proofRows);
       const { structure, rowWarnings } = rowsToStructure(proofRows);
       const flattenedWarnings = (rowWarnings || []).flat().filter(Boolean);
       refreshWarnings(rowWarnings);
+      renderTable(rowWarnings);
       if (flattenedWarnings.length) {
         setStatus("Fix indentation warnings before saving.", true);
         return null;

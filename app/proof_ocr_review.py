@@ -117,6 +117,7 @@ def _public_item(item: Mapping[str, Any]) -> Dict[str, Any]:
         "checker_issues",
         "reread_summary",
         "reread_records",
+        "ocr_diagnostics",
     }
     return {key: item.get(key) for key in allowed if key in item}
 
@@ -286,6 +287,7 @@ def _run_fitch_ocr_job(
         final_structure = _load_json_file(output_dir / "final_structure.json", default=[])
         checker_issues = _checker_issues(final_structure)
         reread_summary, reread_records = _load_reread_reports(output_dir, debug_fitch_dir)
+        ocr_diagnostics = _summarize_vlm_diagnostics(output_dir)
         has_reread_flags = bool((reread_summary or {}).get("record_count"))
         next_status = "verifier_issue" if checker_issues or has_reread_flags else "needs_review"
         message = "OCR ready for review."
@@ -306,6 +308,7 @@ def _run_fitch_ocr_job(
                 "checker_issues": checker_issues,
                 "reread_summary": reread_summary,
                 "reread_records": reread_records,
+                "ocr_diagnostics": ocr_diagnostics,
             },
         )
     except Exception as exc:  # noqa: BLE001 - background job state must record failures.
@@ -362,6 +365,69 @@ def _coerce_bbox(value: Any) -> Optional[List[float]]:
     if 0 <= x1 < x2 <= 1 and 0 <= y1 < y2 <= 1:
         return [x1, y1, x2, y2]
     return None
+
+
+def _summarize_vlm_diagnostics(output_dir: Path) -> Dict[str, Any]:
+    metadata_files = sorted(Path(output_dir).glob("response_metadata_*.json"))
+    if not metadata_files:
+        return {}
+
+    call_count = 0
+    total_elapsed = 0.0
+    max_elapsed = 0.0
+    slowest_node = ""
+    thinking_chars = 0
+    content_chars = 0
+    finish_reasons: Dict[str, int] = {}
+
+    for path in metadata_files:
+        data = _load_json_file(path, default={})
+        if not isinstance(data, dict):
+            continue
+        call_count += 1
+        try:
+            elapsed = float(data.get("elapsed_s") or 0.0)
+        except (TypeError, ValueError):
+            elapsed = 0.0
+        total_elapsed += elapsed
+        if elapsed > max_elapsed:
+            max_elapsed = elapsed
+            slowest_node = path.stem.removeprefix("response_metadata_")
+
+        try:
+            thinking_chars += int(data.get("thinking_chars") or 0)
+        except (TypeError, ValueError):
+            pass
+        try:
+            content_chars += int(data.get("content_chars") or 0)
+        except (TypeError, ValueError):
+            pass
+
+        finish = str(data.get("finish_reason") or "unknown").strip() or "unknown"
+        finish_reasons[finish] = finish_reasons.get(finish, 0) + 1
+
+    error_count = len(list(Path(output_dir).glob("error_*.txt")))
+    thinking_file_count = len(list(Path(output_dir).glob("thinking_*.txt")))
+    note_parts = [f"VLM calls {call_count}", f"elapsed {total_elapsed:.1f}s"]
+    if slowest_node:
+        note_parts.append(f"slowest node {slowest_node} {max_elapsed:.1f}s")
+    if thinking_chars:
+        note_parts.append(f"thinking {thinking_chars} chars")
+    if error_count:
+        note_parts.append(f"errors {error_count}")
+
+    return {
+        "call_count": call_count,
+        "total_elapsed_s": round(total_elapsed, 3),
+        "max_elapsed_s": round(max_elapsed, 3),
+        "slowest_node": slowest_node,
+        "thinking_chars": thinking_chars,
+        "thinking_file_count": thinking_file_count,
+        "content_chars": content_chars,
+        "finish_reasons": finish_reasons,
+        "error_count": error_count,
+        "note": "; ".join(note_parts),
+    }
 
 
 def _debug_url(slug: str) -> str:

@@ -188,10 +188,28 @@ OCR review surface. Correct the saved `final_structure.json` in the Fitch debug
 page, accept only cases good enough to become gold, then seed the external
 private eval corpus with `private_tfl_exporter`.
 
+The strip-page **OCR Proof** action is cache-first once a debug crop and
+`final_structure.json` already exist for the same anonymous slug: it redirects
+to `/debug/fitch?scan=...` without rerunning LM Studio. Use the debug page's
+**Re-run OCR/parse** button only when you intentionally want to overwrite the
+cached OCR artifacts.
+
+Depth in `final_structure.json` is logical, not a count of every printed
+vertical mark. The ordinary outer Fitch proof spine/premise separator is a page
+scaffold and should normalize to depth 0; only real nested assumption subproofs
+increase depth. This matters for theorem proofs, where the final conclusion
+must still be top-level rather than requiring an impossible depth -1.
+
 Important operational note: strip/debug OCR launches `scripts/debug_fitch_ocr.py`
 in a subprocess. The route helpers set `PYTHONPATH` to the repo root and
 `PYTHONIOENCODING=utf-8` so Windows subprocesses can import `proofs_ocr` and
 print symbols like `∧` without crashing after a successful OCR run.
+
+For live curation, the 27B small-crop route is now opt-in. Leave
+`LMSTUDIO_MODEL_27B` unset or empty for the normal fast path. Set it explicitly,
+for example `LMSTUDIO_MODEL_27B=qwen/qwen3.6-27b`, only when testing the larger
+model route, and make sure LM Studio has that model loaded with thinking disabled
+or the route can spend minutes on tiny crops and destabilize later calls.
 
 ### First real-scan observation
 

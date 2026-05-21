@@ -147,9 +147,53 @@ def normalize_structure_payload(payload: Any) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="'lines' must be a list (allowing nested subproofs).")
 
     return {
-        "lines": lines,
+        "lines": normalize_logical_depths(strip_outer_proof_frame(lines)),
         "meta": _clean_meta(meta),
     }
+
+
+def strip_outer_proof_frame(lines: List[Any]) -> List[Any]:
+    """Remove a single printed Fitch scaffold accidentally encoded as depth."""
+
+    normalized = lines
+    while len(normalized) == 1 and isinstance(normalized[0], list):
+        normalized = normalized[0]
+    return normalized
+
+
+def normalize_logical_depths(lines: List[Any]) -> List[Any]:
+    """Shift a whole proof up when every line is nested under a visual scaffold."""
+
+    rows: List[tuple[int, Dict[str, Any]]] = []
+
+    def walk(items: List[Any], depth: int) -> None:
+        for item in items:
+            if isinstance(item, list):
+                walk(item, depth + 1)
+            elif isinstance(item, dict):
+                rows.append((depth, dict(item)))
+
+    walk(lines, 0)
+    if not rows:
+        return lines
+
+    min_depth = min(depth for depth, _line in rows)
+    if min_depth <= 0:
+        return lines
+
+    root: List[Any] = []
+    stack: List[List[Any]] = [root]
+    for depth, line in rows:
+        logical_depth = max(0, depth - min_depth)
+        while logical_depth < len(stack) - 1:
+            stack.pop()
+        while logical_depth > len(stack) - 1:
+            child: List[Any] = []
+            stack[-1].append(child)
+            stack.append(child)
+        stack[-1].append(line)
+
+    return root
 
 
 def load_structure_json(scan_slug: str) -> Dict[str, Any]:
