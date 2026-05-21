@@ -21,6 +21,28 @@ def _tfl_handwritten_fixture(name: str) -> Path:
 
 
 class TestFitchDebugStructureNormalization(unittest.TestCase):
+    def test_pipeline_depth_normalizer_shifts_multiple_outer_blocks(self):
+        from proofs_ocr.pipelines.tfl_fitch import normalize_logical_fitch_depths
+
+        payload = [
+            [
+                {"line": 1, "wffstr": "P", "jstr": "Pr"},
+                [
+                    {"line": 2, "wffstr": "Q", "jstr": "Hyp"},
+                ],
+            ],
+            [
+                {"line": 3, "wffstr": "P → Q", "jstr": "→I 1-2"},
+            ],
+        ]
+
+        normalized = normalize_logical_fitch_depths(payload)
+
+        self.assertEqual(normalized[0]["wffstr"], "P")
+        self.assertIsInstance(normalized[1], list)
+        self.assertEqual(normalized[1][0]["wffstr"], "Q")
+        self.assertEqual(normalized[2]["wffstr"], "P → Q")
+
     def test_normalize_structure_payload_strips_single_outer_frame(self):
         from app.routes.fitch_debug import normalize_structure_payload
 

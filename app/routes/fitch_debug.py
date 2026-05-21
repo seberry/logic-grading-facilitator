@@ -338,8 +338,10 @@ async def rerun_fitch_pipeline(scan: str = Form(...)) -> Response:
         command[-1] = image_path.name
 
     code, output = await run_subprocess_with_logs(command)
-    structure_text = load_structure_text(scan)
     normalized = load_structure_json(scan)
+    structure_text = json.dumps(normalized, indent=2, ensure_ascii=False)
+    if code == 0:
+        final_structure_path(scan).write_text(structure_text, encoding="utf-8")
 
     status = "ok" if code == 0 else "error"
     return JSONResponse(

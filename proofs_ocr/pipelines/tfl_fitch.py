@@ -13,7 +13,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import cv2
 import numpy as np
@@ -359,6 +359,43 @@ def normalize_proof_structure(structure):
     # Start the recursion
     recursive_normalize(structure)
     return structure
+
+
+def normalize_logical_fitch_depths(structure: list) -> list:
+    """Shift OCR structures up when the printed outer Fitch frame was counted."""
+
+    rows: list[tuple[int, Dict[str, Any]]] = []
+
+    def walk(items, depth: int) -> None:
+        if not isinstance(items, list):
+            return
+        for item in items:
+            if isinstance(item, list):
+                walk(item, depth + 1)
+            elif isinstance(item, dict):
+                rows.append((depth, dict(item)))
+
+    walk(structure, 0)
+    if not rows:
+        return structure
+
+    min_depth = min(depth for depth, _line in rows)
+    if min_depth <= 0:
+        return structure
+
+    root: list[Any] = []
+    stack: list[list[Any]] = [root]
+    for depth, line in rows:
+        logical_depth = max(0, depth - min_depth)
+        while logical_depth < len(stack) - 1:
+            stack.pop()
+        while logical_depth > len(stack) - 1:
+            child: list[Any] = []
+            stack[-1].append(child)
+            stack.append(child)
+        stack[-1].append(line)
+
+    return root
     
 # ==============================================================================
 # 1. Computer Vision Core (Adapted from bold_fitch_lines.py)
@@ -1846,6 +1883,7 @@ def run_fitch_ocr_pipeline(
            and len(stitched_structure) == 1
            and isinstance(stitched_structure[0], list)):
         stitched_structure = stitched_structure[0]
+    stitched_structure = normalize_logical_fitch_depths(stitched_structure)
 
     # Normalize
     normalize_proof_structure(stitched_structure)
