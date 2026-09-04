@@ -13,7 +13,7 @@ entry in this table.
 | `AI_WORKFLOW.md` | Coding-agent map, safe test commands, and OCR workflow guardrails. |
 | `ARCHITECTURE.md` | Current FastAPI/Jinja app architecture, active routes, data flow, caches, and UI integration points. |
 | `SCHEMA.md` | Persisted JSON/YAML data shapes, including session files, problem types, and proof OCR review state. |
-| `FITCH_OCR_AGENT.md` | Current handwritten TFL/Fitch OCR pipeline guide plus active experiment status. Read before changing `proofs_ocr/pipelines/tfl_fitch.py` or strip-view TFL/Fitch OCR integration. |
+| `FITCH_OCR_AGENT.md` | Current handwritten TFL/Fitch OCR operating guide. Read before changing `proofs_ocr/pipelines/tfl_fitch.py` or strip-view TFL/Fitch OCR integration. |
 | `DEV_WORKFLOWS.md` | Practical command recipes for server/debug workflows. |
 
 For TFL/Fitch OCR UI integration, read `ARCHITECTURE.md` for the strip-view
@@ -31,6 +31,8 @@ entry points cannot hold the information cleanly.
 - `TFL_OCR_FUTURE_IDEAS.md` - older TFL OCR idea backlog.
 - `CROSS_PIPELINE_INVESTIGATION.md` - notes comparing modal/TFL approaches.
 - `FITCH_DEBUG_PIPELINE_TRACE_PROGRESS.md` - historical trace/debug progress.
+- `FITCH_OCR_EXPERIMENT_LOG.md` - archived long-form TFL/Fitch OCR notes and
+  dated experiment history.
 
 These are reference or historical context unless explicitly called out by an
 active entry point. Do not use them as the source of truth for current TFL/Fitch
@@ -38,6 +40,8 @@ behavior without checking `FITCH_OCR_AGENT.md`.
 
 ## Canvas And Grading App Docs
 
+- `QUIZ_VARIANT_TF_WORKFLOW.md` - instructor workflow for versioned paper quizzes and model-free TF handoff.
+- `TA_GRADING_GUIDE.md` - short operating/troubleshooting guide to include with a TF grading bundle.
 - `CANVAS_INTEGRATION.md`
 - `CANVAS_COMMENT_POSTING.md`
 - `CANVAS_USER_ID_MAPPING.md`
@@ -55,7 +59,8 @@ routes and data stores, prefer `ARCHITECTURE.md` and `SCHEMA.md`.
 
 ## Status Notes
 
-- `FITCH_OCR_AGENT.md` is the current source of truth for TFL/Fitch OCR.
+- `FITCH_OCR_AGENT.md` is the current source of truth for TFL/Fitch OCR. The
+  long historical notes are in `FITCH_OCR_EXPERIMENT_LOG.md`.
 - The `PROOF_OCR_*` docs mostly describe the modal proof OCR path. They are
   still useful, but they can contradict TFL/Fitch details if read as current
   TFL guidance.
@@ -80,8 +85,6 @@ routes and data stores, prefer `ARCHITECTURE.md` and `SCHEMA.md`.
 
 The highest-value cleanup is consolidation, not deletion:
 
-- Split `FITCH_OCR_AGENT.md` later into a short current operating guide plus an
-  archived experiment log. Until then, keep current status near the top.
 - Label old planning docs such as `STRATEGY_FITCH_PROOFS.md`, `DESIGN_v2.md`,
   and older probe-result files as historical when they are next edited.
 - Move durable route/data maps into `ARCHITECTURE.md` rather than duplicating
@@ -96,9 +99,7 @@ they are likely clutter from the perspective of future coding sessions:
 
 - Root-level generated/media artifacts: `Gemini_Generated_*.png`,
   `icon_*.png`, `icon_*.ico`, `temp_root_zoom_strip.jpg`,
-  `P251_Exam_1-solutions.pdf`, `deduct-master.zip`, `repo-structure.txt`.
-- Root-level prototype tests: `test_column_matching.py`,
-  `test_column_matching_simple.py`. If still useful, move them under `tests/`.
+  `P251_Exam_1-solutions.pdf`, `deduct-master.zip`.
 - Historical debug folders: `debug_output/`, `debug_output_segment_all/`, and
   most timestamped or one-off subdirectories under `working/`.
 - Script clutter: many `scripts/probe_*`, icon-processing scripts, and old

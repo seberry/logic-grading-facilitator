@@ -1,7 +1,12 @@
 project_meta:
   name: "Logic Grading Facilitator"
   mission: "Fast, FERPA-safe grading of scanned quizzes with a clear path to future automation."
-  current_version: "2025-11-strip-view-prototype"
+  current_version: "historical-machine-map"
+  status_note: >
+    This file is an older machine-readable orientation map. Prefer
+    docs/README.md, docs/ARCHITECTURE.md, docs/SCHEMA.md, and
+    docs/AI_WORKFLOW.md for current route/data ownership before relying on
+    entries below.
 
 # -------------------------------------------------------------------
 # 1. Core concepts & glossary (slow-changing)

@@ -9,14 +9,19 @@
 
 ## 1. Overview
 
-The classwork viewer supports Canvas API integration to streamline the grading workflow. This integration automates fetching gradebook and assignment data from Canvas, downloading submissions, and posting comments back to Canvas.
+The classwork viewer supports Canvas API integration to streamline the grading
+workflow. This integration automates fetching course/assignment data from
+Canvas, downloading submissions, and posting comments back to Canvas. The
+current setup flow still requires the instructor to upload a Canvas gradebook
+CSV so grade merges happen against the exact file the instructor intends to
+re-upload.
 
 **Two paths exist:**
 
 | Path | Status | Description |
 |------|--------|-------------|
 | **Manual** | Stable | Upload gradebook CSV + submission ZIPs by hand |
-| **Canvas API** | Live (slow for large batches) | Auto-fetch everything from Canvas; see §5 for known performance issue |
+| **Canvas API** | Live (slow for large batches) | Auto-fetch courses, assignments, and submissions; upload gradebook CSV manually |
 
 ---
 
@@ -49,7 +54,8 @@ The Canvas setup page provides a streamlined three-step workflow:
 
 1. **Select Course** — Dropdown loads all accessible Canvas courses via API
 2. **Select Assignments** — Choose assignments to grade from a sorted list (with ungraded counts)
-3. **Fetch from Canvas & Setup** — Click to automatically download submissions and setup grading
+3. **Upload Gradebook CSV and Setup** — Upload the Canvas gradebook CSV, then
+   click setup to download submissions and create the classwork batch
 
 ### 3.1 API Endpoints
 
@@ -66,16 +72,16 @@ The Canvas setup page provides a streamlined three-step workflow:
 - Sorts assignments by due date DESC
 
 #### POST `/classwork/canvas_setup`
-- Sets up classwork using Canvas API data
+- Sets up classwork using Canvas assignment metadata plus an uploaded gradebook CSV
 - Parameters:
   - `course_id`: Canvas course ID
   - `assignment_ids[]`: List of assignment IDs to grade
+  - `gradebook_csv`: Canvas gradebook CSV upload
 - Actions:
-  1. Fetches gradebook CSV from Canvas
-  2. Parses gradebook and builds roster
-  3. Fetches assignment metadata (max points)
-  4. Downloads all submission files from Canvas for each selected assignment (automatic)
-  5. Creates ClassworkBatchState with Canvas metadata
+  1. Parses the uploaded gradebook and builds roster/matching columns
+  2. Fetches assignment metadata (max points)
+  3. Downloads all submission files from Canvas for each selected assignment (automatic)
+  4. Creates `ClassworkBatchState` with Canvas metadata
 - Redirects to `/classwork/review`
 
 ### 3.2 Auto-Download Feature
@@ -303,15 +309,17 @@ data/canvas_cache/
 ### Canvas API Workflow (Streamlined)
 1. Select course from dropdown (auto-fetched)
 2. Select assignments from list (auto-fetched, sorted by due date, with ungraded counts)
-3. Click "Fetch from Canvas & Setup"
-4. **Submissions downloaded automatically** (no manual ZIP needed)
-5. Grade submissions
-6. Export merged gradebook CSV
-7. Upload CSV back to Canvas (still manual — **INTENTIONAL DESIGN**)
-8. Click "Upload Comments to Canvas" button
-9. Comments posted automatically via API
+3. Upload the Canvas gradebook CSV
+4. Click setup
+5. **Submissions downloaded automatically** (no manual ZIP needed)
+6. Grade submissions
+7. Export merged gradebook CSV
+8. Upload CSV back to Canvas (still manual — **INTENTIONAL DESIGN**)
+9. Click "Upload Comments to Canvas" button
+10. Comments posted automatically via API
 
-**Time Savings:** Eliminates steps 1, 2, 3, 4, 5, 8, 9, and 10 from manual workflow.
+**Time Savings:** Eliminates manual submission ZIP download/upload and most
+manual assignment setup. Gradebook CSV download/upload remains deliberate.
 
 ### Why Manual Grade Upload?
 
@@ -413,7 +421,7 @@ Run automated tests:
 ```bash
 python scripts/test_canvas_api.py
 python scripts/test_canvas_user_id_mapping.py
-python test_column_matching_simple.py
+pytest tests/test_column_matching.py
 ```
 
 ---

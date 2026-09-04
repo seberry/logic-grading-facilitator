@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 
 from proofs_ocr.pipelines.tfl_fitch_vlm import (
+    accept_partial_separated_nested_leaf_ocr,
     build_27b_fullwidth_prompt,
     build_nested_leaf_separated_prompt,
     get_4b_fullwidth_max_lines,
@@ -199,6 +200,26 @@ def handle_separated_leaf_response(
             f"{len(stitched_separated)} stitched line(s)"
         )
         return stitched_separated, thinking_text
+
+    if accept_partial_separated_nested_leaf_ocr():
+        stitched_partial = stitch_separated_nested_leaf_ocr(
+            separated_payload,
+            expected_lines=expected_lines,
+            allow_partial_justifications=True,
+        )
+        if stitched_partial is not None:
+            missing_jstr = len(
+                [
+                    item
+                    for index, item in enumerate(stitched_partial)
+                    if index > 0 and isinstance(item, dict) and not str(item.get("jstr") or "").strip()
+                ]
+            )
+            print(
+                f"   [SeparatedLeaf] Node {node.id}: accepted formulas with "
+                f"{missing_jstr} blank derived justification(s)"
+            )
+            return stitched_partial, thinking_text
 
     print(f"   [SeparatedLeaf] Node {node.id}: count/shape mismatch; falling back to row-object OCR")
     fallback_result, fallback_thinking = call_vlm_fn(

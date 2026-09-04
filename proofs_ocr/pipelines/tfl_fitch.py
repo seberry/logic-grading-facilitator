@@ -33,6 +33,14 @@ def _safe_console_print(text: object = "") -> None:
 
 from proofs_ocr.common.rows import band_height, detect_text_row_bands
 from proofs_ocr.common.stitch import recursive_stitch, renumber_lines
+from proofs_ocr.pipelines.tfl_fitch_structure import (
+    apply_default_justifications,
+    infer_missing_rule_heads,
+    label_and_count_premises,
+    normalize_logical_fitch_depths,
+    normalize_proof_structure,
+    remove_empty_lines,
+)
 from proofs_ocr.pipelines.tfl_line_reread import (
     collect_verifier_reread_candidates,
     strip_ocr_metadata,
@@ -55,13 +63,6 @@ from proofs_ocr.pipelines.tfl_fitch_vlm import (
     stitch_separated_nested_leaf_ocr,
     use_separated_nested_leaf_ocr as _use_separated_nested_leaf_ocr,
 )
-from proofs_ocr.tricks.justification_snaps import (
-    TFL_KNOWN_RULE_HEADS,
-    TFL_VALID_RULE_HEADS,
-    clean_justification_for_tfl,
-    fuzzy_snap_justification,
-    snap_justification_rule_head,
-)
 
 # Attempt to import project modules
 try:
@@ -80,62 +81,6 @@ except ImportError as e:
     DEBUG_FITCH_DIR = project_root / "data" / "debug_fitch"
 
 # renumber_lines and recursive_stitch are imported from proofs_ocr.common.stitch
-
-
-def apply_default_justifications(proof_structure: list, numprems: int) -> None:
-    """
-    Fill in any remaining blank justifications after renumbering.
-
-    - Lines whose numbers fall within the inferred premise block (<= numprems)
-      are labeled as Premises (Pr).
-    - All other blank justifications are treated as assumptions (Hyp) so the
-      verifier can parse them instead of emitting "Justification left blank."
-    """
-
-    for item in proof_structure:
-        if isinstance(item, list):
-            apply_default_justifications(item, numprems)
-        elif isinstance(item, dict):
-            raw_j = str(item.get("jstr", "")).strip()
-            if raw_j:
-                continue
-
-            line_no = item.get("line")
-            if line_no is not None and line_no <= numprems:
-                item["jstr"] = "Pr"
-            else:
-                item["jstr"] = "Hyp"
-
-
-def remove_empty_lines(proof_structure: list) -> list:
-    cleaned = []
-    for item in proof_structure:
-        if isinstance(item, list):
-            nested = remove_empty_lines(item)
-            if nested:
-                cleaned.append(nested)
-            continue
-        if isinstance(item, dict):
-            wff = str(item.get("wffstr", "")).strip()
-            jstr = str(item.get("jstr", "")).strip()
-            if not wff and not jstr:
-                continue
-            cleaned.append(item)
-    proof_structure[:] = cleaned
-    return proof_structure
-
-
-def infer_missing_rule_heads(proof_structure: list) -> None:
-    for item in proof_structure:
-        if isinstance(item, list):
-            infer_missing_rule_heads(item)
-            continue
-        if not isinstance(item, dict):
-            continue
-        wff = str(item.get("wffstr", "")).strip()
-        jstr = str(item.get("jstr", "")).strip()
-        if wff.startswith("¬") and re.fullmatch(r"I\s+\d+(?:-\d+)?", jstr):
-            item["jstr"] = f"¬{jstr}"
 
 
 def structure_to_proof_lines(structure: List[Union[Dict, List]]) -> List[Union[ProofLine, List]]:
@@ -193,210 +138,6 @@ def infer_premises(flattened: List[ProofLine]) -> int:
     # For deeper nesting, fall back to zero until a better heuristic is defined.
     return 0
 
-def normalize_proof_structure(structure):
-    """
-    Walks the proof structure to:
-    1. Convert ASCII logic symbols to Unicode (e.g., '~' -> '¬').
-    2. Uppercase atomic formulas (TFL requires 'P', not 'p').
-    3. Map loose justification names to verifier codes (e.g., 'Premise' -> 'Pr').
-    4. Auto-label the first line of any subproof as 'Hyp' if blank.
-    """
-    
-    # Map ASCII/Loose symbols to Verifier Unicode
-    # Note: We do this replacement BEFORE uppercasing to protect 'v' (or) from becoming 'V'.
-    symbol_map = {
-        "~": "¬",
-        "-": "¬",      # Sometimes OCR sees dash as negation
-        "&": "∧",
-        ".": "∧",      # VLM often uses dot for AND
-        "v": "∨",      # Lowercase v is OR
-        "V": "∨",
-        "->": "→",
-        "=>": "→",
-        "<->": "↔",
-        "=": "↔",      # Common OCR error for biconditional
-        "_|_": "⊥",
-        "F": "⊥",      # Falsum often written as F
-    }
-
-    contradiction_rule_heads = {"¬E", "⊥I"}
-
-    def clean_wff(wff):
-        if not wff: return ""
-        if "<SUBPROOF_ID_" in str(wff):
-            return str(wff)
-
-        # Phase 0: Blanket OCR-artifact repair for TFL formulas.
-        # TFL formulas never contain digits, epsilons, or element-of symbols.
-        # Any occurrence is a VLM misread of a handwritten symbol.
-        wff = wff.replace("∈", "E").replace("ε", "E")   # epsilon → E
-        wff = wff.replace("8", "∧")                       # handwritten ∧ misread as 8
-        wff = wff.replace("5", "S")                        # handwritten S misread as 5
-
-        # 1. Replace multi-char operators first to avoid breaking them
-        wff = wff.replace("->", "→").replace("<->", "↔").replace("<→", "↔")
-        
-        # 2. Character-by-character replacement for single symbols
-        clean_chars = []
-        for char in wff:
-            if char in symbol_map:
-                clean_chars.append(symbol_map[char])
-            elif char.isalpha():
-                # TFL atoms must be Uppercase. 
-                # (Skip 'v' if it was mapped to OR, but here 'v' is already handled by symbol_map)
-                clean_chars.append(char.upper())
-            else:
-                clean_chars.append(char)
-        
-        return "".join(clean_chars)
-
-    def normalize_rule_candidate(token):
-        compact = str(token or "").strip()
-        compact = compact.replace("->", "→").replace("<->", "↔").replace("<→", "↔")
-        compact = compact.replace("&", "∧").replace(".", "∧")
-        compact = compact.replace("v", "∨").replace("V", "∨")
-        compact = compact.replace("~", "¬").replace("-", "¬")
-        return compact
-
-    def looks_like_rule_token(token):
-        if not token:
-            return False
-        compact = normalize_rule_candidate(token).replace(" ", "")
-        return compact in TFL_KNOWN_RULE_HEADS
-
-    def likely_rule_with_citations(token, next_token):
-        if not looks_like_rule_token(token):
-            return False
-        next_text = str(next_token or "").strip()
-        return bool(re.match(r"^[\da-zA-Z][\d,\-.]*$", next_text))
-
-    def rule_token_at(tokens, index):
-        token = tokens[index]
-        if index + 1 < len(tokens):
-            combined = f"{token}{tokens[index + 1]}"
-            if likely_rule_with_citations(combined, tokens[index + 2] if index + 2 < len(tokens) else ""):
-                return combined, 2
-        if likely_rule_with_citations(token, tokens[index + 1] if index + 1 < len(tokens) else ""):
-            return token, 1
-        return None, 0
-
-    def extract_embedded_justification(raw_wff, raw_j):
-        wff_text = str(raw_wff or "").strip()
-        j_text = str(raw_j or "").strip()
-
-        # A bare line number or similar OCR noise in the justification column
-        # should not block premise/assumption inference.
-        if re.fullmatch(r"[\d,.\-]+", j_text):
-            j_text = ""
-
-        if j_text:
-            return wff_text, j_text
-
-        if not wff_text:
-            return wff_text, j_text
-
-        tokens = wff_text.split()
-        if not tokens:
-            return wff_text, j_text
-
-        # Sometimes the model puts the entire justification in the formula field.
-        head, consumed = rule_token_at(tokens, 0)
-        if head is not None:
-            justification_text = " ".join([head, *tokens[consumed:]]).strip()
-            normalized_head = clean_justification_for_tfl(head)
-            normalized_full = clean_justification_for_tfl(justification_text)
-            if normalized_head in contradiction_rule_heads:
-                return "⊥", normalized_full
-            return "", normalized_full
-
-        # More commonly the model appends the justification onto the formula.
-        for i in range(1, len(tokens)):
-            candidate_head, consumed = rule_token_at(tokens, i)
-            if candidate_head is None:
-                continue
-            formula_part = " ".join(tokens[:i]).strip()
-            justification_part = " ".join([candidate_head, *tokens[i + consumed:]]).strip()
-            if not formula_part or not justification_part:
-                continue
-            return formula_part, justification_part
-
-        return wff_text, j_text
-
-    def recursive_normalize(sub_structure, is_subproof_start=False):
-        for index, item in enumerate(sub_structure):
-            
-            # CASE A: It's a Subproof (List)
-            if isinstance(item, list):
-                # Recurse. The first item in this new list IS a subproof start.
-                recursive_normalize(item, is_subproof_start=True)
-                
-            # CASE B: It's a Line (Dict)
-            elif isinstance(item, dict):
-                raw_wff = item.get("wffstr", "")
-                raw_j = str(item.get("jstr", "")).strip()
-                extracted_wff, extracted_j = extract_embedded_justification(raw_wff, raw_j)
-
-                # 1. Clean Formulas
-                item["wffstr"] = clean_wff(extracted_wff)
-                
-                # 3. Handle Implicit Assumptions
-                # If this is the very first line of a subproof (List), it MUST be an assumption.
-                if is_subproof_start and index == 0 and not extracted_j:
-                    item["jstr"] = "Hyp"
-                else:
-                    normalized_j = snap_justification_rule_head(
-                        clean_justification_for_tfl(extracted_j),
-                        valid_rules=TFL_VALID_RULE_HEADS,
-                    )
-                    # Second pass: fuzzy combinatorial repair for stacked
-                    # OCR confusions (e.g. "∧E S" → "∧E 5").
-                    normalized_j = fuzzy_snap_justification(
-                        normalized_j,
-                        valid_rules=TFL_VALID_RULE_HEADS,
-                    )
-                    item["jstr"] = normalized_j
-
-    # Start the recursion
-    recursive_normalize(structure)
-    return structure
-
-
-def normalize_logical_fitch_depths(structure: list) -> list:
-    """Shift OCR structures up when the printed outer Fitch frame was counted."""
-
-    rows: list[tuple[int, Dict[str, Any]]] = []
-
-    def walk(items, depth: int) -> None:
-        if not isinstance(items, list):
-            return
-        for item in items:
-            if isinstance(item, list):
-                walk(item, depth + 1)
-            elif isinstance(item, dict):
-                rows.append((depth, dict(item)))
-
-    walk(structure, 0)
-    if not rows:
-        return structure
-
-    min_depth = min(depth for depth, _line in rows)
-    if min_depth <= 0:
-        return structure
-
-    root: list[Any] = []
-    stack: list[list[Any]] = [root]
-    for depth, line in rows:
-        logical_depth = max(0, depth - min_depth)
-        while logical_depth < len(stack) - 1:
-            stack.pop()
-        while logical_depth > len(stack) - 1:
-            child: list[Any] = []
-            stack[-1].append(child)
-            stack.append(child)
-        stack[-1].append(line)
-
-    return root
-    
 # ==============================================================================
 # 1. Computer Vision Core (Adapted from bold_fitch_lines.py)
 # ==============================================================================
@@ -1747,44 +1488,6 @@ def process_node_recursive(node: SubproofNode, img: np.ndarray, output_dir: Path
         client,
         call_vlm_fn=call_vlm,
     )
-
-# ==============================================================================
-# 5. Stitching — uses shared recursive_stitch from proofs_ocr.common.stitch
-# ==============================================================================
-
-def label_and_count_premises(proof_structure: List[Union[Dict, List]]) -> int:
-    """
-    Walks the top-level of the stitched proof structure.
-    If a line has an empty justification ('jstr') and appears before any 
-    subproofs or justified lines, it is labeled as 'Pr' (for premise).
-    
-    Returns: The number of premises identified.
-    """
-    premise_count = 0
-    
-    for item in proof_structure:
-        # 1. If we hit a subproof (list), the premise block is definitely over.
-        #    (Premises cannot appear after or inside a subproof at the top level)
-        if isinstance(item, list):
-            break
-            
-        # 2. If it's a line (dict)...
-        if isinstance(item, dict):
-            jstr = item.get("jstr", "").strip()
-            
-            # If justification is empty, treat it as a Premise
-            if not jstr:
-                item["jstr"] = "Pr" # Inject the label
-                premise_count += 1
-            
-            # If it already has a justification (e.g., "Taut Con"), 
-            # the premise block is over.
-            elif jstr.lower() == "pr":
-                premise_count += 1
-            else:
-                break
-                
-    return premise_count
 
 # ==============================================================================
 # Main

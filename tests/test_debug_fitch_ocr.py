@@ -593,6 +593,12 @@ class TestBuildOcrPromptWithExpectedLines(unittest.TestCase):
         self.assertIn("exactly 2 proof line(s)", prompt)
         self.assertIn("Output exactly 2 line objects", prompt)
 
+    def test_five_line_leaf_prompt_includes_column_separation_guard(self):
+        from proofs_ocr.pipelines.tfl_fitch import build_ocr_prompt
+        prompt = build_ocr_prompt(has_children=False, expected_lines=5)
+        self.assertIn("formula on the LEFT", prompt)
+        self.assertIn("right side is usually a rule head plus citations", prompt)
+
     def test_parent_prompt_ignores_line_count(self):
         from proofs_ocr.pipelines.tfl_fitch import build_ocr_prompt
         prompt = build_ocr_prompt(has_children=True, expected_lines=2)
@@ -785,6 +791,44 @@ class TestSeparatedNestedLeafOcr(unittest.TestCase):
         }
 
         self.assertIsNone(stitch_separated_nested_leaf_ocr(payload, expected_lines=4))
+
+    def test_stitch_separated_nested_leaf_ocr_can_pad_missing_justifications(self) -> None:
+        from proofs_ocr.pipelines.tfl_fitch import stitch_separated_nested_leaf_ocr
+
+        payload = {
+            "formulas": ["W∧A", "W", "S", "S∧A"],
+            "justifications": ["∧E 7", "→E 2,8"],
+        }
+
+        self.assertEqual(
+            stitch_separated_nested_leaf_ocr(
+                payload,
+                expected_lines=4,
+                allow_partial_justifications=True,
+            ),
+            [
+                {"line": 1, "wffstr": "W∧A", "jstr": ""},
+                {"line": 2, "wffstr": "W", "jstr": "∧E 7"},
+                {"line": 3, "wffstr": "S", "jstr": "→E 2,8"},
+                {"line": 4, "wffstr": "S∧A", "jstr": ""},
+            ],
+        )
+
+    def test_stitch_separated_nested_leaf_ocr_rejects_extra_justifications_when_partial(self) -> None:
+        from proofs_ocr.pipelines.tfl_fitch import stitch_separated_nested_leaf_ocr
+
+        payload = {
+            "formulas": ["W∧A", "W"],
+            "justifications": ["∧E 7", "→E 2,8"],
+        }
+
+        self.assertIsNone(
+            stitch_separated_nested_leaf_ocr(
+                payload,
+                expected_lines=2,
+                allow_partial_justifications=True,
+            )
+        )
 
 
 class TestVerifierGuidedLineReread(unittest.TestCase):
@@ -1274,6 +1318,90 @@ class DebugFitchOcrNormalizationTests(unittest.TestCase):
 
         self.assertEqual(structure[0]["wffstr"], "X → S")
         self.assertEqual(structure[0]["jstr"], "→I 2-5")
+
+    def test_normalize_structure_splits_tight_embedded_justification_from_formula(self) -> None:
+        structure = [
+            [
+                {
+                    "line": 3,
+                    "wffstr": "P∧Q",
+                    "jstr": "",
+                },
+                {
+                    "line": 4,
+                    "wffstr": "P∧Q→E2,4",
+                    "jstr": "",
+                },
+                {
+                    "line": 5,
+                    "wffstr": "P∧Q8I4,5",
+                    "jstr": "",
+                },
+            ],
+        ]
+
+        debug_fitch_ocr.normalize_proof_structure(structure)
+
+        self.assertEqual(structure[0][1]["wffstr"], "P∧Q")
+        self.assertEqual(structure[0][1]["jstr"], "→E 2,4")
+        self.assertEqual(structure[0][2]["wffstr"], "P∧Q")
+        self.assertEqual(structure[0][2]["jstr"], "∧I 4,5")
+
+    def test_normalize_structure_strips_embedded_tail_when_jstr_already_present(self) -> None:
+        structure = [
+            [
+                {
+                    "line": 3,
+                    "wffstr": "P∧Q",
+                    "jstr": "",
+                },
+                {
+                    "line": 4,
+                    "wffstr": "P∧Q→E2,4",
+                    "jstr": "→E 2,4",
+                },
+                {
+                    "line": 5,
+                    "wffstr": "P∧Q ∧I 4,5",
+                    "jstr": "∧I 4,5",
+                },
+            ],
+        ]
+
+        debug_fitch_ocr.normalize_proof_structure(structure)
+
+        self.assertEqual(structure[0][1]["wffstr"], "P∧Q")
+        self.assertEqual(structure[0][1]["jstr"], "→E 2,4")
+        self.assertEqual(structure[0][2]["wffstr"], "P∧Q")
+        self.assertEqual(structure[0][2]["jstr"], "∧I 4,5")
+
+    def test_normalize_structure_does_not_split_tight_rule_tail_on_leading_premise(self) -> None:
+        structure = [
+            {
+                "line": 1,
+                "wffstr": "P∧Q→E2,4",
+                "jstr": "",
+            }
+        ]
+
+        debug_fitch_ocr.normalize_proof_structure(structure)
+
+        self.assertEqual(structure[0]["wffstr"], "P∧Q→E2,4")
+        self.assertEqual(structure[0]["jstr"], "")
+
+    def test_normalize_structure_does_not_split_formula_without_citations(self) -> None:
+        structure = [
+            {
+                "line": 3,
+                "wffstr": "P->Q",
+                "jstr": "",
+            }
+        ]
+
+        debug_fitch_ocr.normalize_proof_structure(structure)
+
+        self.assertEqual(structure[0]["wffstr"], "P→Q")
+        self.assertEqual(structure[0]["jstr"], "")
 
     def test_normalize_structure_treats_digit_only_justification_as_blank(self) -> None:
         structure = [

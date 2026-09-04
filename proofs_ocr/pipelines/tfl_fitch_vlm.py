@@ -65,6 +65,10 @@ def use_separated_nested_leaf_ocr() -> bool:
     return env_flag("TFL_FITCH_SEPARATED_NESTED_LEAF_OCR", True)
 
 
+def accept_partial_separated_nested_leaf_ocr() -> bool:
+    return env_flag("TFL_FITCH_ACCEPT_PARTIAL_SEPARATED_LEAF_OCR", False)
+
+
 def build_ocr_prompt(
     *,
     has_children: bool = True,
@@ -118,10 +122,12 @@ def build_ocr_prompt(
         base += "Transcribe only the lines actually visible in this image. "
         if expected_lines is not None and expected_lines >= 1:
             base += f"This image contains exactly {expected_lines} proof line(s). Output exactly {expected_lines} line objects. "
-            if expected_lines <= 4:
+            if expected_lines <= 6:
                 base += (
                     f"Each of the {expected_lines} line(s) has a formula on the LEFT and a justification on the RIGHT. "
                     "Formula goes in 'wffstr', justification goes in 'jstr'. Keep them separate. "
+                    "For rows after the first row of a subproof, the right side is usually a rule head plus citations; "
+                    "do not merge that right-side rule text into the formula. "
                 )
     base += "Return JSON only, with no markdown fences or explanation."
     return base
@@ -156,7 +162,12 @@ def build_nested_leaf_separated_prompt(expected_lines: int | None = None) -> str
     return prompt
 
 
-def stitch_separated_nested_leaf_ocr(payload, expected_lines: int | None = None) -> List[Dict] | None:
+def stitch_separated_nested_leaf_ocr(
+    payload,
+    expected_lines: int | None = None,
+    *,
+    allow_partial_justifications: bool = False,
+) -> List[Dict] | None:
     """Convert separated formula/justification OCR into line dictionaries."""
     if not isinstance(payload, dict):
         return None
@@ -166,7 +177,22 @@ def stitch_separated_nested_leaf_ocr(payload, expected_lines: int | None = None)
         return None
     if expected_lines is not None and len(formulas) != expected_lines:
         return None
-    if len(formulas) < 2 or len(justifications) != len(formulas) - 1:
+    if len(formulas) < 2:
+        return None
+
+    expected_justifications = len(formulas) - 1
+    if len(justifications) != expected_justifications:
+        if (
+            not allow_partial_justifications
+            or len(justifications) > expected_justifications
+        ):
+            return None
+        justifications = [
+            *justifications,
+            *([""] * (expected_justifications - len(justifications))),
+        ]
+
+    if len(justifications) != expected_justifications:
         return None
 
     stitched: List[Dict] = []
