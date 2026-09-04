@@ -311,14 +311,14 @@
   <div class="panel pinned-note-panel">
     <section>
       <div class="pinned-note-header">
-        <strong>Pinned answer key / grading info</strong>
+        <strong>Pinned grading note</strong>
       </div>
       <div class="pinned-note-body">
         {% if pinned_note %}
           <pre style="margin:0;">{{ pinned_note }}</pre>
         {% else %}
           <p class="hint" style="margin:0;">
-            No pinned note yet. Add grading tips or answer-key snippets here; they’ll
+            No pinned note yet. Add procedural grading reminders here; they’ll
             show up on every work unit.
           </p>
         {% endif %}
@@ -329,7 +329,7 @@
         <form method="post" class="pinned-note-form">
           <textarea
             name="pinned_note"
-            placeholder="Paste the answer key or grading notes here..."
+            placeholder="Add a procedural grading reminder..."
           >{{ pinned_note }}</textarea>
           <div class="buttons">
             <button type="submit" name="action" value="update_pinned_note">

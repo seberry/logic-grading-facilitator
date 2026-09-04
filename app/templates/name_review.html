@@ -284,6 +284,11 @@
 </header>
 
 <main>
+  {% if saved %}
+    <div style="background:#ecfdf5; border:1px solid #6ee7b7; color:#065f46; border-radius:0.75rem; padding:0.75rem 1rem; margin-bottom:1rem;">
+      Corrections saved locally. You can close this page and return later without running the model again.
+    </div>
+  {% endif %}
   <form method="post" action="/name_review">
     <div class="controls-bar">
       <div>
@@ -309,9 +314,9 @@
     🔁 Run / refresh name recognition
   </a>
   <div class="hint">
-    Normally you don’t need this again—once predictions are cached, you can reload
-    the page and tweak the layout without re-running the model. Use this if you’ve
-    changed the scans, roster, or prompt and want fresh guesses.
+    Normally you don’t need this again. If you first click <strong>Save Corrections</strong>,
+    a refresh preserves those reviewed student selections while obtaining fresh
+    printed-version guesses from the model.
   </div>
 </div>
 
@@ -344,6 +349,18 @@
             </select>
           </div>
 
+          <div class="name-select" style="margin-top:0.65rem;">
+            <label for="quiz_version_{{ row.index }}">Quiz version:</label>
+            <select id="quiz_version_{{ row.index }}" name="quiz_version_{{ row.index }}">
+              <option value="">Unknown</option>
+              {% for version in ["A", "B", "C"] %}
+              <option value="{{ version }}" {% if row.quiz_version == version %}selected{% endif %}>
+                Version {{ version }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+
           <div class="model-info">
             {% if row.model_student_id %}
               Model guess:
@@ -354,7 +371,9 @@
             {% endif %}
             · conf <span class="confidence">{{ "%.3f"|format(row.confidence) }}</span><br>
             Raw OCR name:
-            <span class="raw-name">"{{ row.raw_name or "—" }}"</span>
+            <span class="raw-name">"{{ row.raw_name or "—" }}"</span><br>
+            Printed version guess:
+            <strong>{{ row.quiz_version or "unknown" }}</strong>
           </div>
         </div>
 
@@ -376,6 +395,16 @@
     <input type="hidden" name="page_count" value="{{ page_rows|length }}">
 
     <div class="footer-actions">
+      <button class="submit-button" type="submit" name="next_action" value="save"
+              style="background-color: #2563eb;">
+        💾 Save Corrections
+      </button>
+
+      <div class="footer-hint">
+        Saves exactly the selected names and versions to the local prediction cache.
+        It does not rename scans or start grading.
+      </div>
+
       <button class="submit-button" type="submit" name="next_action" value="save_fill"
               style="background-color: #0ea5e9;">
         📝 Save & Auto-Fill Unknowns

@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 import io
 import csv
+import hashlib
 import json
 import textwrap
 from pathlib import Path
@@ -39,6 +40,7 @@ from .storage import (
     AUTO_GROUPED_DIR,
     IS_PRODUCTION,
     FLASHCARDS_DIR,
+    RUBRIC_ASSETS_DIR,
 )
 from .segmentation_core import segment_page_for_problem, QuestionSegment
 
@@ -79,6 +81,7 @@ from docx import Document
 
 from .vlm_client import LMStudioQwenClient  # type: ignore
 from .vlm_classifier import classify_page  # type: ignore
+from .quiz_variants import normalize_quiz_version
 from .canvas_client import CanvasClient, CanvasClientError, get_canvas_client
 from .routes.fitch_debug import router as fitch_debug_router
 from .routes.fol_model_debug import router as fol_model_debug_router
@@ -170,6 +173,13 @@ app.mount(
     "/debug_fitch_assets",
     StaticFiles(directory=str(DEBUG_FITCH_DIR)),
     name="debug_fitch_assets",
+)
+
+# Crops of blank quiz questions referenced by the version-aware rubric.
+app.mount(
+    "/rubric_assets",
+    StaticFiles(directory=str(RUBRIC_ASSETS_DIR)),
+    name="rubric_assets",
 )
 
 app.mount(
@@ -272,6 +282,7 @@ def _build_page_rows_for_template(
       - model_canvas_name
       - confidence
       - raw_name
+      - quiz_version
     """
     from pathlib import Path
 
@@ -295,6 +306,7 @@ def _build_page_rows_for_template(
         student_id = getattr(p, "student_id", None)
         confidence = float(getattr(p, "confidence", 0.0))
         raw_name = getattr(p, "raw_name", None)
+        quiz_version = normalize_quiz_version(getattr(p, "quiz_version", None))
 
         rows.append(
             {
@@ -305,6 +317,7 @@ def _build_page_rows_for_template(
                 "model_canvas_name": roster_by_id.get(student_id) if student_id else None,
                 "confidence": confidence,
                 "raw_name": raw_name,
+                "quiz_version": quiz_version,
             }
         )
     return rows
@@ -348,6 +361,27 @@ def _has_existing_session_state() -> bool:
     return has_session or has_name_review_cache
 
 
+def _remove_answer_key_fields(data: Any) -> int:
+    """Remove legacy solution-key fields from an in-memory rubric mapping."""
+    if not isinstance(data, dict):
+        return 0
+    removed = 0
+    for problem in data.get("problems") or []:
+        if not isinstance(problem, dict):
+            continue
+        if "answer_key" in problem:
+            problem.pop("answer_key", None)
+            removed += 1
+        variants = problem.get("variants") or {}
+        if not isinstance(variants, dict):
+            continue
+        for variant in variants.values():
+            if isinstance(variant, dict) and "answer_key" in variant:
+                variant.pop("answer_key", None)
+                removed += 1
+    return removed
+
+
 def _read_default_rubric() -> tuple[str, str]:
     """Load rubric YAML text and quiz_id for pre-filling the setup form."""
     try:
@@ -357,6 +391,9 @@ def _read_default_rubric() -> tuple[str, str]:
 
     try:
         parsed = yaml.safe_load(yaml_text) or {}
+        removed = _remove_answer_key_fields(parsed)
+        if removed:
+            yaml_text = yaml.safe_dump(parsed, sort_keys=False, allow_unicode=True)
         quiz_id = str(parsed.get("quiz_id", "quiz1"))
     except Exception:
         quiz_id = "quiz1"
@@ -725,11 +762,132 @@ def _unique_pdf_stem(base_stem: str, output_dir: Path) -> str:
     return stem
 
 
-def _save_image_upload(upload: UploadFile, destination: Path) -> None:
+def _scan_digest(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _existing_scan_digests(output_dir: Path) -> Dict[str, Path]:
+    """Index exact scan content already present in an intake directory."""
+    digests: Dict[str, Path] = {}
+    if not output_dir.exists():
+        return digests
+    for path in sorted(output_dir.iterdir(), key=natural_sort_key):
+        if path.is_file() and _is_image_filename(path.name):
+            digests.setdefault(_scan_digest(path.read_bytes()), path)
+    return digests
+
+
+def _collapse_duplicate_scan_predictions(
+    paths: List[Path],
+    predictions: List[Dict[str, Any]],
+) -> List[tuple[Path, Dict[str, Any]]]:
+    """Show one row per exact scan while preserving the best cached metadata."""
+    predictions_by_filename = {
+        item.get("filename"): item
+        for item in predictions
+        if isinstance(item, dict) and item.get("filename")
+    }
+    groups: Dict[str, List[Path]] = {}
+    for path in paths:
+        groups.setdefault(_scan_digest(path.read_bytes()), []).append(path)
+
+    collapsed: List[tuple[Path, Dict[str, Any]]] = []
+    for group in groups.values():
+        representative = group[0]
+        candidates = [
+            predictions_by_filename[path.name]
+            for path in group
+            if path.name in predictions_by_filename
+        ]
+        ranked = sorted(
+            candidates,
+            key=lambda item: (
+                not bool(item.get("name_reviewed")),
+                not bool(item.get("student_id")),
+                -float(item.get("confidence", 0.0) or 0.0),
+            ),
+        )
+        merged: Dict[str, Any] = dict(ranked[0]) if ranked else {}
+        merged["filename"] = representative.name
+
+        # Name and version may come from different copies: a canonical filename
+        # can recover the reviewed name while the original scan gets the fresh
+        # printed-version prediction.
+        name_source = next((item for item in ranked if item.get("student_id")), None)
+        if name_source:
+            for field in ("student_id", "raw_name", "name_visible"):
+                merged[field] = name_source.get(field)
+        version_source = next(
+            (item for item in ranked if normalize_quiz_version(item.get("quiz_version"))),
+            None,
+        )
+        if version_source:
+            merged["quiz_version"] = normalize_quiz_version(
+                version_source.get("quiz_version")
+            )
+        merged["name_reviewed"] = any(
+            bool(item.get("name_reviewed")) for item in candidates
+        )
+        collapsed.append((representative, merged))
+
+    return collapsed
+
+
+def _save_scan_bytes(
+    data: bytes,
+    destination: Path,
+    known_digests: Dict[str, Path],
+) -> tuple[Path, bool]:
+    """Save novel content, preserving same-name/different-content scans."""
+    digest = _scan_digest(data)
+    existing = known_digests.get(digest)
+    if existing is not None:
+        return existing, False
+
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination = _unique_path(destination)
-    with destination.open("wb") as f:
-        shutil.copyfileobj(upload.file, f)
+    destination.write_bytes(data)
+    known_digests[digest] = destination
+    return destination, True
+
+
+def _save_image_upload(
+    upload: UploadFile,
+    destination: Path,
+    known_digests: Dict[str, Path],
+) -> bool:
+    _, saved = _save_scan_bytes(upload.file.read(), destination, known_digests)
+    return saved
+
+
+def _quarantine_exact_duplicate_scans(output_dir: Path) -> List[Path]:
+    """Move redundant scan files aside, keeping the first natural-sorted copy."""
+    if not output_dir.exists():
+        return []
+
+    seen: Dict[str, Path] = {}
+    duplicates: List[Path] = []
+    for path in sorted(output_dir.iterdir(), key=natural_sort_key):
+        if not path.is_file() or not _is_image_filename(path.name):
+            continue
+        digest = _scan_digest(path.read_bytes())
+        if digest in seen:
+            duplicates.append(path)
+        else:
+            seen[digest] = path
+
+    if not duplicates:
+        return []
+
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    quarantine_dir = DATA_DIR / "duplicate_scans_quarantine" / stamp
+    quarantine_dir.mkdir(parents=True, exist_ok=True)
+    moved: List[Path] = []
+    for source in duplicates:
+        destination = _unique_path(quarantine_dir / source.name)
+        shutil.move(str(source), str(destination))
+        moved.append(destination)
+    return moved
 
 
 def _save_pdf_pages(pdf_bytes: bytes, stem: str, output_dir: Path) -> int:
@@ -766,8 +924,14 @@ def _save_pdf_pages_with_paths(pdf_bytes: bytes, stem: str, output_dir: Path) ->
     return targets
 
 
-def _ingest_zip_bytes(zip_bytes: bytes, output_dir: Path) -> int:
+def _ingest_zip_bytes(
+    zip_bytes: bytes,
+    output_dir: Path,
+    known_digests: Optional[Dict[str, Path]] = None,
+) -> tuple[int, int]:
     saved = 0
+    duplicates = 0
+    known_digests = known_digests if known_digests is not None else _existing_scan_digests(output_dir)
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         entries = sorted(zf.infolist(), key=lambda info: info.filename.lower())
         for entry in entries:
@@ -781,19 +945,17 @@ def _ingest_zip_bytes(zip_bytes: bytes, output_dir: Path) -> int:
                 continue
             suffix = Path(filename).suffix.lower()
             if suffix in {".jpg", ".jpeg", ".png"}:
-                dest = output_dir / filename
-                dest = _unique_path(dest)
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                with zf.open(entry) as src, dest.open("wb") as f:
-                    shutil.copyfileobj(src, f)
-                saved += 1
+                data = zf.read(entry)
+                _, was_saved = _save_scan_bytes(data, output_dir / filename, known_digests)
+                saved += int(was_saved)
+                duplicates += int(not was_saved)
             elif suffix == ".pdf":
                 pdf_bytes = zf.read(entry)
                 if not pdf_bytes:
                     continue
                 stem = Path(filename).stem or "scans"
                 saved += _save_pdf_pages(pdf_bytes, stem, output_dir)
-    return saved
+    return saved, duplicates
 
 
 @app.post("/setup/upload_scans")
@@ -807,6 +969,8 @@ async def setup_upload_scans(
 
     RAW_SCANS_DIR.mkdir(parents=True, exist_ok=True)
     saved = 0
+    duplicates = 0
+    known_digests = _existing_scan_digests(RAW_SCANS_DIR)
 
     if images:
         allowed_exts = {".jpg", ".jpeg", ".png"}
@@ -817,8 +981,9 @@ async def setup_upload_scans(
             suffix = Path(filename).suffix.lower()
             if suffix in allowed_exts:
                 dest = RAW_SCANS_DIR / filename
-                _save_image_upload(img, dest)
-                saved += 1
+                was_saved = _save_image_upload(img, dest, known_digests)
+                saved += int(was_saved)
+                duplicates += int(not was_saved)
                 continue
             if suffix == ".pdf":
                 pdf_bytes = await img.read()
@@ -832,7 +997,11 @@ async def setup_upload_scans(
                 if not zip_bytes:
                     continue
                 try:
-                    saved += _ingest_zip_bytes(zip_bytes, RAW_SCANS_DIR)
+                    new_saved, new_duplicates = _ingest_zip_bytes(
+                        zip_bytes, RAW_SCANS_DIR, known_digests
+                    )
+                    saved += new_saved
+                    duplicates += new_duplicates
                 except zipfile.BadZipFile:
                     raise HTTPException(
                         status_code=400,
@@ -866,12 +1035,19 @@ async def setup_upload_scans(
             raise HTTPException(status_code=400, detail="Uploaded ZIP was empty.")
 
         try:
-            saved += _ingest_zip_bytes(zip_bytes, RAW_SCANS_DIR)
+            new_saved, new_duplicates = _ingest_zip_bytes(
+                zip_bytes, RAW_SCANS_DIR, known_digests
+            )
+            saved += new_saved
+            duplicates += new_duplicates
         except zipfile.BadZipFile:
             raise HTTPException(status_code=400, detail="Uploaded ZIP could not be read.")
 
+    message = f"Uploaded {saved} new scan files."
+    if duplicates:
+        message += f" Skipped {duplicates} byte-identical duplicate(s)."
     return RedirectResponse(
-        url="/setup?status=success&message=" + quote(f"Uploaded {saved} scan files."),
+        url="/setup?status=success&message=" + quote(message),
         status_code=303,
     )
 
@@ -1105,6 +1281,7 @@ async def setup_import_canvas_zip(
 async def setup_save_rubric(yaml_text: str = Form(...)) -> Response:
     try:
         data = yaml.safe_load(yaml_text) or {}
+        removed_answer_keys = _remove_answer_key_fields(data)
         grading_key = GradingKey(**data)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid rubric YAML: {e}")
@@ -1118,8 +1295,11 @@ async def setup_save_rubric(yaml_text: str = Form(...)) -> Response:
     )
     target.write_text(cleaned_yaml, encoding="utf-8")
 
+    message = f"Rubric saved to {target.name}."
+    if removed_answer_keys:
+        message += f" Removed {removed_answer_keys} answer-key field(s)."
     return RedirectResponse(
-        url="/setup?status=success&message=" + quote(f"Rubric saved to {target.name}."),
+        url="/setup?status=success&message=" + quote(message),
         status_code=303,
     )
 
@@ -1133,12 +1313,29 @@ async def setup_select_rubric(rubric_file: str = Form(...)) -> Response:
     if not candidate.exists():
         raise HTTPException(status_code=404, detail="Selected rubric not found.")
 
-    DEFAULT_GRADING_KEY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copy(candidate, DEFAULT_GRADING_KEY_PATH)
+    try:
+        data = yaml.safe_load(candidate.read_text(encoding="utf-8")) or {}
+        removed_answer_keys = _remove_answer_key_fields(data)
+        grading_key = GradingKey(**data)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid selected rubric YAML: {exc}")
 
+    DEFAULT_GRADING_KEY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    DEFAULT_GRADING_KEY_PATH.write_text(
+        yaml.safe_dump(
+            grading_key.model_dump(exclude_none=True),
+            sort_keys=False,
+            allow_unicode=True,
+        ),
+        encoding="utf-8",
+    )
+
+    message = f"Rubric set from {candidate.name}."
+    if removed_answer_keys:
+        message += f" Removed {removed_answer_keys} answer-key field(s)."
     return RedirectResponse(
         url="/setup?status=success&message="
-        + quote(f"Rubric set from {candidate.name}."),
+        + quote(message),
         status_code=303,
     )
 
@@ -1149,6 +1346,12 @@ async def setup_run_auto_grouping(quiz_id: str = Form("quiz1")) -> Response:
     if not RAW_SCANS_DIR.exists() or not any(RAW_SCANS_DIR.iterdir()):
         raise HTTPException(status_code=400, detail="Upload scans before running auto-grouping.")
 
+    quarantined = _quarantine_exact_duplicate_scans(RAW_SCANS_DIR)
+    if quarantined:
+        print(
+            f"[scan intake] Quarantined {len(quarantined)} exact duplicate scan(s) "
+            f"under {quarantined[0].parent}"
+        )
     predictions = run_name_recognition(RAW_SCANS_DIR, roster)
     cache_path = name_review_cache_path(quiz_id, "")
     cache_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1166,6 +1369,9 @@ async def setup_run_auto_grouping(quiz_id: str = Form("quiz1")) -> Response:
                 "confidence": float(getattr(pred, "confidence", 0.0)),
                 "reasoning": getattr(pred, "reasoning", ""),
                 "name_visible": bool(getattr(pred, "name_visible", False)),
+                "quiz_version": normalize_quiz_version(
+                    getattr(pred, "quiz_version", None)
+                ),
             }
         )
 
@@ -1270,8 +1476,8 @@ def create_work_unit():
         return wu
 
 
-@app.get("/name_review", response_class=HTMLResponse)
-async def name_review_page(
+@app.get("/_legacy/name_review", response_class=HTMLResponse, include_in_schema=False)
+async def legacy_name_review_page(
     request: Request,
     raw_scans_subdir: str = "",
     quiz: str = "quiz1",
@@ -1643,6 +1849,7 @@ async def name_review_page(
     raw_scans_subdir: str = "",
     quiz: str = "quiz1",
     refresh: bool = False,  # 👈 new flag
+    saved: bool = False,
 ):
     """
     Display one row per scanned page.
@@ -1673,11 +1880,17 @@ async def name_review_page(
     # 3. Either load cached predictions or run LM Studio and cache them
     cache_path = name_review_cache_path(quiz, raw_scans_subdir)
     predictions: List[Dict]
+    cached_predictions: List[Dict] = []
+    if cache_path.exists():
+        try:
+            import json as _json
+            cached_predictions = _json.loads(cache_path.read_text(encoding="utf-8"))
+        except Exception:
+            cached_predictions = []
 
     if (not refresh) and cache_path.exists():
         # ✅ Use cached predictions
-        import json as _json
-        predictions = _json.loads(cache_path.read_text(encoding="utf-8"))
+        predictions = cached_predictions
     else:
         # 🔁 Run LM Studio and cache predictions
         print(f"[name_review] Cache miss. inspecting {len(paths)} files...")
@@ -1687,6 +1900,11 @@ async def name_review_page(
             model=LMSTUDIO_MODEL_ID,
         )
         predictions = []
+        cached_by_filename = {
+            item.get("filename"): item
+            for item in cached_predictions
+            if item.get("filename")
+        }
         for path in paths:
             # --- START NEW LOGIC ---
             # If the file is ALREADY renamed (e.g. "quiz1_ballard_sharon_p01.jpg"), 
@@ -1705,6 +1923,8 @@ async def name_review_page(
                 # Mock a prediction object
                 found_student_id = None
                 found_name = None
+                version_match = re.search(r"(?:^|_)v(?:ersion)?[_-]?([A-Za-z0-9]+)(?:_|\.)", path.name, re.I)
+                quiz_version = normalize_quiz_version(version_match.group(1)) if version_match else None
                 
                 # Try to find a roster match based on the filename parts
                 for r in roster:
@@ -1722,6 +1942,7 @@ async def name_review_page(
                     "confidence": 1.0,
                     "reasoning": "Filename indicates previous labeling.",
                     "name_visible": True,
+                    "quiz_version": quiz_version,
                 })
                 continue
             # --- END NEW LOGIC ---
@@ -1736,6 +1957,10 @@ async def name_review_page(
             confidence = float(getattr(pred, "confidence", 0.0))
             reasoning = getattr(pred, "reasoning", "")
             name_visible = bool(getattr(pred, "name_visible", False))
+            quiz_version = normalize_quiz_version(getattr(pred, "quiz_version", None))
+            previous = cached_by_filename.get(path.name) or {}
+            if previous.get("name_reviewed"):
+                student_id = previous.get("student_id")
 
             predictions.append(
                 {
@@ -1745,6 +1970,8 @@ async def name_review_page(
                     "confidence": confidence,
                     "reasoning": reasoning,
                     "name_visible": name_visible,
+                    "quiz_version": quiz_version,
+                    "name_reviewed": bool(previous.get("name_reviewed")),
                 }
             )
 
@@ -1755,13 +1982,14 @@ async def name_review_page(
         )
 
     # 4. Align predictions with the sorted file list and build page_rows
-    preds_by_filename: Dict[str, Dict] = {
-        p["filename"]: p for p in predictions
-    }
-
     page_rows: List[Dict] = []
-    for idx, path in enumerate(paths):
-        info = preds_by_filename.get(path.name, {})
+    collapsed = _collapse_duplicate_scan_predictions(paths, predictions)
+    if len(collapsed) != len(paths):
+        print(
+            f"[name_review] Collapsed {len(paths) - len(collapsed)} exact duplicate "
+            "scan copy/copies in the review view."
+        )
+    for idx, (path, info) in enumerate(collapsed):
         student_id = info.get("student_id")
         canvas_name = roster_by_id.get(student_id) if student_id else None
 
@@ -1781,6 +2009,7 @@ async def name_review_page(
                 "raw_name": info.get("raw_name") or "",
                 "reasoning": info.get("reasoning") or "",
                 "name_visible": bool(info.get("name_visible", False)),
+                "quiz_version": normalize_quiz_version(info.get("quiz_version")),
             }
         )
 
@@ -1793,6 +2022,7 @@ async def name_review_page(
             "roster": roster,
             "quiz_slug": quiz,
             "raw_scans_subdir": raw_scans_subdir,
+            "saved": saved,
         },
     )
 
@@ -1825,16 +2055,18 @@ async def name_review_submit(request: Request) -> Response:
         raise HTTPException(404, detail=f"Scan dir not found: {base_dir}")
 
     # 2. Parse Form Data (Assignments)
-    # List of (original_filename, student_id)
-    assignments: List[tuple[str, Optional[str]]] = []
+    # List of (original_filename, student_id, printed quiz version)
+    assignments: List[tuple[str, Optional[str], Optional[str]]] = []
     for i in range(page_count):
         fn = form.get(f"filename_{i}")
         sid = form.get(f"student_{i}") or None
+        quiz_version = normalize_quiz_version(form.get(f"quiz_version_{i}"))
         if fn:
-            assignments.append((fn, sid))
+            assignments.append((fn, sid, quiz_version))
 
-    # Fast path: only update the cache and auto-fill unknowns in order
-    if next_action == "save_fill":
+    # Draft-save paths update the cache without renaming scans or creating a
+    # grading session. Auto-fill is opt-in; ordinary Save preserves Unknowns.
+    if next_action in {"save", "save_fill"}:
         cache_path = name_review_cache_path(quiz_id, raw_scans_subdir)
         import json as _json
 
@@ -1851,13 +2083,17 @@ async def name_review_submit(request: Request) -> Response:
         seen: set[str] = set()
 
         last_sid: Optional[str] = None
-        for filename, sid in assignments:
-            applied_sid = sid or last_sid
+        for filename, sid, quiz_version in assignments:
+            applied_sid = sid
+            if next_action == "save_fill":
+                applied_sid = sid or last_sid
             if applied_sid:
                 last_sid = applied_sid
 
             entry = dict(preds_by_filename.get(filename, {"filename": filename}))
             entry["student_id"] = applied_sid
+            entry["quiz_version"] = quiz_version
+            entry["name_reviewed"] = True
             preds_by_filename[filename] = entry
             seen.add(filename)
             updated_predictions.append(entry)
@@ -1870,9 +2106,10 @@ async def name_review_submit(request: Request) -> Response:
 
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_text(_json.dumps(updated_predictions, indent=2), encoding="utf-8")
-        print(f"[name_review] Saved {len(updated_predictions)} cache entries (auto-filled unknowns).")
+        mode = " and auto-filled unknown names" if next_action == "save_fill" else ""
+        print(f"[name_review] Saved {len(updated_predictions)} corrected cache entries{mode}.")
 
-        redirect_url = f"/name_review?quiz={quote(quiz_id)}"
+        redirect_url = f"/name_review?quiz={quote(quiz_id)}&saved=1"
         if raw_scans_subdir:
             redirect_url += f"&raw_scans_subdir={quote(raw_scans_subdir)}"
 
@@ -1892,11 +2129,12 @@ async def name_review_submit(request: Request) -> Response:
     groups = []
     current_group = None
 
-    for filename, sid in assignments:
+    for filename, sid, quiz_version in assignments:
         if current_group is None:
             current_group = {
                 "student_id": sid,
-                "pages": [filename]
+                "pages": [filename],
+                "quiz_version": quiz_version,
             }
             continue
 
@@ -1906,11 +2144,14 @@ async def name_review_submit(request: Request) -> Response:
         # For safety, let's break if student_id changes.
         if sid == current_group["student_id"]:
             current_group["pages"].append(filename)
+            if not current_group.get("quiz_version") and quiz_version:
+                current_group["quiz_version"] = quiz_version
         else:
             groups.append(current_group)
             current_group = {
                 "student_id": sid,
-                "pages": [filename]
+                "pages": [filename],
+                "quiz_version": quiz_version,
             }
     if current_group:
         groups.append(current_group)
@@ -1930,6 +2171,7 @@ async def name_review_submit(request: Request) -> Response:
 
     for g in groups:
         sid = g["student_id"]
+        quiz_version = normalize_quiz_version(g.get("quiz_version"))
         
         # Determine canonical name base
         if sid:
@@ -1992,6 +2234,7 @@ async def name_review_submit(request: Request) -> Response:
         wu = WorkUnit(
             unit_id=unit_counter,
             student_id=sid,
+            quiz_version=quiz_version,
             page_filenames=new_filenames,
             per_problem=per_problem,
             comment=None,

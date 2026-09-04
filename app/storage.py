@@ -56,6 +56,7 @@ IS_PRODUCTION = ENV_MODE == "PRODUCTION"
 RAW_SCANS_DIR = DATA_DIR / "raw_scans"
 GRADES_DIR = DATA_DIR / "grades"
 RUBRIC_DIR = DATA_DIR / "rubric"
+RUBRIC_ASSETS_DIR = DATA_DIR / "rubric_assets"
 NAME_REVIEW_CACHE_DIR = DATA_DIR / "name_review_cache"
 DEBUG_FITCH_DIR = DATA_DIR / "debug_fitch"
 DEBUG_FOL_MODEL_DIR = DATA_DIR / "debug_fol_model"
@@ -73,6 +74,7 @@ DEBUG_FITCH_DIR.mkdir(parents=True, exist_ok=True)
 DEBUG_FOL_MODEL_DIR.mkdir(parents=True, exist_ok=True)
 DEBUG_MODAL_PROOF_DIR.mkdir(parents=True, exist_ok=True)
 RAW_SCANS_DIR.mkdir(parents=True, exist_ok=True)
+RUBRIC_ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 FLASHCARDS_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -236,6 +238,7 @@ def archive_current_data(label: str) -> str:
         (RAW_SCANS_DIR, snapshot_root / "raw_scans"),
         (GRADES_DIR, snapshot_root / "grades"),
         (RUBRIC_DIR, snapshot_root / "rubric"),
+        (RUBRIC_ASSETS_DIR, snapshot_root / "rubric_assets"),
         (DATA_DIR / "rosters", snapshot_root / "rosters"),
         (NAME_REVIEW_CACHE_DIR, snapshot_root / "name_review_cache"),
         (DATA_DIR / "debug_fitch", snapshot_root / "debug_fitch"),

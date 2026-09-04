@@ -48,7 +48,8 @@ def load_predictions_from_csv(csv_path: Path) -> List[PagePrediction]:
                 confidence=float(row.get("confidence", 0.0)),
                 name_visible=row.get("name_visible", "False") == "True",
                 raw_name=row.get("raw_name") if row.get("raw_name") else None,
-                reasoning=row.get("reasoning", "")
+                reasoning=row.get("reasoning", ""),
+                quiz_version=row.get("quiz_version") or None,
             )
             preds.append(p)
     
@@ -262,6 +263,7 @@ def run_name_recognition(
         .confidence (float)
         .name_visible (bool)
         .raw_name (Optional[str])
+        .quiz_version (Optional[str])
         .reasoning (str)  # optional but nice for debugging
     """
     if client is None:
@@ -311,7 +313,8 @@ def load_predictions_from_csv(csv_path: Path) -> List[PagePrediction]:
                 confidence=float(row.get("confidence", 0.0)),
                 name_visible=row.get("name_visible") == "True", 
                 raw_name=row.get("raw_name") if row.get("raw_name") else None,
-                reasoning=row.get("reasoning", "")
+                reasoning=row.get("reasoning", ""),
+                quiz_version=row.get("quiz_version") or None,
             )
             preds.append(p)
             

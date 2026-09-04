@@ -38,6 +38,14 @@ problems:
   - id: "Q1"
     label: "Truth value + witness"
     points: 3
+    segmentation_hint: "Include the Q1 label and answer area."
+    variants:
+      A:
+        prompt: "Version A printed prompt."
+        question_image: "quiz3/Q1_A.png"
+        rubric_notes: "Human grader chooses partial credit."
+      B:
+        prompt: "Version B printed prompt."
 
   - id: "Q2"
     label: "Counterexample"
@@ -53,6 +61,16 @@ Invariants:
 - `id` values must be unique.
 - All per-problem score entries in WorkUnits must refer to these ids exactly.
 - The problem `label` is also used as a natural-language hint when the model searches for the answer region in strip view, so match the wording on the exam if possible.
+- `variants` is optional. Keys are normalized printed version identifiers such as
+  `A`, `B`, or `C`; each value may override `label`, `prompt`,
+  `question_image`, `rubric_notes`, and `segmentation_hint`.
+- `question_image` is an optional relative path below
+  `DATA_DIR/rubric_assets/`. It must be a crop of the blank assessment, not a
+  student scan or solution. If omitted, the strip page checks the conventional
+  path `<quiz_id>/<problem_id>_<version>.png` and otherwise uses prompt text.
+- `answer_key` remains accepted only for backward compatibility. Strip grading
+  does not display it, the PDF-to-YAML prompt forbids generating it, and TF
+  bundle export removes it.
 
 Totals are computed as:
 
@@ -69,6 +87,7 @@ WorkUnits are written to JSON after each grading action.
   "unit_id": 7,
   "page_filenames": ["IMG_4024.JPG", "IMG_4025.JPG"],
   "student_id": "12345",
+  "quiz_version": "B",
 
   "per_problem": {
     "Q1": 3,
@@ -90,6 +109,8 @@ Invariants:
 
 - `page_filenames` lists raw images in display order.
 - Exactly one `student_id` per WorkUnit.
+- `quiz_version` is optional for old/single-version sessions. Versioned handoffs
+  should store a normalized value matching a rubric `variants` key.
 - Every key in `per_problem` must correspond to an `id` in the GradingKey.
 - `per_problem` values are floats or `null` (`null` means ungraded).
 - Missing values are allowed (e.g., ungraded problems) but must be resolved before export.
@@ -194,6 +215,9 @@ Incremental grading sessions may be stored as:
   "problem_notes": {
     "Q1": "Truth table for ¬(P→Q)"
   },
+  "reference_pins": {
+    "Q1": {"A": 7, "B": 12}
+  },
   "problem_types": {
     "Q1": "fitch_proof"
   }
@@ -201,6 +225,11 @@ Incremental grading sessions may be stored as:
 ```
 
 This file is reloadable at any time.
+
+`reference_pins` maps each problem and normalized printed version to the
+`unit_id` of a human-selected visual comparison response. Pins are not
+machine-verified answer keys. A pin is discarded if its WorkUnit is later
+reassigned to a different version.
 
 # 7. Session Extensions (v0.2)
 
@@ -212,7 +241,9 @@ The Session model now includes an optional `pinned_note` field:
 }
 ```
 
-- This stores the assignment's answer key or grading notes.
+- This is a legacy session-wide grading-note field. New strip grading should use
+  neutral `problem_notes` plus human-selected, version-aware `reference_pins`.
+- TF bundle export clears this field so it cannot carry a supplied solution key.
 - Shared across all WorkUnits.
 - Preserved when creating archival snapshots.
 - `null` is stored instead of an empty string for backwards compatibility.

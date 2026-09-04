@@ -140,12 +140,40 @@
       margin-top: 0.75rem;
       color: #475569;
     }
+    .instructions {
+      margin: 1rem 0;
+      padding: 1rem 1.15rem;
+      border: 1px solid #bfdbfe;
+      border-left: 5px solid #2563eb;
+      border-radius: 7px;
+      background: #eff6ff;
+      color: #1e3a8a;
+    }
+    .instructions p { margin: 0.35rem 0; color: inherit; }
+    .instructions ol { margin: 0.6rem 0 0 1.25rem; padding: 0; }
+    .instructions li { margin: 0.35rem 0; }
+    .secondary-tools { margin-top: 1.25rem; }
+    .secondary-tools summary { cursor: pointer; color: #475569; font-weight: 600; }
   </style>
 </head>
 <body>
   <div class="card">
-    <h1>Finish grading</h1>
-    <p>Download your grade export and the renamed scans.</p>
+    {% if tf_grader_mode %}
+      <h1>Review and return grades</h1>
+      <div class="instructions">
+        <p><strong>What to return to the instructor</strong></p>
+        <ol>
+          <li>Download the grades CSV below.</li>
+          <li>If you wrote comments, also download the feedback ZIP.</li>
+          <li>From the extracted TF bundle, include <code>data\grades\session.json</code> as the recovery copy.</li>
+        </ol>
+        <p>The instructor—not the TF—will merge the grades into Canvas.</p>
+      </div>
+    {% else %}
+      <h1>Finish grading</h1>
+      <p>Review totals, download results, or prepare the private TF handoff.</p>
+    {% endif %}
+    {% if not tf_grader_mode %}
     <form method="get" action="/finish" class="scale-form">
       <div>
         <label for="scale_to">Rescale final totals to</label>
@@ -157,15 +185,27 @@
     {% if scale_to is not none %}
       <p class="scale-note">Showing raw totals out of {{ total_max }} and scaled totals out of {{ scale_to }}. The grades CSV link below uses the same scaling.</p>
     {% endif %}
+    {% endif %}
     <div class="actions">
       <a class="btn" href="/export{% if scale_to is not none %}?scale_to={{ scale_to }}{% endif %}">Download grades CSV</a>
-      <a class="btn" href="/gradebook_merge">Gradebook merge tool</a>
-      <a class="btn" href="/classwork">Classwork viewer</a>
       <a class="btn" href="/export_feedback_zip">Download feedback ZIP</a>
-      <a class="btn" href="/export_canvas_reupload_feedback_zip">Download Canvas reupload ZIP</a>
-      <a class="btn" href="/export_renamed_scans">Download renamed scans (ZIP)</a>
-      <a class="btn btn-secondary" href="/setup">Back to setup</a>
+      {% if tf_grader_mode %}
+        {% if problems %}<a class="btn btn-secondary" href="/problem/{{ problems[0].id }}/strips">Back to grading</a>{% endif %}
+      {% else %}
+        <a class="btn" href="/export_tf_bundle">Prepare model-free TF bundle</a>
+      {% endif %}
     </div>
+
+    {% if not tf_grader_mode %}
+      <details class="secondary-tools">
+        <summary>Instructor utilities</summary>
+        <div class="actions">
+          <a class="btn btn-secondary" href="/gradebook_merge">Merge into Canvas gradebook CSV</a>
+          <a class="btn btn-secondary" href="/export_renamed_scans">Download renamed scans</a>
+          <a class="btn btn-secondary" href="/setup">Back to setup</a>
+        </div>
+      </details>
+    {% endif %}
 
     <div class="table-wrap">
       <h2>Grade overview</h2>
@@ -175,6 +215,7 @@
           <thead>
             <tr>
               <th class="name-col">Student</th>
+              <th>Version</th>
               {% for p in problems %}
                 <th><a class="problem-link" href="/problem/{{ p.id }}/strips">{{ p.id }} ({{ p.points }})</a></th>
               {% endfor %}
@@ -191,6 +232,7 @@
                   {{ row.student_name }}<br>
                   <small style="color:#666;">{{ row.student_id }}</small>
                 </td>
+                <td>{{ row.quiz_version or "—" }}</td>
                 {% for p in problems %}
                   {% set score = row.per_problem_scores.get(p.id) %}
                   {% set comment = row.per_problem_comments.get(p.id) %}

@@ -85,7 +85,7 @@ class ProblemStripsRoutesTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("Problem Q1 Grading", response.text)
         self.assertIn("Berry, Sharon", response.text)
-        self.assertIn("What the problem asked", response.text)
+        self.assertIn("Question:", response.text)
         self.assertIn("Create a model making the target sentence false.", response.text)
         self.assertNotIn("Autograde target", response.text)
 
@@ -136,7 +136,7 @@ class ProblemStripsRoutesTests(unittest.TestCase):
         self.assertIn('data-type="fol_model"', response.text)
         self.assertIn("FOL model checker", response.text)
         self.assertIn("Autograde target", response.text)
-        self.assertGreaterEqual(response.text.count("Autograde target"), 2)
+        self.assertEqual(response.text.count("Autograde target"), 1)
         self.assertIn("Need: the two target sentences have different truth values.", response.text)
         self.assertIn("Targets: ∀x Px; ∃x Px", response.text)
 

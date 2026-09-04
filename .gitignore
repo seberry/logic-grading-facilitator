@@ -4,6 +4,8 @@
 *.jpeg
 *.png
 *.zip
+*.backup
+repo-structure.txt
 
 # --- Folder Specific ---
 data/

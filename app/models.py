@@ -8,6 +8,19 @@ class RosterEntry(BaseModel):
     name: str
 
 
+class ProblemVariantSpec(BaseModel):
+    """Version-specific display and grading guidance for one problem."""
+
+    label: Optional[str] = None
+    prompt: Optional[str] = None
+    # Relative path below DATA_DIR/rubric_assets. This is a crop of the blank
+    # assessment, never a student scan or generated solution.
+    question_image: Optional[str] = None
+    answer_key: Optional[str] = None
+    rubric_notes: Optional[str] = None
+    segmentation_hint: Optional[str] = None
+
+
 class ProblemSpec(BaseModel):
     """Single problem on the quiz/exam."""
     id: str          # e.g. "Q1"
@@ -17,10 +30,13 @@ class ProblemSpec(BaseModel):
     section: Optional[str] = None
     problem_number: Optional[str] = None
     prompt: Optional[str] = None
+    question_image: Optional[str] = None
+    answer_key: Optional[str] = None
     segmentation_hint: Optional[str] = None
     rubric_notes: Optional[str] = None
     problem_type: Optional[str] = None
     autograde: Dict[str, Any] = Field(default_factory=dict)
+    variants: Dict[str, ProblemVariantSpec] = Field(default_factory=dict)
 
 
 class GradingKey(BaseModel):
@@ -43,6 +59,8 @@ class WorkUnit(BaseModel):
     unit_id: int
     page_filenames: List[str]
     student_id: Optional[str]
+    # Printed quiz/exam version (for example "A", "B", or "C").
+    quiz_version: Optional[str] = None
     per_problem: Dict[str, Optional[float]]
     comment: Optional[str]
     per_problem_comments: Dict[str, Optional[str]] = Field(default_factory=dict)
@@ -114,10 +132,14 @@ class Session(BaseModel):
     grading_key: GradingKey
     work_units: List[WorkUnit]
     unclaimed_pages: List[str]
-    pinned_note: Optional[str] = None  # PLANNED: session-wide answer key / notes
+    pinned_note: Optional[str] = None  # Legacy session-wide grading note
 
     # NEW: optional per-problem notes (e.g. “Q1 = truth table for ¬(P→Q)”)
     problem_notes: Dict[str, str] = Field(default_factory=dict)
+    # Human-selected visual comparison answers, keyed by problem id and then
+    # normalized quiz version (for example {"Q1": {"A": 7, "B": 12}}).
+    # Values are WorkUnit ids; the scan/crop remains the source of truth.
+    reference_pins: Dict[str, Dict[str, int]] = Field(default_factory=dict)
     # Optional per-problem type tags for autograde workflows (e.g., "fitch_proof")
     problem_types: Dict[str, Optional[str]] = Field(default_factory=dict)
     # Optional effort-grading mode state for classwork/attendance assignments.

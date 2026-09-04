@@ -129,7 +129,11 @@ Finalize: Scroll to the bottom and click **Save & Start Grading** (or **Save & D
 (Note: This creates the official session.json. Do not run init_session manually after this.).
 
 5. Grade in Strip View
-Navigate to: http://127.0.0.1:5000/problem/Q1/strips.
+Navigate to: http://127.0.0.1:5000/problem/Q1/strips. For a versioned quiz this
+opens Version A; the A/B/C tabs filter the student list, and Save & Next moves
+through each version before the next question. A blank-question crop under
+`DATA_DIR/rubric_assets/<quiz_id>/<problem_id>_<version>.png` is shown once in
+the sticky header, with rubric prompt text as fallback.
 
 
 Grade: Enter scores for Q1.
@@ -140,6 +144,12 @@ Navigate: Use "Save & Next" to move to Q2, Q3, etc..
 
 Tip: If a crop looks wrong, click "Show Full Page" or "Fix Crop".
 If server logs show `failed to process image`, the VLM client now auto-retries with smaller image payloads; if it still fails, restart LM Studio and retry the problem page.
+
+For a versioned paper quiz graded by one TF, use
+[`docs/QUIZ_VARIANT_TF_WORKFLOW.md`](docs/QUIZ_VARIANT_TF_WORKFLOW.md). It covers
+version-aware rubric entries, local name/version recognition, saved question
+locations, the model-free TF bundle, and the Canvas CSV return path. The TF's
+standalone instructions are in [`docs/TA_GRADING_GUIDE.md`](docs/TA_GRADING_GUIDE.md).
 
 6. Export Grades
 When finished, click **Finish** on the last question to open:

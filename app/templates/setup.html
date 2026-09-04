@@ -270,7 +270,9 @@ Requirements:
 - If possible also include:
   - prompt: exact or near-exact statement of what the student was asked to do
   - segmentation_hint: short phrase that would help a local vision model find this answer region on the page
-  - rubric_notes: concise grading guidance for the human grader
+  - rubric_notes: neutral partial-credit dimensions for the human grader
+- Do not generate solutions, expected answers, or answer_key fields. The TF is expected to know the material and contact the instructor when grading intent is unclear.
+- For printed quiz versions, keep shared geometry at problem level and add a variants map keyed by A, B, C, etc. Each version may override label, prompt, rubric_notes, and segmentation_hint.
 - Keep max_points equal to the sum of non-extra-credit problem points.
 
 Target YAML shape:
@@ -284,7 +286,12 @@ problems:
     problem_number: "1"
     prompt: "Exact or close paraphrase of the printed prompt."
     segmentation_hint: "What visible text or layout helps locate this answer."
-    rubric_notes: "How to grade it."
+    rubric_notes: "Neutral dimensions to consider when assigning partial credit."
+    variants:
+      A:
+        prompt: "Version A prompt."
+      B:
+        prompt: "Version B prompt."
 
 If a page has two problem banks with overlapping numbers, distinguish them using section + problem_number so the local model can tell which printed "1" or "3" to look for.</textarea>
           </div>
@@ -295,6 +302,7 @@ If a page has two problem banks with overlapping numbers, distinguish them using
             <p class="muted">If you create a rubric by hand outside this form, put it in <code>{{ rubrics_dir }}</code> to make it available in the "Load existing rubric" dropdown on this page.</p>
             <p class="muted">Tip: each problem <code>label</code> is used as a natural-language hint when the model locates that answer region in strip view. Match the wording on the exam if possible.</p>
             <p class="muted">For exams with multiple sections that restart numbering, add <code>section</code> and <code>problem_number</code>. The strip finder will use those too.</p>
+            <p class="muted">For multiple printed versions, add <code>variants: A: ... B: ...</code>. Name review records the version; strip view shows the matching prompt and lets the grader save one visual reference per version.</p>
             <button type="submit">Save rubric</button>
           </form>
         </div>

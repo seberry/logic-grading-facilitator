@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from .models import RosterEntry
+from .quiz_variants import normalize_quiz_version
 from .vlm_client import LMStudioQwenClient
 
 
@@ -23,6 +24,7 @@ class PagePrediction:
       - confidence: float          model's confidence in this match (0–1)
       - name_visible: bool         whether any student name is visible
       - raw_name: Optional[str]    the model's transcription of the name
+      - quiz_version: Optional[str] printed quiz/exam version, or None
       - reasoning: str             short explanation from the model
     """
 
@@ -32,6 +34,7 @@ class PagePrediction:
     name_visible: bool
     raw_name: Optional[str]
     reasoning: str
+    quiz_version: Optional[str] = None
 
 
 def _build_roster_text(roster: List[RosterEntry]) -> str:
@@ -86,6 +89,7 @@ def classify_page(
           "name_visible": true or false,
           "raw_name": string or null,
           "student_id": string or null,
+          "quiz_version": string or null,
           "confidence": float,
           "reasoning": string
         }
@@ -111,6 +115,7 @@ def classify_page(
     student_id = data.get("student_id")
     confidence = float(data.get("confidence", 0.0))
     reasoning = str(data.get("reasoning", ""))
+    quiz_version = normalize_quiz_version(data.get("quiz_version"))
 
     return PagePrediction(
         filename=image_path.name,
@@ -119,4 +124,5 @@ def classify_page(
         name_visible=name_visible,
         raw_name=raw_name,
         reasoning=reasoning,
+        quiz_version=quiz_version,
     )

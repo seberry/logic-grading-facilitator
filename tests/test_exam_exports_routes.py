@@ -1,4 +1,5 @@
 import unittest
+import os
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
@@ -47,6 +48,26 @@ class ExamExportsRoutesTests(unittest.TestCase):
         self.assertIn("Berry, Sharon", response.text)
         self.assertIn("Q1", response.text)
         self.assertIn("Q2", response.text)
+
+    def test_tf_finish_page_only_shows_tf_deliverables(self) -> None:
+        session = _build_session()
+
+        with (
+            patch.object(exam_exports_routes, "get_session", return_value=session),
+            patch.dict(os.environ, {"TF_GRADER_MODE": "1"}),
+        ):
+            response = self.client.get("/finish")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("What to return to the instructor", response.text)
+        self.assertIn("Download grades CSV", response.text)
+        self.assertIn("Download feedback ZIP", response.text)
+        self.assertNotIn("Gradebook merge tool", response.text)
+        self.assertNotIn("Classwork viewer", response.text)
+        self.assertNotIn("Canvas reupload", response.text)
+        self.assertNotIn("Download renamed scans", response.text)
+        self.assertNotIn("Prepare model-free TF bundle", response.text)
+        self.assertNotIn("Back to setup", response.text)
 
     def test_export_scores_returns_csv(self) -> None:
         session = _build_session()

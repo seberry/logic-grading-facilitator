@@ -33,6 +33,12 @@ from app.routes import modal_proof_debug as modal_proof_debug_routes
 from app.session_state import _segmentation_lock, _session_lock, get_session, persist_session
 from app.storage import DEBUG_FITCH_DIR, DEBUG_FOL_MODEL_DIR, DEBUG_MODAL_PROOF_DIR, GRADES_DIR, RAW_SCANS_DIR
 from app.vlm_client import LMStudioQwenClient
+from app.quiz_variants import (
+    available_quiz_versions,
+    normalize_quiz_version,
+    resolved_problem_context,
+)
+from app.rubric_assets import question_image_url
 
 router = APIRouter()
 
@@ -75,6 +81,63 @@ def _build_segmentation_description(spec) -> str:
     if getattr(spec, "segmentation_hint", None):
         details.append(f"Segmentation hint: {spec.segmentation_hint}.")
     return " ".join(details) or spec.id
+
+
+def _valid_reference_pins(session: Session, problem_id: str) -> Dict[str, int]:
+    """Return saved pins that still point to a unit of the recorded version."""
+    units = {wu.unit_id: wu for wu in session.work_units}
+    valid: Dict[str, int] = {}
+    for raw_version, unit_id in (session.reference_pins.get(problem_id) or {}).items():
+        version = normalize_quiz_version(raw_version)
+        unit = units.get(unit_id)
+        if version and unit and normalize_quiz_version(unit.quiz_version) == version:
+            valid[version] = unit_id
+    return valid
+
+
+def _version_tabs(session: Session) -> List[str]:
+    """Configured versions plus an Unknown review tab when it is needed."""
+    versions = available_quiz_versions(session.grading_key)
+    if versions and any(not normalize_quiz_version(wu.quiz_version) for wu in session.work_units):
+        versions.append("UNKNOWN")
+    return versions
+
+
+def _strip_view_url(problem_id: str, version: Optional[str]) -> str:
+    base = f"/problem/{quote(problem_id)}/strips"
+    return f"{base}?version={quote(version)}" if version else base
+
+
+def _grading_view_sequence(session: Session) -> List[tuple[str, Optional[str]]]:
+    versions = _version_tabs(session)
+    if not versions:
+        return [(problem.id, None) for problem in session.grading_key.problems]
+    return [
+        (problem.id, version)
+        for problem in session.grading_key.problems
+        for version in versions
+    ]
+
+
+def _adjacent_grading_views(
+    session: Session,
+    problem_id: str,
+    version: Optional[str],
+) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """Return previous URL, next URL, and next problem id for prefetching."""
+    sequence = _grading_view_sequence(session)
+    normalized = normalize_quiz_version(version)
+    current = (problem_id, normalized if _version_tabs(session) else None)
+    try:
+        index = sequence.index(current)
+    except ValueError:
+        index = next((i for i, item in enumerate(sequence) if item[0] == problem_id), 0)
+    previous = _strip_view_url(*sequence[index - 1]) if index > 0 else None
+    following = _strip_view_url(*sequence[index + 1]) if index + 1 < len(sequence) else None
+    next_problem_id = None
+    if index + 1 < len(sequence) and sequence[index + 1][0] != problem_id:
+        next_problem_id = sequence[index + 1][0]
+    return previous, following, next_problem_id
 
 
 def _compute_segments_data(session: Session, spec, cache_path: Path) -> List[Dict]:
@@ -631,6 +694,7 @@ def get_problem_strips(
     request: Request,
     problem_id: str,
     refresh: int = 0,
+    version: Optional[str] = None,
 ):
     session = get_session()
     grading_key = session.grading_key
@@ -732,24 +796,61 @@ def get_problem_strips(
                 "modal_preview": modal_preview,
                 "fitch_ocr": fitch_ocr_by_unit.get(wu.unit_id),
                 "fol_model": fol_model_review,
+                "quiz_version": normalize_quiz_version(wu.quiz_version),
+                "variant_context": resolved_problem_context(spec, wu.quiz_version),
             }
         )
 
+    quiz_version_options = available_quiz_versions(grading_key)
+    if any(item["quiz_version"] for item in strips):
+        strips.sort(
+            key=lambda item: (
+                item["quiz_version"] is None,
+                item["quiz_version"] or "",
+                str(item["student_name"]).lower(),
+            )
+        )
+
+    version_tabs = _version_tabs(session)
+    active_version = normalize_quiz_version(version)
+    if version_tabs:
+        if active_version is None:
+            active_version = version_tabs[0]
+        if active_version not in version_tabs:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Unknown quiz version {version!r}. Choose: {', '.join(version_tabs)}.",
+            )
+
+        if active_version == "UNKNOWN":
+            strips = [item for item in strips if item["quiz_version"] is None]
+        else:
+            strips = [item for item in strips if item["quiz_version"] == active_version]
+
+    version_counts = {
+        tab: sum(
+            1
+            for wu in session.work_units
+            if (
+                (tab == "UNKNOWN" and normalize_quiz_version(wu.quiz_version) is None)
+                or normalize_quiz_version(wu.quiz_version) == tab
+            )
+        )
+        for tab in version_tabs
+    }
+
     if refresh:
         return RedirectResponse(
-            url=f"/problem/{problem_id}/strips",
+            url=_strip_view_url(problem_id, active_version),
             status_code=303,
         )
 
-    problem_ids = [p.id for p in grading_key.problems]
-    try:
-        idx = problem_ids.index(problem_id)
-    except ValueError:
-        idx = -1
-
-    next_problem_id = None
-    if idx != -1 and idx < len(problem_ids) - 1:
-        next_problem_id = problem_ids[idx + 1]
+    previous_view_url, next_view_url, next_problem_id = _adjacent_grading_views(
+        session,
+        problem_id,
+        active_version,
+    )
+    active_problem_context = resolved_problem_context(spec, active_version)
 
     return templates.TemplateResponse(
         "problem_strips.html",
@@ -758,6 +859,9 @@ def get_problem_strips(
             "problem_id": problem_id,
             "problem_label": spec.label,
             "problem_spec": spec,
+            "active_version": active_version,
+            "active_problem_context": active_problem_context,
+            "question_image_url": question_image_url(grading_key, spec, active_version),
             "problem_locator_text": _build_problem_locator_text(spec),
             "fol_model_task_details": task_details_from_config(_require_autograde_config(spec))
             if effective_problem_type == "fol_model"
@@ -765,11 +869,78 @@ def get_problem_strips(
             "strips": strips,
             "max_points": spec.points,
             "problem_note": session.problem_notes.get(problem_id, ""),
+            "problem_reference_pins": _valid_reference_pins(session, problem_id),
             "problem_type": effective_problem_type,
             "problem_type_options": PROBLEM_TYPE_OPTIONS,
             "next_problem_id": next_problem_id,
+            "next_view_url": next_view_url,
+            "previous_view_url": previous_view_url,
+            "version_tabs": version_tabs,
+            "version_counts": version_counts,
+            "quiz_version_options": quiz_version_options or ["A", "B", "C"],
         },
     )
+
+
+@router.post("/problem/{problem_id}/reference-pin")
+async def post_problem_reference_pin(
+    problem_id: str,
+    action: str = Form("pin"),
+    quiz_version: str = Form(""),
+    unit_id: Optional[int] = Form(None),
+):
+    """Persist a human-selected comparison answer for one printed version."""
+    with _session_lock:
+        session = get_session()
+        spec = next((p for p in session.grading_key.problems if p.id == problem_id), None)
+        if spec is None:
+            raise HTTPException(status_code=404, detail=f"Unknown problem id {problem_id!r}")
+
+        if action == "clear_all":
+            session.reference_pins.pop(problem_id, None)
+            persist_session()
+            return {"status": "ok", "reference_pins": {}}
+
+        version = normalize_quiz_version(quiz_version)
+        if not version:
+            raise HTTPException(status_code=400, detail="Choose a quiz version before pinning.")
+
+        pins = dict(session.reference_pins.get(problem_id) or {})
+        pins = {
+            normalized: saved_unit_id
+            for raw, saved_unit_id in pins.items()
+            if (normalized := normalize_quiz_version(raw))
+        }
+
+        if action == "clear":
+            pins.pop(version, None)
+        elif action == "pin":
+            unit = next((wu for wu in session.work_units if wu.unit_id == unit_id), None)
+            if unit is None:
+                raise HTTPException(status_code=404, detail=f"Unknown work unit {unit_id!r}.")
+
+            configured_versions = set(available_quiz_versions(session.grading_key))
+            if configured_versions and version not in configured_versions:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Version {version!r} is not configured for this rubric.",
+                )
+
+            # Treat the version selected on the strip as a human correction and
+            # prevent the same response from masquerading as two version keys.
+            unit.quiz_version = version
+            pins = {key: value for key, value in pins.items() if value != unit.unit_id}
+            pins[version] = unit.unit_id
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown pin action {action!r}.")
+
+        if pins:
+            session.reference_pins[problem_id] = pins
+        else:
+            session.reference_pins.pop(problem_id, None)
+        persist_session()
+
+    return {"status": "ok", "reference_pins": pins}
 
 
 @router.post("/problem/{problem_id}/strips", response_class=HTMLResponse)
@@ -781,6 +952,7 @@ async def post_problem_strips(
     action = form.get("action")
     if not action:
         action = form.get("action_mode", "save_next")
+    active_version = normalize_quiz_version(form.get("active_version"))
 
     with _session_lock:
         session = get_session()
@@ -837,6 +1009,10 @@ async def post_problem_strips(
                     print(f"Error updating segment cache: {exc}")
 
         for wu in session.work_units:
+            version_raw = form.get(f"quiz_version_{wu.unit_id}")
+            if version_raw is not None:
+                wu.quiz_version = normalize_quiz_version(version_raw)
+
             field_name = f"score_{wu.unit_id}"
             raw = form.get(field_name)
             if raw is None:
@@ -853,10 +1029,20 @@ async def post_problem_strips(
                         detail=f"Invalid score for {problem_id} on unit {wu.unit_id}: {raw!r}",
                     )
 
+        # A reference selected under Version A must not remain labeled A after
+        # that work unit is corrected to another version.
+        valid_pins = _valid_reference_pins(session, problem_id)
+        if valid_pins:
+            session.reference_pins[problem_id] = valid_pins
+        else:
+            session.reference_pins.pop(problem_id, None)
+
         for wu in session.work_units:
             field_name = f"comment_{wu.unit_id}"
             raw = form.get(field_name)
-            if raw is None or raw.strip() == "":
+            if raw is None:
+                continue
+            if raw.strip() == "":
                 wu.per_problem_comments[problem_id] = None
             else:
                 wu.per_problem_comments[problem_id] = raw
@@ -877,31 +1063,26 @@ async def post_problem_strips(
             else:
                 session.problem_types[problem_id] = selected
 
-        problem_ids = [p.id for p in session.grading_key.problems]
-        try:
-            idx = problem_ids.index(problem_id)
-        except ValueError:
-            idx = 0
-
-        target_problem_id = problem_id
+        previous_view_url, next_view_url, _ = _adjacent_grading_views(
+            session,
+            problem_id,
+            active_version,
+        )
+        target_url = _strip_view_url(problem_id, active_version)
         if action == "save_next":
-            if idx < len(problem_ids) - 1:
-                target_problem_id = problem_ids[idx + 1]
-            else:
-                target_problem_id = None
+            target_url = next_view_url
         elif action == "save_back":
-            if idx > 0:
-                target_problem_id = problem_ids[idx - 1]
+            target_url = previous_view_url or target_url
         elif action == "finish":
-            target_problem_id = None
+            target_url = None
 
         persist_session()
 
-    if target_problem_id is None:
+    if target_url is None:
         return RedirectResponse(url="/finish", status_code=303)
 
     return RedirectResponse(
-        url=f"/problem/{target_problem_id}/strips",
+        url=target_url,
         status_code=303,
     )
 

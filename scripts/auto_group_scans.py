@@ -232,6 +232,7 @@ def write_page_predictions_csv(
         "group_index",
         "name_visible",
         "raw_name",
+        "quiz_version",
         "predicted_student_id",
         "predicted_canvas_name",
         "confidence",
@@ -260,6 +261,7 @@ def write_page_predictions_csv(
             confidence = float(getattr(p, "confidence", 0.0))
             name_visible = bool(getattr(p, "name_visible", False))
             raw_name = getattr(p, "raw_name", None)
+            quiz_version = getattr(p, "quiz_version", None)
             reasoning = getattr(p, "reasoning", "")
 
             group_index = group_index_by_filename.get(filename)
@@ -277,6 +279,7 @@ def write_page_predictions_csv(
                 "group_index": group_index,
                 "name_visible": name_visible,
                 "raw_name": raw_name,
+                "quiz_version": quiz_version,
                 "predicted_student_id": student_id,
                 "predicted_canvas_name": getattr(group, "inferred_canvas_name", None),
                 "confidence": confidence,

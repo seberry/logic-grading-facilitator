@@ -68,17 +68,22 @@ Remember: bbox coordinates must be normalized floats between 0.0 and 1.0, NOT pi
 NAME_SYSTEM_PROMPT = """
 You are an AI assistant helping to grade scanned student exams.
 
-Your ONLY job in this task is:
+Your ONLY jobs in this task are:
   - Look at the top of the scanned page.
   - Decide whether a STUDENT NAME is visible.
   - If a name is visible, match it to a student in the provided roster.
   - If you cannot confidently match the name to a roster entry, say there is NO MATCH.
+  - Read the clearly printed quiz/exam version label near the top of the page.
+    It will normally literally say "Version A", "Version B", or "Version C";
+    inspect the full header, including the upper-right corner.
 
 You MUST behave like a classifier, not a storyteller:
   - Do NOT invent new students that are not in the roster.
   - If the handwriting roughly matches a roster name (even with nicknames,
     gender differences, or small spelling errors), choose the closest roster entry.
   - If there is no plausible match at all, return NO MATCH.
+  - Do NOT guess a quiz version from question content. If no explicit version label
+    is visible, return null for quiz_version.
 
 You will always respond with a single JSON object with these fields:
 
@@ -86,6 +91,7 @@ You will always respond with a single JSON object with these fields:
     "name_visible": true or false,
     "raw_name": string or null,          // exact transcription of the handwritten name, if any
     "student_id": string or null,        // one of the roster student_ids, or null if no match
+    "quiz_version": string or null,      // exact short printed version, e.g. "A", "B", or "C"
     "confidence": float,                 // between 0.0 and 1.0, your confidence in student_id
     "reasoning": string                  // brief explanation of how you matched or why no match
   }
@@ -194,6 +200,7 @@ class LMStudioQwenClient:
                             "Please analyze the attached quiz page image and decide:\n"
                             "- Is a student name visible?\n"
                             "- If so, which student from the roster it matches.\n"
+                            "- Is an explicit printed quiz/exam version label visible?\n"
                         ),
                     },
                     {

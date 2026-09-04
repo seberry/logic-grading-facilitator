@@ -18,6 +18,8 @@ It represents:
 - Containing one or more scanned pages.
 - With per-problem scores and optional comments.
 - Keyed to a unique `student_id` from the Canvas roster.
+- Optionally tagged with a normalized printed `quiz_version` used to resolve
+  version-specific rubric prompts and neutral grading notes.
 
 All downstream workflows (Canvas export, per-question views, OCR segmentation, autograding) operate on the `WorkUnit`.
 
@@ -36,6 +38,10 @@ The backend service (FastAPI) maintains the state of the grading session.
 2.  **`raw_scans/` (The Images):**
     * Contains raw uploads (e.g., `IMG_001.jpg`).
     * After the "Hand-off," canonical copies are added (e.g., `quiz1_berry_sharon_p01.jpg`); originals are left in place.
+    * Intake skips byte-identical image uploads using SHA-256. Filename
+      collisions with different content are preserved using `_2`, `_3`, etc.
+      Auto-grouping quarantines exact duplicates created by older versions under
+      `DATA_DIR/duplicate_scans_quarantine/<timestamp>/` before invoking the VLM.
 
 3.  **`segments_*.json` (The Geometry):**
     * Stores bounding boxes for where specific answers are located on a page.
@@ -57,21 +63,39 @@ The frontend serves specific interfaces for different phases of the grading life
 ### A. Name Review View (`GET /name_review`)
 * **Purpose:** rapid audit of VLM-grouped pages before grading begins.
 * **Input:** Reads draft predictions from CSV (CLI output) or JSON cache.
-* **Action:** User confirms identity matches and can use **Save & Auto-Fill Unknowns** to cascade the last chosen student onto later "Unknown" rows without renaming files yet.
+* **Action:** User confirms identity and printed quiz-version matches and can use **Save & Auto-Fill Unknowns** to cascade the last chosen student onto later "Unknown" rows without renaming files yet.
+* **Draft persistence:** **Save Corrections** stores the exact selected names and
+  versions in the prediction cache. Refreshed recognition preserves reviewed
+  name choices while updating printed-version guesses.
+* **Idempotent review:** If an earlier handoff left both an original upload and
+  its byte-identical canonical name-labeled copy, the page displays one merged
+  row. It can take the reviewed name from one copy and the printed-version guess
+  from the other without deleting either file.
 * **Transition:** Submitting this form triggers the **Hand-off** (see Section 8).
 
 ### B. Strip View Grading (`GET /problem/{id}/strips`)
 * **Purpose:** High-speed grading of **one question across all students**.
 * **Display:**
-    * Shows a cropped "strip" of the student's answer (via segmentation).
+    * A versioned rubric opens one A/B/C tab at a time. The selected version's
+      blank-quiz question image (or text fallback) stays pinned at the top and
+      is rendered once, not repeated inside every student card.
+    * Shows a large cropped "strip" of the student's answer (via segmentation),
+      with the score/comment controls in a narrower side column.
     * Provides full-page toggle and scoring inputs.
+    * Filters work by printed version and permits inline version correction.
+      Stored grading notes are omitted from this compact grading surface.
+    * Saves human-selected visual reference responses independently for each
+      problem/version. These pins persist in `session.json` and the TF bundle.
+    * Does not display rubric `answer_key` values. TF bundle export removes any
+      such legacy values from both its rubric and session copies.
     * For `fitch_proof` problems, shows a TFL/Fitch OCR review card beside
       each strip and polls for status updates while OCR continues in the
       background.
     * For `fol_model` problems, shows the cropped answer, editable OCR/model
       text, per-strip target details, checker verdict, suggested score/comment,
       and a button to save edits and rerun the deterministic checker.
-* **Navigation:** "Save & Next" moves linearly through the rubric.
+* **Navigation:** "Save & Next" moves through versions before advancing to the
+  next problem (for example Q1/A, Q1/B, Q1/C, then Q2/A).
 
 #### TFL/Fitch OCR review in Strip View
 
@@ -128,9 +152,10 @@ The architecture is explicitly prepared for progressive automation:
     * *Current:* VLM identifies bounding boxes for "Q1".
     * *Future:* OCR detects specific headings (1., (a)) to refine these boxes.
 
-2.  **Visual "Prompt Injection" (New):**
+2.  **Visual prompt injection:**
     * For structural tasks (Fitch Proofs), we do not rely on the VLM to see geometry.
-    * [cite_start]We use OpenCV to detect geometric features (vertical bars) and "inject" them into the image as high-contrast **Color Overlays**[cite: 928].
+    * We use OpenCV to detect geometric features (vertical bars) and inject
+      them into the image as high-contrast color overlays.
     * This converts a geometric problem ("which line is this text inside?") into a color perception problem ("what background color is this text on?"), which local VLMs handle significantly better.
 
 3.  **Clustering:**
@@ -256,7 +281,7 @@ work.
 | FOL model strip OCR/checker review | `app/fol_model_review.py`, `app/routes/problem_strips.py` (`/problem/{problem_id}/fol_model_ocr/*`) | `data/grades/fol_model_ocr/fol_model_{problem_id}.json`, `data/debug_fol_model/<slug>/` | Async OCR lane plus inline deterministic checker for `fol_model` problems. |
 | Fitch debug / correction | `app/routes/fitch_debug.py`, `app/templates/debug_fitch.html` | `data/debug_fitch/<slug>/final_structure.json` and sibling artifacts | Deep inspection/editing path for one proof crop. |
 | Modal proof debug | `app/routes/modal_proof_debug*.py`, `app/templates/debug_modal_proof.html` | `data/debug_modal_proof/<slug>/state.json` and checker artifacts | Separate modal proof scaffold/debug path. |
-| Exam exports/finalize | `app/routes/exam_exports.py`, `app/exam_exports_core.py` | `data/grades/session.json`, export ZIP/CSV responses, archive snapshots | Human scores in `session.json` remain authoritative. |
+| Exam exports/finalize | `app/routes/exam_exports.py`, `app/exam_exports_core.py` | `data/grades/session.json`, export ZIP/CSV responses, archive snapshots | Human scores in `session.json` remain authoritative. `/export_tf_bundle` validates and packages scans, session, rubric, and every `segments_*.json` needed for model-free grading. |
 | Classwork workflows | `app/routes/classwork.py`, `app/classwork_core.py` | `data/classwork/`, `data/canvas_cache/`, classwork state in session | Semi-independent from exam strip grading. |
 
 * `app/server.py` – FastAPI app shell plus the remaining exam setup/import and legacy grading routes.
