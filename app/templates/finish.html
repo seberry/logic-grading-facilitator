@@ -164,7 +164,7 @@
         <p><strong>What to return to the instructor</strong></p>
         <ol>
           <li>Download the grades CSV below.</li>
-          <li>If you wrote comments, also download the feedback ZIP.</li>
+          <li>Download the student PDFs ZIP: each PDF contains that student's scans followed by scores and comments.</li>
           <li>From the extracted TF bundle, include <code>data\grades\session.json</code> as the recovery copy.</li>
         </ol>
         <p>The instructor—not the TF—will merge the grades into Canvas.</p>
@@ -188,7 +188,7 @@
     {% endif %}
     <div class="actions">
       <a class="btn" href="/export{% if scale_to is not none %}?scale_to={{ scale_to }}{% endif %}">Download grades CSV</a>
-      <a class="btn" href="/export_feedback_zip">Download feedback ZIP</a>
+      <a class="btn" href="/export_feedback_zip">Download scans + feedback PDFs</a>
       {% if tf_grader_mode %}
         {% if problems %}<a class="btn btn-secondary" href="/problem/{{ problems[0].id }}/strips">Back to grading</a>{% endif %}
       {% else %}

@@ -25,11 +25,10 @@ GitHub or personal cloud storage.
    GitHub is only supplying code files. It is not hosting the grader or seeing
    student work.
 
-2. Install Python if needed. During a python.org installation, enable **Add
-   Python to PATH**.
-3. Open the extracted code folder in File Explorer. Click the address bar, type
-   `powershell`, and press Enter.
-4. In that PowerShell window run:
+2. Install Python 3 if needed. On Windows, enable **Add Python to PATH** during
+   a python.org installation.
+3. Open PowerShell (Windows) or Terminal (macOS) in the extracted code folder.
+4. On Windows run:
 
 ```powershell
 py -m pip install -r requirements.txt
@@ -41,9 +40,17 @@ py -m pip install -r requirements.txt
 python -m pip install -r requirements.txt
 ```
 
+   On macOS run:
+
+```bash
+python3 -m pip install -r requirements.txt
+```
+
 5. Extract the private TF bundle somewhere outside the code folder.
 
 ## Start the grader
+
+### Windows
 
 Open the extracted private bundle. Right-click `START_TF_GRADER.ps1`, choose
 **Run with PowerShell**, and enter the full path to the extracted code folder
@@ -66,6 +73,18 @@ http://127.0.0.1:5000/problem/Q1/strips
 `127.0.0.1` means the grader is running only on this computer. Closing the
 PowerShell window stops it; reopening it later restores the saved grades from
 the bundle.
+
+### macOS
+
+Open Terminal in the extracted private bundle and run:
+
+```bash
+bash ./START_TF_GRADER.command
+```
+
+Enter the full path to the extracted code folder when prompted. Keep Terminal
+open and visit the address it prints, normally
+`http://127.0.0.1:5001/problem/Q1/strips`.
 
 The launcher enables TF mode. On the final page this hides instructor-only and
 unrelated controls such as setup, classwork, gradebook merge, renamed scans,
@@ -97,11 +116,14 @@ guesses are part of the bundle, and no local model is available on this machine.
 On the Finish page download:
 
 - **grades CSV**;
-- **feedback ZIP**, if you entered comments.
+- **scans + feedback PDFs ZIP**. It contains one PDF per student: the original
+  scan pages first, followed by a typed page containing the total,
+  per-question scores, and comments.
 
 Also copy `data\grades\session.json` from the extracted bundle. Return all of
 these to the instructor through the agreed secure channel. The instructor will
-merge scores into Canvas.
+merge scores into Canvas and can attach each named PDF to the corresponding
+student's Canvas record.
 
 ## Troubleshooting by phone
 

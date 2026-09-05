@@ -1,8 +1,15 @@
 import unittest
+import csv
+import io
 import os
+import tempfile
+import zipfile
+from pathlib import Path
 from unittest.mock import patch
 
+import fitz  # type: ignore
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from app import server
 from app.models import GradingKey, ProblemSpec, RosterEntry, Session, WorkUnit
@@ -61,7 +68,7 @@ class ExamExportsRoutesTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("What to return to the instructor", response.text)
         self.assertIn("Download grades CSV", response.text)
-        self.assertIn("Download feedback ZIP", response.text)
+        self.assertIn("Download scans + feedback PDFs", response.text)
         self.assertNotIn("Gradebook merge tool", response.text)
         self.assertNotIn("Classwork viewer", response.text)
         self.assertNotIn("Canvas reupload", response.text)
@@ -90,6 +97,57 @@ class ExamExportsRoutesTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn('filename="quiz1_scores_out_of_10.csv"', response.headers["content-disposition"])
         self.assertIn("s1,9.0", response.text)
+
+    def test_feedback_zip_contains_named_scan_and_feedback_pdf(self) -> None:
+        session = _build_session()
+        session.work_units[0].quiz_version = "A"
+        session.work_units[0].page_filenames = ["page_1.jpg", "page_2.jpg"]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            scans_dir = Path(temp_dir)
+            Image.new("RGB", (120, 180), "white").save(scans_dir / "page_1.jpg")
+            Image.new("RGB", (180, 120), "gray").save(scans_dir / "page_2.jpg")
+
+            with (
+                patch.object(exam_exports_routes, "get_session", return_value=session),
+                patch.object(exam_exports_routes, "RAW_SCANS_DIR", scans_dir),
+            ):
+                response = self.client.get("/export_feedback_zip")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(
+            'filename="quiz1_scans_with_feedback.zip"',
+            response.headers["content-disposition"],
+        )
+
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            names = archive.namelist()
+            pdf_names = [name for name in names if name.endswith(".pdf")]
+            self.assertEqual(
+                pdf_names,
+                ["quiz1_berry_sharon_s1_vA_graded.pdf"],
+            )
+            self.assertIn("quiz1_feedback_manifest.csv", names)
+
+            pdf_bytes = archive.read(pdf_names[0])
+            with fitz.open(stream=pdf_bytes, filetype="pdf") as document:
+                self.assertEqual(document.page_count, 3)
+                feedback_text = document[-1].get_text()
+                self.assertIn("Berry, Sharon (s1)", feedback_text)
+                self.assertIn("Total: 9.0 / 10.0", feedback_text)
+                self.assertIn("One minor issue", feedback_text)
+
+            manifest_rows = list(
+                csv.DictReader(
+                    io.StringIO(
+                        archive.read("quiz1_feedback_manifest.csv").decode("utf-8")
+                    )
+                )
+            )
+            self.assertEqual(len(manifest_rows), 1)
+            self.assertEqual(manifest_rows[0]["scan_pages"], "2")
+            self.assertEqual(manifest_rows[0]["feedback_pages"], "1")
+            self.assertEqual(manifest_rows[0]["scan_warnings"], "")
 
     def test_finish_page_can_show_scaled_totals(self) -> None:
         session = _build_session()

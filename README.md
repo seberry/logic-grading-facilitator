@@ -92,7 +92,7 @@ When finished, open:
 http://127.0.0.1:5000/finish
 ```
 
-The finish page links to grade export, renamed scans, feedback ZIPs, and the
+The finish page links to grade export, renamed scans, student scan/feedback PDFs, and the
 gradebook merge tool.
 
 ## Current Automation Status

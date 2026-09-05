@@ -19,6 +19,7 @@ from ..exam_exports_core import (
     _build_best_rows_by_student,
     _feedback_text_from_row,
     _find_canvas_original_zip_for_quiz,
+    _scans_with_feedback_pdf_bytes,
     roster_lookup,
 )
 from ..exam_shared import (
@@ -164,6 +165,51 @@ Write-Host "Keep this window open while grading. Press Ctrl+C to stop."
 '''
 
 
+def _tf_mac_launcher_text() -> str:
+    return '''#!/bin/bash
+set -euo pipefail
+
+BUNDLE_ROOT="$(cd "$(dirname "$0")" && pwd)"
+CODE_DIR="${1:-}"
+PORT="${PORT:-5001}"
+
+if [ -z "$CODE_DIR" ]; then
+  read -r -p "Full path to the logic-grading-facilitator code folder: " CODE_DIR
+fi
+if [ ! -f "$CODE_DIR/app/server.py" ]; then
+  echo "That folder does not contain app/server.py."
+  exit 1
+fi
+
+export DATA_DIR="$BUNDLE_ROOT/data"
+export DATA_ARCHIVE_DIR="$BUNDLE_ROOT/archive"
+export ENV_MODE="PRODUCTION"
+export TF_GRADER_MODE="1"
+
+if command -v python3 >/dev/null 2>&1; then
+  PYTHON_COMMAND="python3"
+elif command -v python >/dev/null 2>&1; then
+  PYTHON_COMMAND="python"
+else
+  echo "Python was not found. Install Python 3, reopen Terminal, and try again."
+  exit 1
+fi
+
+cd "$CODE_DIR"
+echo "TF grader: http://127.0.0.1:$PORT/problem/Q1/strips"
+echo "Keep this window open while grading. Press Control-C to stop."
+"$PYTHON_COMMAND" -m uvicorn app.server:app --port "$PORT"
+'''
+
+
+def _write_executable_zip_text(zf: zipfile.ZipFile, name: str, text: str) -> None:
+    info = zipfile.ZipInfo(name)
+    info.create_system = 3
+    info.external_attr = (0o100755 & 0xFFFF) << 16
+    info.compress_type = zipfile.ZIP_DEFLATED
+    zf.writestr(info, text)
+
+
 def _tf_bundle_readme(quiz_id: str) -> str:
     return f"""TF GRADING BUNDLE: {quiz_id}
 
@@ -178,18 +224,25 @@ You need TWO separate items from the instructor:
    folder on an approved device; never upload it to GitHub.
 
 One-time setup:
-1. Install Python if needed.
-2. Open PowerShell in the extracted code folder.
-3. Run: py -m pip install -r requirements.txt
+1. Install Python 3 if needed.
+2. Open PowerShell (Windows) or Terminal (Mac) in the extracted code folder.
+3. On Windows run: py -m pip install -r requirements.txt
    If `py` is not recognized, run: python -m pip install -r requirements.txt
+4. On a Mac run: python3 -m pip install -r requirements.txt
 
-Start grading:
+Start grading on Windows:
 1. In this bundle folder, right-click START_TF_GRADER.ps1 and choose Run with
    PowerShell.
 2. Enter the full path to the extracted CODE folder when prompted.
 3. Keep the PowerShell window open and open the URL it prints.
 4. If port 5000 is busy, run this from PowerShell instead:
    powershell -ExecutionPolicy Bypass -File .\\START_TF_GRADER.ps1 -Port 5001
+
+Start grading on a Mac:
+1. Open Terminal in this bundle folder.
+2. Run: bash ./START_TF_GRADER.command
+3. Enter the full path to the extracted CODE folder when prompted.
+4. Keep Terminal open and open the URL it prints (normally port 5001).
 
 Use the A/B/C tabs to grade one problem/version across its students. The blank
 printed question stays at the top. Check a response's version badge if it looks
@@ -200,10 +253,11 @@ unclear, stop and contact the instructor rather than asking a model to decide.
 If a crop is wrong, use Show Full Page or Fix Crop. Do not click the global
 Segmentation refresh link because this handoff intentionally has no model.
 
-When finished, download the grades CSV and, if comments were used, the feedback
-ZIP from the Finish page. Return those files plus data\\grades\\session.json to
-the instructor. Do not upload this bundle to GitHub or personal cloud storage;
-it contains protected student work.
+When finished, download the grades CSV and the scans + feedback PDFs ZIP from
+the Finish page. The ZIP has one named PDF per student: original scan pages
+followed by typed scores and comments. Return those files plus
+data\\grades\\session.json to the instructor. Do not upload this bundle to
+GitHub or personal cloud storage; it contains protected student work.
 """
 
 @router.get("/finish", response_class=HTMLResponse)
@@ -423,6 +477,11 @@ def export_tf_bundle():
             json.dumps(manifest, indent=2, sort_keys=True),
         )
         zf.writestr(f"{root}/START_TF_GRADER.ps1", _tf_launcher_text())
+        _write_executable_zip_text(
+            zf,
+            f"{root}/START_TF_GRADER.command",
+            _tf_mac_launcher_text(),
+        )
         zf.writestr(f"{root}/READ_ME_FIRST.txt", _tf_bundle_readme(session.grading_key.quiz_id))
 
         for cache_path in cache_paths:
@@ -485,83 +544,67 @@ def finalize_assignment(label: str = Form(...)):
 @router.get("/export_feedback_zip")
 def export_feedback_zip():
     """
-    Export per-student feedback files (rubric, per-problem scores, comments) as a ZIP.
-    Filenames include student name (slug) and student_id for easy Canvas drag/drop.
+    Export one PDF per student as a ZIP.
+
+    Each named PDF contains the student's original scan page(s), followed by a
+    typed feedback page containing scores and comments. Filenames include the
+    student name slug and student_id for straightforward manual Canvas upload.
     """
     session = get_session()
     grading_key = session.grading_key
     problems = grading_key.problems
     total_max = _required_total_max(grading_key) if problems else 0.0
-
-    roster_map = {r.student_id: r.name for r in session.roster}
     id_to_slug = roster_lookup(session)
-
-    # Choose the max-total WorkUnit per student_id (matches export_scores behavior)
-    rows_by_student: Dict[str, Dict] = {}
-    for wu in session.work_units:
-        if not wu.student_id:
-            continue
-        per_problem_scores = {}
-        per_problem_comments = {}
-        for p in problems:
-            score = wu.per_problem.get(p.id)
-            per_problem_scores[p.id] = score
-            per_problem_comments[p.id] = wu.per_problem_comments.get(p.id)
-        score_summary = _score_summary_for_work_unit(session, wu)
-        total = score_summary["total_score"]
-
-        sid = wu.student_id
-        existing = rows_by_student.get(sid)
-        if existing is None or total > existing["total_score"]:
-            rows_by_student[sid] = {
-                "student_id": sid,
-                "student_name": roster_map.get(sid, sid),
-                "quiz_version": normalize_quiz_version(wu.quiz_version),
-                "per_problem_scores": per_problem_scores,
-                "per_problem_comments": per_problem_comments,
-                "regular_score": score_summary["regular_score"],
-                "extra_credit_score": score_summary["extra_credit_score"],
-                "total_score": total,
-            }
+    rows_by_student = _build_best_rows_by_student(session)
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         manifest = io.StringIO()
         writer = csv.writer(manifest)
-        writer.writerow(["student_id", "student_name", "filename", "total_score"])
+        writer.writerow(
+            [
+                "student_id",
+                "student_name",
+                "filename",
+                "total_score",
+                "scan_pages",
+                "feedback_pages",
+                "scan_warnings",
+            ]
+        )
 
         for row in sorted(rows_by_student.values(), key=lambda r: r["student_name"]):
             sid = row["student_id"]
-            name = row["student_name"]
             slug = id_to_slug.get(sid, f"student_{sid}")
             version = normalize_quiz_version(row.get("quiz_version"))
             version_part = f"_v{version}" if version else ""
-            filename = f"{grading_key.quiz_id}_{slug}_{sid}{version_part}_feedback.txt"
+            filename = f"{grading_key.quiz_id}_{slug}_{sid}{version_part}_graded.pdf"
+            feedback_text = _feedback_text_from_row(
+                row,
+                problems,
+                grading_key.quiz_id,
+                total_max,
+            )
+            scan_paths = [
+                RAW_SCANS_DIR / Path(page_filename).name
+                for page_filename in row.get("page_filenames", [])
+            ]
+            pdf_bytes, scan_pages, feedback_pages, warnings = (
+                _scans_with_feedback_pdf_bytes(scan_paths, feedback_text)
+            )
 
-            lines = []
-            lines.append(f"Quiz: {grading_key.quiz_id}")
-            lines.append(f"Student: {name} ({sid})")
-            lines.append(f"Total: {row['total_score']} / {total_max}")
-            if row["extra_credit_score"] > 0:
-                lines.append(
-                    f"Extra credit applied: {row['extra_credit_score']:g} (capped at {total_max:g})"
-                )
-            lines.append("")
-            lines.append("Rubric + Scores")
-            for p in problems:
-                score = row["per_problem_scores"].get(p.id)
-                comment = row["per_problem_comments"].get(p.id)
-                score_display = "" if score is None else str(score)
-                points_label = f"{p.points} pts"
-                if p.extra_credit:
-                    points_label = f"EC {p.points} pts"
-                lines.append(f"- {p.id} ({p.label}) [{points_label}]: {score_display}")
-                if comment:
-                    lines.append(f"  Comment: {comment}")
-            lines.append("")
-
-            zf.writestr(filename, "\n".join(lines))
-            writer.writerow([sid, name, filename, row["total_score"]])
+            zf.writestr(filename, pdf_bytes)
+            writer.writerow(
+                [
+                    sid,
+                    row["student_name"],
+                    filename,
+                    row["total_score"],
+                    scan_pages,
+                    feedback_pages,
+                    " | ".join(warnings),
+                ]
+            )
 
         zf.writestr(
             f"{grading_key.quiz_id}_feedback_manifest.csv",
@@ -569,7 +612,7 @@ def export_feedback_zip():
         )
 
     buf.seek(0)
-    filename = f"{grading_key.quiz_id}_feedback.zip"
+    filename = f"{grading_key.quiz_id}_scans_with_feedback.zip"
     return Response(
         content=buf.getvalue(),
         media_type="application/zip",

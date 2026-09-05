@@ -193,7 +193,7 @@ send the real `.env`, original Canvas gradebook, model caches, or debug crops.
 Ask the TF to return:
 
 - the downloaded scores CSV;
-- the feedback ZIP, if comments were entered; and
+- the scans + feedback PDFs ZIP, containing one named PDF per student; and
 - the completed bundle's `data/grades/session.json` as the recovery copy.
 
 On the instructor machine, first preserve your original prepared session, then
@@ -204,8 +204,10 @@ column, review the match/conflict summary, and download the merged CSV for
 Canvas upload. The returned scores CSV is also a readable cross-check, but the
 current merge page reads authoritative scores from `session.json`.
 
-The ordinary feedback ZIP names files with student name and SIS ID. These can
-be attached manually in Canvas. The Canvas re-upload ZIP is meant for files
+The ordinary feedback ZIP contains one PDF per student, named with the student
+name and SIS ID. Each PDF preserves the original scan pages and appends a typed
+feedback page with the total, per-question scores, and comments. Attach that
+single PDF manually in Canvas. The Canvas re-upload ZIP is meant for files
 originally downloaded from Canvas and is not the right path for photographed
 paper quizzes.
 

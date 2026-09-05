@@ -643,6 +643,12 @@ class TfBundleTests(unittest.TestCase):
             self.assertIn('TF_GRADER_MODE = "1"', launcher)
             self.assertIn("[int]$Port = 5000", launcher)
             self.assertIn("Get-Command py", launcher)
+            self.assertIn(f"{root}/START_TF_GRADER.command", names)
+            mac_launcher_info = zf.getinfo(f"{root}/START_TF_GRADER.command")
+            mac_launcher = zf.read(mac_launcher_info).decode()
+            self.assertIn('export TF_GRADER_MODE="1"', mac_launcher)
+            self.assertIn('PORT="${PORT:-5001}"', mac_launcher)
+            self.assertTrue((mac_launcher_info.external_attr >> 16) & 0o100)
             self.assertIn(
                 f"{root}/data/rubric_assets/P250_F26_quiz1_ABC/Q1_A.png",
                 names,

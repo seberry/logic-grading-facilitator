@@ -155,7 +155,7 @@ standalone instructions are in [`docs/TA_GRADING_GUIDE.md`](docs/TA_GRADING_GUID
 When finished, click **Finish** on the last question to open:
 http://127.0.0.1:5000/finish.
 
-Download the grades CSV and the renamed scans ZIP from there. The feedback ZIP includes per-student files with the rubric, per-problem scores, and any comments. You can also open the grade overview anytime via the “Grade overview” link in the grader header.
+Download the grades CSV and the scans + feedback PDFs ZIP from there. The latter contains one named PDF per student with the original scan pages followed by a typed feedback page containing per-problem scores and comments. You can also open the grade overview anytime via the “Grade overview” link in the grader header.
 The finish page also shows a per-student, per-problem overview table with color-coded cells and comment indicators; click a problem header to jump back to that problem's strip grader.
 If you want a safer Canvas import workflow, open **Gradebook merge tool** from the finish page: upload Canvas gradebook CSV, pick the assignment column, and download a merged CSV. By default it blocks merges into non-empty matched cells unless you explicitly allow overwrite.
 

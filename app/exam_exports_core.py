@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
+import html
+import io
 from pathlib import Path
 
+import fitz  # type: ignore
 from fastapi import HTTPException
 
 from .exam_shared import (
@@ -123,6 +126,8 @@ def _build_best_rows_by_student(session: Session) -> Dict[str, Dict[str, Any]]:
                 "total_score": total,
                 "total_max": total_max,
                 "quiz_id": grading_key.quiz_id,
+                "quiz_version": wu.quiz_version,
+                "page_filenames": list(wu.page_filenames),
             }
     return rows_by_student
 
@@ -161,3 +166,74 @@ def _feedback_text_from_row(
         if comment:
             lines.append(f"  Comment: {comment}")
     return "\n".join(lines)
+
+
+def _render_feedback_text_pdf_bytes(text: str) -> bytes:
+    """Render all feedback text into one or more searchable letter-size pages."""
+    escaped = html.escape(text).replace("\n", "<br>")
+    story = fitz.Story(
+        html=f'<div class="feedback">{escaped}</div>',
+        user_css=(
+            "body { font-family: sans-serif; font-size: 11pt; line-height: 1.35; } "
+            ".feedback { white-space: normal; overflow-wrap: anywhere; }"
+        ),
+    )
+    output = io.BytesIO()
+    writer = fitz.DocumentWriter(output)
+    page_rect = fitz.paper_rect("letter")
+    content_rect = page_rect + (40, 45, -40, -45)
+    more = 1
+    while more:
+        device = writer.begin_page(page_rect)
+        more, _ = story.place(content_rect)
+        story.draw(device)
+        writer.end_page()
+    writer.close()
+    return output.getvalue()
+
+
+def _scans_with_feedback_pdf_bytes(
+    scan_paths: List[Path],
+    feedback_text: str,
+) -> tuple[bytes, int, int, List[str]]:
+    """Combine original scan pages and final typed feedback pages into one PDF."""
+    output = fitz.open()
+    scan_page_count = 0
+    warnings: List[str] = []
+
+    for scan_path in scan_paths:
+        if not scan_path.is_file():
+            warnings.append(f"Missing scan: {scan_path.name}")
+            continue
+        try:
+            with fitz.open(scan_path) as source:
+                if source.is_pdf:
+                    output.insert_pdf(source)
+                    scan_page_count += source.page_count
+                else:
+                    image_pdf_bytes = source.convert_to_pdf()
+                    with fitz.open(stream=image_pdf_bytes, filetype="pdf") as image_pdf:
+                        output.insert_pdf(image_pdf)
+                        scan_page_count += image_pdf.page_count
+        except Exception as exc:
+            warnings.append(f"Could not include scan {scan_path.name}: {exc}")
+
+    if warnings:
+        feedback_text += "\n\nScan attachment warnings\n" + "\n".join(
+            f"- {warning}" for warning in warnings
+        )
+
+    feedback_bytes = _render_feedback_text_pdf_bytes(feedback_text)
+    with fitz.open(stream=feedback_bytes, filetype="pdf") as feedback_pdf:
+        feedback_page_count = feedback_pdf.page_count
+        output.insert_pdf(feedback_pdf)
+
+    output.set_metadata(
+        {
+            "title": "Graded quiz scans and feedback",
+            "subject": "Original scan pages followed by instructor feedback",
+        }
+    )
+    pdf_bytes = output.tobytes(deflate=True)
+    output.close()
+    return pdf_bytes, scan_page_count, feedback_page_count, warnings
