@@ -418,8 +418,8 @@ class WorkUnitSummary(BaseModel):
 
 @app.get("/")
 def root():
-    """Tiny message at / so you don't just see 'Not Found'."""
-    return {"message": "Logic Grading Facilitator is running. See /docs for API, or /grade/1/page (etc.) to grade."}
+    """Make the human-facing Setup Wizard the default landing page."""
+    return RedirectResponse(url="/setup", status_code=307)
 
 
 @app.get("/setup", response_class=HTMLResponse)

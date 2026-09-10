@@ -89,15 +89,42 @@ You will always respond with a single JSON object with these fields:
 
   {
     "name_visible": true or false,
-    "raw_name": string or null,          // exact transcription of the handwritten name, if any
-    "student_id": string or null,        // one of the roster student_ids, or null if no match
-    "quiz_version": string or null,      // exact short printed version, e.g. "A", "B", or "C"
-    "confidence": float,                 // between 0.0 and 1.0, your confidence in student_id
-    "reasoning": string                  // brief explanation of how you matched or why no match
+    "raw_name": string or null,
+    "student_id": string or null,
+    "quiz_version": "A", "B", "C", or null,
+    "confidence": float between 0.0 and 1.0
   }
 
 Do not include any additional keys. Do not wrap the JSON in backticks.
+Do not explain the match or repeat any name.
 """.strip()
+
+
+NAME_RESPONSE_FORMAT: Dict[str, Any] = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "page_identity",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "name_visible": {"type": "boolean"},
+                "raw_name": {"type": ["string", "null"]},
+                "student_id": {"type": ["string", "null"]},
+                "quiz_version": {"type": ["string", "null"], "enum": ["A", "B", "C", None]},
+                "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+            },
+            "required": [
+                "name_visible",
+                "raw_name",
+                "student_id",
+                "quiz_version",
+                "confidence",
+            ],
+            "additionalProperties": False,
+        },
+    },
+}
 
 
 class LMStudioQwenClient:
@@ -288,7 +315,28 @@ class LMStudioQwenClient:
     def call_for_page(self, image_path: Path, roster_text: str) -> str:
         """Convenience: build messages and return the raw assistant string."""
         messages = self.build_messages(image_path, roster_text)
-        return self.chat(messages)
+        structured_payload = {
+            "response_format": NAME_RESPONSE_FORMAT,
+            "chat_template_kwargs": {"enable_thinking": False},
+        }
+        try:
+            return self.chat(messages, max_tokens=160, extra_payload=structured_payload)
+        except requests.HTTPError as exc:
+            response = getattr(exc, "response", None)
+            body = (response.text or "").lower() if response is not None else ""
+            structured_output_rejected = (
+                response is not None
+                and response.status_code in {400, 422}
+                and any(term in body for term in ("response_format", "json_schema", "grammar"))
+            )
+            if not structured_output_rejected:
+                raise
+            print("[VLM] Structured JSON was unavailable; retrying with prompt-only JSON mode.")
+            return self.chat(
+                messages,
+                max_tokens=160,
+                extra_payload={"chat_template_kwargs": {"enable_thinking": False}},
+            )
 
     def build_messages_for_prompt(
         self,

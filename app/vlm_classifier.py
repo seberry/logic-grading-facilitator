@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
@@ -69,6 +70,62 @@ def _strip_fences(text: str) -> str:
     return text
 
 
+def _decode_first_json_object(text: str) -> Optional[dict]:
+    """Decode the first complete object, tolerating harmless trailing prose."""
+    decoder = json.JSONDecoder()
+    for match in re.finditer(r"\{", text):
+        try:
+            value, _ = decoder.raw_decode(text[match.start() :])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            return value
+    return None
+
+
+def _extract_json_scalar(text: str, field: str, scalar_pattern: str):
+    match = re.search(rf'"{re.escape(field)}"\s*:\s*({scalar_pattern})', text, flags=re.I)
+    if not match:
+        raise ValueError(f"Missing classifier field: {field}")
+    return json.loads(match.group(1))
+
+
+def _recover_classifier_fields(text: str) -> dict:
+    """Recover only the five typed fields that precede a malformed explanation."""
+    json_string_or_null = r'null|"(?:\\.|[^"\\])*"'
+    return {
+        "name_visible": _extract_json_scalar(text, "name_visible", r"true|false"),
+        "raw_name": _extract_json_scalar(text, "raw_name", json_string_or_null),
+        "student_id": _extract_json_scalar(text, "student_id", json_string_or_null),
+        "quiz_version": _extract_json_scalar(text, "quiz_version", json_string_or_null),
+        "confidence": _extract_json_scalar(
+            text,
+            "confidence",
+            r"-?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?",
+        ),
+        "reasoning": "Recovered classifier fields from malformed model output; verify in name review.",
+    }
+
+
+def _parse_classifier_response(raw: str) -> dict:
+    raw_clean = _strip_fences(raw)
+    try:
+        data = json.loads(raw_clean)
+    except json.JSONDecodeError:
+        data = _decode_first_json_object(raw_clean)
+        if data is None:
+            try:
+                data = _recover_classifier_fields(raw_clean)
+            except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                raise RuntimeError(
+                    "The local vision model did not return usable classifier JSON "
+                    f"({len(raw)} characters). Restart or reload the model and retry this page."
+                ) from exc
+    if not isinstance(data, dict):
+        raise RuntimeError("The local vision model returned JSON, but it was not an object.")
+    return data
+
+
 def classify_page(
     image_path: Path,
     roster: List[RosterEntry],
@@ -94,28 +151,32 @@ def classify_page(
           "reasoning": string
         }
 
-    Any deviations will raise a RuntimeError with the raw text for debugging.
+    Malformed free-form explanations are discarded. If the five classifier
+    fields cannot be recovered, a short RuntimeError is raised without echoing
+    student-related model output into the terminal.
     """
     roster_text = _build_roster_text(roster)
 
     # This uses LMStudioQwenClient.build_messages(...) + chat(...) internally.
     raw = client.call_for_page(image_path, roster_text)
 
-    # Be tolerant of ```json ... ``` fences.
-    raw_clean = _strip_fences(raw)
-
-    try:
-        data = json.loads(raw_clean)
-    except Exception as e:
-        raise RuntimeError(f"Failed to parse JSON from VLM response: {raw}") from e
+    data = _parse_classifier_response(raw)
 
     # Extract fields with sensible defaults.
-    name_visible = bool(data.get("name_visible", False))
+    name_visible = data.get("name_visible") is True
     raw_name = data.get("raw_name")
     student_id = data.get("student_id")
-    confidence = float(data.get("confidence", 0.0))
-    reasoning = str(data.get("reasoning", ""))
+    try:
+        confidence = max(0.0, min(1.0, float(data.get("confidence", 0.0))))
+    except (TypeError, ValueError):
+        confidence = 0.0
+    reasoning = str(data.get("reasoning", "")).strip()[:200]
     quiz_version = normalize_quiz_version(data.get("quiz_version"))
+
+    roster_ids = {entry.student_id for entry in roster}
+    if not name_visible or student_id not in roster_ids:
+        student_id = None
+        confidence = 0.0
 
     return PagePrediction(
         filename=image_path.name,

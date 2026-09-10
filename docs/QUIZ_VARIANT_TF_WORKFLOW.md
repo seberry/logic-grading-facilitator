@@ -12,8 +12,8 @@ location. The TF grades from saved crops without running a model.
 - The name-recognition pass also reads an explicit printed version label.
 - Name and version guesses are editable before the session is created.
 - Each work unit stores `quiz_version` (for example `A`, `B`, or `C`).
-- A rubric problem can contain version-specific prompts and neutral grading
-  dimensions under `variants`; PDF-to-YAML drafting does not generate solutions.
+- A rubric problem can contain version-specific prompts under `variants`;
+  PDF-to-YAML drafting does not generate solutions or tell the TF how to grade.
 - Strip grading has A/B/C tabs. Each page shows only that version's students,
   keeps one large blank-quiz question image pinned at the top, allows inline
   version correction, and lets the grader save one visual reference per
@@ -40,7 +40,6 @@ problems:
     variants:
       A:
         prompt: Students who attend review sessions ...
-        rubric_notes: Judge whether the response identifies the conclusion; the TF chooses partial credit.
       B:
         prompt: If the printers are out of paper ...
       C:
@@ -54,9 +53,9 @@ already caps regular plus extra credit at the quiz's regular maximum.
 ## Answer-key trust boundary
 
 The PDF-to-YAML prompt may transcribe printed questions, propose point values,
-describe crop geometry, and name neutral partial-credit dimensions. It must not
-generate solutions or `answer_key` fields. Legacy keys are not displayed in
-strip view and are removed when a TF bundle is exported.
+and describe crop geometry. It must not generate solutions, grading guidance,
+or `answer_key` fields. Legacy answer keys are not displayed in strip view and
+are removed when a TF bundle is exported.
 
 During grading, the instructor or TF may pin a student response they judge
 correct. Pins are stored in `session.json` by problem and version, survive page
@@ -95,6 +94,19 @@ Keep the extracted TF bundle outside the repository. It contains protected
 student names, identifiers, and scans.
 
 ## Blank-question images
+
+For the two-page-per-version P250 truth-table quiz, use the dedicated preset:
+
+```powershell
+python scripts/extract_quiz_reference_images.py `
+  "C:\path\to\P250_Truth_Table_Quiz_All_Versions_3-3-4.pdf" `
+  --quiz-id P250_F26_truth_table_quiz_ABC `
+  --preset p250_truth_table_quiz `
+  --output-dir "C:\grading-data\live\rubric_assets"
+```
+
+This writes four prompt images for each of Versions A/B/C and understands that
+each version occupies two consecutive PDF pages.
 
 The supplied Quiz 1 PDF can be converted into 15 safe display crops (five
 problems across Versions A/B/C) without a model:

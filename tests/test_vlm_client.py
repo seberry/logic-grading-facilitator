@@ -75,6 +75,28 @@ class LMStudioQwenClientTests(unittest.TestCase):
         self.assertEqual(content[1]["type"], "image_url")
         self.assertTrue(content[1]["image_url"]["url"].startswith("data:image/jpeg;base64,"))
 
+    def test_name_classifier_requests_short_structured_json_without_thinking(self) -> None:
+        image_path = Path("working") / "test_vlm_client" / "name_page.jpg"
+        image_path.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (8, 8), "white").save(image_path)
+        captured = {}
+
+        def fake_post(url, json, timeout):
+            captured["json"] = json
+            return _FakeResponse()
+
+        client = LMStudioQwenClient(base_url="http://example.test/v1")
+        with patch("app.vlm_client.requests.post", side_effect=fake_post):
+            client.call_for_page(image_path, "s1, Student, Sample")
+
+        payload = captured["json"]
+        self.assertEqual(payload["max_tokens"], 160)
+        self.assertEqual(payload["chat_template_kwargs"], {"enable_thinking": False})
+        self.assertEqual(payload["response_format"]["type"], "json_schema")
+        schema = payload["response_format"]["json_schema"]["schema"]
+        self.assertFalse(schema["additionalProperties"])
+        self.assertNotIn("reasoning", schema["properties"])
+
 
 if __name__ == "__main__":
     unittest.main()

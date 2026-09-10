@@ -1,4 +1,19 @@
-# Creating a Desktop Shortcut for Classwork Grading
+# Desktop Shortcuts for Grading
+
+## Instructor paper-quiz shortcut (recommended)
+
+Create one shortcut whose name answers the weekly question of what to open:
+
+1. In File Explorer, open the project folder.
+2. Right-click `START_INSTRUCTOR_GRADER.bat`.
+3. Choose **Show more options** → **Send to** → **Desktop (create shortcut)**.
+4. Rename the shortcut **Logic Grader - Start Here**.
+
+Double-clicking it opens the Setup Wizard for the real-data workflow. Keep the
+server window open while grading and close it when finished.
+
+The separate classwork shortcut below is optional. It opens a different part of
+the same app and should not be the main entry point for paper quizzes.
 
 ## Quick Setup (30 seconds)
 

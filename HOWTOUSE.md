@@ -1,5 +1,28 @@
 # Grading Workflow (PowerShell Edition)
 
+## Start here each week
+
+On the instructor's Windows computer, double-click
+`START_INSTRUCTOR_GRADER.bat` (or the Desktop shortcut named **Logic Grader -
+Start Here**). It starts the server, opens the Setup Wizard, and uses the
+external production data folders configured in the repo's ignored `.env` file.
+
+You should see a browser page headed **Logic Grading Facilitator — Setup
+Wizard**. Keep the server window open while working and close it when finished.
+
+If an older quiz is still active, the first page will offer **Archive & Reset**.
+After resetting, the recurring paper-quiz sequence is:
+
+1. Select the saved roster, or upload a fresh Canvas gradebook CSV.
+2. Upload the ZIP/PDF/images containing the student scans.
+3. load or paste the version-aware rubric and save it.
+4. Run auto-grouping, then review names and versions.
+5. Save and start grading; visit each strip page before preparing a TF bundle.
+
+The launcher normally uses port 5001. If that port belongs to an already-running
+copy of this grader, it simply opens that copy. If another program owns the
+port, it selects the next available port and prints the address clearly.
+
 ## 0. Prerequisites
 * **LM Studio** is running with the `qwen/qwen3-vl-4b` model loaded.
 * `DATA_DIR/raw_scans/` contains your image files.

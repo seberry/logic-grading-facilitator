@@ -154,6 +154,13 @@
     .instructions li { margin: 0.35rem 0; }
     .secondary-tools { margin-top: 1.25rem; }
     .secondary-tools summary { cursor: pointer; color: #475569; font-weight: 600; }
+    .prepare-status {
+      margin-top: 0.75rem;
+      font-weight: 600;
+      white-space: pre-line;
+    }
+    .prepare-status.error { color: #991b1b; }
+    .prepare-status.success { color: #166534; }
   </style>
 </head>
 <body>
@@ -195,6 +202,19 @@
         <a class="btn" href="/export_tf_bundle">Prepare model-free TF bundle</a>
       {% endif %}
     </div>
+
+    {% if not tf_grader_mode %}
+      <div class="instructions">
+        <p><strong>Before preparing the TF bundle:</strong> save the question-location crops that let the TF grade without a model. You do not need to enter grades. The preparation runs one problem at a time and can take several minutes.</p>
+        <button
+          class="btn"
+          type="button"
+          id="prepare-all-locations"
+          data-problems='{{ problems | map(attribute="id") | list | tojson }}'
+        >Prepare all question locations</button>
+        <div id="prepare-all-status" class="prepare-status" role="status" aria-live="polite"></div>
+      </div>
+    {% endif %}
 
     {% if not tf_grader_mode %}
       <details class="secondary-tools">
@@ -309,5 +329,45 @@
       {% endif %}
     </div>
   </div>
+  {% if not tf_grader_mode %}
+  <script>
+    const prepareButton = document.getElementById("prepare-all-locations");
+    const prepareStatus = document.getElementById("prepare-all-status");
+
+    if (prepareButton && prepareStatus) {
+      prepareButton.addEventListener("click", async function () {
+        const problemIds = JSON.parse(prepareButton.dataset.problems || "[]");
+        prepareButton.disabled = true;
+        prepareStatus.className = "prepare-status";
+
+        try {
+          for (let index = 0; index < problemIds.length; index += 1) {
+            const problemId = problemIds[index];
+            prepareStatus.textContent =
+              `Preparing ${problemId} (${index + 1} of ${problemIds.length})…\n` +
+              "Keep this page open. The local model is processing one problem at a time.";
+            const response = await fetch(
+              `/problem/${encodeURIComponent(problemId)}/prefetch`,
+              { method: "POST" }
+            );
+            if (!response.ok) {
+              const detail = await response.text();
+              throw new Error(`${problemId} failed (${response.status}): ${detail}`);
+            }
+          }
+          prepareStatus.className = "prepare-status success";
+          prepareStatus.textContent =
+            "All question locations are ready. You can now prepare the TF bundle.";
+        } catch (error) {
+          prepareStatus.className = "prepare-status error";
+          prepareStatus.textContent =
+            `Preparation stopped: ${error.message}\nRetry the button; completed problems remain cached.`;
+        } finally {
+          prepareButton.disabled = false;
+        }
+      });
+    }
+  </script>
+  {% endif %}
 </body>
 </html>

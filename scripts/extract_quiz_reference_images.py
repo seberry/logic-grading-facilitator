@@ -36,7 +36,27 @@ P250_QUIZ1_REGIONS: Dict[str, List[Box]] = {
     "EC2": [(0.495, 0.670, 0.935, 0.815)],
 }
 
-PRESETS = {"p250_quiz1": P250_QUIZ1_REGIONS}
+# Fall 2026 P250 truth-table quiz: two pages per version. These crops contain
+# only the printed question, not the large blank student-answer rectangle.
+P250_TRUTH_TABLE_QUIZ_REGIONS: Dict[str, List[Box]] = {
+    "Q1": [(0.065, 0.115, 0.935, 0.165)],
+    "Q2": [(0.065, 0.365, 0.935, 0.430)],
+    "Q3": [(0.065, 0.115, 0.935, 0.210)],
+    "EC1": [(0.065, 0.515, 0.935, 0.615)],
+}
+
+PRESETS = {
+    "p250_quiz1": P250_QUIZ1_REGIONS,
+    "p250_truth_table_quiz": P250_TRUTH_TABLE_QUIZ_REGIONS,
+}
+PRESET_PAGES_PER_VERSION = {
+    "p250_quiz1": 1,
+    "p250_truth_table_quiz": 2,
+}
+PRESET_PAGE_OFFSETS = {
+    "p250_quiz1": {},
+    "p250_truth_table_quiz": {"Q1": 0, "Q2": 0, "Q3": 1, "EC1": 1},
+}
 
 
 def _crop_normalized(image: Image.Image, box: Box) -> Image.Image:
@@ -71,24 +91,47 @@ def extract_reference_images(
     versions: Sequence[str],
     regions: Dict[str, List[Box]],
     scale: float = 2.5,
+    pages_per_version: int = 1,
+    page_offsets: Dict[str, int] | None = None,
 ) -> List[Path]:
-    """Render and crop one blank quiz page per version."""
+    """Render and crop blank quiz pages for each version.
+
+    ``page_offsets`` maps each problem id to its zero-based page within a
+    version. The defaults preserve the original one-page-per-version behavior.
+    """
     if scale <= 0:
         raise ValueError("scale must be positive")
+    if pages_per_version <= 0:
+        raise ValueError("pages_per_version must be positive")
+    offsets = page_offsets or {}
     document = fitz.open(str(source_pdf))
     try:
-        if len(document) < len(versions):
+        required_pages = len(versions) * pages_per_version
+        if len(document) < required_pages:
             raise ValueError(
-                f"PDF has {len(document)} page(s), but {len(versions)} versions were requested."
+                f"PDF has {len(document)} page(s), but {required_pages} are needed "
+                f"for {len(versions)} version(s) with {pages_per_version} page(s) each."
             )
         quiz_dir = output_dir / safe_asset_component(quiz_id, "quiz")
         quiz_dir.mkdir(parents=True, exist_ok=True)
         written: List[Path] = []
         matrix = fitz.Matrix(scale, scale)
-        for page_index, version in enumerate(versions):
-            pixmap = document[page_index].get_pixmap(matrix=matrix, alpha=False)
-            page_image = Image.open(io.BytesIO(pixmap.tobytes("png"))).convert("RGB")
+        for version_index, version in enumerate(versions):
+            rendered_pages: Dict[int, Image.Image] = {}
             for problem_id, boxes in regions.items():
+                offset = offsets.get(problem_id, 0)
+                if offset < 0 or offset >= pages_per_version:
+                    raise ValueError(
+                        f"Page offset {offset} for {problem_id} is outside a "
+                        f"{pages_per_version}-page version."
+                    )
+                page_index = version_index * pages_per_version + offset
+                if offset not in rendered_pages:
+                    pixmap = document[page_index].get_pixmap(matrix=matrix, alpha=False)
+                    rendered_pages[offset] = Image.open(
+                        io.BytesIO(pixmap.tobytes("png"))
+                    ).convert("RGB")
+                page_image = rendered_pages[offset]
                 crops = [_crop_normalized(page_image, box) for box in boxes]
                 question_image = _stack(crops, gap=max(8, round(5 * scale)))
                 filename = (
@@ -130,6 +173,8 @@ def main() -> int:
         versions=[str(value).strip().upper() for value in args.versions],
         regions=PRESETS[args.preset],
         scale=args.scale,
+        pages_per_version=PRESET_PAGES_PER_VERSION[args.preset],
+        page_offsets=PRESET_PAGE_OFFSETS[args.preset],
     )
     print(f"Wrote {len(written)} blank-question image(s) below {args.output_dir.resolve()}")
     for path in written:

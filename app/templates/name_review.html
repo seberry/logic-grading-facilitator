@@ -234,6 +234,24 @@
       box-shadow: none;
     }
 
+    .handoff-progress {
+      display: none;
+      position: sticky;
+      bottom: 1rem;
+      z-index: 50;
+      margin: 1rem 0;
+      padding: 1rem 1.1rem;
+      border: 2px solid #2563eb;
+      border-radius: 0.75rem;
+      background: #eff6ff;
+      color: #1e3a8a;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+      font-weight: 600;
+      line-height: 1.45;
+    }
+
+    .handoff-progress.visible { display: block; }
+
     .footer-hint {
       font-size: 0.8rem;
       color: #6b7280;
@@ -289,7 +307,7 @@
       Corrections saved locally. You can close this page and return later without running the model again.
     </div>
   {% endif %}
-  <form method="post" action="/name_review">
+  <form id="name-review-form" method="post" action="/name_review">
     <div class="controls-bar">
       <div>
         <label for="quiz_id">Assignment slug:</label>
@@ -394,6 +412,8 @@
 
     <input type="hidden" name="page_count" value="{{ page_rows|length }}">
 
+    <div id="handoff-progress" class="handoff-progress" role="status" aria-live="polite"></div>
+
     <div class="footer-actions">
       <button class="submit-button" type="submit" name="next_action" value="save"
               style="background-color: #2563eb;">
@@ -443,14 +463,27 @@
     });
   });
 
-  // Listen to FORM submit, not button click
-  const form = document.querySelector("form");
-  const submitBtn = document.getElementById("submit-btn");
-  
-  if (form && submitBtn) {
-    form.addEventListener("submit", function (e) {
-      // Don't prevent default - let the form submit naturally
+  const reviewForm = document.getElementById("name-review-form");
+  const progressPanel = document.getElementById("handoff-progress");
 
+  if (reviewForm && progressPanel) {
+    reviewForm.addEventListener("submit", function (event) {
+      const action = event.submitter ? event.submitter.value : "grade";
+      if (action !== "grade" && action !== "download") return;
+
+      progressPanel.textContent = action === "download"
+        ? "Working: grouping pages, copying the full-resolution scans, and building the ZIP. This can take a while. Keep this page open; the download will begin when it is ready."
+        : "Working: grouping pages and opening the first grading strip. The first strip may run question-location processing for the whole class and can take several minutes. Keep this page open."
+      progressPanel.classList.add("visible");
+      progressPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+
+      // Let the clicked button's name/value enter the request before disabling
+      // controls, while preventing accidental double submissions afterward.
+      window.setTimeout(function () {
+        reviewForm.querySelectorAll('button[type="submit"]').forEach(function (button) {
+          button.disabled = true;
+        });
+      }, 0);
     });
   }
 </script>

@@ -14,7 +14,11 @@ from fastapi.testclient import TestClient
 from app import server
 from app.models import GradingKey, ProblemSpec, RosterEntry, Session, WorkUnit
 from app.quiz_variants import normalize_quiz_version, resolved_problem_context
-from scripts.extract_quiz_reference_images import extract_reference_images, P250_QUIZ1_REGIONS
+from scripts.extract_quiz_reference_images import (
+    P250_QUIZ1_REGIONS,
+    P250_TRUTH_TABLE_QUIZ_REGIONS,
+    extract_reference_images,
+)
 from app.routes import exam_exports as exam_exports_routes
 from app.storage import load_grading_key
 from app.vlm_classifier import PagePrediction, classify_page
@@ -139,6 +143,47 @@ problems:
             FakeClient(),
         )
         self.assertEqual(prediction.quiz_version, "C")
+
+    def test_classifier_recovers_fields_before_malformed_explanation(self) -> None:
+        class FakeClient:
+            def call_for_page(self, image_path, roster_text):
+                return (
+                    '{"name_visible": true, "raw_name": "Sample Student", '
+                    '"student_id": "s1", "quiz_version": "A", '
+                    '"confidence": 0.93, "reasoning": "Matched "Sample" and then rambled'
+                )
+
+        prediction = classify_page(
+            Path("synthetic_scan.jpg"),
+            [RosterEntry(student_id="s1", name="Student, Sample")],
+            FakeClient(),
+        )
+        self.assertEqual(prediction.student_id, "s1")
+        self.assertEqual(prediction.quiz_version, "A")
+        self.assertAlmostEqual(prediction.confidence, 0.93)
+        self.assertIn("verify in name review", prediction.reasoning)
+
+    def test_classifier_rejects_student_id_not_in_roster(self) -> None:
+        class FakeClient:
+            def call_for_page(self, image_path, roster_text):
+                return json.dumps(
+                    {
+                        "name_visible": True,
+                        "raw_name": "Invented Person",
+                        "student_id": "invented-id",
+                        "quiz_version": "B",
+                        "confidence": 0.99,
+                    }
+                )
+
+        prediction = classify_page(
+            Path("synthetic_scan.jpg"),
+            [RosterEntry(student_id="s1", name="Student, Sample")],
+            FakeClient(),
+        )
+        self.assertIsNone(prediction.student_id)
+        self.assertEqual(prediction.confidence, 0.0)
+        self.assertEqual(prediction.quiz_version, "B")
 
     def test_setup_auto_grouping_caches_printed_version(self) -> None:
         client = TestClient(server.app)
@@ -352,6 +397,7 @@ problems:
         with (
             patch("app.routes.problem_strips.get_session", return_value=session),
             patch("app.routes.problem_strips.ensure_segments_cached", return_value=segments),
+            patch("app.routes.problem_strips.question_image_url", return_value=None),
         ):
             response = client.get("/problem/Q1/strips")
         self.assertEqual(response.status_code, 200)
@@ -513,6 +559,33 @@ problems:
             scale=1,
         )
         self.assertEqual(len(written), 15)
+        self.assertTrue((root / "assets" / "synthetic_quiz" / "Q3_C.png").is_file())
+
+    def test_blank_pdf_reference_extractor_supports_two_pages_per_version(self) -> None:
+        root = Path("working") / "test_tmp" / f"reference_extract_{uuid4().hex}"
+        root.mkdir(parents=True, exist_ok=True)
+        self.addCleanup(shutil.rmtree, root, True)
+        pdf_path = root / "blank.pdf"
+        import fitz
+
+        document = fitz.open()
+        for page_number in range(6):
+            page = document.new_page(width=612, height=792)
+            page.insert_text((72, 72), f"Synthetic page {page_number + 1}")
+        document.save(pdf_path)
+        document.close()
+
+        written = extract_reference_images(
+            pdf_path,
+            root / "assets",
+            "synthetic_quiz",
+            ["A", "B", "C"],
+            P250_TRUTH_TABLE_QUIZ_REGIONS,
+            scale=1,
+            pages_per_version=2,
+            page_offsets={"Q1": 0, "Q2": 0, "Q3": 1, "EC1": 1},
+        )
+        self.assertEqual(len(written), 12)
         self.assertTrue((root / "assets" / "synthetic_quiz" / "Q3_C.png").is_file())
 
     def test_reference_pin_persists_per_problem_and_version(self) -> None:

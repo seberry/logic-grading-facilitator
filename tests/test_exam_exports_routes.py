@@ -55,6 +55,8 @@ class ExamExportsRoutesTests(unittest.TestCase):
         self.assertIn("Berry, Sharon", response.text)
         self.assertIn("Q1", response.text)
         self.assertIn("Q2", response.text)
+        self.assertIn("Prepare all question locations", response.text)
+        self.assertIn('/problem/${encodeURIComponent(problemId)}/prefetch', response.text)
 
     def test_tf_finish_page_only_shows_tf_deliverables(self) -> None:
         session = _build_session()
@@ -74,6 +76,7 @@ class ExamExportsRoutesTests(unittest.TestCase):
         self.assertNotIn("Canvas reupload", response.text)
         self.assertNotIn("Download renamed scans", response.text)
         self.assertNotIn("Prepare model-free TF bundle", response.text)
+        self.assertNotIn("Prepare all question locations", response.text)
         self.assertNotIn("Back to setup", response.text)
 
     def test_export_scores_returns_csv(self) -> None:

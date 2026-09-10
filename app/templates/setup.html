@@ -270,9 +270,8 @@ Requirements:
 - If possible also include:
   - prompt: exact or near-exact statement of what the student was asked to do
   - segmentation_hint: short phrase that would help a local vision model find this answer region on the page
-  - rubric_notes: neutral partial-credit dimensions for the human grader
 - Do not generate solutions, expected answers, or answer_key fields. The TF is expected to know the material and contact the instructor when grading intent is unclear.
-- For printed quiz versions, keep shared geometry at problem level and add a variants map keyed by A, B, C, etc. Each version may override label, prompt, rubric_notes, and segmentation_hint.
+- For printed quiz versions, keep shared geometry at problem level and add a variants map keyed by A, B, C, etc. Each version may override label, prompt, and segmentation_hint.
 - Keep max_points equal to the sum of non-extra-credit problem points.
 
 Target YAML shape:
@@ -286,7 +285,6 @@ problems:
     problem_number: "1"
     prompt: "Exact or close paraphrase of the printed prompt."
     segmentation_hint: "What visible text or layout helps locate this answer."
-    rubric_notes: "Neutral dimensions to consider when assigning partial credit."
     variants:
       A:
         prompt: "Version A prompt."
