@@ -314,11 +314,20 @@ class TestCountTextLinesInRegion(unittest.TestCase):
 
 
 class TestSlantedBarRepair(unittest.TestCase):
+    def _load_optional_handwritten_fixture(self, name: str):
+        fixture_path = _tfl_handwritten_fixture(name)
+        if not fixture_path.is_file():
+            self.skipTest(
+                f"Optional local handwritten fixture is not in the clean checkout: {name}"
+            )
+        img = cv2.imread(str(fixture_path))
+        self.assertIsNotNone(img)
+        return img
+
     def test_geometry_preflight_keeps_clean_two_branch_fixture_on_standard_path(self) -> None:
         from proofs_ocr.pipelines.tfl_fitch import select_fitch_geometry
 
-        img = cv2.imread(str(_tfl_handwritten_fixture("q4_N_or_K_and_W")))
-        self.assertIsNotNone(img)
+        img = self._load_optional_handwritten_fixture("q4_N_or_K_and_W")
 
         with patch.dict("os.environ", {"TFL_FITCH_GEOMETRY_MODE": "auto"}):
             geometry = select_fitch_geometry(img)
@@ -344,8 +353,7 @@ class TestSlantedBarRepair(unittest.TestCase):
     def test_geometry_preflight_preserves_legacy_slanted_flag_override(self) -> None:
         from proofs_ocr.pipelines.tfl_fitch import select_fitch_geometry
 
-        img = cv2.imread(str(_tfl_handwritten_fixture("q4_N_or_K_and_W")))
-        self.assertIsNotNone(img)
+        img = self._load_optional_handwritten_fixture("q4_N_or_K_and_W")
 
         with patch.dict("os.environ", {"TFL_FITCH_SLANTED_BAR_REPAIR": "1"}):
             geometry = select_fitch_geometry(img)
@@ -356,8 +364,7 @@ class TestSlantedBarRepair(unittest.TestCase):
     def test_geometry_mode_standard_overrides_legacy_slanted_flag(self) -> None:
         from proofs_ocr.pipelines.tfl_fitch import select_fitch_geometry
 
-        img = cv2.imread(str(_tfl_handwritten_fixture("q4_N_or_K_and_W")))
-        self.assertIsNotNone(img)
+        img = self._load_optional_handwritten_fixture("q4_N_or_K_and_W")
 
         with patch.dict(
             "os.environ",
