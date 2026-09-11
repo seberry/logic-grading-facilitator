@@ -8,7 +8,26 @@ domain-specific guide for the task.
 - General repo map: `README.md`
 - Documentation index: `docs/README.md`
 - Coding/test recipes: `docs/AI_WORKFLOW.md`
+- Versioned paper-quiz preparation, TA handoff, and release work:
+  `docs/QUIZ_VARIANT_TF_WORKFLOW.md`
 - Active TFL/Fitch OCR work: `docs/FITCH_OCR_AGENT.md`
+
+Choose the domain guide that matches the task. Do not read the OCR guide as a
+prerequisite for ordinary paper-quiz setup, grading, or release work.
+
+## Current Paper-Quiz Ownership
+
+- Setup, scan intake, name review, and session creation: `app/server.py`
+- Name/version VLM classification: `app/vlm_classifier.py`,
+  `app/vlm_client.py`
+- Problem crops and saved question locations: `app/routes/problem_strips.py`
+- Final exports and model-free TA/TF bundle: `app/routes/exam_exports.py`
+- Grading and preparation UI: `app/templates/problem_strips.html`,
+  `app/templates/finish.html`, `app/templates/name_review.html`
+- Blank-question image extraction: `scripts/extract_quiz_reference_images.py`
+- Instructor operating/release source of truth:
+  `docs/QUIZ_VARIANT_TF_WORKFLOW.md`
+- TA/TF instructions: `docs/TA_GRADING_GUIDE.md`
 
 ## Current OCR Ownership
 

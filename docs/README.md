@@ -13,6 +13,7 @@ entry in this table.
 | `AI_WORKFLOW.md` | Coding-agent map, safe test commands, and OCR workflow guardrails. |
 | `ARCHITECTURE.md` | Current FastAPI/Jinja app architecture, active routes, data flow, caches, and UI integration points. |
 | `SCHEMA.md` | Persisted JSON/YAML data shapes, including session files, problem types, and proof OCR review state. |
+| `QUIZ_VARIANT_TF_WORKFLOW.md` | Current versioned paper-quiz workflow, implementation map, product decisions, TA/TF handoff, and release continuation. |
 | `FITCH_OCR_AGENT.md` | Current handwritten TFL/Fitch OCR operating guide. Read before changing `proofs_ocr/pipelines/tfl_fitch.py` or strip-view TFL/Fitch OCR integration. |
 | `DEV_WORKFLOWS.md` | Practical command recipes for server/debug workflows. |
 
@@ -42,6 +43,7 @@ behavior without checking `FITCH_OCR_AGENT.md`.
 
 - `QUIZ_VARIANT_TF_WORKFLOW.md` - instructor workflow for versioned paper quizzes and model-free TF handoff.
 - `TA_GRADING_GUIDE.md` - short operating/troubleshooting guide to include with a TF grading bundle.
+- `TA_RELEASE_CHECKLIST.md` - instructor checklist for publishing an audited code release and sending the private bundle separately.
 - `CANVAS_INTEGRATION.md`
 - `CANVAS_COMMENT_POSTING.md`
 - `CANVAS_USER_ID_MAPPING.md`

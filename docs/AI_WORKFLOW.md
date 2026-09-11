@@ -5,6 +5,9 @@ the repo before changing OCR or regression code.
 
 ## Fast entry points
 
+- Read [`docs/QUIZ_VARIANT_TF_WORKFLOW.md`](QUIZ_VARIANT_TF_WORKFLOW.md) for
+  versioned paper-quiz intake, local-model preparation, model-free TA/TF
+  handoff, and code-release work. This workflow is separate from proof OCR.
 - Read [`proofs_ocr/regression/manifest.yaml`](../proofs_ocr/regression/manifest.yaml) for fixture ids, domains, and paths.
 - Read [`docs/FITCH_OCR_AGENT.md`](FITCH_OCR_AGENT.md) before changing handwritten TFL/Fitch OCR behavior.
 - Use [`proofs_ocr/regression/runner.py`](../proofs_ocr/regression/runner.py) for modal gold-regression helpers.

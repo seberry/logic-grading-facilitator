@@ -13,6 +13,10 @@ use [docs/README.md](docs/README.md).
 
 - [HOWTOUSE.md](HOWTOUSE.md) - operator workflow for setup, grading, export,
   classwork, flashcards, and archive/reset.
+- [docs/TA_GRADING_GUIDE.md](docs/TA_GRADING_GUIDE.md) - exact Windows/macOS
+  setup, launch, grading, and return steps for a TA/TF using a prepared bundle.
+- [docs/TA_RELEASE_CHECKLIST.md](docs/TA_RELEASE_CHECKLIST.md) - instructor
+  checklist for publishing the code on GitHub without including course data.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) - current FastAPI/Jinja route
   map, data flow, caches, and integration points.
 - [docs/SCHEMA.md](docs/SCHEMA.md) - persisted JSON/YAML data contracts.
