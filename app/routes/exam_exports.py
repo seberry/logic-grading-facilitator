@@ -152,7 +152,10 @@ $env:DATA_ARCHIVE_DIR = Join-Path $bundleRoot "archive"
 $env:ENV_MODE = "PRODUCTION"
 $env:TF_GRADER_MODE = "1"
 Set-Location -LiteralPath $resolvedCode
-$pythonCommand = if (Get-Command py -ErrorAction SilentlyContinue) {
+$venvPython = Join-Path $resolvedCode ".venv\Scripts\python.exe"
+$pythonCommand = if (Test-Path -LiteralPath $venvPython) {
+    $venvPython
+} elseif (Get-Command py -ErrorAction SilentlyContinue) {
     "py"
 } elseif (Get-Command python -ErrorAction SilentlyContinue) {
     "python"
@@ -186,7 +189,10 @@ export DATA_ARCHIVE_DIR="$BUNDLE_ROOT/archive"
 export ENV_MODE="PRODUCTION"
 export TF_GRADER_MODE="1"
 
-if command -v python3 >/dev/null 2>&1; then
+VENV_PYTHON="$CODE_DIR/.venv/bin/python"
+if [ -x "$VENV_PYTHON" ]; then
+  PYTHON_COMMAND="$VENV_PYTHON"
+elif command -v python3 >/dev/null 2>&1; then
   PYTHON_COMMAND="python3"
 elif command -v python >/dev/null 2>&1; then
   PYTHON_COMMAND="python"
@@ -226,9 +232,13 @@ You need TWO separate items from the instructor:
 One-time setup:
 1. Install Python 3 if needed.
 2. Open PowerShell (Windows) or Terminal (Mac) in the extracted code folder.
-3. On Windows run: py -m pip install -r requirements.txt
-   If `py` is not recognized, run: python -m pip install -r requirements.txt
-4. On a Mac run: python3 -m pip install -r requirements.txt
+3. On Windows run:
+   python -m venv .venv
+   .\\.venv\\Scripts\\python.exe -m pip install -r requirements.txt
+   If `python` is not recognized for the first command, use `py` there.
+4. On a Mac run:
+   python3 -m venv .venv
+   ./.venv/bin/python -m pip install -r requirements.txt
 
 Start grading on Windows:
 1. In this bundle folder, right-click START_TF_GRADER.ps1 and choose Run with

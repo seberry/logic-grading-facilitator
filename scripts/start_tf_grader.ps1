@@ -25,7 +25,10 @@ Write-Host "Using protected grading data from: $dataPath"
 Write-Host "Open: http://127.0.0.1:$Port/problem/Q1/strips"
 Write-Host "Keep this window open. Press Ctrl+C to stop the grader."
 
-$pythonCommand = if (Get-Command py -ErrorAction SilentlyContinue) {
+$venvPython = Join-Path $repoRoot ".venv\Scripts\python.exe"
+$pythonCommand = if (Test-Path -LiteralPath $venvPython) {
+    $venvPython
+} elseif (Get-Command py -ErrorAction SilentlyContinue) {
     "py"
 } elseif (Get-Command python -ErrorAction SilentlyContinue) {
     "python"

@@ -18,7 +18,10 @@ export DATA_ARCHIVE_DIR="$BUNDLE_ROOT/archive"
 export ENV_MODE="PRODUCTION"
 export TF_GRADER_MODE="1"
 
-if command -v python3 >/dev/null 2>&1; then
+VENV_PYTHON="$CODE_DIR/.venv/bin/python"
+if [ -x "$VENV_PYTHON" ]; then
+  PYTHON_COMMAND="$VENV_PYTHON"
+elif command -v python3 >/dev/null 2>&1; then
   PYTHON_COMMAND="python3"
 elif command -v python >/dev/null 2>&1; then
   PYTHON_COMMAND="python"
