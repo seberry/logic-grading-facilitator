@@ -42,7 +42,6 @@ class ProblemSpec(BaseModel):
 class GradingKey(BaseModel):
     """Grading key / rubric for one quiz."""
     quiz_id: str
-    max_points: float
     problems: List[ProblemSpec]
 
 

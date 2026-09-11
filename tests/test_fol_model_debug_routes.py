@@ -193,7 +193,6 @@ class FolModelDebugRoutesTests(unittest.TestCase):
             roster=[RosterEntry(student_id="s1", name="Berry, Sharon")],
             grading_key=GradingKey(
                 quiz_id="quiz1",
-                max_points=5,
                 problems=[
                     ProblemSpec(
                         id="Q1",

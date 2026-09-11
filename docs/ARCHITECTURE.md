@@ -189,10 +189,11 @@ This section explains how data transforms from "Raw Images" to "Graded Assignmen
 ### Phase 2: The Review-to-Grading Hand-off
 * **Trigger:** User clicks **"Save & Start Grading"** or **"Save & Download Scans (ZIP)"** on the `/name_review` page (the earlier **"Save & Auto-Fill Unknowns"** button only updates the cache and does not rename files).
 * **Backend Logic (`POST /name_review`):**
-    1.  **Renaming:** Copies raw files to `data/raw_scans/` with canonical names (e.g., `quiz1_student_p01.jpg`) and leaves originals intact.
-    2.  **Session Creation:** Constructs `WorkUnit` objects in memory based on the approved groups.
-    3.  **Persistence:** Writes the **Source of Truth** to `data/grades/session.json`.
-    4.  **Redirect:** Sends the user immediately to the Strip View grader.
+    1.  **Grouping:** Consecutive pages normally form one WorkUnit when their student assignments agree. A confirmed version change or a human-selected **New submission starts here** marker creates a boundary. The browser flags separate groups for the same student and can exclude a duplicate group before session creation.
+    2.  **Renaming:** Copies included raw files to `data/raw_scans/` with canonical names (e.g., `quiz1_student_p01.jpg`) and leaves originals intact. Excluded scans remain local but do not enter a WorkUnit or TF bundle.
+    3.  **Session Creation:** Constructs `WorkUnit` objects in memory based on the approved groups.
+    4.  **Persistence:** Writes the **Source of Truth** to `data/grades/session.json`.
+    5.  **Redirect:** Sends the user immediately to the Strip View grader.
 * **State:** "Live Grading Mode." The system now ignores the CSV and relies on `session.json`.
 
 ### Phase 3: Grading & Segmentation
@@ -283,6 +284,13 @@ work.
 | Modal proof debug | `app/routes/modal_proof_debug*.py`, `app/templates/debug_modal_proof.html` | `data/debug_modal_proof/<slug>/state.json` and checker artifacts | Separate modal proof scaffold/debug path. |
 | Exam exports/finalize | `app/routes/exam_exports.py`, `app/exam_exports_core.py` | `data/grades/session.json`, export ZIP/CSV responses, archive snapshots | Human scores in `session.json` remain authoritative. `/export_tf_bundle` validates and packages scans, session, rubric, and every `segments_*.json` needed for model-free grading. |
 | Classwork workflows | `app/routes/classwork.py`, `app/classwork_core.py` | `data/classwork/`, `data/canvas_cache/`, classwork state in session | Semi-independent from exam strip grading. |
+
+When more than one WorkUnit has the same `student_id`, the Finish page compares
+all units and their problem scores. CSV and feedback exports use the
+highest-total unit (first in session order on a tie) rather than summing
+attempts. Instructor-side TF bundle creation requires an explicit choice to
+exclude a duplicate or keep both. Excluding a unit prunes its prepared segment
+rows and any reference pins; the underlying local scan files are retained.
 
 * `app/server.py` – FastAPI app shell plus the remaining exam setup/import and legacy grading routes.
 * `app/routes/classwork.py` – Classwork workflow routes, including Canvas classwork integration.

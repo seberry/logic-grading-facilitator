@@ -21,15 +21,46 @@ def _build_total_scores_by_student(
     session: Session,
     scale_to: Optional[float] = None,
 ) -> Dict[str, float]:
-    out: Dict[str, float] = {}
+    return {
+        student_id: _score_summary_for_work_unit(session, wu, scale_to=scale_to)[
+            "total_score"
+        ]
+        for student_id, wu in _selected_work_units_by_student(
+            session, scale_to=scale_to
+        ).items()
+    }
+
+
+def _work_units_by_student(session: Session) -> Dict[str, List[WorkUnit]]:
+    """Return every identified submission, preserving session order."""
+    out: Dict[str, List[WorkUnit]] = {}
     for wu in session.work_units:
         if not wu.student_id:
             continue
-        total = _score_summary_for_work_unit(session, wu, scale_to=scale_to)["total_score"]
-        prev = out.get(wu.student_id)
-        if prev is None or total > prev:
-            out[wu.student_id] = total
+        out.setdefault(wu.student_id, []).append(wu)
     return out
+
+
+def _selected_work_units_by_student(
+    session: Session,
+    scale_to: Optional[float] = None,
+) -> Dict[str, WorkUnit]:
+    """Choose the highest-total submission for each student.
+
+    The first WorkUnit in session order wins an exact tie. Callers that expose
+    this fallback must also surface duplicates to the human grader.
+    """
+    selected: Dict[str, WorkUnit] = {}
+    selected_totals: Dict[str, float] = {}
+    for student_id, work_units in _work_units_by_student(session).items():
+        for wu in work_units:
+            total = _score_summary_for_work_unit(session, wu, scale_to=scale_to)[
+                "total_score"
+            ]
+            if student_id not in selected or total > selected_totals[student_id]:
+                selected[student_id] = wu
+                selected_totals[student_id] = total
+    return selected
 
 
 def _required_total_max(grading_key: GradingKey) -> float:

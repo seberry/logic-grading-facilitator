@@ -14,6 +14,7 @@ from .exam_shared import (
     _normalize_canvas_key,
     _required_total_max,
     _score_summary_for_work_unit,
+    _selected_work_units_by_student,
     CANVAS_REUPLOAD_ORIGINAL_ZIPS_DIR,
     slugify_name,
 )
@@ -94,41 +95,41 @@ def _find_canvas_original_zip_for_quiz(
     )
 
 
-def _build_best_rows_by_student(session: Session) -> Dict[str, Dict[str, Any]]:
+def _build_best_rows_by_student(
+    session: Session,
+    scale_to: Optional[float] = None,
+) -> Dict[str, Dict[str, Any]]:
     grading_key = session.grading_key
     problems = grading_key.problems
     total_max = _required_total_max(grading_key) if problems else 0.0
     roster_map = {r.student_id: r.name for r in session.roster}
 
     rows_by_student: Dict[str, Dict[str, Any]] = {}
-    for wu in session.work_units:
-        if not wu.student_id:
-            continue
+    for sid, wu in _selected_work_units_by_student(session, scale_to=scale_to).items():
         per_problem_scores: Dict[str, Optional[float]] = {}
         per_problem_comments: Dict[str, Optional[str]] = {}
         for p in problems:
             score = wu.per_problem.get(p.id)
             per_problem_scores[p.id] = score
             per_problem_comments[p.id] = wu.per_problem_comments.get(p.id)
-        score_summary = _score_summary_for_work_unit(session, wu)
+        score_summary = _score_summary_for_work_unit(session, wu, scale_to=scale_to)
         total = score_summary["total_score"]
 
-        sid = wu.student_id
-        existing = rows_by_student.get(sid)
-        if existing is None or total > existing["total_score"]:
-            rows_by_student[sid] = {
-                "student_id": sid,
-                "student_name": roster_map.get(sid, sid),
-                "per_problem_scores": per_problem_scores,
-                "per_problem_comments": per_problem_comments,
-                "regular_score": score_summary["regular_score"],
-                "extra_credit_score": score_summary["extra_credit_score"],
-                "total_score": total,
-                "total_max": total_max,
-                "quiz_id": grading_key.quiz_id,
-                "quiz_version": wu.quiz_version,
-                "page_filenames": list(wu.page_filenames),
-            }
+        rows_by_student[sid] = {
+            "unit_id": wu.unit_id,
+            "student_id": sid,
+            "student_name": roster_map.get(sid, sid),
+            "per_problem_scores": per_problem_scores,
+            "per_problem_comments": per_problem_comments,
+            "regular_score": score_summary["regular_score"],
+            "extra_credit_score": score_summary["extra_credit_score"],
+            "raw_total_score": score_summary["raw_total_score"],
+            "total_score": total,
+            "total_max": total_max,
+            "quiz_id": grading_key.quiz_id,
+            "quiz_version": wu.quiz_version,
+            "page_filenames": list(wu.page_filenames),
+        }
     return rows_by_student
 
 

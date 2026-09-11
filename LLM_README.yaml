@@ -620,8 +620,8 @@ data_files:
         - "work_units"
       grading_key:
         quiz_id: "string"
-        max_points: "number"
         problems: "list[{id,label,points}]"
+        total_max: "derived as sum(problem.points) for non-extra-credit problems"
       work_units:
         - unit_id: "int"
           student_id: "string | null"

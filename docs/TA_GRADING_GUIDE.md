@@ -118,6 +118,16 @@ of the bundle, and no local model is expected on the TA/TF computer.
 
 ## Finish and return the work
 
+If the Finish page reports duplicate submissions, compare the listed problem
+scores and open the scan links for both tests. The exports mark and use the
+highest-total submission; do not assume that is the instructor's intended
+attempt. Tell the instructor which units you compared so they can make the
+final duplicate decision.
+
+If the rubric includes extra credit, the Finish page states the scoring policy:
+extra credit can restore missed regular points, but the exported total is
+capped at the sum of the non-extra-credit problems (100%).
+
 On the Finish page, download:
 
 - **grades CSV**;

@@ -161,6 +161,31 @@
     }
     .prepare-status.error { color: #991b1b; }
     .prepare-status.success { color: #166534; }
+    .notice {
+      margin: 1rem 0;
+      padding: 0.9rem 1rem;
+      border-radius: 7px;
+      border: 1px solid #86efac;
+      background: #f0fdf4;
+      color: #166534;
+    }
+    .policy-warning, .duplicate-warning {
+      margin: 1rem 0;
+      padding: 1rem 1.15rem;
+      border: 1px solid #f59e0b;
+      border-left: 5px solid #d97706;
+      border-radius: 7px;
+      background: #fffbeb;
+      color: #78350f;
+    }
+    .policy-warning p, .duplicate-warning p { color: inherit; }
+    .duplicate-warning table { min-width: 760px; background: white; }
+    .duplicate-warning h2, .duplicate-warning h3 { margin-bottom: 0.4rem; }
+    .selected-submission { background: #ecfdf5; }
+    .duplicate-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+    .btn-danger { background: #b91c1c; }
+    .scan-links { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+    .scan-links a { white-space: nowrap; }
   </style>
 </head>
 <body>
@@ -179,6 +204,91 @@
     {% else %}
       <h1>Finish grading</h1>
       <p>Review totals, download results, or prepare the private TF handoff.</p>
+    {% endif %}
+    {% if message %}
+      <div class="notice">{{ message }}</div>
+    {% endif %}
+    {% if has_extra_credit %}
+      <div class="policy-warning">
+        <strong>Extra-credit policy:</strong> exported totals are capped at the sum of
+        the regular (non-EC) problems: {{ total_max }} points. Extra credit can restore
+        missed regular points, but it cannot raise this quiz above 100%.
+      </div>
+    {% endif %}
+    {% if duplicate_rows %}
+      <section class="duplicate-warning">
+        <h2>Duplicate submissions need review</h2>
+        {% if tf_grader_mode %}
+          <p>
+            More than one test is assigned to the same student. The score and feedback
+            exports use the highest-total submission, marked below, rather than adding
+            the tests together. Compare both scans and scores, and tell the instructor
+            which submission should be retained.
+          </p>
+        {% else %}
+          <p>
+            More than one test is assigned to the same student. Exclude the duplicate
+            before handoff when possible. Excluding a unit removes it from the grading
+            session and prepared crops, but leaves its scan files in local storage.
+          </p>
+        {% endif %}
+
+        {% for duplicate in duplicate_rows %}
+          <h3>{{ duplicate.student_name }} <small>({{ duplicate.student_id }})</small></h3>
+          <div class="table-wrap" style="margin-top:0.5rem;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Submission</th>
+                  <th>Version</th>
+                  {% for p in problems %}<th>{{ p.id }}</th>{% endfor %}
+                  <th>Total</th>
+                  <th>Scans</th>
+                  {% if not tf_grader_mode %}<th>Instructor action</th>{% endif %}
+                </tr>
+              </thead>
+              <tbody>
+                {% for submission in duplicate.submissions %}
+                  <tr class="{{ 'selected-submission' if submission.is_selected else '' }}">
+                    <td>
+                      Unit {{ submission.unit_id }}
+                      {% if submission.is_selected %}<br><strong>used for export</strong>{% endif %}
+                    </td>
+                    <td>{{ submission.quiz_version or "—" }}</td>
+                    {% for p in problems %}
+                      {% set duplicate_score = submission.per_problem_scores.get(p.id) %}
+                      <td>{{ duplicate_score if duplicate_score is not none else "—" }}</td>
+                    {% endfor %}
+                    <td>{{ submission.total_score }} / {{ scale_to if scale_to is not none else total_max }}</td>
+                    <td>
+                      <div class="scan-links">
+                        {% for page in submission.pages %}
+                          <a href="{{ page.url }}" target="_blank" rel="noopener">page {{ loop.index }}</a>
+                        {% endfor %}
+                      </div>
+                    </td>
+                    {% if not tf_grader_mode %}
+                      <td>
+                        <form method="post" action="/duplicate-submissions/{{ submission.unit_id }}/exclude"
+                              onsubmit="return confirm('Exclude unit {{ submission.unit_id }} from this grading session? Its scan files will remain on disk.');">
+                          <button class="btn btn-danger" type="submit">Exclude this unit</button>
+                        </form>
+                      </td>
+                    {% endif %}
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% endfor %}
+
+        {% if not tf_grader_mode %}
+          <div class="duplicate-actions" style="margin-top:1rem;">
+            <a class="btn" href="/export_tf_bundle?allow_duplicates=true">Keep both and prepare bundle</a>
+            <span>Use this only when the TA should compare the submissions.</span>
+          </div>
+        {% endif %}
+      </section>
     {% endif %}
     {% if not tf_grader_mode %}
     <form method="get" action="/finish" class="scale-form">

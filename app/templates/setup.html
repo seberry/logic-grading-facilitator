@@ -272,11 +272,10 @@ Requirements:
   - segmentation_hint: short phrase that would help a local vision model find this answer region on the page
 - Do not generate solutions, expected answers, or answer_key fields. The TF is expected to know the material and contact the instructor when grading intent is unclear.
 - For printed quiz versions, keep shared geometry at problem level and add a variants map keyed by A, B, C, etc. Each version may override label, prompt, and segmentation_hint.
-- Keep max_points equal to the sum of non-extra-credit problem points.
+- The quiz maximum is calculated from the sum of non-extra-credit problem points.
 
 Target YAML shape:
 quiz_id: "{{ quiz_id }}"
-max_points: 10
 problems:
   - id: "Q1"
     label: "Short label"
@@ -337,10 +336,8 @@ If a page has two problem banks with overlapping numbers, distinguish them using
         return;
       }
 
-      const maxPoints = (pointsEach * count).toFixed(2).replace(/\.00$/, "");
       const lines = [
         `quiz_id: "${quizId}"`,
-        `max_points: ${maxPoints}`,
         "problems:",
       ];
 

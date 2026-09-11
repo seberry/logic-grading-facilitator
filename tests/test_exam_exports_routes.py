@@ -1,6 +1,7 @@
 import unittest
 import csv
 import io
+import json
 import os
 import tempfile
 import zipfile
@@ -22,7 +23,6 @@ def _build_session() -> Session:
         roster=[RosterEntry(student_id="s1", name="Berry, Sharon")],
         grading_key=GradingKey(
             quiz_id="quiz1",
-            max_points=10,
             problems=[
                 ProblemSpec(id="Q1", label="FOL model", points=4),
                 ProblemSpec(id="Q2", label="Proof", points=6),
@@ -131,6 +131,127 @@ class ExamExportsRoutesTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("s1,10.0", response.text)
+
+        with patch.object(exam_exports_routes, "get_session", return_value=session):
+            finish_response = self.client.get("/finish")
+        self.assertIn("Extra-credit policy", finish_response.text)
+        self.assertIn("cannot raise this quiz above 100%", finish_response.text)
+
+    def test_finish_compares_duplicate_submissions_and_names_export_choice(self) -> None:
+        session = _build_session()
+        session.work_units.append(
+            WorkUnit(
+                unit_id=2,
+                student_id="s1",
+                quiz_version="B",
+                page_filenames=["second_attempt.jpg"],
+                per_problem={"Q1": 3.0, "Q2": 3.0},
+                per_problem_comments={"Q1": None, "Q2": None},
+                comment=None,
+            )
+        )
+
+        with patch.object(exam_exports_routes, "get_session", return_value=session):
+            response = self.client.get("/finish")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Duplicate submissions need review", response.text)
+        self.assertIn("Unit 1", response.text)
+        self.assertIn("Unit 2", response.text)
+        self.assertIn("9.0 / 10.0", response.text)
+        self.assertIn("6.0 / 10.0", response.text)
+        self.assertIn("used for export", response.text)
+        self.assertIn("Exclude this unit", response.text)
+        self.assertIn('/scans/second_attempt.jpg', response.text)
+
+    def test_tf_finish_reports_duplicates_without_instructor_delete_control(self) -> None:
+        session = _build_session()
+        session.work_units.append(
+            WorkUnit(
+                unit_id=2,
+                student_id="s1",
+                quiz_version="B",
+                page_filenames=["second_attempt.jpg"],
+                per_problem={"Q1": 3.0, "Q2": 3.0},
+                per_problem_comments={},
+                comment=None,
+            )
+        )
+
+        with (
+            patch.object(exam_exports_routes, "get_session", return_value=session),
+            patch.dict(os.environ, {"TF_GRADER_MODE": "1"}),
+        ):
+            response = self.client.get("/finish")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Compare both scans and scores", response.text)
+        self.assertIn("tell the instructor", response.text)
+        self.assertNotIn("Exclude this unit", response.text)
+        self.assertNotIn("Keep both and prepare bundle", response.text)
+
+    def test_tf_bundle_requires_explicit_duplicate_decision(self) -> None:
+        session = _build_session()
+        session.work_units.append(
+            WorkUnit(
+                unit_id=2,
+                student_id="s1",
+                quiz_version="B",
+                page_filenames=["second_attempt.jpg"],
+                per_problem={"Q1": 2.0, "Q2": 3.0},
+                per_problem_comments={},
+                comment=None,
+            )
+        )
+
+        with patch.object(exam_exports_routes, "get_session", return_value=session):
+            response = self.client.get("/export_tf_bundle")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("unit 1 = 9", response.json()["detail"])
+        self.assertIn("unit 2 = 5", response.json()["detail"])
+
+    def test_instructor_can_exclude_duplicate_without_deleting_scan(self) -> None:
+        session = _build_session()
+        session.work_units.append(
+            WorkUnit(
+                unit_id=2,
+                student_id="s1",
+                quiz_version="B",
+                page_filenames=["second_attempt.jpg"],
+                per_problem={"Q1": 2.0, "Q2": 3.0},
+                per_problem_comments={},
+                comment=None,
+            )
+        )
+        session.reference_pins = {"Q1": {"B": 2}}
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            grades_dir = Path(temp_dir)
+            segment_path = grades_dir / "segments_Q1.json"
+            segment_path.write_text(
+                json.dumps([{"unit_id": 1}, {"unit_id": 2}]),
+                encoding="utf-8",
+            )
+            with (
+                patch.object(exam_exports_routes, "get_session", return_value=session),
+                patch.object(exam_exports_routes, "persist_session"),
+                patch.object(exam_exports_routes, "GRADES_DIR", grades_dir),
+                patch.dict(os.environ, {}, clear=False),
+            ):
+                os.environ.pop("TF_GRADER_MODE", None)
+                response = self.client.post(
+                    "/duplicate-submissions/2/exclude",
+                    follow_redirects=False,
+                )
+
+            remaining_segments = json.loads(segment_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual([wu.unit_id for wu in session.work_units], [1])
+        self.assertEqual(session.reference_pins, {})
+        self.assertEqual(remaining_segments, [{"unit_id": 1}])
+        self.assertIn("scan%20files%20remain", response.headers["location"])
 
     def test_feedback_zip_contains_named_scan_and_feedback_pdf(self) -> None:
         session = _build_session()

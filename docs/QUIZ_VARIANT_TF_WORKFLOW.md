@@ -82,7 +82,6 @@ version. Put version-specific content under `variants`:
 
 ```yaml
 quiz_id: P250_F26_quiz1_ABC
-max_points: 10
 problems:
   - id: Q1
     label: Identifying the conclusion
@@ -99,7 +98,9 @@ problems:
 
 Choose the actual point values before saving the rubric. Extra-credit boxes can
 be separate problems with `extra_credit: true`; the total-score calculation
-already caps regular plus extra credit at the quiz's regular maximum.
+caps regular plus extra credit at the quiz's regular maximum. The Finish page
+shows this policy whenever a rubric contains extra credit so the instructor and
+TF do not mistake EC for points above 100%.
 
 ## Answer-key trust boundary
 
@@ -131,7 +132,12 @@ ask a model to settle it.
    page toggle when the title or handwriting is hard to read. **Save
    Corrections** writes exactly those selections to the local cache without
    renaming scans or starting grading. A later recognition refresh preserves
-   the reviewed names while replacing the version guesses.
+   the reviewed names while replacing the version guesses. If the same student
+   has two separate submissions, the page warns you and offers to exclude
+   either group. Mark **New submission starts here** when two adjacent tests
+   belong to the same student; a confirmed version change also creates a
+   boundary automatically. Excluded pages remain on the instructor's computer
+   but do not enter the grading session or TF bundle.
 6. Save and start grading. On the Finish page, click **Prepare all question
    locations** and wait for every problem to report ready. This sequentially
    calls the existing problem prefetch route and creates the required
@@ -143,7 +149,10 @@ ask a model to settle it.
 8. Optionally pin one clearly correct response for each question/version you
    want to provide as a visual comparison. Pins can also be chosen by the TF.
 9. Click **Prepare TF bundle**. The export refuses to proceed when a scan,
-   version, or problem-location cache is missing.
+   version, or problem-location cache is missing. It also stops when duplicate
+   student submissions remain. Resolve a duplicate on the Finish page, or
+   deliberately choose **Keep both and prepare bundle** when the TF needs to
+   compare them.
 
 Keep the extracted TF bundle outside the repository. It contains protected
 student names, identifiers, and scans.

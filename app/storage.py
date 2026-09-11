@@ -114,7 +114,6 @@ def load_grading_key(path: Path = DEFAULT_GRADING_KEY_PATH) -> GradingKey:
     Example format:
 
     quiz_id: quiz1
-    max_points: 10
     problems:
       - id: "Q1"
         label: "Problem 1"
@@ -134,7 +133,6 @@ def load_grading_key(path: Path = DEFAULT_GRADING_KEY_PATH) -> GradingKey:
     ]
     return GradingKey(
         quiz_id=data["quiz_id"],
-        max_points=float(data["max_points"]),
         problems=problems,
     )
 

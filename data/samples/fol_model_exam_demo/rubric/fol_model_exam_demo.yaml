@@ -1,5 +1,4 @@
 quiz_id: fol_model_exam_demo
-max_points: 9
 problems:
 - id: Q1
   label: Give a model where the two sentences have different truth values.

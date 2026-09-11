@@ -22,7 +22,7 @@ from app.routes import classwork as classwork_routes
 def _build_session_with_classwork() -> Session:
     return Session(
         roster=[RosterEntry(student_id="s1", name="Berry, Sharon")],
-        grading_key=GradingKey(quiz_id="quiz1", max_points=10, problems=[]),
+        grading_key=GradingKey(quiz_id="quiz1", problems=[]),
         work_units=[],
         unclaimed_pages=[],
         classwork_mode=ClassworkModeState(
@@ -67,7 +67,7 @@ class ClassworkRoutesTests(unittest.TestCase):
     def test_classwork_setup_page_renders(self) -> None:
         session = Session(
             roster=[],
-            grading_key=GradingKey(quiz_id="quiz1", max_points=10, problems=[]),
+            grading_key=GradingKey(quiz_id="quiz1", problems=[]),
             work_units=[],
             unclaimed_pages=[],
         )
@@ -159,7 +159,7 @@ class ClassworkRoutesTests(unittest.TestCase):
         )
         session = Session(
             roster=[RosterEntry(student_id="s1", name="Berry, Sharon")],
-            grading_key=GradingKey(quiz_id="quiz1", max_points=10, problems=[]),
+            grading_key=GradingKey(quiz_id="quiz1", problems=[]),
             work_units=[],
             unclaimed_pages=[],
             classwork_mode=mode,

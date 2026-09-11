@@ -1,5 +1,4 @@
 quiz_id: PS10
-max_points: 12
 problems:
   - id: Q1
     label: Formalize possible match and happy crowd

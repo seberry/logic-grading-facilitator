@@ -387,12 +387,13 @@ def _read_default_rubric() -> tuple[str, str]:
     try:
         yaml_text = DEFAULT_GRADING_KEY_PATH.read_text(encoding="utf-8")
     except FileNotFoundError:
-        yaml_text = """quiz_id: quiz1\nmax_points: 10\nproblems:\n  - id: Q1\n    label: Example problem\n    points: 10\n"""
+        yaml_text = """quiz_id: quiz1\nproblems:\n  - id: Q1\n    label: Example problem\n    points: 10\n"""
 
     try:
         parsed = yaml.safe_load(yaml_text) or {}
         removed = _remove_answer_key_fields(parsed)
-        if removed:
+        removed_max_points = parsed.pop("max_points", None) is not None
+        if removed or removed_max_points:
             yaml_text = yaml.safe_dump(parsed, sort_keys=False, allow_unicode=True)
         quiz_id = str(parsed.get("quiz_id", "quiz1"))
     except Exception:
@@ -1972,6 +1973,10 @@ async def name_review_page(
                     "name_visible": name_visible,
                     "quiz_version": quiz_version,
                     "name_reviewed": bool(previous.get("name_reviewed")),
+                    "starts_new_submission": bool(
+                        previous.get("starts_new_submission", False)
+                    ),
+                    "excluded": bool(previous.get("excluded", False)),
                 }
             )
 
@@ -2010,6 +2015,8 @@ async def name_review_page(
                 "reasoning": info.get("reasoning") or "",
                 "name_visible": bool(info.get("name_visible", False)),
                 "quiz_version": normalize_quiz_version(info.get("quiz_version")),
+                "starts_new_submission": bool(info.get("starts_new_submission", False)),
+                "excluded": bool(info.get("excluded", False)),
             }
         )
 
@@ -2055,14 +2062,18 @@ async def name_review_submit(request: Request) -> Response:
         raise HTTPException(404, detail=f"Scan dir not found: {base_dir}")
 
     # 2. Parse Form Data (Assignments)
-    # List of (original_filename, student_id, printed quiz version)
-    assignments: List[tuple[str, Optional[str], Optional[str]]] = []
+    # List of (filename, student, version, explicit group boundary, excluded)
+    assignments: List[tuple[str, Optional[str], Optional[str], bool, bool]] = []
     for i in range(page_count):
         fn = form.get(f"filename_{i}")
         sid = form.get(f"student_{i}") or None
         quiz_version = normalize_quiz_version(form.get(f"quiz_version_{i}"))
+        starts_new_submission = bool(form.get(f"starts_new_submission_{i}"))
+        excluded = bool(form.get(f"exclude_{i}"))
         if fn:
-            assignments.append((fn, sid, quiz_version))
+            assignments.append(
+                (fn, sid, quiz_version, starts_new_submission, excluded)
+            )
 
     # Draft-save paths update the cache without renaming scans or creating a
     # grading session. Auto-fill is opt-in; ordinary Save preserves Unknowns.
@@ -2083,17 +2094,19 @@ async def name_review_submit(request: Request) -> Response:
         seen: set[str] = set()
 
         last_sid: Optional[str] = None
-        for filename, sid, quiz_version in assignments:
+        for filename, sid, quiz_version, starts_new_submission, excluded in assignments:
             applied_sid = sid
-            if next_action == "save_fill":
+            if next_action == "save_fill" and not excluded:
                 applied_sid = sid or last_sid
-            if applied_sid:
+            if applied_sid and not excluded:
                 last_sid = applied_sid
 
             entry = dict(preds_by_filename.get(filename, {"filename": filename}))
             entry["student_id"] = applied_sid
             entry["quiz_version"] = quiz_version
             entry["name_reviewed"] = True
+            entry["starts_new_submission"] = starts_new_submission
+            entry["excluded"] = excluded
             preds_by_filename[filename] = entry
             seen.add(filename)
             updated_predictions.append(entry)
@@ -2129,7 +2142,12 @@ async def name_review_submit(request: Request) -> Response:
     groups = []
     current_group = None
 
-    for filename, sid, quiz_version in assignments:
+    for filename, sid, quiz_version, starts_new_submission, excluded in assignments:
+        if excluded:
+            if current_group:
+                groups.append(current_group)
+                current_group = None
+            continue
         if current_group is None:
             current_group = {
                 "student_id": sid,
@@ -2142,7 +2160,16 @@ async def name_review_submit(request: Request) -> Response:
         # Note: We break groups on 'None' (unknowns) so they don't clump together?
         # Actually, let's clump unknowns if they are consecutive? 
         # For safety, let's break if student_id changes.
-        if sid == current_group["student_id"]:
+        versions_conflict = bool(
+            quiz_version
+            and current_group.get("quiz_version")
+            and quiz_version != current_group["quiz_version"]
+        )
+        if (
+            sid == current_group["student_id"]
+            and not starts_new_submission
+            and not versions_conflict
+        ):
             current_group["pages"].append(filename)
             if not current_group.get("quiz_version") and quiz_version:
                 current_group["quiz_version"] = quiz_version
@@ -2155,6 +2182,12 @@ async def name_review_submit(request: Request) -> Response:
             }
     if current_group:
         groups.append(current_group)
+
+    if not groups:
+        raise HTTPException(
+            status_code=400,
+            detail="Every page is excluded. Keep at least one submission before continuing.",
+        )
 
     # 5. Build WorkUnits and Rename Files
     work_units: List[WorkUnit] = []

@@ -32,7 +32,6 @@ Example (`data/rubric/quiz3.yaml`):
 
 ```yaml
 quiz_id: "quiz3"
-max_points: 10
 
 problems:
   - id: "Q1"
@@ -82,9 +81,11 @@ total_score = min(regular_max, regular_score + extra_credit_score)
 ```
 
 Thus extra credit can restore points missed on regular questions, but cannot
-raise the exported quiz score above the regular maximum. Keep `max_points`
-equal to `regular_max`; current total/export code derives the authoritative
-maximum from the non-extra-credit problem definitions.
+raise the exported quiz score above the regular maximum. There is no separate
+quiz-level maximum: total/export code derives the authoritative maximum from
+the non-extra-credit problem definitions. Older rubric files may still contain
+`max_points`; it is ignored when loaded and omitted the next time the rubric or
+session is saved.
 
 # 3. WorkUnit Schema (v0)
 

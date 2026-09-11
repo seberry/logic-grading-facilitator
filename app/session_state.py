@@ -19,7 +19,7 @@ def get_session() -> Session:
     except FileNotFoundError:
         _session = Session(
             roster=[],
-            grading_key=GradingKey(quiz_id="classwork", max_points=0, problems=[]),
+            grading_key=GradingKey(quiz_id="classwork", problems=[]),
             work_units=[],
             unclaimed_pages=[],
         )

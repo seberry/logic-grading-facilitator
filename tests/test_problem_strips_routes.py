@@ -24,7 +24,6 @@ def _build_session() -> Session:
         roster=[RosterEntry(student_id="s1", name="Berry, Sharon")],
         grading_key=GradingKey(
             quiz_id="quiz1",
-            max_points=10,
             problems=[
                 ProblemSpec(
                     id="Q1",
@@ -726,7 +725,6 @@ class RubricSchemaTests(unittest.TestCase):
     def test_load_grading_key_preserves_problem_type_and_autograde(self) -> None:
         yaml_text = """
 quiz_id: quiz1
-max_points: 5
 problems:
   - id: Q1
     label: FOL model
@@ -753,7 +751,6 @@ problems:
     def test_load_grading_key_preserves_problem_context_fields(self) -> None:
         yaml_text = """
 quiz_id: quiz1
-max_points: 5
 problems:
   - id: Q1
     label: Modal model
@@ -790,7 +787,6 @@ class NameReviewSubmitTests(unittest.TestCase):
         roster = [RosterEntry(student_id="s1", name="Berry, Sharon")]
         grading_key = GradingKey(
             quiz_id="quiz1",
-            max_points=5,
             problems=[ProblemSpec(id="Q1", label="Problem 1", points=5)],
         )
 
@@ -816,6 +812,83 @@ class NameReviewSubmitTests(unittest.TestCase):
         self.assertEqual(response.status_code, 303)
         self.assertEqual(response.headers["location"], "/problem/Q1/strips")
 
+    def test_name_review_can_exclude_duplicate_group(self) -> None:
+        (self.tmp_dir / "page2.jpg").write_bytes(b"second-fake-image")
+        roster = [RosterEntry(student_id="s1", name="Berry, Sharon")]
+        grading_key = GradingKey(
+            quiz_id="quiz1",
+            problems=[ProblemSpec(id="Q1", label="Problem 1", points=5)],
+        )
+        saved_sessions = []
+
+        with (
+            patch.object(server, "RAW_SCANS_DIR", self.tmp_dir),
+            patch.object(server, "load_roster", return_value=roster),
+            patch.object(server, "load_grading_key", return_value=grading_key),
+            patch.object(server, "save_session", side_effect=lambda session, *_: saved_sessions.append(session)),
+        ):
+            response = self.client.post(
+                "/name_review",
+                data={
+                    "quiz_id": "quiz1",
+                    "raw_scans_subdir": "",
+                    "page_count": "2",
+                    "filename_0": "page1.jpg",
+                    "student_0": "s1",
+                    "quiz_version_0": "A",
+                    "filename_1": "page2.jpg",
+                    "student_1": "s1",
+                    "quiz_version_1": "B",
+                    "exclude_1": "1",
+                    "next_action": "grade",
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(len(saved_sessions), 1)
+        self.assertEqual(len(saved_sessions[0].work_units), 1)
+        self.assertEqual(saved_sessions[0].work_units[0].quiz_version, "A")
+        self.assertNotIn("page2.jpg", saved_sessions[0].work_units[0].page_filenames)
+
+    def test_name_review_splits_adjacent_versions_for_same_student(self) -> None:
+        (self.tmp_dir / "page2.jpg").write_bytes(b"second-fake-image")
+        roster = [RosterEntry(student_id="s1", name="Berry, Sharon")]
+        grading_key = GradingKey(
+            quiz_id="quiz1",
+            problems=[ProblemSpec(id="Q1", label="Problem 1", points=5)],
+        )
+        saved_sessions = []
+
+        with (
+            patch.object(server, "RAW_SCANS_DIR", self.tmp_dir),
+            patch.object(server, "load_roster", return_value=roster),
+            patch.object(server, "load_grading_key", return_value=grading_key),
+            patch.object(server, "save_session", side_effect=lambda session, *_: saved_sessions.append(session)),
+        ):
+            response = self.client.post(
+                "/name_review",
+                data={
+                    "quiz_id": "quiz1",
+                    "raw_scans_subdir": "",
+                    "page_count": "2",
+                    "filename_0": "page1.jpg",
+                    "student_0": "s1",
+                    "quiz_version_0": "A",
+                    "filename_1": "page2.jpg",
+                    "student_1": "s1",
+                    "quiz_version_1": "B",
+                    "next_action": "grade",
+                },
+                follow_redirects=False,
+            )
+
+        self.assertEqual(response.status_code, 303)
+        self.assertEqual(
+            [wu.quiz_version for wu in saved_sessions[0].work_units],
+            ["A", "B"],
+        )
+
 
 class CanvasZipImportTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -840,7 +913,6 @@ class CanvasZipImportTests(unittest.TestCase):
     def test_canvas_zip_import_without_roster_creates_anonymous_work_units(self) -> None:
         grading_key = GradingKey(
             quiz_id="quiz1",
-            max_points=1,
             problems=[ProblemSpec(id="Q1", label="Problem 1", points=1, problem_type="fitch_proof")],
         )
         saved_sessions = []

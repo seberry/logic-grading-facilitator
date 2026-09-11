@@ -57,7 +57,6 @@ def _write_rubric(path: Path, quiz_id: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     content = (
         f"quiz_id: {quiz_id}\n"
-        "max_points: 10\n"
         "problems:\n"
         "  - id: Q1\n"
         "    label: Problem 1\n"

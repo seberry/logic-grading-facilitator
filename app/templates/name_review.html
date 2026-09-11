@@ -233,6 +233,43 @@
       cursor: wait;
       box-shadow: none;
     }
+    .page-row.excluded {
+      opacity: 0.58;
+      outline: 2px dashed #9ca3af;
+    }
+    .duplicate-warning {
+      display: none;
+      margin: 0 0 1rem;
+      padding: 1rem;
+      border: 1px solid #f59e0b;
+      border-left: 5px solid #d97706;
+      border-radius: 0.75rem;
+      background: #fffbeb;
+      color: #78350f;
+    }
+    .duplicate-warning.visible { display: block; }
+    .duplicate-group {
+      margin-top: 0.65rem;
+      padding-top: 0.65rem;
+      border-top: 1px solid #fcd34d;
+    }
+    .duplicate-group button {
+      margin: 0.35rem 0.35rem 0 0;
+      border: 1px solid #b45309;
+      border-radius: 999px;
+      padding: 0.35rem 0.7rem;
+      background: white;
+      color: #92400e;
+      cursor: pointer;
+    }
+    .submission-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+      padding-top: 0.25rem;
+    }
+    .submission-controls label { line-height: 1.25; }
+    .submission-controls small { color: #6b7280; }
 
     .handoff-progress {
       display: none;
@@ -296,8 +333,8 @@
 <header>
   <h1>Name Recognition Review – {{ quiz_slug }}</h1>
   <div class="sub">
-    Confirm or correct the student for each scanned page, then click the green button at the bottom
-    to group, rename, and download.
+    Confirm each student and printed version, mark any submission boundaries or
+    duplicates, then save or start grading.
   </div>
 </header>
 
@@ -338,9 +375,19 @@
   </div>
 </div>
 
+    <section id="duplicate-submission-warning" class="duplicate-warning" role="alert">
+      <strong>Possible duplicate submissions</strong>
+      <div>
+        The same student is assigned to more than one page group. Compare the
+        groups below. You can exclude an entire duplicate group now; excluded
+        pages stay on this computer but will not enter the grading session or TF bundle.
+      </div>
+      <div id="duplicate-submission-groups"></div>
+    </section>
+
     <div class="page-list">
       {% for row in page_rows %}
-      <div class="page-row">
+      <div class="page-row" data-page-index="{{ row.index }}">
         <!-- Left: thumbnail -->
         <div>
           <div class="page-index">
@@ -405,6 +452,21 @@
           <div id="full-{{ row.index }}" class="full-scan hidden">
             <img src="{{ row.image_url }}" alt="Full scan {{ row.filename }}">
           </div>
+          <div class="submission-controls">
+            <label>
+              <input type="checkbox"
+                     name="starts_new_submission_{{ row.index }}"
+                     {% if row.starts_new_submission %}checked{% endif %}>
+              New submission starts here
+            </label>
+            <small>Use this when two tests for the same student are adjacent.</small>
+            <label>
+              <input type="checkbox"
+                     name="exclude_{{ row.index }}"
+                     {% if row.excluded %}checked{% endif %}>
+              Exclude this page
+            </label>
+          </div>
         </div>
       </div>
       {% endfor %}
@@ -465,11 +527,118 @@
 
   const reviewForm = document.getElementById("name-review-form");
   const progressPanel = document.getElementById("handoff-progress");
+  const duplicatePanel = document.getElementById("duplicate-submission-warning");
+  const duplicateGroups = document.getElementById("duplicate-submission-groups");
+  let duplicateGroupCount = 0;
+
+  function selectedStudentLabel(select) {
+    if (!select || !select.value) return "Unknown student";
+    return select.options[select.selectedIndex].textContent.trim();
+  }
+
+  function submissionGroupsFromRows() {
+    const groups = [];
+    let current = null;
+    document.querySelectorAll(".page-row[data-page-index]").forEach(function (row) {
+      const index = row.dataset.pageIndex;
+      const student = row.querySelector(`[name="student_${index}"]`);
+      const version = row.querySelector(`[name="quiz_version_${index}"]`);
+      const startsNew = row.querySelector(`[name="starts_new_submission_${index}"]`);
+      const excluded = row.querySelector(`[name="exclude_${index}"]`);
+      row.classList.toggle("excluded", Boolean(excluded && excluded.checked));
+
+      if (!student || !student.value || (excluded && excluded.checked)) {
+        current = null;
+        return;
+      }
+
+      const versionValue = version ? version.value : "";
+      const versionConflict = Boolean(
+        current && current.version && versionValue && current.version !== versionValue
+      );
+      if (
+        !current ||
+        current.studentId !== student.value ||
+        (startsNew && startsNew.checked) ||
+        versionConflict
+      ) {
+        current = {
+          studentId: student.value,
+          studentLabel: selectedStudentLabel(student),
+          version: versionValue,
+          indices: [],
+          filenames: [],
+        };
+        groups.push(current);
+      } else if (!current.version && versionValue) {
+        current.version = versionValue;
+      }
+      current.indices.push(index);
+      const filename = row.querySelector(`[name="filename_${index}"]`);
+      current.filenames.push(filename ? filename.value : `page ${Number(index) + 1}`);
+    });
+    return groups;
+  }
+
+  function renderDuplicateWarning() {
+    if (!duplicatePanel || !duplicateGroups) return;
+    const byStudent = new Map();
+    submissionGroupsFromRows().forEach(function (group) {
+      if (!byStudent.has(group.studentId)) byStudent.set(group.studentId, []);
+      byStudent.get(group.studentId).push(group);
+    });
+    const duplicates = Array.from(byStudent.values()).filter(function (groups) {
+      return groups.length > 1;
+    });
+    duplicateGroupCount = duplicates.length;
+    duplicateGroups.replaceChildren();
+    duplicatePanel.classList.toggle("visible", duplicates.length > 0);
+
+    duplicates.forEach(function (groups) {
+      const block = document.createElement("div");
+      block.className = "duplicate-group";
+      const heading = document.createElement("div");
+      heading.textContent = `${groups[0].studentLabel}: ${groups.length} separate groups`;
+      block.appendChild(heading);
+
+      groups.forEach(function (group, groupIndex) {
+        const button = document.createElement("button");
+        button.type = "button";
+        const version = group.version ? `version ${group.version}` : "unknown version";
+        button.textContent = `Exclude group ${groupIndex + 1} (${version}; ${group.indices.length} page${group.indices.length === 1 ? "" : "s"})`;
+        button.addEventListener("click", function () {
+          group.indices.forEach(function (index) {
+            const checkbox = document.querySelector(`[name="exclude_${index}"]`);
+            if (checkbox) checkbox.checked = true;
+          });
+          renderDuplicateWarning();
+        });
+        block.appendChild(button);
+      });
+      duplicateGroups.appendChild(block);
+    });
+  }
+
+  document.querySelectorAll(
+    '.page-row select, .page-row input[name^="starts_new_submission_"], .page-row input[name^="exclude_"]'
+  ).forEach(function (control) {
+    control.addEventListener("change", renderDuplicateWarning);
+  });
+  renderDuplicateWarning();
 
   if (reviewForm && progressPanel) {
     reviewForm.addEventListener("submit", function (event) {
       const action = event.submitter ? event.submitter.value : "grade";
       if (action !== "grade" && action !== "download") return;
+
+      renderDuplicateWarning();
+      if (duplicateGroupCount > 0 && !window.confirm(
+        "Possible duplicate submissions remain. Continue with both? You will be warned again before creating the TF bundle, and grade exports will use the higher total."
+      )) {
+        event.preventDefault();
+        duplicatePanel.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
 
       progressPanel.textContent = action === "download"
         ? "Working: grouping pages, copying the full-resolution scans, and building the ZIP. This can take a while. Keep this page open; the download will begin when it is ready."

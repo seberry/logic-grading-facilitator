@@ -29,7 +29,6 @@ def _variant_session() -> Session:
         roster=[RosterEntry(student_id="s1", name="Example, Ada")],
         grading_key=GradingKey(
             quiz_id="P250_F26_quiz1_ABC",
-            max_points=2,
             problems=[
                 ProblemSpec(
                     id="Q1",
@@ -93,6 +92,7 @@ problems:
         )
         key = load_grading_key(rubric_path)
         self.assertEqual(key.problems[0].variants["A"].answer_key, "Expected A")
+        self.assertNotIn("max_points", key.model_dump())
 
     def test_setup_discards_model_generated_answer_keys(self) -> None:
         client = TestClient(server.app)
@@ -122,6 +122,7 @@ problems:
         saved = (root / "P250_F26_quiz1_ABC.yaml").read_text(encoding="utf-8")
         self.assertNotIn("answer_key", saved)
         self.assertNotIn("Model-generated answer", saved)
+        self.assertNotIn("max_points", saved)
 
     def test_classifier_reads_printed_version(self) -> None:
         class FakeClient:

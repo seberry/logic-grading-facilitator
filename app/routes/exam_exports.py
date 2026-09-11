@@ -12,7 +12,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import APIRouter, Form, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from ..exam_exports_core import (
@@ -29,8 +29,10 @@ from ..exam_shared import (
     _filename_prefix_key,
     _required_total_max,
     _score_summary_for_work_unit,
+    _selected_work_units_by_student,
+    _work_units_by_student,
 )
-from ..session_state import _session_lock, get_session
+from ..session_state import _session_lock, get_session, persist_session
 from ..storage import GRADES_DIR, RAW_SCANS_DIR, RUBRIC_ASSETS_DIR, archive_current_data
 from ..classwork_core import _render_feedback_image_bytes, _render_feedback_pdf_bytes
 from ..quiz_variants import available_quiz_versions, normalize_quiz_version
@@ -38,6 +40,79 @@ from ..rubric_assets import existing_question_assets
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 'templates'))
+
+
+def _tf_grader_mode_enabled() -> bool:
+    return os.getenv("TF_GRADER_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _duplicate_submission_rows(
+    session,
+    scale_to: Optional[float] = None,
+) -> List[Dict[str, Any]]:
+    """Build a human-readable comparison of duplicate student submissions."""
+    roster_map = {entry.student_id: entry.name for entry in session.roster}
+    selected = _selected_work_units_by_student(session, scale_to=scale_to)
+    rows: List[Dict[str, Any]] = []
+    for student_id, work_units in _work_units_by_student(session).items():
+        if len(work_units) < 2:
+            continue
+        submissions: List[Dict[str, Any]] = []
+        for wu in work_units:
+            summary = _score_summary_for_work_unit(session, wu, scale_to=scale_to)
+            submissions.append(
+                {
+                    "unit_id": wu.unit_id,
+                    "quiz_version": normalize_quiz_version(wu.quiz_version),
+                    "per_problem_scores": {
+                        problem.id: wu.per_problem.get(problem.id)
+                        for problem in session.grading_key.problems
+                    },
+                    "regular_score": summary["regular_score"],
+                    "extra_credit_score": summary["extra_credit_score"],
+                    "raw_total_score": summary["raw_total_score"],
+                    "total_score": summary["total_score"],
+                    "is_selected": selected[student_id].unit_id == wu.unit_id,
+                    "pages": [
+                        {
+                            "filename": Path(filename).name,
+                            "url": f"/scans/{quote(Path(filename).name)}",
+                        }
+                        for filename in wu.page_filenames
+                    ],
+                }
+            )
+        rows.append(
+            {
+                "student_id": student_id,
+                "student_name": roster_map.get(student_id, student_id),
+                "submissions": submissions,
+            }
+        )
+    return sorted(rows, key=lambda row: row["student_name"].lower())
+
+
+def _prune_unit_from_segment_caches(unit_id: int) -> None:
+    """Keep prepared location caches valid after an instructor drops a duplicate."""
+    if not GRADES_DIR.exists():
+        return
+    for cache_path in GRADES_DIR.glob("segments_*.json"):
+        try:
+            rows = json.loads(cache_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(rows, list):
+            continue
+        kept = [
+            row
+            for row in rows
+            if not isinstance(row, dict) or row.get("unit_id") != unit_id
+        ]
+        if len(kept) != len(rows):
+            cache_path.write_text(
+                json.dumps(kept, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
 
 
 def _safe_bundle_slug(value: str) -> str:
@@ -278,37 +353,10 @@ def finish_page(request: Request, scale_to: Optional[float] = None) -> Response:
     total_max = _required_total_max(grading_key) if problems else 0.0
     scale_to = _parse_scale_to(scale_to)
 
-    roster_map = {r.student_id: r.name for r in session.roster}
-    rows_by_student: Dict[str, Dict] = {}
-
-    for wu in session.work_units:
-        if not wu.student_id:
-            continue
-        per_problem_scores = {}
-        per_problem_comments = {}
-        for p in problems:
-            score = wu.per_problem.get(p.id)
-            per_problem_scores[p.id] = score
-            per_problem_comments[p.id] = wu.per_problem_comments.get(p.id)
-        score_summary = _score_summary_for_work_unit(session, wu, scale_to=scale_to)
-        total = score_summary["total_score"]
-
-        sid = wu.student_id
-        existing = rows_by_student.get(sid)
-        if existing is None or total > existing["total_score"]:
-            rows_by_student[sid] = {
-                "student_id": sid,
-                "student_name": roster_map.get(sid, sid),
-                "quiz_version": normalize_quiz_version(wu.quiz_version),
-                "per_problem_scores": per_problem_scores,
-                "per_problem_comments": per_problem_comments,
-                "regular_score": score_summary["regular_score"],
-                "extra_credit_score": score_summary["extra_credit_score"],
-                "raw_total_score": score_summary["raw_total_score"],
-                "total_score": total,
-            }
-
+    rows_by_student = _build_best_rows_by_student(session, scale_to=scale_to)
     rows = sorted(rows_by_student.values(), key=lambda r: r["student_name"])
+    duplicate_rows = _duplicate_submission_rows(session, scale_to=scale_to)
+    tf_grader_mode = _tf_grader_mode_enabled()
 
     return templates.TemplateResponse(
         "finish.html",
@@ -318,10 +366,53 @@ def finish_page(request: Request, scale_to: Optional[float] = None) -> Response:
             "total_max": total_max,
             "scale_to": scale_to,
             "rows": rows,
-            "tf_grader_mode": os.getenv("TF_GRADER_MODE", "").strip().lower()
-            in {"1", "true", "yes", "on"},
+            "duplicate_rows": duplicate_rows,
+            "has_extra_credit": any(problem.extra_credit for problem in problems),
+            "tf_grader_mode": tf_grader_mode,
+            "message": request.query_params.get("message"),
         },
     )
+
+
+@router.post("/duplicate-submissions/{unit_id}/exclude")
+def exclude_duplicate_submission(unit_id: int) -> Response:
+    """Remove one duplicate WorkUnit while retaining its scan files on disk."""
+    if _tf_grader_mode_enabled():
+        raise HTTPException(
+            status_code=403,
+            detail="Only the instructor can exclude a duplicate submission.",
+        )
+
+    with _session_lock:
+        session = get_session()
+        target = next((wu for wu in session.work_units if wu.unit_id == unit_id), None)
+        if target is None or not target.student_id:
+            raise HTTPException(status_code=404, detail=f"Unknown submission unit {unit_id}.")
+        matching = [wu for wu in session.work_units if wu.student_id == target.student_id]
+        if len(matching) < 2:
+            raise HTTPException(
+                status_code=400,
+                detail="That student no longer has duplicate submissions.",
+            )
+
+        session.work_units = [wu for wu in session.work_units if wu.unit_id != unit_id]
+        for problem_id, pins in list(session.reference_pins.items()):
+            kept_pins = {
+                version: pinned_unit_id
+                for version, pinned_unit_id in pins.items()
+                if pinned_unit_id != unit_id
+            }
+            if kept_pins:
+                session.reference_pins[problem_id] = kept_pins
+            else:
+                session.reference_pins.pop(problem_id, None)
+        _prune_unit_from_segment_caches(unit_id)
+        persist_session()
+
+    message = quote(
+        f"Excluded duplicate unit {unit_id} from grading. Its scan files remain in local storage."
+    )
+    return RedirectResponse(url=f"/finish?message={message}", status_code=303)
 
 
 @router.get("/export_renamed_scans")
@@ -418,9 +509,28 @@ def export_scores(scale_to: Optional[float] = None):
 
 
 @router.get("/export_tf_bundle")
-def export_tf_bundle():
+def export_tf_bundle(allow_duplicates: bool = False):
     """Export the minimum private dataset needed for model-free strip grading."""
     session = get_session()
+    duplicate_rows = _duplicate_submission_rows(session)
+    if duplicate_rows and not allow_duplicates:
+        duplicate_details = []
+        for row in duplicate_rows:
+            scores = ", ".join(
+                f"unit {submission['unit_id']} = {submission['total_score']:g}"
+                for submission in row["submissions"]
+            )
+            duplicate_details.append(
+                f"{row['student_name']} ({row['student_id']}): {scores}"
+            )
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "TF bundle has duplicate submissions. Review them on the Finish page, "
+                "exclude the duplicate unit, or explicitly choose Keep both and prepare bundle. "
+                + " | ".join(duplicate_details)
+            ),
+        )
     errors, cache_paths = _validate_tf_bundle(session)
     if errors:
         detail = "TF bundle is not ready:\n- " + "\n- ".join(errors[:40])
