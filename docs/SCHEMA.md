@@ -74,9 +74,17 @@ Invariants:
 
 Totals are computed as:
 
-```bash
-total_score = sum(WorkUnit.per_problem[id] for id in problems)
+```text
+regular_max = sum(problem.points for non-extra-credit problems)
+regular_score = sum(scores for non-extra-credit problems)
+extra_credit_score = sum(scores for extra-credit problems)
+total_score = min(regular_max, regular_score + extra_credit_score)
 ```
+
+Thus extra credit can restore points missed on regular questions, but cannot
+raise the exported quiz score above the regular maximum. Keep `max_points`
+equal to `regular_max`; current total/export code derives the authoritative
+maximum from the non-extra-credit problem definitions.
 
 # 3. WorkUnit Schema (v0)
 

@@ -1232,6 +1232,8 @@
               <input class="score-input"
                    type="number"
                    step="0.01"
+                   min="0"
+                   max="{{ max_points }}"
                    data-max="{{ max_points }}"
                    name="score_{{ wu.unit_id }}"
                    value="{{ wu.per_problem.get(problem_id) if wu.per_problem.get(problem_id) is not none else '' }}">

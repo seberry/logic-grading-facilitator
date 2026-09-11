@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 
 from app import server
+from app.exam_shared import _score_summary_for_work_unit
 from app.models import GradingKey, ProblemSpec, RosterEntry, Session, WorkUnit
 from app.routes import exam_exports as exam_exports_routes
 
@@ -100,6 +101,36 @@ class ExamExportsRoutesTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn('filename="quiz1_scores_out_of_10.csv"', response.headers["content-disposition"])
         self.assertIn("s1,9.0", response.text)
+
+    def test_extra_credit_recovers_points_but_does_not_exceed_regular_maximum(self) -> None:
+        session = _build_session()
+        session.grading_key.problems.append(
+            ProblemSpec(id="EC1", label="Extra credit", points=2, extra_credit=True)
+        )
+
+        for regular_scores, expected_total in (
+            ((3.0, 5.0), 10.0),
+            ((4.0, 6.0), 10.0),
+        ):
+            with self.subTest(regular_scores=regular_scores):
+                work_unit = session.work_units[0]
+                work_unit.per_problem = {
+                    "Q1": regular_scores[0],
+                    "Q2": regular_scores[1],
+                    "EC1": 2.0,
+                }
+                summary = _score_summary_for_work_unit(session, work_unit)
+
+                self.assertEqual(summary["regular_score"], sum(regular_scores))
+                self.assertEqual(summary["extra_credit_score"], 2.0)
+                self.assertEqual(summary["total_max"], 10.0)
+                self.assertEqual(summary["total_score"], expected_total)
+
+        with patch.object(exam_exports_routes, "get_session", return_value=session):
+            response = self.client.get("/export")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("s1,10.0", response.text)
 
     def test_feedback_zip_contains_named_scan_and_feedback_pdf(self) -> None:
         session = _build_session()

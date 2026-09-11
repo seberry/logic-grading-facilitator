@@ -535,6 +535,28 @@ problems:
             rendered = client.get("/problem/Q1/strips?version=A")
         self.assertIn('name="score_1"', rendered.text)
         self.assertIn('value="0.0"', rendered.text)
+        self.assertIn('min="0"', rendered.text)
+        self.assertIn('max="2.0"', rendered.text)
+
+    def test_strip_save_rejects_scores_outside_problem_bounds(self) -> None:
+        client = TestClient(server.app)
+
+        for raw_score in ("-0.01", "2.01", "nan", "inf"):
+            with self.subTest(raw_score=raw_score):
+                session = _variant_session()
+                with (
+                    patch("app.routes.problem_strips.get_session", return_value=session),
+                    patch("app.routes.problem_strips.persist_session") as persist,
+                ):
+                    response = client.post(
+                        "/problem/Q1/strips",
+                        data={"active_version": "A", "score_1": raw_score},
+                    )
+
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("must be between 0 and 2", response.text)
+                self.assertIsNone(session.work_units[0].per_problem["Q1"])
+                persist.assert_not_called()
 
     def test_blank_pdf_reference_extractor_writes_all_version_problem_images(self) -> None:
         root = Path("working") / "test_tmp" / f"reference_extract_{uuid4().hex}"

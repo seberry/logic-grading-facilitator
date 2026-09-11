@@ -960,6 +960,38 @@ async def post_problem_strips(
         if spec is None:
             raise HTTPException(status_code=404, detail=f"Unknown problem id {problem_id!r}")
 
+        # Validate every submitted score before mutating the shared in-memory
+        # session. This prevents one bad field from leaving earlier rows partly
+        # updated after the request returns 400.
+        score_updates: Dict[int, Optional[float]] = {}
+        for wu in session.work_units:
+            raw_score = form.get(f"score_{wu.unit_id}")
+            if raw_score is None:
+                continue
+            raw_score = raw_score.strip()
+            if raw_score == "":
+                score_updates[wu.unit_id] = None
+                continue
+            try:
+                score = float(raw_score)
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Invalid score for {problem_id} on unit {wu.unit_id}: "
+                        f"{raw_score!r}"
+                    ),
+                )
+            if not math.isfinite(score) or score < 0 or score > float(spec.points):
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Score for {problem_id} on unit {wu.unit_id} must be "
+                        f"between 0 and {spec.points:g}."
+                    ),
+                )
+            score_updates[wu.unit_id] = score
+
         updates_map = {}
         page_updates = {}
 
@@ -1013,21 +1045,8 @@ async def post_problem_strips(
             if version_raw is not None:
                 wu.quiz_version = normalize_quiz_version(version_raw)
 
-            field_name = f"score_{wu.unit_id}"
-            raw = form.get(field_name)
-            if raw is None:
-                continue
-            raw = raw.strip()
-            if raw == "":
-                wu.per_problem[problem_id] = None
-            else:
-                try:
-                    wu.per_problem[problem_id] = float(raw)
-                except ValueError:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Invalid score for {problem_id} on unit {wu.unit_id}: {raw!r}",
-                    )
+            if wu.unit_id in score_updates:
+                wu.per_problem[problem_id] = score_updates[wu.unit_id]
 
         # A reference selected under Version A must not remain labeled A after
         # that work unit is corrected to another version.
