@@ -123,6 +123,9 @@ Invariants:
 - Every key in `per_problem` must correspond to an `id` in the GradingKey.
 - `per_problem` values are floats or `null` (`null` means ungraded).
 - Missing values are allowed (e.g., ungraded problems) but must be resolved before export.
+- Final CSV/PDF and gradebook merge require explicit scores on regular problems
+  in every identified WorkUnit, including retained duplicate submissions. Blank
+  optional EC counts as zero. Ungraded sessions may still be exported as TF bundles.
 - `per_problem_comments` keys mirror `per_problem`; values are strings or `null`.
 
 # 4. WorkUnit Schema (future segmentation)

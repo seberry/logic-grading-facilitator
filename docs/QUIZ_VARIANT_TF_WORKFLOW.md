@@ -309,6 +309,11 @@ If the next task is “finish the TA GitHub release,” a fresh agent should:
 
 ## Receive and import grades
 
+Final CSV, feedback PDF, and gradebook merge operations reject identified
+submissions with blank regular-question scores. Use explicit 0 for no credit;
+blank optional EC counts as zero. The Finish page lists incomplete grades.
+TF bundle preparation remains available before grading.
+
 Ask the TF to return:
 
 - the downloaded scores CSV;

@@ -208,6 +208,16 @@
     {% if message %}
       <div class="notice">{{ message }}</div>
     {% endif %}
+    {% if incomplete_grades %}
+      <div class="policy-warning" role="alert">
+        <strong>Grading is incomplete:</strong> {{ incomplete_grades|length }} regular
+        question score(s) are blank. Final CSV, feedback PDF, and gradebook merge
+        exports are blocked until these are graded. Enter an explicit 0 for
+        zero-credit answers; blank optional extra credit counts as zero.
+        Preparing a TF bundle does not require grades.
+        <details><summary>Show missing grades</summary>{{ incomplete_grades|join(', ') }}</details>
+      </div>
+    {% endif %}
     {% if has_extra_credit %}
       <div class="policy-warning">
         <strong>Extra-credit policy:</strong> exported totals are capped at the sum of

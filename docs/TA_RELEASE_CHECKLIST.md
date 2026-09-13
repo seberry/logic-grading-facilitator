@@ -6,6 +6,8 @@ bundle contains course records and must not be attached to a GitHub release.
 ## Before creating the release
 
 1. Confirm the working tree is clean and tests pass.
+   Test a clean virtual environment using `requirements.txt`, not only the
+   developer environment. Include `requirements-lock.txt` in the download.
 2. Build an audited code ZIP from the intended commit. The ZIP should contain
    `app/`, `requirements.txt`, and `docs/TA_GRADING_GUIDE.md`, but no `.env`,
    `working/`, rosters, sessions, scans, crops, or grading exports.
@@ -17,17 +19,27 @@ bundle contains course records and must not be attached to a GitHub release.
 
 ## Create the GitHub release
 
-On the private repository's GitHub page:
+On the code repository's GitHub page (public or private):
 
 1. Open **Releases**, then **Draft a new release**.
 2. Create a tag such as `ta-grader-2026-09-10` targeting the tested commit.
 3. Use a clear title such as `TA paper-quiz grader — September 2026`.
 4. Attach the audited code ZIP as a release asset.
-5. Publish the release and send the TA/TF its link. They need read access to
-   the private repository to see the release.
+5. For the supervised trial, mark it **Pre-release**, then publish and send the
+   TA/TF its link. A private repository requires explicit read access.
 
 GitHub also creates automatic “Source code” archives. Tell the TA/TF to use the
 explicitly attached audited ZIP, whose contents you checked.
+
+Build the audited ZIP reproducibly after committing the intended version:
+
+```powershell
+python scripts/build_ta_release.py --output-dir working/release_<version>
+```
+
+The builder includes committed code, tests, docs, and notices, excludes data,
+working outputs and binary sample artifacts, and writes `SHA256SUMS.txt`.
+Extract and smoke-test the ZIP before uploading it and the checksum file.
 
 Suggested release text:
 

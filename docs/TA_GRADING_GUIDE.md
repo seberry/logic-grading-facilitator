@@ -23,6 +23,10 @@ After extraction, the code folder should contain `requirements.txt` and an
 
 ## First time only: install the grader
 
+Use Python 3.13 for this experimental release (tested on Windows). The install
+commands below automatically use `requirements-lock.txt` for reproducibility.
+macOS instructions are provided but a fresh Mac installation is not yet verified.
+
 ### Windows
 
 1. Open the extracted **code folder** in File Explorer.
@@ -117,6 +121,10 @@ Do not use a global segmentation refresh. The saved answer locations are part
 of the bundle, and no local model is expected on the TA/TF computer.
 
 ## Finish and return the work
+
+Every regular question needs an explicit score before CSV/PDF export or Canvas
+gradebook merge. A blank is ungraded, not a zero; enter 0 when awarding no credit.
+Blank optional extra credit counts as zero. The Finish page lists missing grades.
 
 If the Finish page reports duplicate submissions, compare the listed problem
 scores and open the scan links for both tests. The exports mark and use the

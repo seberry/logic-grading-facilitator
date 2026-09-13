@@ -1,5 +1,15 @@
 # Logic Grading Facilitator
 
+> Experimental pre-release for an instructor-supervised TA trial, not ready for
+> general public or unattended production use. Independently check grades and
+> exports before uploading to Canvas. OCR/model output is assistance, not an
+> authoritative grade. Never upload student work or rosters to this repository.
+
+The model-free TA workflow is tested on Windows with Python 3.13. macOS launcher
+instructions are provided but have not been tested on a fresh Mac. Install with
+`python -m pip install -r requirements.txt`; it uses the tested dependency pins
+in `requirements-lock.txt`. Update and re-test those pins for future releases.
+
 A local, privacy-first grading tool for scanned logic assignments. The main
 exam workflow groups scans into student submissions, lets an instructor grade
 one problem across all students in a strip view, and exports Canvas-ready

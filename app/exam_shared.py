@@ -21,6 +21,7 @@ def _build_total_scores_by_student(
     session: Session,
     scale_to: Optional[float] = None,
 ) -> Dict[str, float]:
+    _require_complete_regular_scores(session)
     return {
         student_id: _score_summary_for_work_unit(session, wu, scale_to=scale_to)[
             "total_score"
@@ -29,6 +30,31 @@ def _build_total_scores_by_student(
             session, scale_to=scale_to
         ).items()
     }
+
+
+def _incomplete_regular_scores(session: Session) -> List[str]:
+    """Missing required grades in identified submissions, including duplicates."""
+    return [
+        f"unit {wu.unit_id}: {problem.id}"
+        for wu in session.work_units
+        if wu.student_id
+        for problem in session.grading_key.problems
+        if not problem.extra_credit and wu.per_problem.get(problem.id) is None
+    ]
+
+
+def _require_complete_regular_scores(session: Session) -> None:
+    missing = _incomplete_regular_scores(session)
+    if missing:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Final grade export is blocked: regular questions are still ungraded. "
+                "Enter an explicit 0 for zero-credit answers. Blank optional extra credit "
+                "counts as zero. Missing grades: " + ", ".join(missing[:30])
+                + (f" (and {len(missing) - 30} more)" if len(missing) > 30 else "")
+            ),
+        )
 
 
 def _work_units_by_student(session: Session) -> Dict[str, List[WorkUnit]]:

@@ -43,6 +43,27 @@ def _build_session() -> Session:
 
 
 class ExamExportsRoutesTests(unittest.TestCase):
+    def test_incomplete_regular_grades_block_all_final_exports(self) -> None:
+        session = _build_session()
+        session.work_units[0].per_problem["Q2"] = None
+        with patch.object(exam_exports_routes, "get_session", return_value=session):
+            for endpoint in ("/export", "/export_feedback_zip", "/export_canvas_reupload_feedback_zip"):
+                with self.subTest(endpoint=endpoint):
+                    response = self.client.get(endpoint)
+                    self.assertEqual(response.status_code, 409)
+                    self.assertIn("unit 1: Q2", response.json()["detail"])
+            self.assertIn("Grading is incomplete", self.client.get("/finish").text)
+
+    def test_explicit_zero_and_blank_optional_ec_allow_final_scores(self) -> None:
+        session = _build_session()
+        session.work_units[0].per_problem["Q2"] = 0
+        session.grading_key.problems.append(ProblemSpec(id="EC", label="Optional", points=2, extra_credit=True))
+        session.work_units[0].per_problem["EC"] = None
+        with patch.object(exam_exports_routes, "get_session", return_value=session):
+            response = self.client.get("/export")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("s1,4.0", response.text)
+
     def setUp(self) -> None:
         self.client = TestClient(server.app)
 

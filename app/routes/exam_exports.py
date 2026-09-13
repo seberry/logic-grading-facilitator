@@ -31,6 +31,8 @@ from ..exam_shared import (
     _score_summary_for_work_unit,
     _selected_work_units_by_student,
     _work_units_by_student,
+    _incomplete_regular_scores,
+    _require_complete_regular_scores,
 )
 from ..session_state import _session_lock, get_session, persist_session
 from ..storage import GRADES_DIR, RAW_SCANS_DIR, RUBRIC_ASSETS_DIR, archive_current_data
@@ -370,6 +372,7 @@ def finish_page(request: Request, scale_to: Optional[float] = None) -> Response:
             "has_extra_credit": any(problem.extra_credit for problem in problems),
             "tf_grader_mode": tf_grader_mode,
             "message": request.query_params.get("message"),
+            "incomplete_grades": _incomplete_regular_scores(session),
         },
     )
 
@@ -671,6 +674,7 @@ def export_feedback_zip():
     student name slug and student_id for straightforward manual Canvas upload.
     """
     session = get_session()
+    _require_complete_regular_scores(session)
     grading_key = session.grading_key
     problems = grading_key.problems
     total_max = _required_total_max(grading_key) if problems else 0.0
@@ -750,6 +754,7 @@ def export_canvas_reupload_feedback_zip(source_zip: Optional[str] = None):
     each file's original name and extension.
     """
     session = get_session()
+    _require_complete_regular_scores(session)
     grading_key = session.grading_key
     problems = grading_key.problems
     total_max = _required_total_max(grading_key) if problems else 0.0
