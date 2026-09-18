@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Finish Grading</title>
+  <title>{{ "Review and return grades" if tf_grader_mode else "Assignment overview" }}</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -186,6 +186,54 @@
     .btn-danger { background: #b91c1c; }
     .scan-links { display: flex; flex-wrap: wrap; gap: 0.35rem; }
     .scan-links a { white-space: nowrap; }
+    .workflow {
+      margin: 1.5rem 0;
+      padding: 1.25rem;
+      border: 1px solid #cbd5e1;
+      border-radius: 9px;
+      background: #f8fafc;
+    }
+    .workflow-focus {
+      border-color: #60a5fa;
+      box-shadow: 0 0 0 3px #dbeafe;
+    }
+    .workflow h2 { margin: 0; }
+    .workflow-step {
+      display: grid;
+      grid-template-columns: 2rem minmax(0, 1fr);
+      gap: 0.75rem;
+      margin-top: 1rem;
+      padding-top: 1rem;
+      border-top: 1px solid #e2e8f0;
+    }
+    .step-number {
+      display: inline-flex;
+      width: 1.8rem;
+      height: 1.8rem;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      background: #1d4ed8;
+      color: white;
+      font-weight: 700;
+    }
+    .workflow-step h3 { margin: 0 0 0.35rem; }
+    .workflow-step p { margin: 0.3rem 0 0.75rem; }
+    .status-pill {
+      display: inline-block;
+      margin-left: 0.4rem;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      background: #e2e8f0;
+      color: #334155;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    .btn-disabled {
+      opacity: 0.5;
+      pointer-events: none;
+      cursor: not-allowed;
+    }
   </style>
 </head>
 <body>
@@ -202,8 +250,12 @@
         <p>The instructor—not the TF—will merge the grades into Canvas.</p>
       </div>
     {% else %}
-      <h1>Finish grading</h1>
-      <p>Review totals, download results, or prepare the private TF handoff.</p>
+      <h1>Assignment overview</h1>
+      {% if tf_prep_mode %}
+        <p>Prepare the assignment for TF grading, then create the private handoff bundle.</p>
+      {% else %}
+        <p>Prepare a TF handoff, review scores, or download completed grading results.</p>
+      {% endif %}
     {% endif %}
     {% if message %}
       <div class="notice">{{ message }}</div>
@@ -302,39 +354,81 @@
     {% endif %}
     {% if not tf_grader_mode %}
     <form method="get" action="/finish" class="scale-form">
+      {% if tf_prep_mode %}<input type="hidden" name="mode" value="tf-prep">{% endif %}
       <div>
         <label for="scale_to">Rescale final totals to</label>
         <input id="scale_to" name="scale_to" type="number" step="0.01" min="0.01" value="{{ scale_to if scale_to is not none else '' }}" placeholder="e.g. 10">
       </div>
       <button class="btn" type="submit">Apply scaling</button>
-      <a class="btn btn-secondary" href="/finish">Show raw totals</a>
+      <a class="btn btn-secondary" href="/finish{% if tf_prep_mode %}?mode=tf-prep{% endif %}">Show raw totals</a>
     </form>
     {% if scale_to is not none %}
       <p class="scale-note">Showing raw totals out of {{ total_max }} and scaled totals out of {{ scale_to }}. The grades CSV link below uses the same scaling.</p>
     {% endif %}
     {% endif %}
+    {% if not tf_grader_mode %}
+      <section class="workflow {{ 'workflow-focus' if tf_prep_mode else '' }}">
+        <h2>Prepare TF handoff</h2>
+        <p>The TF bundle needs saved question locations so it can run without your local model. You do not need to enter grades first.</p>
+
+        <div class="workflow-step">
+          <span class="step-number">1</span>
+          <div>
+            <h3>Prepare question locations
+              <span class="status-pill" id="location-ready-count">{{ location_ready_count }} of {{ location_total_count }} ready</span>
+            </h3>
+            <p>This processes one question at a time and can take several minutes. Keep this page open while it runs.</p>
+            {% if location_missing_ids %}
+              <button
+                class="btn"
+                type="button"
+                id="prepare-all-locations"
+                data-problems='{{ location_missing_ids | tojson }}'
+              >Prepare remaining question locations</button>
+            {% else %}
+              <strong id="all-locations-ready">All question locations are ready.</strong>
+            {% endif %}
+            <div id="prepare-all-status" class="prepare-status" role="status" aria-live="polite"></div>
+          </div>
+        </div>
+
+        <div class="workflow-step">
+          <span class="step-number">2</span>
+          <div>
+            <h3>Spot-check the crops</h3>
+            <p>Open a Strip View and confirm that the saved answer regions look right. Use Fix Crop where needed.</p>
+            {% if problems %}<a class="btn btn-secondary" href="/problem/{{ problems[0].id }}/strips">Open Strip View</a>{% endif %}
+          </div>
+        </div>
+
+        <div class="workflow-step">
+          <span class="step-number">3</span>
+          <div>
+            <h3>Create the private TF bundle</h3>
+            <p id="tf-bundle-readiness">
+              {% if locations_all_ready %}
+                Question locations are ready. The export will run its final scan and version checks.
+              {% else %}
+                Finish preparing question locations before creating the bundle.
+              {% endif %}
+            </p>
+            <a
+              id="tf-bundle-link"
+              class="btn {{ '' if locations_all_ready else 'btn-disabled' }}"
+              href="/export_tf_bundle"
+              {% if not locations_all_ready %}aria-disabled="true" tabindex="-1"{% endif %}
+            >Create TF bundle</a>
+          </div>
+        </div>
+      </section>
+    {% endif %}
+
+    <h2>{{ "Return files" if tf_grader_mode else "Grading exports" }}</h2>
     <div class="actions">
       <a class="btn" href="/export{% if scale_to is not none %}?scale_to={{ scale_to }}{% endif %}">Download grades CSV</a>
       <a class="btn" href="/export_feedback_zip">Download scans + feedback PDFs</a>
-      {% if tf_grader_mode %}
-        {% if problems %}<a class="btn btn-secondary" href="/problem/{{ problems[0].id }}/strips">Back to grading</a>{% endif %}
-      {% else %}
-        <a class="btn" href="/export_tf_bundle">Prepare model-free TF bundle</a>
-      {% endif %}
+      {% if tf_grader_mode and problems %}<a class="btn btn-secondary" href="/problem/{{ problems[0].id }}/strips">Back to grading</a>{% endif %}
     </div>
-
-    {% if not tf_grader_mode %}
-      <div class="instructions">
-        <p><strong>Before preparing the TF bundle:</strong> save the question-location crops that let the TF grade without a model. You do not need to enter grades. The preparation runs one problem at a time and can take several minutes.</p>
-        <button
-          class="btn"
-          type="button"
-          id="prepare-all-locations"
-          data-problems='{{ problems | map(attribute="id") | list | tojson }}'
-        >Prepare all question locations</button>
-        <div id="prepare-all-status" class="prepare-status" role="status" aria-live="polite"></div>
-      </div>
-    {% endif %}
 
     {% if not tf_grader_mode %}
       <details class="secondary-tools">
@@ -348,7 +442,7 @@
     {% endif %}
 
     <div class="table-wrap">
-      <h2>Grade overview</h2>
+      <h2>Scores overview</h2>
       {% if rows and problems %}
         <p class="hint">Tip: click a problem column header to jump back to its strip grader.</p>
         <table>
@@ -453,6 +547,9 @@
   <script>
     const prepareButton = document.getElementById("prepare-all-locations");
     const prepareStatus = document.getElementById("prepare-all-status");
+    const locationReadyCount = document.getElementById("location-ready-count");
+    const bundleLink = document.getElementById("tf-bundle-link");
+    const bundleReadiness = document.getElementById("tf-bundle-readiness");
 
     if (prepareButton && prepareStatus) {
       prepareButton.addEventListener("click", async function () {
@@ -478,6 +575,19 @@
           prepareStatus.className = "prepare-status success";
           prepareStatus.textContent =
             "All question locations are ready. You can now prepare the TF bundle.";
+          prepareButton.hidden = true;
+          if (locationReadyCount) {
+            locationReadyCount.textContent = "{{ location_total_count }} of {{ location_total_count }} ready";
+          }
+          if (bundleLink) {
+            bundleLink.classList.remove("btn-disabled");
+            bundleLink.removeAttribute("aria-disabled");
+            bundleLink.removeAttribute("tabindex");
+          }
+          if (bundleReadiness) {
+            bundleReadiness.textContent =
+              "Question locations are ready. The export will run its final scan and version checks.";
+          }
         } catch (error) {
           prepareStatus.className = "prepare-status error";
           prepareStatus.textContent =

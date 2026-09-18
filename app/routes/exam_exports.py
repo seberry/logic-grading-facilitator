@@ -136,6 +136,39 @@ def _valid_normalized_bbox(value: Any) -> bool:
     )
 
 
+def _problem_location_cache_ready(session, problem_id: str) -> bool:
+    """Return whether one problem has a complete, bundle-safe location cache."""
+    units = {wu.unit_id: wu for wu in session.work_units}
+    if not units:
+        return False
+
+    cache_path = GRADES_DIR / f"segments_{problem_id}.json"
+    if not cache_path.is_file():
+        return False
+    try:
+        rows = json.loads(cache_path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    if not isinstance(rows, list):
+        return False
+
+    seen: set[int] = set()
+    for row in rows:
+        if not isinstance(row, dict) or row.get("unit_id") not in units:
+            return False
+        unit_id = row["unit_id"]
+        if unit_id in seen:
+            return False
+        seen.add(unit_id)
+        if row.get("present"):
+            if row.get("page_filename") not in units[unit_id].page_filenames:
+                return False
+            if not _valid_normalized_bbox(row.get("bbox")):
+                return False
+
+    return seen == set(units)
+
+
 def _validate_tf_bundle(session) -> tuple[List[str], List[Path]]:
     """Check that the handoff can grade every problem without a local model."""
     errors: List[str] = []
@@ -348,7 +381,11 @@ GitHub or personal cloud storage; it contains protected student work.
 """
 
 @router.get("/finish", response_class=HTMLResponse)
-def finish_page(request: Request, scale_to: Optional[float] = None) -> Response:
+def finish_page(
+    request: Request,
+    scale_to: Optional[float] = None,
+    mode: Optional[str] = None,
+) -> Response:
     session = get_session()
     grading_key = session.grading_key
     problems = grading_key.problems if grading_key else []
@@ -359,6 +396,14 @@ def finish_page(request: Request, scale_to: Optional[float] = None) -> Response:
     rows = sorted(rows_by_student.values(), key=lambda r: r["student_name"])
     duplicate_rows = _duplicate_submission_rows(session, scale_to=scale_to)
     tf_grader_mode = _tf_grader_mode_enabled()
+    location_ready_ids = [
+        problem.id
+        for problem in problems
+        if _problem_location_cache_ready(session, problem.id)
+    ]
+    location_missing_ids = [
+        problem.id for problem in problems if problem.id not in location_ready_ids
+    ]
 
     return templates.TemplateResponse(
         "finish.html",
@@ -371,6 +416,11 @@ def finish_page(request: Request, scale_to: Optional[float] = None) -> Response:
             "duplicate_rows": duplicate_rows,
             "has_extra_credit": any(problem.extra_credit for problem in problems),
             "tf_grader_mode": tf_grader_mode,
+            "tf_prep_mode": mode == "tf-prep",
+            "location_ready_count": len(location_ready_ids),
+            "location_total_count": len(problems),
+            "location_missing_ids": location_missing_ids,
+            "locations_all_ready": bool(problems) and not location_missing_ids,
             "message": request.query_params.get("message"),
             "incomplete_grades": _incomplete_regular_scores(session),
         },

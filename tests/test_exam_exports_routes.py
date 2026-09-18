@@ -70,15 +70,45 @@ class ExamExportsRoutesTests(unittest.TestCase):
     def test_finish_page_renders_summary(self) -> None:
         session = _build_session()
 
-        with patch.object(exam_exports_routes, "get_session", return_value=session):
-            response = self.client.get("/finish")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with (
+                patch.object(exam_exports_routes, "get_session", return_value=session),
+                patch.object(exam_exports_routes, "GRADES_DIR", Path(temp_dir)),
+            ):
+                response = self.client.get("/finish?mode=tf-prep")
 
         self.assertEqual(response.status_code, 200)
+        self.assertIn("Assignment overview", response.text)
         self.assertIn("Berry, Sharon", response.text)
         self.assertIn("Q1", response.text)
         self.assertIn("Q2", response.text)
-        self.assertIn("Prepare all question locations", response.text)
+        self.assertIn("Prepare remaining question locations", response.text)
+        self.assertIn("0 of 2 ready", response.text)
+        self.assertIn('class="btn btn-disabled"', response.text)
         self.assertIn('/problem/${encodeURIComponent(problemId)}/prefetch', response.text)
+
+    def test_finish_page_unlocks_bundle_when_all_locations_are_ready(self) -> None:
+        session = _build_session()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            grades_dir = Path(temp_dir)
+            for problem_id in ("Q1", "Q2"):
+                (grades_dir / f"segments_{problem_id}.json").write_text(
+                    json.dumps([{"unit_id": 1, "present": False}]),
+                    encoding="utf-8",
+                )
+
+            with (
+                patch.object(exam_exports_routes, "get_session", return_value=session),
+                patch.object(exam_exports_routes, "GRADES_DIR", grades_dir),
+            ):
+                response = self.client.get("/finish?mode=tf-prep")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("2 of 2 ready", response.text)
+        self.assertIn("All question locations are ready.", response.text)
+        self.assertNotIn("Prepare remaining question locations", response.text)
+        self.assertIn('id="tf-bundle-link"\n              class="btn "', response.text)
 
     def test_tf_finish_page_only_shows_tf_deliverables(self) -> None:
         session = _build_session()
@@ -98,7 +128,7 @@ class ExamExportsRoutesTests(unittest.TestCase):
         self.assertNotIn("Canvas reupload", response.text)
         self.assertNotIn("Download renamed scans", response.text)
         self.assertNotIn("Prepare model-free TF bundle", response.text)
-        self.assertNotIn("Prepare all question locations", response.text)
+        self.assertNotIn("Prepare remaining question locations", response.text)
         self.assertNotIn("Back to setup", response.text)
 
     def test_export_scores_returns_csv(self) -> None:

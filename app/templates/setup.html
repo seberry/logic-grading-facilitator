@@ -108,6 +108,49 @@
       min-height: 200px;
       background: #fff;
     }
+    .rubric-choices {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 0.75rem;
+    }
+    .rubric-choice, .rubric-editor {
+      border: 1px solid #dbe4f0;
+      border-radius: 0.5rem;
+      background: #f8fafc;
+      padding: 0.8rem 0.95rem;
+    }
+    .rubric-choice > summary, .rubric-editor > summary {
+      cursor: pointer;
+      font-weight: 700;
+      color: #1e3a8a;
+    }
+    .rubric-choice[open] > summary, .rubric-editor[open] > summary {
+      margin-bottom: 0.85rem;
+    }
+    .rubric-choice form {
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+    }
+    .source-badge {
+      display: inline-block;
+      margin-left: 0.35rem;
+      padding: 0.1rem 0.45rem;
+      border-radius: 999px;
+      background: #dbeafe;
+      color: #1e40af;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .advanced-options {
+      margin: 0.75rem 0;
+      padding: 0.65rem;
+      border: 1px solid #e5e7eb;
+      border-radius: 0.4rem;
+      background: #fff;
+    }
+    .advanced-options summary { cursor: pointer; font-weight: 600; }
+    .save-rubric { display: flex; flex-direction: column; gap: 0.75rem; }
   </style>
 </head>
 <body>
@@ -215,70 +258,81 @@
 
         <div class="card" style="grid-column: 1 / -1;">
           <h2>Step 3: Rubric Definition</h2>
-          {% if available_rubrics and available_rubrics|length > 0 %}
-          <form method="post" action="/setup/select_rubric" class="guarded">
-            <label for="existing_rubric">Load existing rubric</label>
-            <select id="existing_rubric" name="rubric_file">
-              {% for rubric in available_rubrics %}
-                <option value="{{ rubric.name }}" {% if rubric.name == (quiz_id ~ ".yaml") %}selected{% endif %}>{{ rubric.name }}</option>
-              {% endfor %}
-            </select>
-            <p class="muted">Selecting a rubric replaces the current YAML and quiz id in this form.</p>
-            <p class="muted">Manually created rubrics appear here when the file is saved in <code>{{ rubrics_dir }}</code> with a <code>.yaml</code> or <code>.yml</code> extension, then this page is reloaded.</p>
-            <button type="submit" class="secondary">Load rubric</button>
-          </form>
-          <hr style="border: none; border-top: 1px solid #e5e7eb;">
-          {% else %}
-          <p class="muted">No rubric files found in <code>{{ rubrics_dir }}</code>.</p>
-          {% endif %}
-          <div class="muted">
-            Quick rubric: auto-generate YAML, then click "Save rubric" below.
-          </div>
-          <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
-            <div>
-              <label for="quick_quiz_id">Quiz ID</label>
-              <input type="text" id="quick_quiz_id" value="{{ quiz_id }}">
-            </div>
-            <div>
-              <label for="quick_question_count">Number of questions</label>
-              <input type="text" id="quick_question_count" placeholder="e.g., 6">
-            </div>
-            <div>
-              <label for="quick_points_each">Points per question</label>
-              <input type="text" id="quick_points_each" placeholder="e.g., 5">
-            </div>
-            <div>
-              <label for="quick_label_prefix">Label prefix</label>
-              <input type="text" id="quick_label_prefix" value="Question">
-            </div>
-          </div>
-          <button type="button" id="quick_rubric_btn" class="secondary">Generate rubric YAML</button>
-          {% if rubric_api_providers %}
-          <div class="helper-box">
-            <h3 style="margin: 0 0 0.5rem;">Draft rubric with an API</h3>
-            <p class="muted">Upload only a blank assessment—never student scans. The generated draft is not saved until you review it and click <strong>Save rubric</strong>.</p>
-            <form method="post" action="/setup/generate_rubric" enctype="multipart/form-data">
-              <label for="rubric_provider">Provider</label>
-              <select id="rubric_provider" name="provider">
-                {% for provider in rubric_api_providers %}
-                  <option value="{{ provider.id }}">{{ provider.label }}</option>
-                {% endfor %}
-              </select>
-              <label for="assessment_file">Blank assessment</label>
-              <input type="file" id="assessment_file" name="assessment_file" accept=".pdf,.docx,.tex,.txt,.md,.yaml,.yml" required>
-              <label for="instructor_requests">Instructor requests</label>
-              <textarea id="instructor_requests" name="instructor_requests" style="min-height: 180px;">{{ default_rubric_request }}</textarea>
-              <button type="submit">Generate editable draft</button>
-            </form>
-          </div>
-          {% else %}
-          <div class="alert warning">
-            API rubric drafting is available when <code>OPENAI_API_KEY</code> or <code>DEEPSEEK_API_KEY</code> is configured before the app starts.
-          </div>
-          {% endif %}
-          <div class="helper-box">
-            <label for="rubric_prompt_text">Prompt for manually drafting rubric YAML with another AI</label>
-            <textarea id="rubric_prompt_text" readonly>Produce valid YAML for the Logic Grading Facilitator rubric schema.
+          <p class="muted">Choose one starting point. All paths feed the same review-and-save step below.</p>
+
+          <div class="rubric-choices">
+            <details class="rubric-choice" {% if available_rubrics and available_rubrics|length > 0 %}open{% endif %}>
+              <summary>Use a saved rubric <span class="source-badge">Recommended</span></summary>
+              {% if available_rubrics and available_rubrics|length > 0 %}
+                <form method="post" action="/setup/select_rubric">
+                  <label for="existing_rubric">Saved rubric</label>
+                  <select id="existing_rubric" name="rubric_file">
+                    {% for rubric in available_rubrics %}
+                      <option value="{{ rubric.name }}" {% if rubric.name == (quiz_id ~ ".yaml") %}selected{% endif %}>{{ rubric.name }}</option>
+                    {% endfor %}
+                  </select>
+                  <p class="muted">Loads the selected file into the editor below and makes it the rubric used by setup.</p>
+                  <button type="submit" class="secondary">Load saved rubric</button>
+                </form>
+              {% else %}
+                <p class="muted">No rubric files found in <code>{{ rubrics_dir }}</code>.</p>
+              {% endif %}
+            </details>
+
+            <details class="rubric-choice">
+              <summary>Generate from a blank assessment <span class="source-badge">API</span></summary>
+              {% if rubric_api_providers %}
+                <form method="post" action="/setup/generate_rubric" enctype="multipart/form-data">
+                  <p class="muted">Upload only the blank assessment—never student scans. The API returns an editable draft and does not save it automatically.</p>
+                  <label for="rubric_provider">Provider</label>
+                  <select id="rubric_provider" name="provider">
+                    {% for provider in rubric_api_providers %}
+                      <option value="{{ provider.id }}">{{ provider.label }}</option>
+                    {% endfor %}
+                  </select>
+                  <label for="assessment_file">Blank assessment</label>
+                  <input type="file" id="assessment_file" name="assessment_file" accept=".pdf,.docx,.tex,.txt,.md,.yaml,.yml" required>
+                  <details class="advanced-options">
+                    <summary>Generation preferences (optional)</summary>
+                    <label for="instructor_requests">Instructor requests</label>
+                    <textarea id="instructor_requests" name="instructor_requests" style="min-height: 180px;">{{ default_rubric_request }}</textarea>
+                  </details>
+                  <button type="submit">Generate editable draft</button>
+                </form>
+              {% else %}
+                <div class="alert warning">
+                  API drafting becomes available when <code>OPENAI_API_KEY</code> or <code>DEEPSEEK_API_KEY</code> is configured before the app starts.
+                </div>
+              {% endif %}
+            </details>
+
+            <details class="rubric-choice">
+              <summary>Build one manually <span class="source-badge">Advanced</span></summary>
+              <p class="muted">Generate a simple equal-points rubric, or copy the schema prompt into another AI.</p>
+              <div class="grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">
+                <div>
+                  <label for="quick_quiz_id">Quiz ID</label>
+                  <input type="text" id="quick_quiz_id" value="{{ quiz_id }}">
+                </div>
+                <div>
+                  <label for="quick_question_count">Number of questions</label>
+                  <input type="text" id="quick_question_count" placeholder="e.g., 6">
+                </div>
+                <div>
+                  <label for="quick_points_each">Points per question</label>
+                  <input type="text" id="quick_points_each" placeholder="e.g., 5">
+                </div>
+                <div>
+                  <label for="quick_label_prefix">Label prefix</label>
+                  <input type="text" id="quick_label_prefix" value="Question">
+                </div>
+              </div>
+              <button type="button" id="quick_rubric_btn" class="secondary">Generate simple rubric</button>
+
+              <details class="advanced-options">
+                <summary>Prompt for another AI</summary>
+                <label for="rubric_prompt_text">Copyable rubric-schema prompt</label>
+                <textarea id="rubric_prompt_text" readonly>Produce valid YAML for the Logic Grading Facilitator rubric schema.
 
 Requirements:
 - Output YAML only.
@@ -314,16 +368,20 @@ problems:
         prompt: "Version B prompt."
 
 If a page has two problem banks with overlapping numbers, distinguish them using section + problem_number so the local model can tell which printed "1" or "3" to look for.</textarea>
+              </details>
+            </details>
           </div>
-          <form method="post" action="/setup/save_rubric">
-            <label for="rubric_text">Edit rubric YAML</label>
-            <textarea id="rubric_text" name="yaml_text">{{ rubric_text }}</textarea>
+
+          <form method="post" action="/setup/save_rubric" class="save-rubric">
+            <h3 style="margin-bottom:0;">Review and save</h3>
             <div id="rubric_totals" class="helper-box" aria-live="polite">Edit the rubric to see point totals.</div>
-            <p class="muted">The YAML must parse into the <code>GradingKey</code> model. File will be saved as <code>{{ quiz_id }}.yaml</code> in <code>{{ rubrics_dir }}</code>.</p>
-            <p class="muted">If you create a rubric by hand outside this form, put it in <code>{{ rubrics_dir }}</code> to make it available in the "Load existing rubric" dropdown on this page.</p>
-            <p class="muted">Tip: each problem <code>label</code> is used as a natural-language hint when the model locates that answer region in strip view. Match the wording on the exam if possible.</p>
-            <p class="muted">For exams with multiple sections that restart numbering, add <code>section</code> and <code>problem_number</code>. The strip finder will use those too.</p>
-            <p class="muted">For multiple printed versions, add <code>variants: A: ... B: ...</code>. Name review records the version; strip view shows the matching prompt and lets the grader save one visual reference per version.</p>
+            <details class="rubric-editor" id="rubric-editor" {% if rubric_editor_open %}open{% endif %}>
+              <summary>Review or edit the exact rubric YAML</summary>
+              <label for="rubric_text">Rubric YAML</label>
+              <textarea id="rubric_text" name="yaml_text">{{ rubric_text }}</textarea>
+              <p class="muted">This is the authoritative rubric. It must parse into the <code>GradingKey</code> model and will be saved under its <code>quiz_id</code> in <code>{{ rubrics_dir }}</code>.</p>
+              <p class="muted">Problem labels, prompts, sections, and version variants help the local model find the correct answer region.</p>
+            </details>
             <button type="submit">Save rubric</button>
           </form>
         </div>
@@ -347,6 +405,7 @@ If a page has two problem banks with overlapping numbers, distinguish them using
     const quickPoints = document.getElementById("quick_points_each");
     const quickLabel = document.getElementById("quick_label_prefix");
     const rubricText = document.getElementById("rubric_text");
+    const rubricEditor = document.getElementById("rubric-editor");
     const autoGroupQuizId = document.getElementById("quiz_id");
 
     function buildQuickRubric() {
@@ -373,6 +432,10 @@ If a page has two problem banks with overlapping numbers, distinguish them using
 
       rubricText.value = lines.join("\n") + "\n";
       updateRubricTotals();
+      if (rubricEditor) {
+        rubricEditor.open = true;
+        rubricEditor.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
       if (autoGroupQuizId) {
         autoGroupQuizId.value = quizId;
       }

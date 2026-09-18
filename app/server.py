@@ -444,6 +444,7 @@ def _render_setup_page(
     message_override: Optional[str] = None,
     status_override: Optional[str] = None,
     response_status: int = 200,
+    rubric_editor_open_override: bool = False,
 ) -> Response:
     must_archive = _has_existing_session_state()
     roster_dir = DATA_DIR / "rosters"
@@ -489,6 +490,10 @@ def _render_setup_page(
             "rubrics_dir": str(rubric_dir),
             "rubric_api_providers": configured_rubric_providers(),
             "default_rubric_request": DEFAULT_RUBRIC_REQUEST,
+            "rubric_editor_open": (
+                rubric_editor_open_override
+                or request.query_params.get("rubric_editor") == "open"
+            ),
         },
         status_code=response_status,
     )
@@ -1388,6 +1393,7 @@ async def setup_generate_rubric(
             "Review it below, then click Save rubric."
         ),
         status_override="success",
+        rubric_editor_open_override=True,
     )
 
 
@@ -1449,7 +1455,8 @@ async def setup_select_rubric(rubric_file: str = Form(...)) -> Response:
         message += f" Removed {removed_answer_keys} answer-key field(s)."
     return RedirectResponse(
         url="/setup?status=success&message="
-        + quote(message),
+        + quote(message)
+        + "&rubric_editor=open",
         status_code=303,
     )
 
@@ -2154,7 +2161,7 @@ async def name_review_submit(request: Request) -> Response:
     2. Groups pages into WorkUnits.
     3. Renames scans to 'quiz1_student_p01.jpg' and saves them in raw_scans.
     4. Initializes session.json with these new WorkUnits.
-    5. Redirects to the Strip View grader.
+    5. Redirects to Strip View or the TF-preparation overview.
     """
     print("[name_review] POST: starting Hand-off...")
     form = await request.form()
@@ -2412,19 +2419,13 @@ async def name_review_submit(request: Request) -> Response:
     save_session(session, DEFAULT_SESSION_PATH)
     print(f"[name_review] Session initialized with {len(work_units)} units.")
 
-    # 8. Check Next Action
-    if next_action == "download":
-        # The user clicked "Save & Download"
-        print("[name_review] User requested immediate ZIP download.")
-        # Use the registered export route instead of calling its implementation
-        # directly. Besides keeping the handoff route decoupled from the export
-        # module, this lets the browser perform the ZIP download as a normal GET.
-        return RedirectResponse(url="/export_renamed_scans", status_code=303)
-    else:
-        # The user clicked "Save & Start Grading" (Default)
-        first_problem = grading_key.problems[0].id if grading_key.problems else "Q1"
-        return RedirectResponse(
-            url=f"/problem/{first_problem}/strips",
-            status_code=303
-        )
+    # 8. Continue to the destination chosen on the review page.
+    if next_action == "prepare":
+        return RedirectResponse(url="/finish?mode=tf-prep", status_code=303)
+
+    first_problem = grading_key.problems[0].id if grading_key.problems else "Q1"
+    return RedirectResponse(
+        url=f"/problem/{first_problem}/strips",
+        status_code=303,
+    )
 

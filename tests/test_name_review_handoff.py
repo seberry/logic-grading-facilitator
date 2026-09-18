@@ -12,7 +12,7 @@ from app.models import GradingKey, ProblemSpec, RosterEntry
 
 
 class NameReviewHandoffTests(unittest.TestCase):
-    def test_save_and_download_redirects_to_registered_export_route(self) -> None:
+    def test_save_and_prepare_redirects_to_assignment_overview(self) -> None:
         client = TestClient(server.app)
         grading_key = GradingKey(
             quiz_id="quiz3",
@@ -47,7 +47,7 @@ class NameReviewHandoffTests(unittest.TestCase):
                             "filename_0": "scan.jpg",
                             "student_0": "s1",
                             "quiz_version_0": "A",
-                            "next_action": "download",
+                            "next_action": "prepare",
                         },
                         follow_redirects=False,
                     )
@@ -58,7 +58,7 @@ class NameReviewHandoffTests(unittest.TestCase):
                     delattr(server, "_session")
 
             self.assertEqual(response.status_code, 303)
-            self.assertEqual(response.headers["location"], "/export_renamed_scans")
+            self.assertEqual(response.headers["location"], "/finish?mode=tf-prep")
             self.assertTrue(session_path.is_file())
 
 

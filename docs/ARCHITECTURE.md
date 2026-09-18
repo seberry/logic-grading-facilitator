@@ -67,6 +67,10 @@ manual YAML editing as the authoritative review surface. `POST
 /setup/generate_rubric` optionally creates an editable draft from a blank PDF,
 DOCX, TeX, Markdown, text, or YAML assessment:
 
+* the rubric section uses progressive disclosure: saved rubrics are the default
+  starting point, API generation and simple manual generation are alternatives,
+  and the exact YAML editor is shared by every path
+
 * configured providers are detected from `OPENAI_API_KEY` and
   `DEEPSEEK_API_KEY`; the corresponding model overrides are `OPENAI_MODEL` and
   `DEEPSEEK_MODEL`
@@ -95,7 +99,9 @@ for blank assessment text and instructor-authored requests.
   its byte-identical canonical name-labeled copy, the page displays one merged
   row. It can take the reviewed name from one copy and the printed-version guess
   from the other without deleting either file.
-* **Transition:** Submitting this form triggers the **Hand-off** (see Section 8).
+* **Transition:** **Save assignments & grade now** creates the session and opens
+  the first Strip View. **Save assignments & prepare TF handoff** creates the
+  same session and opens the Assignment overview in TF-preparation mode.
 
 ### B. Strip View Grading (`GET /problem/{id}/strips`)
 * **Purpose:** High-speed grading of **one question across all students**.
@@ -211,14 +217,21 @@ This section explains how data transforms from "Raw Images" to "Graded Assignmen
 * **State:** "Draft Mode." No files are moved; no session exists.
 
 ### Phase 2: The Review-to-Grading Hand-off
-* **Trigger:** User clicks **"Save & Start Grading"** or **"Save & Download Scans (ZIP)"** on the `/name_review` page (the earlier **"Save & Auto-Fill Unknowns"** button only updates the cache and does not rename files).
+* **Trigger:** User clicks **Save assignments & grade now** or **Save assignments
+  & prepare TF handoff** on the `/name_review` page (the earlier **Save &
+  Auto-Fill Unknowns** button only updates the cache and does not rename files).
 * **Backend Logic (`POST /name_review`):**
     1.  **Grouping:** Consecutive pages normally form one WorkUnit when their student assignments agree. A confirmed version change or a human-selected **New submission starts here** marker creates a boundary. The browser flags separate groups for the same student and can exclude a duplicate group before session creation.
     2.  **Renaming:** Copies included raw files to `data/raw_scans/` with canonical names (e.g., `quiz1_student_p01.jpg`) and leaves originals intact. Excluded scans remain local but do not enter a WorkUnit or TF bundle.
     3.  **Session Creation:** Constructs `WorkUnit` objects in memory based on the approved groups.
     4.  **Persistence:** Writes the **Source of Truth** to `data/grades/session.json`.
-    5.  **Redirect:** Sends the user immediately to the Strip View grader.
+    5.  **Redirect:** Opens either the first Strip View or `/finish?mode=tf-prep`,
+        according to the selected goal.
 * **State:** "Live Grading Mode." The system now ignores the CSV and relies on `session.json`.
+
+The instructor Assignment overview reports how many per-problem segmentation
+caches are complete, prepares only missing problems, provides a crop spot-check
+link, and enables TF bundle creation after every problem has a bundle-safe cache.
 
 ### Phase 3: Grading & Segmentation
 * **Trigger:** User loads `/problem/Q1/strips`.
@@ -300,7 +313,7 @@ work.
 
 | Workflow | Routes / modules | Primary persisted state | Notes |
 |---|---|---|---|
-| Setup and name review | `app/server.py` (`/setup`, `/name_review`) | `data/name_review_cache/*.json`, `data/grades/session.json` | Creates canonical `WorkUnit`s and redirects into strip grading. |
+| Setup and name review | `app/server.py` (`/setup`, `/name_review`) | `data/name_review_cache/*.json`, `data/grades/session.json` | Creates canonical `WorkUnit`s and redirects to strip grading or TF preparation. |
 | Per-question strip grading | `app/routes/problem_strips.py`, `app/templates/problem_strips.html` | `data/grades/session.json`, `data/grades/segments_{problem_id}.json` | Main "one question across all students" grading surface. |
 | TFL/Fitch strip OCR review | `app/proof_ocr_review.py`, `app/routes/problem_strips.py` (`/problem/{problem_id}/fitch_ocr/*`) | `data/grades/proof_ocr/tfl_fitch_{problem_id}.json`, `data/debug_fitch/<slug>/` | Async review lane for `fitch_proof` problems. Uses polling and a process-local single-worker queue. |
 | FOL model strip OCR/checker review | `app/fol_model_review.py`, `app/routes/problem_strips.py` (`/problem/{problem_id}/fol_model_ocr/*`) | `data/grades/fol_model_ocr/fol_model_{problem_id}.json`, `data/debug_fol_model/<slug>/` | Async OCR lane plus inline deterministic checker for `fol_model` problems. |

@@ -498,17 +498,22 @@
       </div>
 
       <button class="submit-button" type="submit" name="next_action" value="grade">
-        🚀 Save & Start Grading
-      </button>
-      
-      <button class="submit-button" type="submit" name="next_action" value="download" 
-              style="background-color: #2563eb; margin-top: 10px;">
-        💾 Save & Download Scans (ZIP)
+        🚀 Save assignments &amp; grade now
       </button>
 
       <div class="footer-hint">
-        Both buttons will save your changes and rename the files. 
-        "Start Grading" takes you to the Strip View. "Download" gives you the ZIP file.
+        Groups and renames the scans, creates the grading session, and opens the
+        first question in Strip View.
+      </div>
+
+      <button class="submit-button" type="submit" name="next_action" value="prepare"
+              style="background-color: #2563eb; margin-top: 10px;">
+        📦 Save assignments &amp; prepare TF handoff
+      </button>
+
+      <div class="footer-hint">
+        Groups and renames the scans, creates the grading session, and opens the
+        Assignment overview with the remaining TF preparation steps.
       </div>
     </div>
   </form>
@@ -629,7 +634,7 @@
   if (reviewForm && progressPanel) {
     reviewForm.addEventListener("submit", function (event) {
       const action = event.submitter ? event.submitter.value : "grade";
-      if (action !== "grade" && action !== "download") return;
+      if (action !== "grade" && action !== "prepare") return;
 
       renderDuplicateWarning();
       if (duplicateGroupCount > 0 && !window.confirm(
@@ -640,8 +645,8 @@
         return;
       }
 
-      progressPanel.textContent = action === "download"
-        ? "Working: grouping pages, copying the full-resolution scans, and building the ZIP. This can take a while. Keep this page open; the download will begin when it is ready."
+      progressPanel.textContent = action === "prepare"
+        ? "Working: grouping pages, copying the full-resolution scans, and opening the Assignment overview. No question-location processing starts until you request it there."
         : "Working: grouping pages and opening the first grading strip. The first strip may run question-location processing for the whole class and can take several minutes. Keep this page open."
       progressPanel.classList.add("visible");
       progressPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });

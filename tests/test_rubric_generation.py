@@ -167,6 +167,10 @@ class RubricGenerationRouteTests(unittest.TestCase):
                 self.assertIn("Generated an editable draft", response.text)
                 self.assertIn("quiz_id: generated_quiz", response.text)
                 self.assertIn("10 regular points and 3 extra-credit points", response.text)
+                self.assertIn(
+                    '<details class="rubric-editor" id="rubric-editor" open>',
+                    response.text,
+                )
                 self.assertFalse((root / "rubric" / "generated_quiz.yaml").exists())
 
 
