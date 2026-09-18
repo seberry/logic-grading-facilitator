@@ -60,6 +60,30 @@ The backend service (FastAPI) maintains the state of the grading session.
 
 The frontend serves specific interfaces for different phases of the grading lifecycle.
 
+### Setup and rubric drafting (`GET /setup`)
+
+The setup wizard lists saved rubric YAML files from `DATA_DIR/rubric/` and keeps
+manual YAML editing as the authoritative review surface. `POST
+/setup/generate_rubric` optionally creates an editable draft from a blank PDF,
+DOCX, TeX, Markdown, text, or YAML assessment:
+
+* configured providers are detected from `OPENAI_API_KEY` and
+  `DEEPSEEK_API_KEY`; the corresponding model overrides are `OPENAI_MODEL` and
+  `DEEPSEEK_MODEL`
+* OpenAI uses the Responses API with a JSON schema and `store: false`; DeepSeek
+  uses Chat Completions JSON mode
+* the blank assessment is read in memory, bounded by upload/text limits, and is
+  not written into `DATA_DIR`
+* model output is validated through a restricted draft schema and the canonical
+  `GradingKey` model; generated solution/`answer_key` fields are not part of the
+  draft contract
+* generation never saves or replaces a rubric—the instructor reviews the YAML,
+  sees live regular/extra-credit totals, and explicitly submits the existing
+  `POST /setup/save_rubric` form
+
+Do not upload student scans to rubric generation. The feature is intended only
+for blank assessment text and instructor-authored requests.
+
 ### A. Name Review View (`GET /name_review`)
 * **Purpose:** rapid audit of VLM-grouped pages before grading begins.
 * **Input:** Reads draft predictions from CSV (CLI output) or JSON cache.

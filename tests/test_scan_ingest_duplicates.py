@@ -57,6 +57,17 @@ class ScanIngestDuplicateTests(unittest.TestCase):
             ["scan_001.jpg", "scan_001_2.jpg"],
         )
 
+    def test_zip_with_no_supported_scans_reports_extensions(self) -> None:
+        payload = _zip_bytes([("source/quiz.tex", b"assessment source")])
+
+        with self.assertRaises(server.HTTPException) as raised:
+            server._ingest_zip_bytes(payload, self.raw_dir)
+
+        self.assertEqual(raised.exception.status_code, 400)
+        self.assertIn("no supported scan files", raised.exception.detail)
+        self.assertIn(".tex (1)", raised.exception.detail)
+        self.assertNotIn("quiz.tex", raised.exception.detail)
+
     def test_existing_exact_duplicates_are_moved_to_quarantine(self) -> None:
         (self.raw_dir / "scan_001.jpg").write_bytes(b"same-scan-content")
         (self.raw_dir / "scan_001_2.jpg").write_bytes(b"same-scan-content")

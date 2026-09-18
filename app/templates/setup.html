@@ -58,7 +58,7 @@
       display: block;
       margin-bottom: 0.3rem;
     }
-    input[type="text"], input[type="file"], textarea {
+    input[type="text"], input[type="file"], select, textarea {
       width: 100%;
       box-sizing: border-box;
       padding: 0.5rem 0.65rem;
@@ -253,8 +253,31 @@
             </div>
           </div>
           <button type="button" id="quick_rubric_btn" class="secondary">Generate rubric YAML</button>
+          {% if rubric_api_providers %}
           <div class="helper-box">
-            <label for="rubric_prompt_text">Prompt to give an AI when drafting rubric YAML</label>
+            <h3 style="margin: 0 0 0.5rem;">Draft rubric with an API</h3>
+            <p class="muted">Upload only a blank assessment—never student scans. The generated draft is not saved until you review it and click <strong>Save rubric</strong>.</p>
+            <form method="post" action="/setup/generate_rubric" enctype="multipart/form-data">
+              <label for="rubric_provider">Provider</label>
+              <select id="rubric_provider" name="provider">
+                {% for provider in rubric_api_providers %}
+                  <option value="{{ provider.id }}">{{ provider.label }}</option>
+                {% endfor %}
+              </select>
+              <label for="assessment_file">Blank assessment</label>
+              <input type="file" id="assessment_file" name="assessment_file" accept=".pdf,.docx,.tex,.txt,.md,.yaml,.yml" required>
+              <label for="instructor_requests">Instructor requests</label>
+              <textarea id="instructor_requests" name="instructor_requests" style="min-height: 180px;">{{ default_rubric_request }}</textarea>
+              <button type="submit">Generate editable draft</button>
+            </form>
+          </div>
+          {% else %}
+          <div class="alert warning">
+            API rubric drafting is available when <code>OPENAI_API_KEY</code> or <code>DEEPSEEK_API_KEY</code> is configured before the app starts.
+          </div>
+          {% endif %}
+          <div class="helper-box">
+            <label for="rubric_prompt_text">Prompt for manually drafting rubric YAML with another AI</label>
             <textarea id="rubric_prompt_text" readonly>Produce valid YAML for the Logic Grading Facilitator rubric schema.
 
 Requirements:
@@ -295,6 +318,7 @@ If a page has two problem banks with overlapping numbers, distinguish them using
           <form method="post" action="/setup/save_rubric">
             <label for="rubric_text">Edit rubric YAML</label>
             <textarea id="rubric_text" name="yaml_text">{{ rubric_text }}</textarea>
+            <div id="rubric_totals" class="helper-box" aria-live="polite">Edit the rubric to see point totals.</div>
             <p class="muted">The YAML must parse into the <code>GradingKey</code> model. File will be saved as <code>{{ quiz_id }}.yaml</code> in <code>{{ rubrics_dir }}</code>.</p>
             <p class="muted">If you create a rubric by hand outside this form, put it in <code>{{ rubrics_dir }}</code> to make it available in the "Load existing rubric" dropdown on this page.</p>
             <p class="muted">Tip: each problem <code>label</code> is used as a natural-language hint when the model locates that answer region in strip view. Match the wording on the exam if possible.</p>
@@ -348,12 +372,54 @@ If a page has two problem banks with overlapping numbers, distinguish them using
       }
 
       rubricText.value = lines.join("\n") + "\n";
+      updateRubricTotals();
       if (autoGroupQuizId) {
         autoGroupQuizId.value = quizId;
       }
     }
 
-    quickBtn.addEventListener("click", buildQuickRubric);
+    if (quickBtn) {
+      quickBtn.addEventListener("click", buildQuickRubric);
+    }
+
+    const rubricTotals = document.getElementById("rubric_totals");
+
+    function updateRubricTotals() {
+      if (!rubricText || !rubricTotals) return;
+      const problems = [];
+      let current = null;
+      rubricText.value.split(/\r?\n/).forEach((line) => {
+        const idMatch = line.match(/^\s*-\s+id:\s*(.+?)\s*$/);
+        if (idMatch) {
+          if (current) problems.push(current);
+          current = { id: idMatch[1], points: null, extraCredit: false };
+          return;
+        }
+        if (!current) return;
+        const pointsMatch = line.match(/^\s+points:\s*(-?\d+(?:\.\d+)?)\s*$/);
+        if (pointsMatch) current.points = Number(pointsMatch[1]);
+        if (/^\s+extra_credit:\s*true\s*$/i.test(line)) current.extraCredit = true;
+      });
+      if (current) problems.push(current);
+
+      const scored = problems.filter((problem) => Number.isFinite(problem.points));
+      if (!scored.length) {
+        rubricTotals.textContent = "Point totals unavailable until the YAML contains problem point values.";
+        return;
+      }
+      const regular = scored
+        .filter((problem) => !problem.extraCredit)
+        .reduce((sum, problem) => sum + problem.points, 0);
+      const extraCredit = scored
+        .filter((problem) => problem.extraCredit)
+        .reduce((sum, problem) => sum + problem.points, 0);
+      rubricTotals.textContent = `Regular maximum: ${regular} · Available extra credit: ${extraCredit} · Exported score capped at: ${regular}`;
+    }
+
+    if (rubricText) {
+      rubricText.addEventListener("input", updateRubricTotals);
+      updateRubricTotals();
+    }
 
     const isProduction = {{ 'true' if is_production else 'false' }};
     const overrideCheckbox = document.getElementById("enable_upload_override");

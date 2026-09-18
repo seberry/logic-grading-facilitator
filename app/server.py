@@ -82,6 +82,13 @@ from docx import Document
 from .vlm_client import LMStudioQwenClient  # type: ignore
 from .vlm_classifier import classify_page  # type: ignore
 from .quiz_variants import normalize_quiz_version
+from .rubric_generation import (
+    DEFAULT_RUBRIC_REQUEST,
+    RubricGenerationError,
+    configured_rubric_providers,
+    extract_assessment_text,
+    generate_rubric_draft,
+)
 from .canvas_client import CanvasClient, CanvasClientError, get_canvas_client
 from .routes.fitch_debug import router as fitch_debug_router
 from .routes.fol_model_debug import router as fol_model_debug_router
@@ -426,6 +433,18 @@ def root():
 @app.get("/setup", response_class=HTMLResponse)
 async def setup_wizard(request: Request) -> Response:
     """Entry point for the setup wizard UI."""
+    return _render_setup_page(request)
+
+
+def _render_setup_page(
+    request: Request,
+    *,
+    rubric_text_override: Optional[str] = None,
+    quiz_id_override: Optional[str] = None,
+    message_override: Optional[str] = None,
+    status_override: Optional[str] = None,
+    response_status: int = 200,
+) -> Response:
     must_archive = _has_existing_session_state()
     roster_dir = DATA_DIR / "rosters"
     roster_dir.mkdir(parents=True, exist_ok=True)
@@ -441,10 +460,16 @@ async def setup_wizard(request: Request) -> Response:
     available_rubrics = sorted(
         [p for p in rubric_files if p.is_file()], key=lambda p: p.name.lower()
     )
-    rubric_text, quiz_id = _read_default_rubric()
+    default_rubric_text, default_quiz_id = _read_default_rubric()
+    rubric_text = rubric_text_override or default_rubric_text
+    quiz_id = quiz_id_override or default_quiz_id
 
-    message = request.query_params.get("message")
-    status = request.query_params.get("status", "")
+    message = message_override or request.query_params.get("message")
+    status = (
+        status_override
+        if status_override is not None
+        else request.query_params.get("status", "")
+    )
 
     return templates.TemplateResponse(
         "setup.html",
@@ -462,7 +487,10 @@ async def setup_wizard(request: Request) -> Response:
             "data_dir": str(DATA_DIR),
             "rosters_dir": str(DATA_DIR / "rosters"),
             "rubrics_dir": str(rubric_dir),
+            "rubric_api_providers": configured_rubric_providers(),
+            "default_rubric_request": DEFAULT_RUBRIC_REQUEST,
         },
+        status_code=response_status,
     )
 
 
@@ -932,6 +960,8 @@ def _ingest_zip_bytes(
 ) -> tuple[int, int]:
     saved = 0
     duplicates = 0
+    supported_entries = 0
+    ignored_extensions: Dict[str, int] = {}
     known_digests = known_digests if known_digests is not None else _existing_scan_digests(output_dir)
     with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
         entries = sorted(zf.infolist(), key=lambda info: info.filename.lower())
@@ -946,16 +976,39 @@ def _ingest_zip_bytes(
                 continue
             suffix = Path(filename).suffix.lower()
             if suffix in {".jpg", ".jpeg", ".png"}:
+                supported_entries += 1
                 data = zf.read(entry)
                 _, was_saved = _save_scan_bytes(data, output_dir / filename, known_digests)
                 saved += int(was_saved)
                 duplicates += int(not was_saved)
             elif suffix == ".pdf":
+                supported_entries += 1
                 pdf_bytes = zf.read(entry)
                 if not pdf_bytes:
                     continue
                 stem = Path(filename).stem or "scans"
                 saved += _save_pdf_pages(pdf_bytes, stem, output_dir)
+            else:
+                display_suffix = suffix or "files with no extension"
+                ignored_extensions[display_suffix] = (
+                    ignored_extensions.get(display_suffix, 0) + 1
+                )
+    if supported_entries == 0:
+        if ignored_extensions:
+            found = ", ".join(
+                f"{extension} ({count})"
+                for extension, count in sorted(ignored_extensions.items())
+            )
+            detail = f" Found only: {found}."
+        else:
+            detail = " The archive contained no files."
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "The ZIP contained no supported scan files."
+                f"{detail} Upload PDFs, JPGs, JPEGs, or PNGs."
+            ),
+        )
     return saved, duplicates
 
 
@@ -1043,6 +1096,15 @@ async def setup_upload_scans(
             duplicates += new_duplicates
         except zipfile.BadZipFile:
             raise HTTPException(status_code=400, detail="Uploaded ZIP could not be read.")
+
+    if saved == 0 and duplicates == 0:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "No scan pages were created. Upload PDFs, JPGs, JPEGs, or PNGs, "
+                "or a ZIP containing those file types."
+            ),
+        )
 
     message = f"Uploaded {saved} new scan files."
     if duplicates:
@@ -1275,6 +1337,57 @@ async def setup_import_canvas_zip(
     return RedirectResponse(
         url=f"/problem/{first_problem}/strips",
         status_code=303,
+    )
+
+
+@app.post("/setup/generate_rubric", response_class=HTMLResponse)
+async def setup_generate_rubric(
+    request: Request,
+    provider: str = Form(...),
+    instructor_requests: str = Form(DEFAULT_RUBRIC_REQUEST),
+    assessment_file: UploadFile = File(...),
+) -> Response:
+    try:
+        file_bytes = await assessment_file.read()
+        document_text = extract_assessment_text(
+            assessment_file.filename or "assessment.txt",
+            file_bytes,
+        )
+        grading_key = await generate_rubric_draft(
+            document_text,
+            instructor_requests,
+            provider,
+        )
+    except RubricGenerationError as exc:
+        return _render_setup_page(
+            request,
+            message_override=str(exc),
+            status_override="error",
+            response_status=400,
+        )
+
+    generated_yaml = yaml.safe_dump(
+        grading_key.model_dump(exclude_none=True),
+        sort_keys=False,
+        allow_unicode=True,
+    )
+    regular_total = sum(
+        problem.points for problem in grading_key.problems if not problem.extra_credit
+    )
+    extra_credit_total = sum(
+        problem.points for problem in grading_key.problems if problem.extra_credit
+    )
+    provider_label = "OpenAI" if provider.lower() == "openai" else provider.title()
+    return _render_setup_page(
+        request,
+        rubric_text_override=generated_yaml,
+        quiz_id_override=grading_key.quiz_id,
+        message_override=(
+            f"Generated an editable draft with {provider_label}: "
+            f"{regular_total:g} regular points and {extra_credit_total:g} extra-credit points. "
+            "Review it below, then click Save rubric."
+        ),
+        status_override="success",
     )
 
 
@@ -2303,7 +2416,10 @@ async def name_review_submit(request: Request) -> Response:
     if next_action == "download":
         # The user clicked "Save & Download"
         print("[name_review] User requested immediate ZIP download.")
-        return export_renamed_scans()
+        # Use the registered export route instead of calling its implementation
+        # directly. Besides keeping the handoff route decoupled from the export
+        # module, this lets the browser perform the ZIP download as a normal GET.
+        return RedirectResponse(url="/export_renamed_scans", status_code=303)
     else:
         # The user clicked "Save & Start Grading" (Default)
         first_problem = grading_key.problems[0].id if grading_key.problems else "Q1"
