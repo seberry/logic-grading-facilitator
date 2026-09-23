@@ -12,7 +12,7 @@ from datetime import datetime
 from uuid import uuid4
 import re
 import math
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from fastapi import (
     FastAPI,
@@ -24,7 +24,6 @@ from fastapi import (
     File,
     Query,
 )
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -157,14 +156,22 @@ app = FastAPI(
     description="Minimal API + UI for manual grading based on WorkUnits and a Session file.",
 )
 
-# Allow local browser / tools to talk to API
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # fine for local dev; don't expose publicly with real data
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# The UI and API share an origin. Do not grant unrelated websites access to
+# student data, and reject browser form/fetch writes from another origin.
+@app.middleware("http")
+async def reject_cross_origin_writes(request: Request, call_next):
+    if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        origin = request.headers.get("origin")
+        if origin:
+            try:
+                parsed = urlsplit(origin)
+            except ValueError:
+                return PlainTextResponse("Cross-origin write denied.", status_code=403)
+            if parsed.scheme not in {"http", "https"} or parsed.netloc.lower() != request.headers.get("host", "").lower():
+                return PlainTextResponse("Cross-origin write denied.", status_code=403)
+        if request.headers.get("sec-fetch-site", "").lower() == "cross-site":
+            return PlainTextResponse("Cross-origin write denied.", status_code=403)
+    return await call_next(request)
 
 # Serve scan images under /scans/IMG_XXXX.jpg
 app.mount(

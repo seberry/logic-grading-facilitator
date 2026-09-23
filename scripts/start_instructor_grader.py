@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -76,9 +78,40 @@ def _open_when_ready(url: str) -> None:
     print(f"The browser did not open automatically. Open this address: {url}")
 
 
+def _ensure_lmstudio_server() -> None:
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:1234/v1/models", timeout=5):
+            return
+    except (OSError, urllib.error.URLError):
+        pass
+
+    lms = shutil.which("lms") or str(Path.home() / ".lmstudio" / "bin" / "lms.exe")
+    if not Path(lms).is_file():
+        print("LM Studio CLI was not found; start its local server manually.")
+        return
+    try:
+        subprocess.run(
+            [lms, "server", "start", "--port", "1234", "--bind", "127.0.0.1"],
+            check=True,
+            timeout=60,
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        print(f"LM Studio did not start: {exc}. The grader UI will still start.")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Open the instructor grading Setup Wizard.")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument(
+        "--fixed-port",
+        action="store_true",
+        help="Use exactly --port; fail if another program owns it (for Tailscale Serve).",
+    )
+    parser.add_argument(
+        "--ensure-lmstudio",
+        action="store_true",
+        help="Start the local LM Studio API on 127.0.0.1:1234 if needed.",
+    )
     parser.add_argument(
         "--no-browser",
         action="store_true",
@@ -96,7 +129,16 @@ def main() -> int:
             "and ENV_MODE=PRODUCTION before grading real submissions."
         )
 
-    port, already_running = _choose_port(args.port)
+    if args.ensure_lmstudio:
+        _ensure_lmstudio_server()
+
+    if args.fixed_port:
+        port = args.port
+        already_running = _is_grader_running(port)
+        if not already_running and not _port_is_available(port):
+            raise RuntimeError(f"Port {port} is busy, so the grader cannot start there.")
+    else:
+        port, already_running = _choose_port(args.port)
     url = _setup_url(port)
     if already_running:
         print(f"The grader is already running. Opening {url}")
@@ -116,7 +158,7 @@ def main() -> int:
         threading.Thread(target=_open_when_ready, args=(url,), daemon=True).start()
 
     try:
-        uvicorn.run("app.server:app", host=HOST, port=port, reload=False)
+        uvicorn.run("app.server:app", host=HOST, port=port, reload=False, access_log=False)
     except KeyboardInterrupt:
         # Windows can deliver Ctrl+C through both the console and a wrapping
         # shell. Treat that as an ordinary shutdown, not a startup failure.
