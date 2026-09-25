@@ -280,10 +280,10 @@
             </details>
 
             <details class="rubric-choice">
-              <summary>Generate from a blank assessment <span class="source-badge">API</span></summary>
+              <summary>Generate from a blank assessment <span class="source-badge">AI draft</span></summary>
               {% if rubric_api_providers %}
                 <form method="post" action="/setup/generate_rubric" enctype="multipart/form-data">
-                  <p class="muted">Upload only the blank assessment—never student scans. The API returns an editable draft and does not save it automatically.</p>
+                  <p class="muted">Upload only the blank assessment—never student scans. The model returns an editable question and point outline without grading instructions. Cloud providers receive the uploaded blank assessment; LM Studio runs locally. Nothing is saved automatically.</p>
                   <label for="rubric_provider">Provider</label>
                   <select id="rubric_provider" name="provider">
                     {% for provider in rubric_api_providers %}
@@ -301,7 +301,7 @@
                 </form>
               {% else %}
                 <div class="alert warning">
-                  API drafting becomes available when <code>OPENAI_API_KEY</code> or <code>DEEPSEEK_API_KEY</code> is configured before the app starts.
+                  Start LM Studio, or configure <code>OPENAI_API_KEY</code> or <code>DEEPSEEK_API_KEY</code> before the app starts.
                 </div>
               {% endif %}
             </details>

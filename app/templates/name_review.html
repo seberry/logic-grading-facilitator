@@ -176,6 +176,9 @@
       background: #d1d5db;
     }
 
+    .rotate-controls { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+    .rotate-status { font-size: 0.8rem; color: #4b5563; }
+
     .full-scan {
       max-height: 360px;
       overflow: auto;
@@ -452,6 +455,12 @@
           <div id="full-{{ row.index }}" class="full-scan hidden">
             <img src="{{ row.image_url }}" alt="Full scan {{ row.filename }}">
           </div>
+          <div class="rotate-controls" aria-label="Rotate {{ row.filename }}">
+            <button type="button" class="rotate-scan" data-degrees="270">↶ 90° left</button>
+            <button type="button" class="rotate-scan" data-degrees="180">↷ 180°</button>
+            <button type="button" class="rotate-scan" data-degrees="90">↷ 90° right</button>
+          </div>
+          <span class="rotate-status" role="status"></span>
           <div class="submission-controls">
             <label>
               <input type="checkbox"
@@ -520,6 +529,38 @@
 </main>
 
 <script>
+  document.querySelectorAll(".rotate-scan").forEach(function (button) {
+    button.addEventListener("click", async function () {
+      const row = button.closest(".page-row");
+      const index = row.dataset.pageIndex;
+      const filename = row.querySelector(`[name="filename_${index}"]`).value;
+      const status = row.querySelector(".rotate-status");
+      const buttons = row.querySelectorAll(".rotate-scan");
+      const form = new FormData();
+      form.set("filename", filename);
+      form.set("raw_scans_subdir", document.getElementById("raw_scans_subdir").value);
+      form.set("degrees", button.dataset.degrees);
+      buttons.forEach(function (item) { item.disabled = true; });
+      status.textContent = "Rotating scan…";
+      try {
+        const response = await fetch("/name_review/rotate", { method: "POST", body: form });
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.detail || "Rotation failed.");
+        }
+        row.querySelectorAll("img").forEach(function (img) {
+          const url = new URL(img.src);
+          url.searchParams.set("rotated", Date.now().toString());
+          img.src = url.toString();
+        });
+        status.textContent = "Saved. Review the name and version guesses, or refresh recognition.";
+      } catch (error) {
+        status.textContent = error.message || "Rotation failed.";
+      } finally {
+        buttons.forEach(function (item) { item.disabled = false; });
+      }
+    });
+  });
   document.querySelectorAll(".toggle-full").forEach(function (btn) {
     btn.addEventListener("click", function () {
       const id = btn.dataset.target;

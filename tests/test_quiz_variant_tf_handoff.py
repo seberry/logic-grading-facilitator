@@ -766,8 +766,11 @@ class TfBundleTests(unittest.TestCase):
             problem = bundled_session["grading_key"]["problems"][0]
             self.assertNotIn("answer_key", problem)
             self.assertNotIn("answer_key", problem["variants"]["A"])
+            self.assertNotIn("rubric_notes", problem)
+            self.assertNotIn("rubric_notes", problem["variants"]["A"])
             rubric_text = zf.read(f"{root}/data/rubric/P250_F26_quiz1_ABC.yaml").decode()
             self.assertNotIn("answer_key", rubric_text)
+            self.assertNotIn("rubric_notes", rubric_text)
             self.assertNotIn("Version A answer", rubric_text)
 
     def test_bundle_refuses_missing_question_locations(self) -> None:

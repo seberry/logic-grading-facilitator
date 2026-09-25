@@ -594,13 +594,15 @@ def export_tf_bundle(allow_duplicates: bool = False):
     quiz_slug = _safe_bundle_slug(session.grading_key.quiz_id)
     root = f"{quiz_slug}_tf_bundle"
     # A legacy/instructor rubric may contain answer_key fields. They are not part
-    # of the TF trust boundary: the grader gets prompts, neutral rubric notes,
-    # and human-selected visual references, never a model-authored solution key.
+    # of the TF trust boundary: the grader gets prompts, points, and
+    # human-selected visual references, never generated grading advice.
     rubric_data = session.grading_key.model_dump(exclude_none=True)
     for problem in rubric_data.get("problems", []):
         problem.pop("answer_key", None)
+        problem.pop("rubric_notes", None)
         for variant in (problem.get("variants") or {}).values():
             variant.pop("answer_key", None)
+            variant.pop("rubric_notes", None)
 
     session_data = session.model_dump()
     session_data["grading_key"] = rubric_data

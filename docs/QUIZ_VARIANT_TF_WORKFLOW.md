@@ -106,8 +106,10 @@ TF do not mistake EC for points above 100%.
 
 The PDF-to-YAML prompt may transcribe printed questions, propose point values,
 and describe crop geometry. It must not generate solutions, grading guidance,
-or `answer_key` fields. Legacy answer keys are not displayed in strip view and
-are removed when a TF bundle is exported.
+or `answer_key` fields. The Setup generator can use local LM Studio; its draft
+omits `rubric_notes` even if the model tries to supply them. Legacy answer keys
+are not displayed in strip view, and both answer keys and rubric notes are
+removed when a TF bundle is exported.
 
 During grading, the instructor or TF may pin a student response they judge
 correct. Pins are stored in `session.json` by problem and version, survive page
@@ -129,7 +131,9 @@ ask a model to settle it.
    Before recognition starts, any exact duplicates left by an older app version
    are moved—not deleted—to `DATA_DIR/duplicate_scans_quarantine/<timestamp>/`.
 5. On Name Review, correct every student and Version A/B/C guess. Use the full
-   page toggle when the title or handwriting is hard to read. **Save
+   page toggle when the title or handwriting is hard to read. The 90° left,
+   180°, and 90° right buttons rotate the actual intake image before session
+   creation; review the guesses afterward or refresh recognition. **Save
    Corrections** writes exactly those selections to the local cache without
    renaming scans or starting grading. A later recognition refresh preserves
    the reviewed names while replacing the version guesses. If the same student

@@ -52,6 +52,7 @@ class RubricGenerationCoreTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(
                 configured_rubric_providers(),
                 [
+                    {"id": "lmstudio", "label": "Local model (LM Studio)"},
                     {"id": "openai", "label": "OpenAI"},
                     {"id": "deepseek", "label": "DeepSeek"},
                 ],
@@ -87,6 +88,7 @@ class RubricGenerationCoreTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(rubric.quiz_id, "quiz3")
         self.assertTrue(rubric.problems[1].extra_credit)
+        self.assertIsNone(rubric.problems[0].rubric_notes)
         kwargs = post.await_args.kwargs
         self.assertEqual(post.await_args.args[0], "https://example.test/v1/responses")
         self.assertFalse(kwargs["payload"]["store"])
@@ -116,6 +118,17 @@ class RubricGenerationCoreTests(unittest.IsolatedAsyncioTestCase):
             {"type": "json_object"},
         )
         self.assertIn("JSON", kwargs["payload"]["messages"][1]["content"])
+
+    async def test_local_model_uses_lmstudio_and_discards_grading_advice(self) -> None:
+        post = AsyncMock(return_value={"choices": [{"message": {"content": _draft_json()}}]})
+        with (
+            patch.dict(os.environ, {"LMSTUDIO_BASE_URL": "http://127.0.0.1:1234/v1", "LMSTUDIO_RUBRIC_MODEL": "local-test"}, clear=True),
+            patch("app.rubric_generation._post_json", post),
+        ):
+            rubric = await generate_rubric_draft("exam text", "copy questions", "lmstudio")
+        self.assertIsNone(rubric.problems[0].rubric_notes)
+        self.assertEqual(post.await_args.args[0], "http://127.0.0.1:1234/v1/chat/completions")
+        self.assertEqual(post.await_args.kwargs["payload"]["model"], "local-test")
 
     async def test_invalid_provider_output_is_a_safe_error(self) -> None:
         post = AsyncMock(return_value={"output_text": '{"quiz_id":"x","problems":[]}'})

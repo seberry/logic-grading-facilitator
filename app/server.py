@@ -74,7 +74,7 @@ from .auto_group_core import (
 import shutil
 import yaml
 import fitz  # type: ignore
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 from docx import Document
 
 
@@ -1389,7 +1389,11 @@ async def setup_generate_rubric(
     extra_credit_total = sum(
         problem.points for problem in grading_key.problems if problem.extra_credit
     )
-    provider_label = "OpenAI" if provider.lower() == "openai" else provider.title()
+    provider_label = {
+        "openai": "OpenAI",
+        "deepseek": "DeepSeek",
+        "lmstudio": "local LM Studio model",
+    }.get(provider.lower(), provider.title())
     return _render_setup_page(
         request,
         rubric_text_override=generated_yaml,
@@ -1969,6 +1973,40 @@ async def grade_page_submit(
         url=f"/grade/{target_unit_id}/page",
         status_code=303,
     )
+
+
+@app.post("/name_review/rotate")
+async def name_review_rotate(
+    filename: str = Form(...),
+    raw_scans_subdir: str = Form(""),
+    degrees: int = Form(...),
+) -> JSONResponse:
+    """Rotate an intake scan in place before question locations are prepared."""
+    if degrees not in (90, 180, 270):
+        raise HTTPException(status_code=400, detail="Choose a quarter turn or half turn.")
+    if DEFAULT_SESSION_PATH.exists():
+        raise HTTPException(status_code=409, detail="Finish or archive the current session before rotating intake scans.")
+    root = RAW_SCANS_DIR.resolve()
+    scan_dir = (root / raw_scans_subdir).resolve()
+    if not scan_dir.is_relative_to(root) or not scan_dir.is_dir():
+        raise HTTPException(status_code=400, detail="Invalid scans folder.")
+    if filename != Path(filename).name or not filename.lower().endswith((".jpg", ".jpeg", ".png")):
+        raise HTTPException(status_code=400, detail="Invalid scan filename.")
+    scan_path = scan_dir / filename
+    if not scan_path.resolve().is_relative_to(root):
+        raise HTTPException(status_code=400, detail="Invalid scan filename.")
+    if not scan_path.is_file():
+        raise HTTPException(status_code=404, detail="Scan not found.")
+    temp_path = scan_dir / f".{uuid4().hex}{scan_path.suffix}"
+    try:
+        with Image.open(scan_path) as source:
+            corrected = ImageOps.exif_transpose(source).rotate(-degrees, expand=True)
+            corrected.save(temp_path, format=source.format)
+        temp_path.replace(scan_path)
+    except (OSError, ValueError) as exc:
+        temp_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="Could not rotate this scan.") from exc
+    return JSONResponse({"ok": True})
 
 
 @app.get("/name_review", response_class=HTMLResponse)

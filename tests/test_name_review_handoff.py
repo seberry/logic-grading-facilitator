@@ -6,12 +6,35 @@ from pathlib import Path
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from app import server
 from app.models import GradingKey, ProblemSpec, RosterEntry
 
 
 class NameReviewHandoffTests(unittest.TestCase):
+    def test_rotate_scan_updates_image_and_rejects_bad_paths(self) -> None:
+        client = TestClient(server.app)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            raw_dir = root / "raw_scans"
+            raw_dir.mkdir()
+            image_path = raw_dir / "scan.png"
+            Image.new("RGB", (20, 10), "white").save(image_path)
+            with (
+                patch.object(server, "RAW_SCANS_DIR", raw_dir),
+                patch.object(server, "DEFAULT_SESSION_PATH", root / "session.json"),
+            ):
+                response = client.post("/name_review/rotate", data={"filename": "scan.png", "degrees": "90"})
+                self.assertEqual(response.status_code, 200)
+                with Image.open(image_path) as image:
+                    self.assertEqual(image.size, (10, 20))
+                bad = client.post("/name_review/rotate", data={"filename": "../scan.png", "degrees": "90"})
+                self.assertEqual(bad.status_code, 400)
+                (root / "session.json").write_text("{}", encoding="utf-8")
+                late = client.post("/name_review/rotate", data={"filename": "scan.png", "degrees": "90"})
+                self.assertEqual(late.status_code, 409)
+
     def test_save_and_prepare_redirects_to_assignment_overview(self) -> None:
         client = TestClient(server.app)
         grading_key = GradingKey(
