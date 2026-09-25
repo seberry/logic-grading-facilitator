@@ -109,7 +109,9 @@ port 5001. Press Control-C in Terminal when you are done for the day.
    convenience, not an answer key.
 4. Enter the score you judge appropriate and add a student-facing comment only
    when useful.
-5. Use **Show Full Page** or **Fix Crop** if the answer crop is wrong.
+5. Use **Show Full Page** or **Fix Crop** if the answer crop is wrong. Use
+   **Rotate / view page** to read a sideways or upside-down scan. Its rotation
+   is only for viewing; it does not change the saved scan or answer crop.
 6. Click **Save & Next**. A save can take a moment; wait for the next response
    to appear before clicking again.
 

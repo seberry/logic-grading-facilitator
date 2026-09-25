@@ -405,6 +405,8 @@ problems:
         self.assertIn("Version A", response.text)
         self.assertIn("Version A prompt", response.text)
         self.assertIn("No supplied answer key", response.text)
+        self.assertIn("Rotate / view page", response.text)
+        self.assertIn('id="page-viewer-canvas"', response.text)
         self.assertNotIn("Version A answer", response.text)
         self.assertNotIn("TF chooses partial credit", response.text)
         self.assertEqual(response.text.count("Version A prompt"), 1)

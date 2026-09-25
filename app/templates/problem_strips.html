@@ -107,6 +107,17 @@
       transition: transform 0.3s ease;
       will-change: transform;
     }
+    .page-viewer {
+      border: 0;
+      border-radius: 0.75rem;
+      max-width: 96vw;
+      max-height: 96vh;
+      padding: 1rem;
+      background: #f8fafc;
+    }
+    .page-viewer::backdrop { background: rgba(15, 23, 42, 0.82); }
+    .page-viewer-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
+    .page-viewer canvas { display: block; max-width: 90vw; max-height: 78vh; width: auto; height: auto; margin: auto; }
 
     .bbox-outline {
       position: absolute;
@@ -1173,6 +1184,11 @@
               onclick="toggleEditMode(this)"
               tabindex="-1"> Fix Crop
       </button>
+      <button class="btn btn-secondary"
+              type="button"
+              data-index="{{ loop.index0 }}"
+              onclick="openPageViewer(this)">Rotate / view page
+      </button>
       <button class="btn btn-secondary type-action"
               type="button"
               data-action-type="fitch_proof"
@@ -1298,7 +1314,51 @@
     </div>
   </form>
 
+  <dialog id="page-viewer" class="page-viewer" aria-label="Full page rotation viewer">
+    <div class="page-viewer-controls">
+      <strong id="page-viewer-label">Full scan</strong>
+      <button class="btn btn-secondary" type="button" onclick="rotatePageViewer(-90)">↶ 90° left</button>
+      <button class="btn btn-secondary" type="button" onclick="rotatePageViewer(180)">↷ 180°</button>
+      <button class="btn btn-secondary" type="button" onclick="rotatePageViewer(90)">↷ 90° right</button>
+      <button class="btn btn-secondary" type="button" onclick="document.getElementById('page-viewer').close()">Close</button>
+      <small>View only; the saved scan and answer crop stay unchanged.</small>
+    </div>
+    <canvas id="page-viewer-canvas" role="img" aria-label="Selected scan page"></canvas>
+  </dialog>
+
     <script>
+      let pageViewerImage = null;
+      let pageViewerAngle = 0;
+      function renderPageViewer() {
+        if (!pageViewerImage || !pageViewerImage.complete || !pageViewerImage.naturalWidth) return;
+        const canvas = document.getElementById('page-viewer-canvas');
+        const quarterTurn = Math.abs(pageViewerAngle % 180) === 90;
+        canvas.width = quarterTurn ? pageViewerImage.naturalHeight : pageViewerImage.naturalWidth;
+        canvas.height = quarterTurn ? pageViewerImage.naturalWidth : pageViewerImage.naturalHeight;
+        const context = canvas.getContext('2d');
+        context.translate(canvas.width / 2, canvas.height / 2);
+        context.rotate(pageViewerAngle * Math.PI / 180);
+        context.drawImage(pageViewerImage, -pageViewerImage.naturalWidth / 2, -pageViewerImage.naturalHeight / 2);
+      }
+      function openPageViewer(button) {
+        const strip = button.closest('.strip');
+        const img = strip.querySelector('.scan-image');
+        if (!img) return;
+        const label = strip.querySelector('.student-name');
+        document.getElementById('page-viewer-label').textContent = label ? label.textContent.trim() : 'Full scan';
+        pageViewerAngle = 0;
+        const selectedImage = new Image();
+        pageViewerImage = selectedImage;
+        selectedImage.onload = () => {
+          if (pageViewerImage === selectedImage) renderPageViewer();
+        };
+        selectedImage.src = img.currentSrc || img.src;
+        document.getElementById('page-viewer').showModal();
+      }
+      function rotatePageViewer(degrees) {
+        pageViewerAngle = (pageViewerAngle + degrees + 360) % 360;
+        renderPageViewer();
+      }
       // --- FILL FULL CREDIT FOR UNGRADED ---
       const fillBtn = document.getElementById('btn-fill-credits');
       if (fillBtn) {
