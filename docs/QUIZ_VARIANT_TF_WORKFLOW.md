@@ -130,8 +130,12 @@ ask a model to settle it.
 4. Run name recognition with LM Studio.
    Before recognition starts, any exact duplicates left by an older app version
    are moved—not deleted—to `DATA_DIR/duplicate_scans_quarantine/<timestamp>/`.
-5. On Name Review, correct every student and Version A/B/C guess. Use the full
-   page toggle when the title or handwriting is hard to read. The 90° left,
+5. On Name Review, correct every student and Version A/B/C guess. For a lower
+   name line, use **Move name preview down** to shift every preview together;
+   **Show more of each page** makes the previews taller. These display settings
+   are remembered per quiz and scan subfolder in this browser, without rerunning
+   recognition. **Show full page** opens the scan in the wider preview column
+   when the title or handwriting is hard to read. The 90° left,
    180°, and 90° right buttons rotate the actual intake image before session
    creation; review the guesses afterward or refresh recognition. **Save
    Corrections** writes exactly those selections to the local cache without

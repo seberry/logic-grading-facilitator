@@ -99,12 +99,12 @@
   overflow: hidden;
   background: #f9fafb;
 
-  /* fixed visible strip height */
-  height: 130px; /* adjust as you like */
+  height: 180px;
 }
 
 /* Always show full width, crop only vertically */
 .thumb-box img {
+  display: block;
   width: 100%;
   height: auto;
   object-fit: contain;
@@ -180,7 +180,7 @@
     .rotate-status { font-size: 0.8rem; color: #4b5563; }
 
     .full-scan {
-      max-height: 360px;
+      max-height: 680px;
       overflow: auto;
       border-radius: 0.5rem;
       border: 1px solid #e5e7eb;
@@ -190,6 +190,7 @@
 
     .full-scan img {
       display: block;
+      width: 100%;
       max-width: 100%;
       height: auto;
     }
@@ -378,6 +379,18 @@
   </div>
 </div>
 
+    <div class="controls-bar" aria-label="Name preview settings">
+      <label for="name-preview-start">Move name preview down:</label>
+      <input id="name-preview-start" type="range" min="0" max="80" step="1"
+             value="0" aria-describedby="name-preview-hint">
+      <output id="name-preview-position" for="name-preview-start">0% of page</output>
+      <label><input id="name-preview-taller" type="checkbox"> Show more of each page</label>
+      <button id="name-preview-reset" type="button">Reset view</button>
+      <div id="name-preview-hint" class="hint">
+        Adjust once for all pages. Remembered for this quiz in this browser.
+      </div>
+    </div>
+
     <section id="duplicate-submission-warning" class="duplicate-warning" role="alert">
       <strong>Possible duplicate submissions</strong>
       <div>
@@ -397,7 +410,10 @@
             #{{ row.index + 1 }} – {{ row.filename }}
           </div>
           <div class="thumb-box">
-            <img src="{{ row.image_url }}" alt="Top of {{ row.filename }}">
+            <img src="{{ row.image_url }}" alt="Name preview of {{ row.filename }}">
+          </div>
+          <div id="full-{{ row.index }}" class="full-scan hidden">
+            <img src="{{ row.image_url }}" alt="Full scan {{ row.filename }}">
           </div>
         </div>
 
@@ -449,12 +465,11 @@
         <div class="full-toggle-area">
           <button type="button"
                   class="toggle-full"
+                  aria-expanded="false"
+                  aria-controls="full-{{ row.index }}"
                   data-target="full-{{ row.index }}">
             🔍 Show full page
           </button>
-          <div id="full-{{ row.index }}" class="full-scan hidden">
-            <img src="{{ row.image_url }}" alt="Full scan {{ row.filename }}">
-          </div>
           <div class="rotate-controls" aria-label="Rotate {{ row.filename }}">
             <button type="button" class="rotate-scan" data-degrees="270">↶ 90° left</button>
             <button type="button" class="rotate-scan" data-degrees="180">↷ 180°</button>
@@ -529,6 +544,51 @@
 </main>
 
 <script>
+  const previewStart = document.getElementById("name-preview-start");
+  const previewTaller = document.getElementById("name-preview-taller");
+  const previewPosition = document.getElementById("name-preview-position");
+  const previewStorageKey = "name-review-preview:" + JSON.stringify([
+    {{ quiz_slug|tojson }}, {{ raw_scans_subdir|tojson }}
+  ]);
+  try {
+    const savedPreview = JSON.parse(localStorage.getItem(previewStorageKey));
+    if (savedPreview && Number.isFinite(savedPreview.start)) {
+      previewStart.value = Math.max(0, Math.min(80, Math.round(savedPreview.start)));
+      previewTaller.checked = savedPreview.taller === true;
+    }
+  } catch (_) { /* Preview controls also work when browser storage is unavailable. */ }
+
+  function updateNamePreviews() {
+    const start = Number(previewStart.value);
+    previewPosition.textContent = start + "% of page";
+    document.querySelectorAll(".thumb-box").forEach(function (box) {
+      box.style.height = previewTaller.checked ? "320px" : "180px";
+      box.scrollTop = box.querySelector("img").clientHeight * start / 100;
+    });
+  }
+
+  function saveNamePreview() {
+    updateNamePreviews();
+    try {
+      localStorage.setItem(previewStorageKey, JSON.stringify({
+        start: Number(previewStart.value), taller: previewTaller.checked
+      }));
+    } catch (_) { /* Keep the current view even if it cannot be remembered. */ }
+  }
+
+  previewStart.addEventListener("input", saveNamePreview);
+  previewTaller.addEventListener("change", saveNamePreview);
+  document.getElementById("name-preview-reset").addEventListener("click", function () {
+    previewStart.value = "0";
+    previewTaller.checked = false;
+    saveNamePreview();
+  });
+  document.querySelectorAll(".thumb-box img").forEach(function (img) {
+    img.addEventListener("load", updateNamePreviews);
+  });
+  window.addEventListener("resize", updateNamePreviews);
+  updateNamePreviews();
+
   document.querySelectorAll(".rotate-scan").forEach(function (button) {
     button.addEventListener("click", async function () {
       const row = button.closest(".page-row");
@@ -567,7 +627,10 @@
       const div = document.getElementById(id);
       if (!div) return;
       const hidden = div.classList.toggle("hidden");
+      btn.closest(".page-row").querySelector(".thumb-box").classList.toggle("hidden", !hidden);
+      btn.setAttribute("aria-expanded", String(!hidden));
       btn.textContent = hidden ? "🔍 Show full page" : "🔽 Hide full page";
+      if (hidden) updateNamePreviews();
     });
   });
 
