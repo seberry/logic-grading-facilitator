@@ -308,3 +308,83 @@ grading workspace. The configuration asks before shell commands, denies external
 directory access, and denies direct reads of `.env` files; these agent permission
 rules are not an operating-system sandbox. This coding setup does not change the
 Gemma model used by the private proof pilot.
+
+## Working notation reference: scope, header, and the sideways T
+
+The instructor's ASCII conventions are in the adjacent
+`fitch-protocol-experiment/prompts/fitch_rules_prompt.md` and
+`prompts/ascii_to_json_conversion.md`. The latter defines logical depth as the
+number of visible vertical bars minus one: the main proof has a visible spine
+but logical depth zero. The main vertical stroke begins at the first premise,
+continues alongside all premises and the remaining proof, and has its horizontal
+header separator below the last premise. A subproof's vertical stroke similarly
+includes its hypothesis header, with the separator below that header. A header
+containing multiple lines has one separator after its final line.
+
+Use this registered instructor-written example as a shared, non-FERPA reference:
+[handwritten Q4 proof](../proofs_ocr/regression/fixtures/tfl/handwritten/q4_N_or_K_and_W/image.png),
+[curated JSON](../proofs_ocr/regression/fixtures/tfl/handwritten/q4_N_or_K_and_W/expected_structure.json).
+The standardized rule labels below follow the curated JSON; the original scan's
+handwritten rule-head glyph is discussed in its semantic notes.
+
+```text
+1 | N ∨ (K ∧ W)            Pr
+2 | N ↔ W                  Pr
+  |----------------------------
+3 |  | N                   Hyp
+  |  |-------------------------
+4 |  | W                   ↔E 2,3
+  |
+5 |  | K ∧ W               Hyp
+  |  |-------------------------
+6 |  | W                   ∧E 5
+  |
+7 | W                      ∨E 1,3-4,5-6
+```
+
+The block structure is `main: [line1, line2, [line3, line4],
+[line5, line6], line7]`. The two inner arrays are sibling subproofs, both inside
+the main proof; the second is not nested in the first.
+
+| Block | Depth | Header lines | Body | Scope interval |
+|---|---:|---|---|---|
+| Main proof | 0 | 1–2 | First case, second case, line 7 | 1–7 |
+| First case | 1 | 3 | 4 | 3–4 |
+| Second case | 1 | 5 | 6 | 5–6 |
+
+The flat editor needs `start_subproof` (currently labeled **New block**) because
+depth alone loses the boundary between consecutive sibling subproofs:
+
+| Written line | Depth | New block |
+|---|---:|---|
+| 1 | 0 | No |
+| 2 | 0 | No |
+| 3 | 1 | Yes |
+| 4 | 1 | No |
+| 5 | 1 | Yes |
+| 6 | 1 | No |
+| 7 | 0 | No |
+
+New block means **this row begins a distinct subproof**. It is not the horizontal
+stroke itself, does not mark every premise or hypothesis line in a shared header,
+and does not imply increased depth: line 5 starts a new sibling at depth 1.
+No New block flag is needed for the main proof's premise separator. The nested
+JSON arrays already carry this block identity; the flag is an editor bridge.
+
+Two additional safe comparison examples are the
+[single conditional subproof](../proofs_ocr/regression/fixtures/tfl/handwritten/q3_P_and_Q_imp_R/image.png)
+with header 3 and scope 3–7, and the
+[three-premise example](../proofs_ocr/regression/fixtures/tfl/handwritten/fake_neg_intro_error/image.png)
+with main header 1–3 and hypothesis scope 4–7.
+Logical mistakes in a source example must be preserved; these references explain
+notation and scope, not automatic grading or proof repair.
+
+The current pilot editor is not a faithful renderer of these conventions: it
+omits the depth-zero spine and puts a new-block border above a hypothesis row.
+It also needs a visible break between sibling strokes. These are presentation
+limitations; do not infer incorrect OCR nesting solely from those drawn bars.
+The intended rendering model is a scope tree whose blocks each have a header
+and body. Block identity controls nesting/sibling breaks; the end of the header
+controls the horizontal stroke. If literal, misplaced student header separators
+must eventually be recorded independently of logical rule labels, that requires
+explicit graphical metadata rather than silently repairing the written proof.
