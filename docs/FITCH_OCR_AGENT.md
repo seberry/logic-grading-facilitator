@@ -158,3 +158,73 @@ workflows.
   [DEV_WORKFLOWS.md](DEV_WORKFLOWS.md).
 - Do not create another narrow OCR markdown file unless these owner docs cannot
   reasonably hold the information.
+
+## Initial IU model comparison and next experiment
+
+The provider migration is committed at `8701bce`. A bounded comparison used the
+registered instructor-authored Q3, Q4, and Q5 handwritten gold fixtures (20 proof
+lines total), including genuine subproofs and an intentionally invalid citation.
+No real student proofs were used. The production chop/mask/stitch algorithm was
+left unchanged during this comparison.
+
+| Model / strategy | Exact gold structures | Total time for three proofs |
+|---|---:|---:|
+| Local Qwen3-VL-4B, existing pipeline | 1/3 | 50.8 s |
+| IU Gemma, existing pipeline | 1/3 | 9.5 s |
+| IU Qwen, existing pipeline | 0/3 | 12.3 s |
+| IU Gemma, constrained whole-page experiment | 3/3 | 3.8 s |
+| IU Qwen, constrained whole-page experiment | 3/3 | 8.4 s |
+
+The existing pipeline produced an extra line and incorrect nesting on Q3 with
+both IU models. Both changed Q5's visibly written invalid citation `1,4` to the
+logically appropriate `1,3`. These are unacceptable transcription changes even
+when a formula is otherwise read correctly. Gemma read all 20 aligned expected
+formulas correctly, but the extra line still makes the complete result wrong.
+
+A first unconstrained whole-page prompt produced inconsistent list nesting,
+letter case, and rule formatting. A second version used a literal-transcription
+instruction, uppercase TFL atoms, compact Unicode rule heads, a generic nested
+array example, and a JSON schema constraining lines versus subproof arrays.
+Both IU models then matched formulas, justifications, and nested structure for
+all three fixtures, preserving the intentional bad citation. The schema defines
+output shape, not the correct proof; gold answers were not supplied to the model.
+
+This is a three-proof exploratory result, with changed prompts/output contracts
+and single timing samples. It does not validate general handwriting accuracy,
+deep nesting, FOL, or unattended grading. The whole-page strategy is **not yet
+integrated into production OCR**; only provider selection has changed there.
+
+The retained local probe is `working/iu-fitch-comparison.py`; detailed outputs
+and the combined summary are under `working/iu-fitch-comparison/`. `gemma` and
+`qwen` contain the existing-pipeline runs; `gemma_whole_page_v2` and
+`qwen_whole_page_v2` contain the constrained whole-page runs. These are fake/
+instructor-authored artifacts safe for agent inspection. Do not generalize that
+permission to protected student corpora.
+
+Suggested fresh-session prompt:
+
+```text
+Continue the IU Fitch whole-page OCR experiment in this repository. Read AGENTS.md,
+docs/FITCH_OCR_AGENT.md, and docs/QUIZ_VARIANT_TF_WORKFLOW.md. IU Gemma is now the
+production default; Qwen is an explicit alternative. Provider migration commit:
+8701bce. Preserve the pre-existing unrelated working-tree changes.
+
+Inspect working/iu-fitch-comparison.py, its summary.json, and the three instructor-
+authored gold fixtures. Constrained whole-page Gemma and Qwen each matched 3/3;
+the existing chopping pipeline scored local 1/3, Gemma 1/3, and Qwen 0/3.
+
+Evaluate the whole-page contract on the remaining registered fake/instructor-
+authored cases, especially nested subproofs and intentional errors. Keep literal
+citations and errors; never repair a student's reasoning during transcription.
+Check explicit line numbers as well as formulas, rules, nesting, and extra/missing
+lines. Gold answers must never be included in model inputs. Keep runs bounded and
+record transport/model metadata. Use no protected student scans without an
+explicitly authorized private workflow.
+
+If the results support it, implement an importable opt-in whole-page strategy
+under proofs_ocr/, with the current pipeline retained for comparison. Add meaningful
+offline tests, verify strip-view integration and human acceptance behavior, and
+run a small live canary. Report the evidence before changing the production OCR
+strategy default. Do not infer correctness from model confidence or verifier
+success alone. Commit a concrete, reviewable implementation if successful.
+```
