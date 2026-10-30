@@ -32,7 +32,7 @@ from app.segmentation_core import QuestionSegment, segment_page_for_problem
 from app.routes import modal_proof_debug as modal_proof_debug_routes
 from app.session_state import _segmentation_lock, _session_lock, get_session, persist_session
 from app.storage import DEBUG_FITCH_DIR, DEBUG_FOL_MODEL_DIR, DEBUG_MODAL_PROOF_DIR, GRADES_DIR, RAW_SCANS_DIR
-from app.vlm_client import LMStudioQwenClient
+from app.vlm_provider import create_vlm_client
 from app.quiz_variants import (
     available_quiz_versions,
     normalize_quiz_version,
@@ -140,10 +140,10 @@ def _adjacent_grading_views(
     return previous, following, next_problem_id
 
 
-def _compute_segments_data(session: Session, spec, cache_path: Path) -> List[Dict]:
+def _compute_segments_data(session: Session, spec, cache_path: Path, model: Optional[str] = None) -> List[Dict]:
     problem_id = spec.id
     print(f"[CACHE MISS] Computing fresh segmentation for {problem_id}...")
-    client = LMStudioQwenClient()
+    client = create_vlm_client(model)
     segments_data: List[Dict] = []
 
     for i, wu in enumerate(session.work_units):
@@ -182,6 +182,8 @@ def _compute_segments_data(session: Session, spec, cache_path: Path) -> List[Dic
                 "bbox": None,
             }
         )
+        segments_data[-1]["recognition_model"] = client.model
+        segments_data[-1]["recognition_provider"] = getattr(client, "provider", "lmstudio")
 
     print(f"[CACHE SAVE] Writing to {cache_path}")
     GRADES_DIR.mkdir(parents=True, exist_ok=True)
@@ -488,6 +490,7 @@ def ensure_segments_cached(
     spec,
     refresh: bool = False,
     blocking: bool = True,
+    model: Optional[str] = None,
 ) -> Optional[List[Dict]]:
     problem_id = spec.id
     cache_path = GRADES_DIR / f"segments_{problem_id}.json"
@@ -522,7 +525,8 @@ def ensure_segments_cached(
                     segments_data = None
 
             if segments_data is None:
-                segments_data = _compute_segments_data(session, spec, cache_path)
+                segments_data = (_compute_segments_data(session, spec, cache_path, model=model)
+                                 if model else _compute_segments_data(session, spec, cache_path))
         finally:
             _segmentation_lock.release()
 
@@ -695,7 +699,13 @@ def get_problem_strips(
     problem_id: str,
     refresh: int = 0,
     version: Optional[str] = None,
+    vlm_model: str = "",
 ):
+    if vlm_model:
+        try:
+            create_vlm_client(vlm_model)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
     session = get_session()
     grading_key = session.grading_key
 
@@ -708,6 +718,7 @@ def get_problem_strips(
         spec=spec,
         refresh=bool(refresh),
         blocking=True,
+        **({"model": vlm_model} if vlm_model else {}),
     )
 
     if segments_data is None:

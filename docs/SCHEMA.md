@@ -724,3 +724,21 @@ For example:
 - in `non_validity`, the rubric supplies premises and conclusion; OCR supplies the countermodel
 
 This separation is intentional and should guide future route, prompt, and checker design.
+
+# 11. Model provenance and private name benchmarks
+
+New name-prediction cache entries and question-location entries may include
+`recognition_model` (the requested model ID) and `recognition_provider`
+(`reallms` or `lmstudio`). Older entries without those fields remain valid.
+These fields do not change human-reviewed student assignments or crop geometry.
+
+Private name benchmarks must live outside the repository. `inputs.json` stores
+the roster, original local predictions, per-case scan hashes, isolated scan
+filenames, and optional saved-session references matched by image bytes.
+`results.json` stores `(case_id, model, status, prediction, elapsed_seconds,
+responses)` records. `comparison.json` supplies the local review panel.
+`reviews.json` maps case IDs to `{student_id: string | null}`; an absent key
+means unreviewed and explicit null means the reviewer could not identify a name.
+Saved session assignments are provisional references, not automatically accepted
+human labels. `summary.json` and the panel's downloaded counts contain aggregate
+metrics only. All other benchmark files, including thumbnails, are protected.

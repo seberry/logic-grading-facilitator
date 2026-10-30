@@ -52,6 +52,8 @@ class RubricGenerationCoreTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(
                 configured_rubric_providers(),
                 [
+                    {"id": "reallms", "label": "IU Gemma (recommended)"},
+                    {"id": "reallms_qwen", "label": "IU Qwen (alternative)"},
                     {"id": "lmstudio", "label": "Local model (LM Studio)"},
                     {"id": "openai", "label": "OpenAI"},
                     {"id": "deepseek", "label": "DeepSeek"},
@@ -129,6 +131,18 @@ class RubricGenerationCoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(rubric.problems[0].rubric_notes)
         self.assertEqual(post.await_args.args[0], "http://127.0.0.1:1234/v1/chat/completions")
         self.assertEqual(post.await_args.kwargs["payload"]["model"], "local-test")
+
+    async def test_iu_gemma_and_qwen_use_authenticated_pinned_route(self) -> None:
+        for provider, model in (("reallms", "gemma-4-31B-it"), ("reallms_qwen", "qwen3.8-27b")):
+            post = AsyncMock(return_value={"choices": [{"message": {"content": _draft_json()}}]})
+            with patch("app.rubric_generation.reallms_api_key", return_value="fake-key"), patch(
+                "app.rubric_generation._post_json", post
+            ):
+                rubric = await generate_rubric_draft("fake blank quiz", "copy questions", provider)
+            self.assertEqual(post.await_args.args[0], "https://reallms.rescloud.iu.edu/direct/v1/chat/completions")
+            self.assertEqual(post.await_args.kwargs["headers"]["Authorization"], "Bearer fake-key")
+            self.assertEqual(post.await_args.kwargs["payload"]["model"], model)
+            self.assertIsNone(rubric.problems[0].rubric_notes)
 
     async def test_invalid_provider_output_is_a_safe_error(self) -> None:
         post = AsyncMock(return_value={"output_text": '{"quiz_id":"x","problems":[]}'})

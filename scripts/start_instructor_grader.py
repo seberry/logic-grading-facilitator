@@ -129,7 +129,9 @@ def main() -> int:
             "and ENV_MODE=PRODUCTION before grading real submissions."
         )
 
-    if args.ensure_lmstudio:
+    from dotenv import load_dotenv
+    load_dotenv(env_path)
+    if args.ensure_lmstudio and os.getenv("GRADING_VLM_PROVIDER", "reallms").strip().lower() == "lmstudio":
         _ensure_lmstudio_server()
 
     if args.fixed_port:

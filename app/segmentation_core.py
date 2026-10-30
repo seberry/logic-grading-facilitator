@@ -8,6 +8,7 @@ from typing import Optional
 
 from .vlm_client import LMStudioQwenClient
 from .vlm_client import SINGLE_QUESTION_PROMPT  # or copy the prompt text here
+from .vlm_provider import create_vlm_client
 
 
 @dataclass
@@ -28,10 +29,7 @@ def segment_page_for_problem(
     client: Optional[LMStudioQwenClient] = None,
 ) -> QuestionSegment:
     if client is None:
-        client = LMStudioQwenClient(
-            base_url="http://127.0.0.1:1234/v1",
-            model="qwen/qwen3-vl-4b",
-        )
+        client = create_vlm_client()
 
     prompt = SINGLE_QUESTION_PROMPT.format(
         problem_id=problem_id,
@@ -41,21 +39,7 @@ def segment_page_for_problem(
     try:
         raw = client.chat_with_image_prompt(image_path=image_path, prompt=prompt)
     except Exception as e:
-        response = getattr(e, "response", None)
-        if response is not None:
-            detail = f"HTTP {response.status_code}: {(response.text or '').strip()[:200]}"
-        else:
-            detail = str(e)
-        print(f"[SEGMENTATION ERROR] {image_path.name} {problem_id}: {detail}")
-        return QuestionSegment(
-            problem_id=problem_id,
-            page_filename=image_path.name,
-            page_index=0,
-            bbox=None,
-            present=False,
-            comment=f"VLM request failed: {detail}",
-            confidence=0.0,
-        )
+        raise RuntimeError("Question-location request failed. Saved locations were preserved; retry later or with Qwen.") from None
 
     # Allow ```json fences, same trick as in vlm_classifier
     raw_str = raw.strip()
@@ -66,16 +50,17 @@ def segment_page_for_problem(
 
     try:
         data = json.loads(raw_str)
-    except Exception as e:
-        return QuestionSegment(
-            problem_id=problem_id,
-            page_filename=image_path.name,
-            page_index=0,  # we'll fill this later in the caller
-            bbox=None,
-            present=False,
-            comment=f"JSON parse error: {e}",
-            confidence=0.0,
-        )
+    except Exception:
+        raise RuntimeError("The model returned invalid question-location JSON. Saved locations were preserved.") from None
+
+    if not isinstance(data, dict) or not isinstance(data.get("present"), bool):
+        raise RuntimeError("The model returned invalid question-location fields.")
+    if data["present"]:
+        bbox = data.get("bbox")
+        if (not isinstance(bbox, list) or len(bbox) != 4
+                or any(isinstance(n, bool) or not isinstance(n, (int, float)) or not 0 <= n <= 1 for n in bbox)
+                or not (bbox[0] < bbox[2] and bbox[1] < bbox[3])):
+            raise RuntimeError("The model returned invalid question bounds. Saved locations were preserved.")
 
     return QuestionSegment(
         problem_id=data.get("target_problem_id", problem_id),

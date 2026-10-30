@@ -78,7 +78,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 from docx import Document
 
 
-from .vlm_client import LMStudioQwenClient  # type: ignore
+from .vlm_provider import create_vlm_client
 from .vlm_classifier import classify_page  # type: ignore
 from .quiz_variants import normalize_quiz_version
 from .rubric_generation import (
@@ -215,8 +215,6 @@ app.mount(
 )
 
 
-LMSTUDIO_BASE_URL = "http://127.0.0.1:1234/v1"
-LMSTUDIO_MODEL_ID = "qwen/qwen3-vl-4b"  # or whatever you’re actually using
 CANVAS_REUPLOAD_ORIGINAL_ZIPS_DIR = DATA_DIR / "canvas_reupload" / "original_zips"
 CANVAS_REUPLOAD_MANIFEST_DIR = DATA_DIR / "canvas_reupload" / "manifests"
 app.mount(
@@ -1390,6 +1388,8 @@ async def setup_generate_rubric(
         problem.points for problem in grading_key.problems if problem.extra_credit
     )
     provider_label = {
+        "reallms": "IU Gemma",
+        "reallms_qwen": "IU Qwen",
         "openai": "OpenAI",
         "deepseek": "DeepSeek",
         "lmstudio": "local LM Studio model",
@@ -1669,7 +1669,7 @@ async def legacy_name_review_page(
     # Branch C: Run VLM (Slow Fallback)
     else:
         print("[name_review] No cache found. Running VLM...")
-        client = LMStudioQwenClient(base_url=LMSTUDIO_BASE_URL, model=LMSTUDIO_MODEL_ID)
+        client = create_vlm_client()
         for path in paths:
             pred = classify_page(path, roster, client)
             predictions.append({
@@ -2016,6 +2016,7 @@ async def name_review_page(
     quiz: str = "quiz1",
     refresh: bool = False,  # 👈 new flag
     saved: bool = False,
+    vlm_model: str = "",
 ):
     """
     Display one row per scanned page.
@@ -2061,10 +2062,10 @@ async def name_review_page(
         # 🔁 Run LM Studio and cache predictions
         print(f"[name_review] Cache miss. inspecting {len(paths)} files...")
 
-        client = LMStudioQwenClient(
-            base_url=LMSTUDIO_BASE_URL,
-            model=LMSTUDIO_MODEL_ID,
-        )
+        try:
+            client = create_vlm_client(vlm_model or None)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
         predictions = []
         cached_by_filename = {
             item.get("filename"): item
@@ -2138,6 +2139,8 @@ async def name_review_page(
                     "name_visible": name_visible,
                     "quiz_version": quiz_version,
                     "name_reviewed": bool(previous.get("name_reviewed")),
+                    "recognition_model": client.model,
+                    "recognition_provider": getattr(client, "provider", "lmstudio"),
                     "starts_new_submission": bool(
                         previous.get("starts_new_submission", False)
                     ),
@@ -2180,6 +2183,7 @@ async def name_review_page(
                 "reasoning": info.get("reasoning") or "",
                 "name_visible": bool(info.get("name_visible", False)),
                 "quiz_version": normalize_quiz_version(info.get("quiz_version")),
+                "recognition_model": info.get("recognition_model") or "Earlier saved run",
                 "starts_new_submission": bool(info.get("starts_new_submission", False)),
                 "excluded": bool(info.get("excluded", False)),
             }
@@ -2195,6 +2199,7 @@ async def name_review_page(
             "quiz_slug": quiz,
             "raw_scans_subdir": raw_scans_subdir,
             "saved": saved,
+            "recognition_model": create_vlm_client().model,
         },
     )
 

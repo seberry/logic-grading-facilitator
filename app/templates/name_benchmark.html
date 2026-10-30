@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Name recognition comparison</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 15px/1.45 system-ui, sans-serif; color: #172033; background: #f2f4f8; }
+    header { padding: 18px 28px; background: #1f2937; color: white; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    h2 { font-size: 16px; margin: 0; }
+    p { margin: 6px 0; }
+    main { max-width: 1420px; margin: auto; padding: 18px; }
+    .summary { position: sticky; top: 0; z-index: 2; background: #f2f4f8; padding-bottom: 12px; }
+    .scores { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .score, .controls, article { background: white; border: 1px solid #dbe1e9; border-radius: 12px; padding: 14px; }
+    .score strong { display: block; font-size: 22px; margin: 4px 0; }
+    .muted { color: #526077; font-size: 13px; }
+    .controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 14px 0; }
+    button, select { font: inherit; border: 1px solid #b9c3d0; border-radius: 7px; padding: 6px 10px; background: white; color: #172033; }
+    button { cursor: pointer; }
+    button:hover { background: #edf3ff; }
+    button:disabled, select:disabled { opacity: .6; cursor: wait; }
+    label { font-weight: 600; }
+    article { margin-bottom: 16px; scroll-margin-top: 180px; }
+    article.reviewed { border-left: 5px solid #16815d; }
+    .row-title { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+    .case-layout { display: grid; grid-template-columns: minmax(360px, 1fr) minmax(500px, 1.4fr); gap: 18px; }
+    .scan { height: 200px; border: 1px solid #dbe1e9; border-radius: 8px; overflow: hidden; }
+    .scan.full { height: 680px; overflow: auto; }
+    .scan img { width: 100%; display: block; }
+    .predictions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .prediction { background: #f4f6fa; border-radius: 8px; padding: 10px; overflow-wrap: anywhere; }
+    .prediction.correct { background: #e9f7ee; }
+    .prediction.wrong { background: #fff0ed; }
+    .prediction .name { font-weight: 650; min-height: 44px; margin: 8px 0; }
+    .prediction button { width: 100%; margin-top: 10px; font-size: 13px; }
+    .review-controls { border-top: 1px solid #dbe1e9; padding-top: 12px; margin-top: 14px; }
+    .review-controls select { width: 100%; margin: 6px 0; }
+    .session-reference { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
+    .status { font-size: 13px; color: #276247; }
+    .error { color: #a12219; }
+    #load-status { margin: 0 0 12px; }
+    .scan-toggle { margin-top: 8px; }
+    [hidden] { display: none !important; }
+    @media (max-width: 1050px) { .case-layout { grid-template-columns: 1fr; } }
+    @media (max-width: 650px) { header { padding: 14px; } main { padding: 10px; } .summary { position: static; } .scores { gap: 6px; } .score { padding: 9px; } .score strong { font-size: 18px; } .predictions { grid-template-columns: 1fr; } .prediction .name { min-height: 0; } }
+  </style>
+</head>
+<body>
+<header>
+  <h1>Name recognition comparison</h1>
+  <div>Compare the saved local run with IU Qwen and Gemma. Confirm the correct name to measure errors.</div>
+</header>
+<main>
+  <div id="load-status" role="status">Loading private benchmark…</div>
+  <section class="summary" aria-label="Benchmark counts">
+    <p><strong id="review-count">0 pages reviewed</strong> · Corrections below are counted only on pages you have reviewed.</p>
+    <div id="scores" class="scores"></div>
+  </section>
+  <div class="controls">
+    <label for="preview-start">Move preview down</label>
+    <input id="preview-start" type="range" min="0" max="80" value="5">
+    <output id="preview-position" for="preview-start">5% of page</output>
+    <label><input id="preview-taller" type="checkbox"> Show more</label>
+    <label for="filter">Show</label>
+    <select id="filter"><option value="all">All pages</option><option value="disagreement">Model disagreements</option><option value="unreviewed">Not reviewed</option><option value="reviewed">Reviewed</option></select>
+    <button id="refresh" type="button">Refresh results</button>
+    <button id="download" type="button">Download counts</button>
+    <span class="muted">Agreement does not establish correctness.</span>
+  </div>
+  <div id="cases"></div>
+  <p class="muted">Your reviews are saved automatically to this private benchmark. They do not change grading assignments. Download counts exports totals without student names or identifiers.</p>
+</main>
+<script>
+  let data, reviews = {}, names, articles = new Map();
+  const friendly = {local: 'Saved local run', 'qwen3.8-27b': 'IU Qwen 27B', 'gemma-4-31B-it': 'IU Gemma 31B'};
+  const pendingValue = '__unreviewed__';
+  const loadStatus = document.getElementById('load-status');
+  const start = document.getElementById('preview-start');
+  const taller = document.getElementById('preview-taller');
+  function element(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+  function studentName(id) { return id ? (names.get(id) || 'Not in current roster') : 'Unknown / no match'; }
+  function resultFor(c, model) {
+    return model === 'local' ? {status: 'ok', prediction: c.local} : c.predictions[model];
+  }
+  function disagreement(c) {
+    const values = data.models.map(m => resultFor(c, m)).filter(r => r?.status === 'ok').map(r => r.prediction.student_id || null);
+    return new Set(values).size > 1;
+  }
+  function counts() {
+    const scores = Object.fromEntries(data.models.map(m => [m, {compared: 0, correct: 0, wrong_name: 0, unresolved: 0, failed: 0, pending: 0}]));
+    for (const c of data.cases) {
+      for (const model of data.models) {
+        const result = resultFor(c, model), score = scores[model];
+        if (!result) { score.pending++; continue; }
+        if (result.status !== 'ok') { score.failed++; continue; }
+        if (!Object.hasOwn(reviews, c.case_id)) continue;
+        score.compared++;
+        const predicted = result.prediction.student_id || null;
+        const correct = reviews[c.case_id].student_id;
+        if (predicted === correct) score.correct++;
+        else if (!predicted && correct) score.unresolved++;
+        else score.wrong_name++;
+      }
+    }
+    return {pages: data.cases.length, reviewed: Object.keys(reviews).length, models: scores};
+  }
+  function updateCounts() {
+    const summary = counts();
+    document.getElementById('review-count').textContent = summary.reviewed + ' of ' + summary.pages + ' pages reviewed';
+    const panel = document.getElementById('scores'); panel.replaceChildren();
+    for (const model of data.models) {
+      const score = summary.models[model], card = element('div', 'score');
+      card.append(element('h2', '', friendly[model] || model));
+      card.append(element('strong', '', (score.wrong_name + score.unresolved) + ' corrections'));
+      card.append(element('div', 'muted', `${score.wrong_name} wrong names · ${score.unresolved} unmatched`));
+      card.append(element('div', 'muted', `${score.correct}/${score.compared} correct on reviewed results · ${score.failed} failed · ${score.pending} pending`));
+      panel.append(card);
+    }
+    for (const c of data.cases) {
+      const article = articles.get(c.case_id), reviewed = Object.hasOwn(reviews, c.case_id);
+      article.classList.toggle('reviewed', reviewed);
+      for (const card of article.querySelectorAll('.prediction')) {
+        const result = resultFor(c, card.dataset.model);
+        const correct = reviewed && result?.status === 'ok' && (result.prediction.student_id || null) === reviews[c.case_id].student_id;
+        card.classList.toggle('correct', correct);
+        card.classList.toggle('wrong', reviewed && result?.status === 'ok' && !correct);
+      }
+    }
+    filterCases();
+  }
+  function filterCases() {
+    const filter = document.getElementById('filter').value;
+    for (const c of data.cases) {
+      const reviewed = Object.hasOwn(reviews, c.case_id);
+      articles.get(c.case_id).hidden = filter === 'disagreement' ? !disagreement(c) : filter === 'unreviewed' ? reviewed : filter === 'reviewed' ? !reviewed : false;
+    }
+    applyPreview();
+  }
+  function applyPreview() {
+    document.getElementById('preview-position').textContent = start.value + '% of page';
+    document.querySelectorAll('.scan').forEach(box => {
+      if (box.classList.contains('full')) return;
+      box.style.height = taller.checked ? '340px' : '200px';
+      box.scrollTop = box.querySelector('img').clientHeight * Number(start.value) / 100;
+    });
+  }
+  async function save(c, value) {
+    const article = articles.get(c.case_id), status = article.querySelector('.status');
+    article.querySelectorAll('button, select').forEach(n => n.disabled = true);
+    status.textContent = 'Saving…'; status.classList.remove('error');
+    const review = {case_id: c.case_id, reviewed: value !== pendingValue, student_id: value && value !== pendingValue ? value : null};
+    try {
+      const response = await fetch('/reviews', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(review)});
+      if (!response.ok) throw new Error('Save failed. Retry your selection.');
+      if (review.reviewed) reviews[c.case_id] = {student_id: review.student_id}; else delete reviews[c.case_id];
+      article.querySelector('.correct-name').value = value;
+      status.textContent = review.reviewed ? 'Saved to benchmark' : 'Review cleared';
+      updateCounts();
+    } catch (error) {
+      status.textContent = error.message; status.classList.add('error');
+      article.querySelector('.correct-name').value = Object.hasOwn(reviews, c.case_id) ? reviews[c.case_id].student_id || '' : pendingValue;
+    } finally {
+      article.querySelectorAll('button, select').forEach(n => n.disabled = false);
+      article.querySelectorAll('.use-prediction').forEach(n => n.disabled = !resultFor(c, n.dataset.model)?.prediction?.student_id);
+    }
+  }
+  function renderCase(c, index) {
+    const article = element('article'); article.dataset.caseId = c.case_id; articles.set(c.case_id, article);
+    const title = element('div', 'row-title');
+    title.append(element('h2', '', 'Page ' + (index + 1)), element('span', 'muted', disagreement(c) ? 'Models disagree' : 'Models agree or results pending'));
+    article.append(title);
+    const layout = element('div', 'case-layout'), left = element('div'), scan = element('div', 'scan'), image = element('img');
+    image.src = '/assets/' + c.case_id + '.jpg'; image.alt = 'Scanned quiz page ' + (index + 1);
+    image.addEventListener('load', applyPreview); scan.append(image); left.append(scan);
+    const toggle = element('button', 'scan-toggle', 'Show full page'); toggle.type = 'button'; toggle.setAttribute('aria-expanded', 'false');
+    toggle.addEventListener('click', () => {
+      const full = scan.classList.toggle('full'); scan.style.height = full ? '680px' : '';
+      scan.scrollTop = 0; toggle.textContent = full ? 'Back to name preview' : 'Show full page';
+      toggle.setAttribute('aria-expanded', String(full)); if (!full) applyPreview();
+    }); left.append(toggle);
+    const right = element('div'), predictions = element('div', 'predictions');
+    for (const model of data.models) {
+      const card = element('div', 'prediction'); card.dataset.model = model;
+      const result = resultFor(c, model), prediction = result?.prediction;
+      card.append(element('h2', '', friendly[model] || model));
+      card.append(element('div', 'name', !result ? 'Pending' : result.status !== 'ok' ? 'Request failed' : studentName(prediction.student_id)));
+      if (prediction) {
+        card.append(element('div', 'muted', 'Read: ' + (prediction.raw_name || '—')));
+        card.append(element('div', 'muted', 'Version: ' + (prediction.quiz_version || 'Unknown')));
+      }
+      const use = element('button', 'use-prediction', 'Use this name'); use.type = 'button'; use.dataset.model = model;
+      use.disabled = !prediction?.student_id; use.addEventListener('click', () => save(c, prediction.student_id));
+      card.append(use); predictions.append(card);
+    }
+    right.append(predictions);
+    const controls = element('div', 'review-controls'), label = element('label', '', 'Correct student (your review)');
+    label.htmlFor = 'correct-' + c.case_id;
+    const select = element('select', 'correct-name'); select.id = label.htmlFor;
+    select.append(new Option('Not reviewed yet', pendingValue), new Option('Unknown / unreadable name', ''));
+    for (const r of data.roster) select.append(new Option(r.name, r.student_id));
+    select.value = Object.hasOwn(reviews, c.case_id) ? reviews[c.case_id].student_id || '' : pendingValue;
+    select.addEventListener('change', () => save(c, select.value));
+    controls.append(label, select, element('span', 'status', Object.hasOwn(reviews, c.case_id) ? 'Saved to benchmark' : 'Choose the correct student after checking the scan.'));
+    if (c.session_reference_available) {
+      const ref = element('div', 'session-reference');
+      ref.append(element('span', 'muted', 'Saved grading-session name: ' + studentName(c.saved_session_student_id)));
+      const useSaved = element('button', '', 'Confirm saved name'); useSaved.type = 'button';
+      useSaved.addEventListener('click', () => save(c, c.saved_session_student_id || '')); ref.append(useSaved); controls.append(ref);
+    }
+    right.append(controls); layout.append(left, right); article.append(layout); return article;
+  }
+  async function load() {
+    const responses = await Promise.all([fetch('/comparison.json'), fetch('/reviews.json')]);
+    if (responses.some(r => !r.ok)) throw new Error('Could not load the private benchmark.');
+    [data, reviews] = await Promise.all(responses.map(r => r.json()));
+    names = new Map(data.roster.map(r => [r.student_id, r.name]));
+    articles = new Map(); document.getElementById('cases').replaceChildren(...data.cases.map(renderCase));
+    updateCounts(); applyPreview(); loadStatus.textContent = 'Private comparison loaded. Your review selections save automatically.';
+  }
+  start.addEventListener('input', applyPreview); taller.addEventListener('change', applyPreview);
+  window.addEventListener('resize', applyPreview); document.getElementById('filter').addEventListener('change', filterCases);
+  document.getElementById('refresh').addEventListener('click', () => load().catch(e => { loadStatus.textContent = e.message; }));
+  document.getElementById('download').addEventListener('click', () => {
+    const url = URL.createObjectURL(new Blob([JSON.stringify(counts(), null, 2)], {type: 'application/json'}));
+    const link = element('a'); link.href = url; link.download = 'name-benchmark-counts.json'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+  load().catch(e => { loadStatus.textContent = e.message; loadStatus.classList.add('error'); });
+</script>
+</body>
+</html>

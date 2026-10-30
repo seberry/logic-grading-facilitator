@@ -12,6 +12,7 @@ from docx import Document
 from pydantic import BaseModel, Field, model_validator
 
 from .models import GradingKey
+from .vlm_provider import IU_BASE_URL, IU_GEMMA, IU_QWEN, reallms_api_key
 
 
 MAX_ASSESSMENT_BYTES = 12 * 1024 * 1024
@@ -70,7 +71,11 @@ class DraftRubric(BaseModel):
 
 
 def configured_rubric_providers() -> List[Dict[str, str]]:
-    providers: List[Dict[str, str]] = [{"id": "lmstudio", "label": "Local model (LM Studio)"}]
+    providers: List[Dict[str, str]] = [
+        {"id": "reallms", "label": "IU Gemma (recommended)"},
+        {"id": "reallms_qwen", "label": "IU Qwen (alternative)"},
+        {"id": "lmstudio", "label": "Local model (LM Studio)"},
+    ]
     if os.getenv("OPENAI_API_KEY", "").strip():
         providers.append({"id": "openai", "label": "OpenAI"})
     if os.getenv("DEEPSEEK_API_KEY", "").strip():
@@ -279,6 +284,21 @@ async def _generate_lmstudio(document_text: str, instructor_request: str) -> Dra
     return DraftRubric.model_validate_json(content)
 
 
+async def _generate_reallms(document_text: str, instructor_request: str, model: str) -> DraftRubric:
+    result = await _post_json(
+        IU_BASE_URL + "/chat/completions",
+        headers={"Content-Type": "application/json", "Authorization": "Bearer " + reallms_api_key()},
+        payload={"model": model, "messages": [
+            {"role": "system", "content": _generation_instructions()},
+            {"role": "user", "content": _generation_input(document_text, instructor_request)}],
+            "response_format": {"type": "json_schema", "json_schema": {
+                "name": "grading_rubric_draft", "schema": DraftRubric.model_json_schema()}},
+            "temperature": 0, "max_tokens": 8000, "stream": False,
+            "chat_template_kwargs": {"enable_thinking": False}},
+    )
+    return DraftRubric.model_validate_json(result["choices"][0]["message"]["content"])
+
+
 async def generate_rubric_draft(
     document_text: str,
     instructor_request: str,
@@ -286,7 +306,10 @@ async def generate_rubric_draft(
 ) -> GradingKey:
     provider_id = (provider or "").strip().lower()
     try:
-        if provider_id == "openai":
+        if provider_id in {"reallms", "reallms_qwen"}:
+            draft = await _generate_reallms(document_text, instructor_request,
+                IU_QWEN if provider_id == "reallms_qwen" else IU_GEMMA)
+        elif provider_id == "openai":
             draft = await _generate_openai(document_text, instructor_request)
         elif provider_id == "deepseek":
             draft = await _generate_deepseek(document_text, instructor_request)

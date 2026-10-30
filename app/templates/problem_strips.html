@@ -814,7 +814,8 @@
     <div class="grading-header-top">
       <h1>{{ problem_id }} — {{ problem_label }}{% if active_version %} · Version {{ active_version }}{% endif %}</h1>
       <p class="header-links">
-        <a href="?{% if active_version %}version={{ active_version }}&amp;{% endif %}refresh=1">↻ Segmentation</a>
+        <a href="?{% if active_version %}version={{ active_version }}&amp;{% endif %}refresh=1">↻ Locations with Gemma</a>
+        <a href="?{% if active_version %}version={{ active_version }}&amp;{% endif %}refresh=1&amp;vlm_model=qwen">Retry locations with IU Qwen</a>
         · <a href="/export_tf_bundle">Prepare TF bundle</a>
         · <a href="/finish">Overview</a>
       </p>

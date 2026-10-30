@@ -52,7 +52,12 @@ Use these before live OCR unless the change is docs-only.
 
 ## Live OCR Commands
 
-Live runs require LM Studio or a compatible local VLM endpoint.
+Live runs now default to IU REALLMS Gemma through `app/vlm_provider.py` and
+require `REALLMS_API_KEY`. Set `REALLMS_MODEL=qwen3.8-27b` for an IU Qwen
+comparison, or `GRADING_VLM_PROVIDER=lmstudio` for the existing local baseline.
+Provider selection changes the transport/model, not the chopping, masking,
+stitching, normalization, or regression comparison. Name-recognition success is
+not proof-OCR validation; run bounded instructor-authored/fake gold cases first.
 
 ```powershell
 python -m proofs_ocr.regression.tfl_runner run-gold
@@ -66,7 +71,8 @@ For one cropped proof:
 python scripts/debug_fitch_ocr.py path\to\proof_crop.jpg
 ```
 
-For live 27B reread/fallback probes, confirm LM Studio has thinking/reasoning
+The optional `LMSTUDIO_MODEL_27B` reread route is for explicitly configured local
+experiments; leave it unset for IU runs. For local 27B probes, confirm LM Studio has thinking/reasoning
 disabled for the loaded model. The pipeline writes `response_metadata_*.json`;
 healthy no-thinking probes should show `thinking_chars=0` and
 `reasoning_tokens=0`.

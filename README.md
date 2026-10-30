@@ -10,7 +10,8 @@ instructions are provided but have not been tested on a fresh Mac. Install with
 `python -m pip install -r requirements.txt`; it uses the tested dependency pins
 in `requirements-lock.txt`. Update and re-test those pins for future releases.
 
-A local, privacy-first grading tool for scanned logic assignments. The main
+A locally run grading tool for scanned logic assignments, using IU-approved
+REALLMS models for recognition by default. The main
 exam workflow groups scans into student submissions, lets an instructor grade
 one problem across all students in a strip view, and exports Canvas-ready
 grade files. The repo also contains active OCR/autograding experiments for
@@ -65,6 +66,8 @@ Example `.env`:
 DATA_DIR=C:\grading-data\live
 DATA_ARCHIVE_DIR=C:\grading-data\archive
 ENV_MODE=PRODUCTION
+GRADING_VLM_PROVIDER=reallms
+# Set REALLMS_API_KEY privately; never include it in a grading bundle.
 ```
 
 Dev workflow:
@@ -139,7 +142,7 @@ pytest tests/test_debug_fitch_ocr.py tests/test_tfl_fitch_ocr_regression.py -q
 python -m proofs_ocr.regression.tfl_runner summary
 ```
 
-Live OCR runs require a local VLM endpoint:
+Live OCR runs default to IU Gemma and require a private `REALLMS_API_KEY`:
 
 ```powershell
 python -m proofs_ocr.regression.tfl_runner run-gold --case tfl_handwritten_q6_S_iff_W

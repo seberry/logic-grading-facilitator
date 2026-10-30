@@ -370,10 +370,12 @@
     href="/name_review?quiz={{ quiz_slug }}&raw_scans_subdir={{ raw_scans_subdir }}&refresh=1"
     class="run-refresh-button"
   >
-    🔁 Run / refresh name recognition
+    🔁 Run / refresh names with Gemma
   </a>
+  <a href="/name_review?quiz={{ quiz_slug|urlencode }}&amp;raw_scans_subdir={{ raw_scans_subdir|urlencode }}&amp;refresh=1&amp;vlm_model=qwen"
+     class="run-refresh-button">Retry names with IU Qwen</a>
   <div class="hint">
-    Normally you don’t need this again. If you first click <strong>Save Corrections</strong>,
+    Default model: {{ recognition_model|default('IU Gemma') }}. If you first click <strong>Save Corrections</strong>,
     a refresh preserves those reviewed student selections while obtaining fresh
     printed-version guesses from the model.
   </div>
@@ -457,7 +459,8 @@
             Raw OCR name:
             <span class="raw-name">"{{ row.raw_name or "—" }}"</span><br>
             Printed version guess:
-            <strong>{{ row.quiz_version or "unknown" }}</strong>
+            <strong>{{ row.quiz_version or "unknown" }}</strong><br>
+            Recognized by: {{ row.recognition_model|default('Earlier saved run') }}
           </div>
         </div>
 

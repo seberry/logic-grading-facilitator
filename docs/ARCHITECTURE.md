@@ -89,6 +89,13 @@ Do not upload student scans to rubric generation. The feature is intended only
 for blank assessment text and instructor-authored requests.
 
 ### A. Name Review View (`GET /name_review`)
+* **Model selection:** `app/vlm_provider.py` supplies IU Gemma by default,
+  authenticated with `REALLMS_API_KEY` at a pinned IU endpoint. `vlm_model=qwen`
+  on an explicit refresh chooses IU Qwen. The same factory handles location
+  preparation, FOL/modal runtime defaults, and TFL/Fitch OCR. Local inference is
+  an explicit configuration choice; construction alone does not require a key.
+* **Failures:** provider errors omit raw response bodies from public messages.
+  Location request/parse/geometry failures propagate before a cache is written.
 * **Purpose:** rapid audit of VLM-grouped pages before grading begins.
 * **Input:** Reads draft predictions from CSV (CLI output) or JSON cache.
 * **Action:** User confirms identity and printed quiz-version matches and can use **Save & Auto-Fill Unknowns** to cascade the last chosen student onto later "Unknown" rows without renaming files yet.
@@ -104,6 +111,8 @@ for blank assessment text and instructor-authored requests.
   same session and opens the Assignment overview in TF-preparation mode.
 
 ### B. Strip View Grading (`GET /problem/{id}/strips`)
+* **Alternative model:** `refresh=1&vlm_model=qwen` recomputes that problem's
+  locations with IU Qwen. Existing cache reads remain model-free.
 * **Purpose:** High-speed grading of **one question across all students**.
 * **Display:**
     * A versioned rubric opens one A/B/C tab at a time. The selected version's

@@ -19,6 +19,7 @@ from .models import RosterEntry
 # These imports assume you have app/vlm_client.py and app/vlm_classifier.py
 # in your real repo, as in the CLI script.
 from .vlm_client import LMStudioQwenClient  # type: ignore
+from .vlm_provider import create_vlm_client
 from .vlm_classifier import classify_page  # type: ignore
 
 
@@ -268,7 +269,7 @@ def run_name_recognition(
     """
     if client is None:
         # Adjust defaults to match your LM Studio setup.
-        client = LMStudioQwenClient()  # type: ignore
+        client = create_vlm_client()
 
     all_paths = [
         p

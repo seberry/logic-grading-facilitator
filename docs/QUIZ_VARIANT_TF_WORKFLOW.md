@@ -2,8 +2,8 @@
 
 This is the operating note for paper quizzes that have multiple printed
 versions, are photographed or scanned, and are handed to one TF for grading.
-The instructor's local model performs name/version recognition and question
-location. The TF grades from saved crops without running a model.
+IU REALLMS Gemma performs name/version recognition and question location by
+default. The TF can still grade from saved crops without running a model.
 
 ## Fresh-agent orientation
 
@@ -14,7 +14,7 @@ changing code. It does **not** need to read the proof-OCR history.
 
 The intended workflow and product decisions are:
 
-- One instructor prepares the quiz with a local VLM; one human TA/TF grades it
+- One instructor prepares the quiz with IU REALLMS; one human TA/TF grades it
   without any model.
 - Canvas API access is not part of this path. Intake uses a downloaded Canvas
   gradebook CSV. Scores return through a Canvas gradebook upload; the instructor
@@ -52,7 +52,7 @@ Fast offline checks for this domain:
 pytest tests/test_quiz_variant_tf_handoff.py tests/test_exam_exports_routes.py tests/test_vlm_client.py -q
 ```
 
-Before a release, also run the full offline suite if practical. Live LM Studio
+Before a release, also run the full offline suite if practical. Live model
 checks are deliberate manual canaries; do not invoke them merely to validate a
 documentation or export change.
 
@@ -106,7 +106,7 @@ TF do not mistake EC for points above 100%.
 
 The PDF-to-YAML prompt may transcribe printed questions, propose point values,
 and describe crop geometry. It must not generate solutions, grading guidance,
-or `answer_key` fields. The Setup generator can use local LM Studio; its draft
+or `answer_key` fields. The Setup generator defaults to IU Gemma; its draft
 omits `rubric_notes` even if the model tries to supply them. Legacy answer keys
 are not displayed in strip view, and both answer keys and rubric notes are
 removed when a TF bundle is exported.
@@ -127,7 +127,7 @@ ask a model to settle it.
    Scan intake compares SHA-256 content: a repeated upload of the exact same
    image is skipped, while two genuinely different scans with the same filename
    are both preserved (the later filename receives `_2`).
-4. Run name recognition with LM Studio.
+4. Run name recognition with IU Gemma.
    Before recognition starts, any exact duplicates left by an older app version
    are moved—not deleted—to `DATA_DIR/duplicate_scans_quarantine/<timestamp>/`.
 5. On Name Review, correct every student and Version A/B/C guess. For a lower
@@ -164,6 +164,52 @@ ask a model to settle it.
 
 Keep the extracted TF bundle outside the repository. It contains protected
 student names, identifiers, and scans.
+
+## IU models and a future consolidated TF workflow
+
+The ordinary app now defaults to `gemma-4-31B-it` at the pinned IU REALLMS
+endpoint. Blank-quiz rubric drafting also offers IU Qwen; Name Review and strip
+grading offer explicit Qwen retries. A retry regenerates the entire relevant
+name batch or question-location batch. Save name corrections before retrying;
+reviewed student choices survive a name refresh. Successful cached question
+locations stay usable without a key. Failed requests or invalid location JSON
+do not replace a successful location cache. No automatic provider fallback is
+performed, and existing grading sessions are not reprocessed on startup.
+
+Set `REALLMS_API_KEY` in a private environment or the ignored `.env`. On Windows,
+the client also checks the user's and machine's environment registry entries,
+so a previously saved key works without restarting the terminal. Set
+`REALLMS_MODEL=qwen3.8-27b` to make Qwen the default, or explicitly set
+`GRADING_VLM_PROVIDER=lmstudio` to restore local inference. Normal use needs no
+LM Studio server. Keep keys out of source, private grading bundles, and logs.
+
+On one human-reviewed 37-page quiz, each IU model correctly matched all 37 names.
+The saved local run had 27 correct matches, nine unresolved names, and one wrong
+student. Gemma took approximately 34 seconds and Qwen 52 seconds. These are
+small-sample name-recognition results, not evidence about question geometry or
+proof OCR. Keep human confirmation and evaluate each of those tasks separately.
+
+`scripts/benchmark_name_recognition.py` preserves a private input snapshot and
+separate results outside the repo. Its `serve` action opens a loopback review
+panel using `app/templates/name_benchmark.html`; human reviews change only that
+benchmark. Downloaded counts contain aggregate scores without student identities.
+
+For eventual TF consolidation, use one local app on the TF's approved device:
+upload scans and the minimal name/ID roster, run IU recognition, confirm names
+and versions, prepare/check question locations, grade, and return exports. The
+TF needs their own authorized IU API access and key, the normal student-data
+authorization/training, and access to only their assigned course records.
+[IU's current tool matrix](https://datamanagement.iu.edu/faq/genai.html) explicitly
+approves REALLMS for FERPA data. Confirm the allocation and retention arrangements
+when provisioning access; a key itself does not establish access rights to a class.
+
+This consolidated TF intake workflow has not yet been tested on the TF's device.
+Before handoff, exercise a fresh installation, key setup, network failure/retry,
+scan grouping, crop correction, and full export with fake data. Instructor and TF
+must agree who owns the current session; avoid parallel copies that both acquire
+grades. Keep the prepared, model-free TF bundle path as a fallback. Reusable
+blank-template rectangles for stack scans may reduce calls and improve blank
+answer coverage; human crop corrections must remain authoritative.
 
 ## Blank-question images
 

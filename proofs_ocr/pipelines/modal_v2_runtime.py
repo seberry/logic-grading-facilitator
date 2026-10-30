@@ -16,7 +16,9 @@ from proofs_ocr.pipelines.modal_v2_line_rereads import maybe_reread_contradictio
 from proofs_ocr.pipelines.modal_v2_line_zones import read_line_with_zone_separation
 
 try:
-    from app.vlm_client import LMStudioQwenClient, default_lmstudio_base_url, default_lmstudio_model, default_lmstudio_timeout
+    from app.vlm_client import LMStudioQwenClient, default_lmstudio_timeout
+    from app.vlm_provider import (IUClient, IU_BASE_URL, default_grading_base_url as default_lmstudio_base_url,
+                                 default_grading_model as default_lmstudio_model)
 except ImportError:  # pragma: no cover - standalone fallback
     LMStudioQwenClient = None  # type: ignore[assignment]
 
@@ -193,6 +195,9 @@ def build_vlm_client(
 
     if LMStudioQwenClient is None:
         raise RuntimeError("LM Studio client is not available")
+    if (base_url or default_lmstudio_base_url()).strip().rstrip("/") == IU_BASE_URL:
+        return IUClient(model or default_lmstudio_model(),
+                        timeout=default_lmstudio_timeout() if timeout is None else timeout)
     return LMStudioQwenClient(
         base_url=(base_url or default_lmstudio_base_url()).strip(),
         model=(model or default_lmstudio_model()).strip(),

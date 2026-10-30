@@ -283,7 +283,7 @@
               <summary>Generate from a blank assessment <span class="source-badge">AI draft</span></summary>
               {% if rubric_api_providers %}
                 <form method="post" action="/setup/generate_rubric" enctype="multipart/form-data">
-                  <p class="muted">Upload only the blank assessment—never student scans. The model returns an editable question and point outline without grading instructions. Cloud providers receive the uploaded blank assessment; LM Studio runs locally. Nothing is saved automatically.</p>
+                  <p class="muted">Upload only the blank assessment—never student scans. IU Gemma is the default; IU Qwen is available for another attempt. The model returns an editable question and point outline without grading instructions. Nothing is saved automatically.</p>
                   <label for="rubric_provider">Provider</label>
                   <select id="rubric_provider" name="provider">
                     {% for provider in rubric_api_providers %}
@@ -301,7 +301,7 @@
                 </form>
               {% else %}
                 <div class="alert warning">
-                  Start LM Studio, or configure <code>OPENAI_API_KEY</code> or <code>DEEPSEEK_API_KEY</code> before the app starts.
+                  Configure your private <code>REALLMS_API_KEY</code> to use IU Gemma.
                 </div>
               {% endif %}
             </details>
@@ -367,7 +367,7 @@ problems:
       B:
         prompt: "Version B prompt."
 
-If a page has two problem banks with overlapping numbers, distinguish them using section + problem_number so the local model can tell which printed "1" or "3" to look for.</textarea>
+If a page has two problem banks with overlapping numbers, distinguish them using section + problem_number so the model can tell which printed "1" or "3" to look for.</textarea>
               </details>
             </details>
           </div>
@@ -380,7 +380,7 @@ If a page has two problem banks with overlapping numbers, distinguish them using
               <label for="rubric_text">Rubric YAML</label>
               <textarea id="rubric_text" name="yaml_text">{{ rubric_text }}</textarea>
               <p class="muted">This is the authoritative rubric. It must parse into the <code>GradingKey</code> model and will be saved under its <code>quiz_id</code> in <code>{{ rubrics_dir }}</code>.</p>
-              <p class="muted">Problem labels, prompts, sections, and version variants help the local model find the correct answer region.</p>
+              <p class="muted">Problem labels, prompts, sections, and version variants help IU Gemma find the correct answer region.</p>
             </details>
             <button type="submit">Save rubric</button>
           </form>
@@ -388,7 +388,7 @@ If a page has two problem banks with overlapping numbers, distinguish them using
 
         <div class="card" style="grid-column: 1 / -1;">
           <h2>Step 4: Run Auto-Grouping</h2>
-          <p class="muted">Runs the VLM name recognition and prepares results for review. <b>This may take some time. Check that the local model working and then be patient! </b></p>
+          <p class="muted">IU Gemma reads the scans and matches names to the roster for your review. Keep this page open while recognition runs.</p>
           <form method="post" action="/setup/run_auto_grouping">
             <label for="quiz_id">Quiz ID</label>
             <input type="text" id="quiz_id" name="quiz_id" value="{{ quiz_id }}">

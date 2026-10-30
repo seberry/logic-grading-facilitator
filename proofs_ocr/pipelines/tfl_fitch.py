@@ -67,10 +67,10 @@ from proofs_ocr.pipelines.tfl_fitch_vlm import (
 # Attempt to import project modules
 try:
     from app.storage import DEBUG_FITCH_DIR, RAW_SCANS_DIR
-    from app.vlm_client import LMStudioQwenClient
+    from app.vlm_provider import create_vlm_client
     from app.verifier import ProofLine, check_proof, flatten_proof
 
-    vlm_client = LMStudioQwenClient()
+    vlm_client = create_vlm_client()
     proof_checker_available = True
 except ImportError as e:
     project_root = Path(__file__).resolve().parents[2]

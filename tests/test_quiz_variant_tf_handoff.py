@@ -368,7 +368,7 @@ problems:
             patch.object(server, "RAW_SCANS_DIR", raw_dir),
             patch.object(server, "load_roster", return_value=_variant_session().roster),
             patch.object(server, "name_review_cache_path", return_value=cache_path),
-            patch.object(server, "LMStudioQwenClient", return_value=object()),
+            patch.object(server, "create_vlm_client", return_value=type("FakeClient", (), {"model": "test"})()),
             patch.object(server, "classify_page", return_value=fresh),
         ):
             response = client.get(
