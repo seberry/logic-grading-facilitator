@@ -742,3 +742,29 @@ means unreviewed and explicit null means the reviewer could not identify a name.
 Saved session assignments are provisional references, not automatically accepted
 human labels. `summary.json` and the panel's downloaded counts contain aggregate
 metrics only. All other benchmark files, including thumbnails, are protected.
+
+# 12. Private whole-proof review pilot
+
+These files live in an external pilot directory and never enter a TF grading
+bundle or the repository. `manifest.json` freezes the source ZIP hash, sampling
+seed/policy, prompt/schema hashes, and anonymous cases with their original image
+member, normalized crop bounds, and image/crop hashes. No roster or grades are
+copied into the model request. `results/<case>.json` stores immutable original
+`status`, nested `proof`, `raw_response`, and model `metadata` on success, or a
+safe error type on failure. The proof shape is the existing nested list of
+`{line, wffstr, jstr}` objects.
+
+`reviews.json` maps case IDs to statuses `exact`, `corrected`, `needs_correction`,
+`unreadable`, or `bad_crop`; absence means unreviewed. Exact/corrected records
+include the human-approved `proof`; needs-correction records can include a list
+of error-category strings. Gold files are written separately for exact/corrected
+reviews. Review status is authoritative: a historical gold file after clearing
+or excluding a review must not be treated as currently accepted gold.
+
+`shareable_summary.json` contains counts only. The accuracy denominator is
+`exact + corrected + needs_correction`; unreadable cases, bad crops, pending
+requests, and request failures are reported separately. Error-category counts
+describe proofs affected, may overlap, and are not character-level accuracy.
+The editor uses `depth` plus `start_subproof` at a sibling block's first row to
+round-trip nested arrays without merging adjacent subproofs. Those UI fields
+are not additional keys in the persisted proof-line schema.

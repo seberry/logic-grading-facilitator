@@ -1,0 +1,21 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "iu": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "IU REALLMS",
+      "options": {
+        "baseURL": "https://reallms.rescloud.iu.edu/direct/v1",
+        "apiKey": "{env:REALLMS_API_KEY}"
+      },
+      "models": {
+        "glm-5.3-flash": { "name": "IU GLM Flash" }
+      }
+    }
+  },
+  "permission": {
+    "bash": "ask",
+    "external_directory": "deny",
+    "read": { "*": "allow", "*.env": "deny", "*.env.*": "deny", "**/.env": "deny", "**/.env.*": "deny" }
+  }
+}

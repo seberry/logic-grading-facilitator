@@ -228,3 +228,83 @@ run a small live canary. Report the evidence before changing the production OCR
 strategy default. Do not infer correctness from model confidence or verifier
 success alone. Commit a concrete, reviewable implementation if successful.
 ```
+
+## Expanded instructor tests and private bundle pilot
+
+Gemma's same constrained whole-proof contract has now been evaluated on all
+seven registered instructor-authored/fake TFL fixtures: **5/7 exact** under the
+existing normalized structure comparison. The four additional fixtures produced
+two exact results, one correct line-content result with incorrect subproof
+structure (the biconditional-introduction example), and one omitted line in the
+nested/disjunction example with scratch-outs. Explicit line numbers were also
+compared. These failures were retained; the prompt was not tuned to their gold.
+
+The opt-in implementation is `proofs_ocr/pipelines/tfl_whole_page.py`. It keeps
+the whole proof region intact, uses the tested literal-copy prompt and constrained
+JSON output, validates representation without logical repair, and records prompt/
+schema hashes plus model runtime metadata. The current experimental schema allows
+up to three nested subproof levels. It does not replace production OCR.
+
+`scripts/private_fitch_pilot.py` and
+`proofs_ocr/regression/private_fitch_pilot.py` prepare a read-only TF-bundle pilot
+without showing protected handwriting or transcriptions to a coding agent:
+
+```powershell
+python scripts/private_fitch_pilot.py inventory
+python scripts/private_fitch_pilot.py prepare --quiz 6 --samples 20 --output-dir C:\grading-data\ocr-eval\fitch-pilot
+python scripts/private_fitch_pilot.py run --limit 1 --output-dir C:\grading-data\ocr-eval\fitch-pilot
+python scripts/private_fitch_pilot.py run --output-dir C:\grading-data\ocr-eval\fitch-pilot
+python scripts/private_fitch_pilot.py serve --output-dir C:\grading-data\ocr-eval\fitch-pilot --port 5030
+```
+
+Preparation uses the bundle filename's quiz number before the saved session's
+potentially stale label and reports label conflicts in inventory. `--bundle`
+can select an explicit ZIP. Before preparing the sample, IU privately classifies
+representative answer-image layouts from each main question, without returning
+student text. Only questions verified as TFL proof layouts enter the pilot;
+rubric keyword matches alone are insufficient. Preparation then
+balances questions/versions before inference, uses at most one response per
+student, and excludes extra-credit and explicitly quantified questions from the
+initial pilot. Whole proof regions are cropped from the saved normalized boxes
+with modest padding; no subproof chopping is performed. The source ZIP is never
+written. The prompt receives the selected image plus generic instructions, not
+the roster, session grades, old model responses, or rubric answer-key fields.
+
+All snapshots, crops, source-page previews, raw responses, human labels, and
+detailed results stay outside the repository. The coding agent may inspect
+metadata and `shareable_summary.json` only, not real images or proof text. Test
+the review UI using synthetic fixtures and never take a real-student screenshot
+for agent inspection. The loopback-only panel uses
+`app/templates/private_fitch_pilot.html`; it is separate from grading and does
+not change session assignments or grades.
+
+The reviewer can confirm an exact transcription, mark errors for later repair,
+edit formulas/citations/line numbers/depths, add or remove lines, and distinguish
+adjacent sibling subproofs using **New block**. Unreadable writing and incorrect
+crops have separate labels. Counts distinguish technical completion from human
+accuracy; model confidence and proof validity never establish OCR correctness.
+Assess correctness against the written response, including invalid reasoning.
+Corrected labels do not overwrite the original model output. The panel's anonymous
+download contains counts and error categories only, suitable for agent feedback.
+
+The first proposed Quiz 7 pilot was invalidated after instructor inspection:
+its ZIP was actually labeled Quiz 9, while its saved session still said Quiz 7
+and carried obsolete proof-related rubric text. Its outputs were retained as an
+invalid source-selection experiment, not proof-OCR accuracy evidence.
+
+The replacement pilot uses an older Quiz 6 bundle with 36 submissions. Its three
+main question layouts were independently verified as Fitch proofs by IU's private
+categorical layout check. It contains 20 sampled proof regions from 20 distinct
+submissions; all 20 model responses passed representation checks. Accuracy remains
+unmeasured until the instructor labels them. Keep the remaining submissions for a subsequent holdout rather than tuning
+the prompt and reporting accuracy on the same reviewed sample.
+
+For separate IU-backed coding work, `scripts/start_iu_opencode.ps1 -ProjectDir
+<coding-worktree>` launches the existing workspace-local OpenCode installation
+using `scripts/opencode_iu_glm.json` and the catalog ID `glm-5.3-flash`. The key is
+read from the private `REALLMS_API_KEY` environment; no literal key belongs in the
+JSON. Use a separate code/fake-fixture worktree to avoid concurrent edits to the
+grading workspace. The configuration asks before shell commands, denies external
+directory access, and denies direct reads of `.env` files; these agent permission
+rules are not an operating-system sandbox. This coding setup does not change the
+Gemma model used by the private proof pilot.

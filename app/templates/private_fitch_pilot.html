@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Private Fitch transcription review</title>
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; font: 15px/1.45 system-ui,sans-serif; background: #f2f4f8; color: #192337; }
+header { padding: 18px 26px; background: #202c40; color: white; }
+h1 { font-size: 22px; margin: 0 0 6px; } h2 { font-size: 17px; margin: 0 0 10px; }
+main { max-width: 1700px; padding: 18px; margin: auto; }
+.summary,.toolbar,.panel { background: white; border: 1px solid #d9e0eb; border-radius: 12px; padding: 14px; margin-bottom: 14px; min-width: 0; }
+.summary { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; }
+.summary strong { font-size: 21px; } .muted { color: #58677d; font-size: 13px; }
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+button,select,input { font: inherit; border: 1px solid #b6c2d3; border-radius: 6px; background: white; padding: 6px 9px; color: #192337; }
+button { cursor: pointer; } button:hover { background: #edf3fc; } button:disabled { opacity: .5; cursor: default; }
+.primary { background: #176c50; color: white; border-color: #176c50; } .primary:hover { background: #12503c; }
+.layout { display: grid; grid-template-columns: minmax(380px, 1fr) minmax(650px, 1.3fr); gap: 16px; }
+.image-box { max-height: 78vh; overflow: auto; border: 1px solid #dce2eb; border-radius: 8px; background: #fafafa; }
+.image-box img { display: block; width: 100%; max-width: none; }
+.image-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px; }
+.editor-scroll { overflow: auto; }
+table { width: 100%; border-collapse: collapse; min-width: 620px; }
+th { text-align: left; font-size: 12px; color: #596b82; padding: 5px; }
+td { padding: 4px; vertical-align: top; } td input { width: 100%; min-width: 0; }
+td input[type=checkbox] { width: auto; margin: 8px 12px; }
+.line-cell { width: 55px; } .depth-cell { width: 55px; } .block-cell { width: 60px; } .actions-cell { width: 78px; white-space: nowrap; }
+.actions-cell button { font-size: 12px; padding: 5px; }
+.formula-cell { min-width: 160px; } .rule-cell { min-width: 150px; }
+.formula-wrap { position: relative; } .bar { position: absolute; border-left: 2px solid #52657e; top: -5px; bottom: -5px; }
+.new-block td { border-top: 2px solid #cad4e2; }
+.review-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
+.tags { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0; font-size: 13px; }
+.tags label { white-space: nowrap; }
+#status { min-height: 25px; color: #176c50; } .error { color: #a3271a !important; }
+.symbol-help { padding: 10px 0; font-size: 13px; }
+[hidden] { display: none !important; }
+@media (max-width: 1150px) { .layout { grid-template-columns: 1fr; } .image-box { max-height: 60vh; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Private Fitch transcription review</h1>
+  <div>Compare Gemma’s transcription with the handwriting. Preserve the student’s mistakes: an invalid proof can be transcribed exactly.</div>
+</header>
+<main>
+  <section class="summary" aria-label="Pilot summary">
+    <span><strong id="reviewed">0</strong> reviewed</span>
+    <span><strong id="exact-count">0</strong> exact</span>
+    <span><strong id="repair-count">0</strong> need(ed) repair</span>
+    <span><strong id="excluded-count">0</strong> unreadable / bad crop</span>
+    <span id="accuracy" class="muted">No human accuracy labels yet.</span>
+    <button id="download" type="button">Download anonymous counts</button>
+  </section>
+  <div class="toolbar">
+    <button id="previous" type="button">← Previous</button>
+    <label for="case-picker">Proof</label><select id="case-picker"></select>
+    <button id="next" type="button">Next →</button>
+    <button id="unreviewed" type="button">Next unreviewed</button>
+    <label><input id="auto-next" type="checkbox" checked> Advance after saving</label>
+    <span id="case-details" class="muted"></span>
+  </div>
+  <div class="layout">
+    <section class="panel">
+      <h2 id="image-title">Student proof region</h2>
+      <div class="image-box"><img id="proof-image" alt="Private handwritten proof for instructor review"></div>
+      <div class="image-controls">
+        <label for="zoom">Zoom</label><input id="zoom" type="range" min="70" max="220" value="100">
+        <button id="full-page" type="button">Show source page</button>
+      </div>
+      <p class="muted">The model receives the proof crop. No roster, saved grades, or answer-key text is included in its prompt. This panel displays the private images for your review.</p>
+    </section>
+    <section class="panel">
+      <h2>Gemma transcription / your corrections</h2>
+      <p class="muted">Depth 0 is outside a subproof. Use “New block” at the start of a sibling subproof at the same depth. Line numbers are the written numbers; moving rows does not renumber them.</p>
+      <div class="editor-scroll">
+        <table aria-label="Editable proof transcription">
+          <thead><tr><th>Line</th><th>Depth</th><th>New block</th><th>Formula</th><th>Rule / citations</th><th>Edit</th></tr></thead>
+          <tbody id="proof-rows"></tbody>
+        </table>
+      </div>
+      <div class="toolbar" style="padding:8px;margin-top:10px">
+        <button id="add-line" type="button">Add missing line</button>
+        <button id="reset-editor" type="button">Reset editor to Gemma</button>
+      </div>
+      <div class="symbol-help">Symbols to copy: ¬ ∧ ∨ → ↔ ⊥ &nbsp; · &nbsp; Copy what is written; do not fix the proof’s reasoning.</div>
+      <div class="tags" aria-label="Error categories">
+        <label><input type="checkbox" value="formula"> Formula</label>
+        <label><input type="checkbox" value="justification"> Rule / citation</label>
+        <label><input type="checkbox" value="structure"> Subproof structure</label>
+        <label><input type="checkbox" value="line_numbers"> Line numbers</label>
+        <label><input type="checkbox" value="missing_or_extra_lines"> Missing / extra line</label>
+      </div>
+      <div class="review-actions">
+        <button id="exact" type="button" class="primary">Exactly right</button>
+        <button id="needs-repair" type="button">Has errors — repair later</button>
+        <button id="save-correction" type="button">Save corrected transcription</button>
+        <button id="unreadable" type="button">Handwriting unreadable</button>
+        <button id="bad-crop" type="button">Wrong / incomplete crop</button>
+        <button id="clear-review" type="button">Clear review</button>
+      </div>
+      <div id="status" role="status" aria-live="polite">Loading private pilot…</div>
+      <p class="muted">You can simply mark “Has errors” for this pilot; repairs are optional. Reviews save to this separate experiment and do not change grades or grading bundles.</p>
+    </section>
+  </div>
+</main>
+<script>
+let data, index = 0, rows = [], busy = false, fullPage = false;
+const status = document.getElementById('status');
+function node(tag, text) { const el=document.createElement(tag); if(text!==undefined)el.textContent=text; return el; }
+function flatten(proof, depth=0) {
+  const result=[];
+  for(const item of proof) {
+    if(Array.isArray(item)) {const children=flatten(item,depth+1);if(children.length)children[0].start_subproof=true;result.push(...children);}
+    else result.push({...item,depth,start_subproof:false});
+  }
+  return result;
+}
+function current(){return data.cases[index];}
+function setMessage(text,error=false){status.textContent=text;status.classList.toggle('error',error);}
+function signature(values){return JSON.stringify(values.map(r=>[r.line,r.depth,Boolean(r.start_subproof),r.wffstr,r.jstr]));}
+function dirty(){return signature(rows)!==signature(current().rows);}
+function updateActions(){
+  const ok=current().status==='ok';
+  document.getElementById('exact').disabled=busy||!ok||dirty();
+  for(const id of ['needs-repair','save-correction','add-line','reset-editor'])document.getElementById(id).disabled=busy||!ok;
+  for(const id of ['unreadable','bad-crop','clear-review','previous','next','unreviewed','case-picker'])document.getElementById(id).disabled=busy;
+}
+function renderRows(){
+  const body=document.getElementById('proof-rows');body.replaceChildren();
+  rows.forEach((row,i)=>{
+    const tr=node('tr');if(row.start_subproof)tr.classList.add('new-block');
+    for(const [key,className] of [['line','line-cell'],['depth','depth-cell'],['start_subproof','block-cell'],['wffstr','formula-cell'],['jstr','rule-cell']]){
+      const td=node('td');td.className=className;const input=node('input');input.setAttribute('aria-label',key+' row '+(i+1));
+      if(key==='start_subproof'){input.type='checkbox';input.checked=Boolean(row[key]);}
+      else if(key==='line'||key==='depth'){input.type='number';input.min=key==='line'?'1':'0';if(key==='depth')input.max='3';input.value=row[key];}
+      else {input.type='text';input.value=row[key];}
+      input.addEventListener('input',()=>{row[key]=key==='start_subproof'?input.checked:key==='line'||key==='depth'?Number(input.value):input.value;updateActions();});
+      if(key==='wffstr'){
+        const wrap=node('div');wrap.className='formula-wrap';wrap.style.paddingLeft=(row.depth*15)+'px';
+        for(let d=0;d<row.depth;d++){const bar=node('span');bar.className='bar';bar.style.left=(d*15)+'px';wrap.append(bar);}
+        wrap.append(input);td.append(wrap);
+      }else td.append(input);
+      if(key==='depth'||key==='start_subproof')input.addEventListener('change',renderRows);
+      tr.append(td);
+    }
+    const actions=node('td');actions.className='actions-cell';
+    for(const [label,action] of [['↑',()=>{if(i>0)[rows[i-1],rows[i]]=[rows[i],rows[i-1]];}],['↓',()=>{if(i<rows.length-1)[rows[i+1],rows[i]]=[rows[i],rows[i+1]];}],['×',()=>rows.splice(i,1)]]){
+      const button=node('button',label);button.type='button';button.setAttribute('aria-label',label==='×'?'Remove row '+(i+1):'Move row '+(i+1)+' '+label);button.addEventListener('click',()=>{action();renderRows();});actions.append(button);
+    }
+    tr.append(actions);body.append(tr);
+  });
+  updateActions();
+}
+function image(){document.getElementById('proof-image').src='/image/'+current().case_id+'/'+(fullPage?'page':'crop');document.getElementById('proof-image').style.width=document.getElementById('zoom').value+'%';}
+function render(){
+  const c=current(),review=data.reviews[c.case_id];
+  rows=structuredClone(review?.proof?flatten(review.proof):c.rows);
+  fullPage=false;document.getElementById('full-page').textContent='Show source page';document.getElementById('image-title').textContent='Student proof region';
+  const picker=document.getElementById('case-picker');picker.replaceChildren();
+  data.cases.forEach((item,i)=>{const r=data.reviews[item.case_id];picker.append(new Option('Proof '+(i+1)+' · '+item.problem_id+' · '+(r?r.status.replaceAll('_',' '):'not reviewed'),String(i)));});picker.value=String(index);
+  document.getElementById('case-details').textContent='Quiz '+data.quiz+' · '+c.problem_id+' · Version '+(c.version||'unknown')+' · '+c.status;
+  document.querySelectorAll('.tags input').forEach(input=>input.checked=Boolean(review?.error_categories?.includes(input.value)));
+  renderRows();image();setMessage(c.status==='error'?'Transcription request failed; it is counted separately from handwriting accuracy.':review?'Saved review: '+review.status.replaceAll('_',' '):'Check the handwriting, then confirm or mark an error.');
+}
+function summary(s){
+  document.getElementById('reviewed').textContent=s.reviewed+'/'+s.sample_size;
+  document.getElementById('exact-count').textContent=s.exact;
+  document.getElementById('repair-count').textContent=s.corrected+s.needs_correction;
+  document.getElementById('excluded-count').textContent=s.unreadable+s.bad_crop;
+  document.getElementById('accuracy').textContent=(s.scored?Math.round(100*s.exact_rate_on_scored)+'% exact on '+s.scored+' assessed proofs':'No human accuracy labels yet')+' · '+s.failed+' requests failed · '+s.pending+' pending';
+}
+async function load(){const responses=await Promise.all([fetch('/data'),fetch('/summary')]);if(responses.some(r=>!r.ok))throw new Error('Could not load private pilot.');data=await responses[0].json();summary(await responses[1].json());render();}
+async function save(label){
+  if(busy)return;
+  if(label==='corrected'&&rows.length===0&&!confirm('Save this response as blank? Confirm that no proof is written in the crop.'))return;
+  busy=true;updateActions();setMessage('Saving review…');
+  try{
+    const payload={case_id:current().case_id,status:label};
+    if(label==='corrected')payload.rows=rows;
+    if(label==='needs_correction')payload.error_categories=Array.from(document.querySelectorAll('.tags input:checked')).map(n=>n.value);
+    const response=await fetch('/review',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    if(!response.ok)throw new Error('Could not save. Check positive line numbers, nesting depth (0–3), and new-block boundaries.');
+    const saved=await response.json();summary(saved.summary);
+    data=await(await fetch('/data')).json();
+    if(document.getElementById('auto-next').checked&&label!=='unreviewed'){
+      const next=data.cases.findIndex((c,i)=>i>index&&!data.reviews[c.case_id]);
+      const first=data.cases.findIndex(c=>!data.reviews[c.case_id]);
+      if(next>=0)index=next;else if(first>=0)index=first;
+    }
+    render();setMessage(saved.summary.reviewed===saved.summary.sample_size?'All pilot proofs reviewed. Counts are saved; you can revisit any case.':'Review saved.');
+  }catch(error){setMessage(error.message,true);}finally{busy=false;updateActions();}
+}
+document.getElementById('case-picker').addEventListener('change',event=>{index=Number(event.target.value);render();});
+document.getElementById('previous').addEventListener('click',()=>{index=Math.max(0,index-1);render();});
+document.getElementById('next').addEventListener('click',()=>{index=Math.min(data.cases.length-1,index+1);render();});
+document.getElementById('unreviewed').addEventListener('click',()=>{const target=data.cases.findIndex(c=>!data.reviews[c.case_id]);if(target>=0){index=target;render();}else setMessage('All pilot proofs have been reviewed.');});
+document.getElementById('zoom').addEventListener('input',image);
+document.getElementById('full-page').addEventListener('click',()=>{fullPage=!fullPage;document.getElementById('full-page').textContent=fullPage?'Back to proof crop':'Show source page';document.getElementById('image-title').textContent=fullPage?'Source page (private)':'Student proof region';image();});
+document.getElementById('add-line').addEventListener('click',()=>{rows.push({line:(rows.at(-1)?.line||0)+1,depth:rows.at(-1)?.depth||0,start_subproof:false,wffstr:'',jstr:''});renderRows();});
+document.getElementById('reset-editor').addEventListener('click',()=>{rows=structuredClone(current().rows);renderRows();});
+for(const [id,label] of Object.entries({'exact':'exact','needs-repair':'needs_correction','save-correction':'corrected','unreadable':'unreadable','bad-crop':'bad_crop','clear-review':'unreviewed'}))document.getElementById(id).addEventListener('click',()=>save(label));
+document.getElementById('download').addEventListener('click',async()=>{const s=await(await fetch('/summary')).json();const url=URL.createObjectURL(new Blob([JSON.stringify(s,null,2)],{type:'application/json'}));const link=node('a');link.href=url;link.download='fitch-pilot-anonymous-counts.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});
+load().catch(error=>setMessage(error.message,true));
+</script>
+</body>
+</html>
