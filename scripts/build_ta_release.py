@@ -27,7 +27,7 @@ def build(output_dir: Path) -> Path:
         raise RuntimeError(f'Refusing to overwrite {archive}')
     prefix = f'logic-grading-facilitator-{short}/'
     # Git preserves file modes and reads only the specified committed paths.
-    subprocess.run(['git', 'archive', '--format=zip', f'--prefix={prefix}',
+    subprocess.run(['git', '-c', 'core.autocrlf=false', 'archive', '--format=zip', f'--prefix={prefix}',
                     f'--output={archive.resolve()}', commit, '--', *selected], cwd=repo, check=True)
     with zipfile.ZipFile(archive) as bundle:
         names = bundle.namelist()

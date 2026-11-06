@@ -779,6 +779,27 @@
       border-color: #2563eb;
       color: #1d4ed8;
       font-weight: 600;
+    }
+    .type-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.2rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      background: #fef2f2;
+      color: #b91c1c;
+      border: 1px solid #fecaca;
+    }
+    .type-badge.neutral {
+      background: #f3f4f6;
+      color: #6b7280;
+      border-color: #e5e7eb;
+    }
+
     .fol-review-instructions { font-size: 0.8rem; color: #475569 !important; margin-top: 0.65rem !important; }
     .fol-review-page .controls { gap: 0.45rem; }
     .fol-review-page .student-card { border: 0; padding: 0; }
@@ -813,28 +834,6 @@
     .fol-truth-panel[data-needs-reading="true"] { border-left: 3px solid #d97706; padding-left: 0.6rem; background: #fffbeb; }
     .fol-reading-details { margin-top: 0.5rem; font-size: 0.85rem; }
     .fol-reading-details label { display: block; margin: 0.4rem 0; }
-    }
-    .type-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.35rem;
-      padding: 0.2rem 0.5rem;
-      border-radius: 999px;
-      font-size: 0.7rem;
-      font-weight: 700;
-      letter-spacing: 0.05em;
-      text-transform: uppercase;
-      background: #fef2f2;
-      color: #b91c1c;
-      border: 1px solid #fecaca;
-        {% if not fol_truth_enabled %}
-    }
-    .type-badge.neutral {
-      background: #f3f4f6;
-      color: #6b7280;
-      border-color: #e5e7eb;
-    }
-
     .hidden { display: none; }
 
     
@@ -847,13 +846,9 @@
 
   <header id="grading-header" class="grading-header">
     <div class="grading-header-top">
-    {# An already-running server may not yet supply the separate header context.
-       Its strip contexts have the same checked question/version data. #}
-    {% if not fol_truth_question and fol_truth_enabled and strips and strips[0].quiz_version == active_version %}
-      {% set fol_truth_question = strips[0].fol_truth %}
-    {% endif %}
       <h1>{{ problem_id }} — {{ problem_label }}{% if active_version %} · Version {{ active_version }}{% endif %}</h1>
       <p class="header-links">
+        {% if not fol_truth_enabled %}
         <a href="?{% if active_version %}version={{ active_version }}&amp;{% endif %}refresh=1">↻ Locations with Gemma</a>
         <a href="?{% if active_version %}version={{ active_version }}&amp;{% endif %}refresh=1&amp;vlm_model=qwen">Retry locations with IU Qwen</a>
         · {% endif %}<a href="/export_tf_bundle">Prepare TF bundle</a>
@@ -873,6 +868,11 @@
       </nav>
     {% endif %}
 
+    {# An already-running server may not yet supply the separate header context.
+       Its strip contexts have the same checked question/version data. #}
+    {% if not fol_truth_question and fol_truth_enabled and strips and strips[0].quiz_version == active_version %}
+      {% set fol_truth_question = strips[0].fol_truth %}
+    {% endif %}
     <div class="question-display">
       {% if question_image_url %}
         <a class="question-image-link" href="{{ question_image_url }}" target="_blank" title="Open the full question image">
@@ -1208,6 +1208,34 @@
               </button>
             </div>
 
+            <div class="fol-model-verdict" data-fol-model-verdict>
+              {{ fol.summary or "No checker result yet." }}
+            </div>
+
+            <div class="fol-model-suggestion-grid">
+              <input class="fol-model-score"
+                     type="number"
+                     step="0.01"
+                     data-fol-model-score
+                     value="{{ '' if fol.suggested_score is none else fol.suggested_score }}"
+                     placeholder="score">
+              <textarea class="fol-model-comment"
+                        data-fol-model-comment
+                        placeholder="suggested comment">{{ fol.suggested_comment or "" }}</textarea>
+            </div>
+
+            <details class="fol-model-trace" data-fol-model-trace{% if not fol.trace_blocks %} hidden{% endif %}>
+              <summary>Trace</summary>
+              <div data-fol-model-trace-body>
+                {% for block in fol.trace_blocks or [] %}
+                  <pre>{{ block.title }} — {{ block.result }}
+{{ block.body }}</pre>
+                {% endfor %}
+              </div>
+            </details>
+          </section>
+        {% endif %}
+
         {% if fol_truth_enabled and item.fol_truth %}
           <section class="fol-truth-panel" data-fol-truth-panel
                    data-context='{{ item.fol_truth | tojson }}'
@@ -1257,34 +1285,6 @@
         {% endif %}
 
           {% if fol_truth_enabled %}<details class="fol-strip-tools"><summary>Scan / version tools</summary>{% endif %}
-            <div class="fol-model-verdict" data-fol-model-verdict>
-              {{ fol.summary or "No checker result yet." }}
-            </div>
-
-            <div class="fol-model-suggestion-grid">
-              <input class="fol-model-score"
-                     type="number"
-                     step="0.01"
-                     data-fol-model-score
-                     value="{{ '' if fol.suggested_score is none else fol.suggested_score }}"
-                     placeholder="score">
-              <textarea class="fol-model-comment"
-                        data-fol-model-comment
-                        placeholder="suggested comment">{{ fol.suggested_comment or "" }}</textarea>
-            </div>
-
-            <details class="fol-model-trace" data-fol-model-trace{% if not fol.trace_blocks %} hidden{% endif %}>
-              <summary>Trace</summary>
-              <div data-fol-model-trace-body>
-                {% for block in fol.trace_blocks or [] %}
-                  <pre>{{ block.title }} — {{ block.result }}
-{{ block.body }}</pre>
-                {% endfor %}
-              </div>
-            </details>
-          </section>
-        {% endif %}
-
           <div class="btn-row">
       {% if item.display_url %}
       <button class="btn btn-crop"
@@ -1331,7 +1331,6 @@
               data-unit-id="{{ wu.unit_id }}"
               onclick="togglePin(this)"
               tabindex="-1"> Pin as reference
-          {% if fol_truth_enabled %}</details>{% endif %}
       </button>
   </div>
 
@@ -1360,6 +1359,7 @@
             </select>
           </label>
 
+          {% if fol_truth_enabled %}</details>{% endif %}
           <label class="score-group">
             <strong>Score</strong>
             <span class="score-entry">
@@ -1404,10 +1404,6 @@
       
       <div class="action-group-right">
           <a class="btn-secondary" href="/finish">Grade overview</a>
-  {% if fol_truth_enabled %}
-    <script type="module" src="/proof_viewer_assets/fol_truth_review.mjs"></script>
-  {% endif %}
-
           <button id="btn-save-back"
                   class="btn-secondary"
                   type="submit"
@@ -1435,6 +1431,10 @@
       </div>
     </div>
   </form>
+
+  {% if fol_truth_enabled %}
+    <script type="module" src="/proof_viewer_assets/fol_truth_review.mjs"></script>
+  {% endif %}
 
   <dialog id="page-viewer" class="page-viewer" aria-label="Full page rotation viewer">
     <div class="page-viewer-controls">
