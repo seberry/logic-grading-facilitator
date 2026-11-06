@@ -4,6 +4,7 @@ import threading
 from typing import Optional
 
 from app.models import GradingKey, Session
+from app.fol_truth_assistance import assert_supported as assert_fol_truth_supported
 from app.storage import DEFAULT_SESSION_PATH, load_session, save_session
 
 _session_lock = threading.Lock()
@@ -28,6 +29,7 @@ def get_session() -> Session:
 
     if _session is None or _session_mtime_ns != current_mtime_ns:
         _session = load_session(DEFAULT_SESSION_PATH)
+        assert_fol_truth_supported(_session.grading_key)
         _session_mtime_ns = current_mtime_ns
     return _session
 

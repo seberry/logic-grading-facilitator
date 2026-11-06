@@ -43,6 +43,8 @@ class GradingKey(BaseModel):
     """Grading key / rubric for one quiz."""
     quiz_id: str
     problems: List[ProblemSpec]
+    # Explicit opt-in. Never infer an answer key from a printed prompt.
+    fol_truth_assistance: Optional[Dict[str, Any]] = None
 
 
 class WorkUnit(BaseModel):
@@ -63,6 +65,8 @@ class WorkUnit(BaseModel):
     per_problem: Dict[str, Optional[float]]
     comment: Optional[str]
     per_problem_comments: Dict[str, Optional[str]] = Field(default_factory=dict)
+    # TF-confirmed transcription is separate from any future vision proposal.
+    fol_truth_reviews: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     # PLANNED: free-text comments keyed by problem id
 
 

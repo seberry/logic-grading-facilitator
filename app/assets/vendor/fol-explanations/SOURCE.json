@@ -1,0 +1,15 @@
+{
+  "repository": "https://github.com/seberry/FOL-Introduction-Worksheets",
+  "directory": "fol-explanations",
+  "commit": "9d3dcdf744d4bbc1ac523a434c1cf633ffe71a9e",
+  "sha256": {
+    "index.mjs": "967f2a5cdc5e8043108d002ac36b421ad47490cecd91833de8b75549efd9d9da",
+    "core.mjs": "5bb2b17d156537ea6989367f2a6362fa7856b99be6c7aaf0f64876ed3980d601",
+    "commentary.mjs": "e962dac45fc17c3a78047603a39a4125a3ffc7e6568e398b67a21c87da023835",
+    "README.md": "26a26723347e87e937fcd98dd08797871ef883f95f1f57c69df8cb52031700df",
+    "INTEGRATION.md": "e4e6f996f9559429c53fad034ab2ae57d236d799938e4118012da7894938b529",
+    "FEEDBACK-REVIEW.md": "85109116c2ab7b791a25af55df7eeaa7ee12f0a8c2be011fdf1d3578d530542f",
+    "examples/quiz9.mjs": "a5991944422c625c667572489161e140e6a0426a1d49ef899fc8c14892b75ed0",
+    "examples/generate-review.mjs": "e62124fade7463443e9cc5c1f803e3f8d71f203f0fd9e6b579a8ce282f5d35db"
+  }
+}

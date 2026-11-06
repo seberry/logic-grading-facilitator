@@ -184,6 +184,12 @@ TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 app.mount(
+    "/proof_viewer_assets",
+    StaticFiles(directory=str(Path(__file__).resolve().parent / "assets")),
+    name="proof_viewer_assets",
+)
+
+app.mount(
     "/debug_fitch_assets",
     StaticFiles(directory=str(DEBUG_FITCH_DIR)),
     name="debug_fitch_assets",

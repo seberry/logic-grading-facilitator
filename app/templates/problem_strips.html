@@ -793,6 +793,7 @@
       background: #fef2f2;
       color: #b91c1c;
       border: 1px solid #fecaca;
+        {% if not fol_truth_enabled %}
     }
     .type-badge.neutral {
       background: #f3f4f6;
@@ -816,7 +817,7 @@
       <p class="header-links">
         <a href="?{% if active_version %}version={{ active_version }}&amp;{% endif %}refresh=1">↻ Locations with Gemma</a>
         <a href="?{% if active_version %}version={{ active_version }}&amp;{% endif %}refresh=1&amp;vlm_model=qwen">Retry locations with IU Qwen</a>
-        · <a href="/export_tf_bundle">Prepare TF bundle</a>
+        · {% endif %}<a href="/export_tf_bundle">Prepare TF bundle</a>
         · <a href="/finish">Overview</a>
       </p>
     </div>
@@ -847,7 +848,11 @@
         {% else %}
           <p><strong>Question:</strong> No prompt image or text is saved for this version yet.</p>
         {% endif %}
-        <p class="grader-escalation compact"><strong>No supplied answer key.</strong> If grading is unclear, contact the instructor promptly.</p>
+        {% if fol_truth_enabled %}
+          <p class="grader-escalation compact">Quiz 9 deterministic assistance is enabled. Confirm each reading against the scan before using feedback.</p>
+        {% else %}
+          <p class="grader-escalation compact"><strong>No supplied answer key.</strong> If grading is unclear, contact the instructor promptly.</p>
+        {% endif %}
       </div>
     </div>
   </header>
@@ -1141,6 +1146,56 @@
               </button>
             </div>
 
+        {% if fol_truth_enabled and item.fol_truth %}
+          <section class="fol-truth-panel" data-fol-truth-panel
+                   data-context='{{ item.fol_truth | tojson }}'
+                   data-review='{{ item.fol_truth_review | tojson }}'
+                   style="border:1px solid #94a3b8; padding:0.8rem; margin:0.8rem 0; background:#f8fafc;">
+            <strong>FOL truth review</strong>
+            <div>Model: D = {{ item.fol_truth.model.domain }}, c = {{ item.fol_truth.model.constants.c }};
+              P = {{ item.fol_truth.model.predicates.P }}, Q = {{ item.fol_truth.model.predicates.Q }},
+              R = {{ item.fol_truth.model.predicates.R }}</div>
+            <div class="muted">Confirm the answer against the scan. Suggestions do not set a score.</div>
+            {% if fol_truth_can_prepare %}
+              <button type="button" class="btn btn-secondary" data-fol-truth-prepare
+                      data-unit-id="{{ wu.unit_id }}" data-problem-id="{{ problem_id }}">Prepare vision reading</button>
+            {% endif %}
+            <div data-fol-truth-stale style="color:#9a3412;" hidden>Saved reading is stale after a version, crop, or configuration change. Recheck the scan.</div>
+            <div>Proposed vision reading: <span data-fol-truth-proposal>{% if item.fol_truth_review.proposed_truth %}Truth: {{ item.fol_truth_review.proposed_truth }}; written: {{ item.fol_truth_review.proposed_raw_object or item.fol_truth_review.proposed_object or 'unclear' }}{% else %}None prepared{% endif %}</span></div>
+            <div>Preliminary score from proposal: <strong data-fol-truth-proposal-score>Needs reading</strong></div>
+            <button type="button" class="btn btn-secondary" data-fol-truth-accept-proposal>Accept proposed answer and fill score</button>
+            <label>Confirmed truth value
+              <select data-fol-truth-confirmed>
+                <option value="">Unreviewed</option><option value="true">True</option>
+                <option value="false">False</option><option value="blank">Blank</option>
+                <option value="unclear">Unclear</option>
+              </select>
+            </label>
+            {% if item.fol_truth.asks_object %}
+              <label>Written response as seen
+                <input type="text" data-fol-truth-raw placeholder="Exact short response or leave blank">
+              </label>
+              <label>Confirmed object / N/A
+                <select data-fol-truth-object>
+                  <option value="">Unreviewed</option><option value="1">1</option>
+                  <option value="2">2</option><option value="3">3</option>
+                  <option value="na">N/A</option><option value="blank">Blank</option>
+                  <option value="unclear">Unclear or needs interpretation</option>
+                </select>
+              </label>
+            {% endif %}
+            <div data-fol-truth-verdict></div>
+            {% if item.fol_truth.score_rule %}
+              <div>Suggested score: <strong data-fol-truth-score>Needs confirmed reading</strong></div>
+              <button type="button" class="btn btn-secondary" data-fol-truth-apply-score>Use suggested score</button>
+            {% endif %}
+            <details><summary>Recursive explanation</summary><pre data-fol-truth-explanation style="white-space:pre-wrap;"></pre></details>
+            <textarea data-fol-truth-draft readonly style="width:100%; min-height:5rem;" aria-label="Draft FOL feedback"></textarea>
+            <button type="button" class="btn btn-secondary" data-fol-truth-apply>Use draft comment</button>
+            <input type="hidden" name="fol_truth_review_{{ wu.unit_id }}" data-fol-truth-storage>
+          </section>
+        {% endif %}
+
             <div class="fol-model-verdict" data-fol-model-verdict>
               {{ fol.summary or "No checker result yet." }}
             </div>
@@ -1287,6 +1342,10 @@
       
       <div class="action-group-right">
           <a class="btn-secondary" href="/finish">Grade overview</a>
+  {% if fol_truth_enabled %}
+    <script type="module" src="/proof_viewer_assets/fol_truth_review.mjs"></script>
+  {% endif %}
+
           <button id="btn-save-back"
                   class="btn-secondary"
                   type="submit"

@@ -134,6 +134,7 @@ def load_grading_key(path: Path = DEFAULT_GRADING_KEY_PATH) -> GradingKey:
     return GradingKey(
         quiz_id=data["quiz_id"],
         problems=problems,
+        fol_truth_assistance=data.get("fol_truth_assistance"),
     )
 
 

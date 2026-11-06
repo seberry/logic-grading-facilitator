@@ -3,6 +3,27 @@
 
 # System Architecture Overview
 
+The Finish page calls `POST /problem/{problem_id}/prefetch-unit` once per work
+unit for instructor-side location preparation. `app/routes/problem_strips.py`
+uses IU REALLMS Gemma by default, supports IU Qwen, checkpoints successful
+rows in a private partial cache, and writes the ordinary `segments_*.json`
+cache only when a whole question is complete. A retry skips checkpointed rows.
+`app/segmentation_core.py` validates model output and reports sanitized provider
+errors as HTTP 502. The older per-problem `/prefetch` route remains available.
+
+## Opt-in Quiz 9 FOL truth review
+
+`app/fol_truth_assistance.py` maps the three printed models and seven formulas
+to `app/fol_model_checker.py` and computes a version/crop/config fingerprint.
+`app/routes/problem_strips.py` supplies that context and persists separate TF
+transcriptions in `WorkUnit.fol_truth_reviews`. The browser asset
+`app/assets/fol_truth_review.mjs` calls the pinned upstream explanation module
+for feedback and candidate checks. The TF copies a draft into the ordinary
+editable comment and enters a score. `app/routes/exam_exports.py` includes
+the opt-in configuration and readings in private TF bundles and declares the
+required feature in the manifest. No model or Node process runs during TF
+review.
+
 This document describes the high-level architecture of the Logic Grading Facilitator (v2), covering the core data models, the "Cyborg" workflow, and the backend data pipelines.
 
 Note: All `data/...` paths in this document are relative to `DATA_DIR` (defaults to `data/samples`).

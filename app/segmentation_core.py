@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+import requests
 
 from .vlm_client import LMStudioQwenClient
 from .vlm_client import SINGLE_QUESTION_PROMPT  # or copy the prompt text here
@@ -27,21 +29,47 @@ def segment_page_for_problem(
     problem_id: str,
     problem_description: str,
     client: Optional[LMStudioQwenClient] = None,
+    prompt_override: Optional[str] = None,
 ) -> QuestionSegment:
     if client is None:
         client = create_vlm_client()
 
-    prompt = SINGLE_QUESTION_PROMPT.format(
+    prompt = prompt_override or SINGLE_QUESTION_PROMPT.format(
         problem_id=problem_id,
         problem_description=problem_description,
     )
 
     try:
         raw = client.chat_with_image_prompt(image_path=image_path, prompt=prompt)
-    except Exception as e:
-        raise RuntimeError("Question-location request failed. Saved locations were preserved; retry later or with Qwen.") from None
+    except requests.HTTPError as exc:
+        status = exc.response.status_code if exc.response is not None else "unknown"
+        provider = "IU REALLMS" if getattr(client, "provider", "") == "reallms" else "vision model"
+        raise RuntimeError(
+            f"{provider} question-location request returned HTTP {status}. "
+            "Saved locations were preserved. Retry with IU Qwen if Gemma continues to fail."
+        ) from exc
+    except RuntimeError as exc:
+        message = str(exc)
+        safe_prefixes = (
+            "IU REALLMS could not be reached.",
+            "IU REALLMS returned an unreadable completion.",
+            "IU REALLMS returned an empty completion.",
+            "IU REALLMS reached the response limit;",
+            "Set REALLMS_API_KEY",
+        )
+        detail = message if message.startswith(safe_prefixes) and len(message) < 300 else "The vision provider failed."
+        raise RuntimeError(
+            f"Question-location request failed: {detail} Saved locations were preserved."
+        ) from exc
+    except Exception as exc:
+        raise RuntimeError(
+            f"Question-location request failed during image/model processing ({type(exc).__name__}). "
+            "Saved locations were preserved."
+        ) from exc
 
     # Allow ```json fences, same trick as in vlm_classifier
+    if not isinstance(raw, str):
+        raise RuntimeError("The model returned invalid question-location text. Saved locations were preserved.")
     raw_str = raw.strip()
     if raw_str.startswith("```"):
         lines = raw_str.splitlines()
@@ -55,6 +83,13 @@ def segment_page_for_problem(
 
     if not isinstance(data, dict) or not isinstance(data.get("present"), bool):
         raise RuntimeError("The model returned invalid question-location fields.")
+    confidence = data.get("confidence", 0.0)
+    if (isinstance(confidence, bool) or not isinstance(confidence, (int, float))
+            or not math.isfinite(confidence) or not 0 <= confidence <= 1):
+        raise RuntimeError("The model returned invalid question-location confidence. Saved locations were preserved.")
+    comment = data.get("comment")
+    if comment is not None and not isinstance(comment, str):
+        raise RuntimeError("The model returned invalid question-location comment. Saved locations were preserved.")
     if data["present"]:
         bbox = data.get("bbox")
         if (not isinstance(bbox, list) or len(bbox) != 4
@@ -68,6 +103,6 @@ def segment_page_for_problem(
         page_index=0,  # caller will set
         bbox=data.get("bbox"),
         present=bool(data.get("present", False)),
-        comment=data.get("comment"),
-        confidence=float(data.get("confidence", 0.0)),
+        comment=comment,
+        confidence=float(confidence),
     )

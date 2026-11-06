@@ -369,7 +369,7 @@
     {% if not tf_grader_mode %}
       <section class="workflow {{ 'workflow-focus' if tf_prep_mode else '' }}">
         <h2>Prepare TF handoff</h2>
-        <p>The TF bundle needs saved question locations so it can run without your local model. You do not need to enter grades first.</p>
+        <p>The TF bundle needs saved question locations so the TF can grade without model access. You do not need to enter grades first.</p>
 
         <div class="workflow-step">
           <span class="step-number">1</span>
@@ -377,13 +377,19 @@
             <h3>Prepare question locations
               <span class="status-pill" id="location-ready-count">{{ location_ready_count }} of {{ location_total_count }} ready</span>
             </h3>
-            <p>This processes one question at a time and can take several minutes. Keep this page open while it runs.</p>
+            <p>Saved question locations are used to make the answer strips. Keep this page open if preparation is running.</p>
             {% if location_missing_ids %}
+              <label for="location-model">IU location model</label>
+              <select id="location-model">
+                <option value="gemma">Gemma (default)</option>
+                <option value="qwen">Qwen</option>
+              </select>
               <button
                 class="btn"
                 type="button"
                 id="prepare-all-locations"
                 data-problems='{{ location_missing_ids | tojson }}'
+                data-units='{{ location_unit_ids | tojson }}'
               >Prepare remaining question locations</button>
             {% else %}
               <strong id="all-locations-ready">All question locations are ready.</strong>
@@ -401,8 +407,25 @@
           </div>
         </div>
 
+        {% if fol_truth_enabled %}
         <div class="workflow-step">
           <span class="step-number">3</span>
+          <div>
+            <h3>Prepare preliminary answer readings</h3>
+            <p>IU reads the saved Quiz 9 crops and proposes T/F and any short written response. Each proposal is saved; the TF checks it against the scan and accepts or corrects the suggested score.</p>
+            <label for="answer-model">IU answer model</label>
+            <select id="answer-model"><option value="gemma">Gemma</option><option value="qwen">Qwen</option></select>
+            <button class="btn" type="button" id="prepare-all-answers"
+                    data-problems='{{ problems | map(attribute="id") | list | tojson }}'
+                    data-units='{{ location_unit_ids | tojson }}'
+                    {% if not locations_all_ready %}disabled{% endif %}>Prepare preliminary answer readings</button>
+            <div id="prepare-answers-status" class="prepare-status" role="status" aria-live="polite"></div>
+          </div>
+        </div>
+        {% endif %}
+
+        <div class="workflow-step">
+          <span class="step-number">{{ 4 if fol_truth_enabled else 3 }}</span>
           <div>
             <h3>Create the private TF bundle</h3>
             <p id="tf-bundle-readiness">
@@ -547,6 +570,7 @@
   <script>
     const prepareButton = document.getElementById("prepare-all-locations");
     const prepareStatus = document.getElementById("prepare-all-status");
+    const locationModel = document.getElementById("location-model");
     const locationReadyCount = document.getElementById("location-ready-count");
     const bundleLink = document.getElementById("tf-bundle-link");
     const bundleReadiness = document.getElementById("tf-bundle-readiness");
@@ -554,22 +578,30 @@
     if (prepareButton && prepareStatus) {
       prepareButton.addEventListener("click", async function () {
         const problemIds = JSON.parse(prepareButton.dataset.problems || "[]");
+        const unitIds = JSON.parse(prepareButton.dataset.units || "[]");
         prepareButton.disabled = true;
         prepareStatus.className = "prepare-status";
 
         try {
           for (let index = 0; index < problemIds.length; index += 1) {
             const problemId = problemIds[index];
-            prepareStatus.textContent =
-              `Preparing ${problemId} (${index + 1} of ${problemIds.length})…\n` +
-              "Keep this page open. The local model is processing one problem at a time.";
-            const response = await fetch(
-              `/problem/${encodeURIComponent(problemId)}/prefetch`,
-              { method: "POST" }
-            );
-            if (!response.ok) {
-              const detail = await response.text();
-              throw new Error(`${problemId} failed (${response.status}): ${detail}`);
+            for (let unitIndex = 0; unitIndex < unitIds.length; unitIndex += 1) {
+              prepareStatus.textContent =
+                `Preparing ${problemId} (${index + 1} of ${problemIds.length}), submission ${unitIndex + 1} of ${unitIds.length}…\n` +
+                `IU REALLMS ${locationModel?.value === 'qwen' ? 'Qwen' : 'Gemma'} is reading this question location.`;
+              const response = await fetch(
+                `/problem/${encodeURIComponent(problemId)}/prefetch-unit?unit_id=${encodeURIComponent(unitIds[unitIndex])}&vlm_model=${encodeURIComponent(locationModel?.value || 'gemma')}`,
+                { method: "POST" }
+              );
+              if (!response.ok) {
+                const body = await response.text();
+                let detail = body;
+                try {
+                  const payload = JSON.parse(body);
+                  detail = payload.detail || body;
+                } catch (_) {}
+                throw new Error(`${problemId} failed (${response.status}): ${detail}`);
+              }
             }
           }
           prepareStatus.className = "prepare-status success";
@@ -591,12 +623,46 @@
         } catch (error) {
           prepareStatus.className = "prepare-status error";
           prepareStatus.textContent =
-            `Preparation stopped: ${error.message}\nRetry the button; completed problems remain cached.`;
+            `Preparation stopped: ${error.message}\nRetry the button; completed submissions remain checkpointed.`;
         } finally {
           prepareButton.disabled = false;
         }
       });
     }
+    const answerButton = document.getElementById("prepare-all-answers");
+    const answerStatus = document.getElementById("prepare-answers-status");
+    answerButton?.addEventListener("click", async () => {
+      const problemIds = JSON.parse(answerButton.dataset.problems || "[]");
+      const unitIds = JSON.parse(answerButton.dataset.units || "[]");
+      const model = document.getElementById("answer-model")?.value || "gemma";
+      answerButton.disabled = true;
+      answerStatus.className = "prepare-status";
+      let completed = 0;
+      try {
+        for (const problemId of problemIds) {
+          for (const unitId of unitIds) {
+            answerStatus.textContent = `Preparing ${problemId}, submission ${unitIds.indexOf(unitId) + 1} of ${unitIds.length} (${completed} of ${problemIds.length * unitIds.length} complete)…`;
+            const body = new FormData();
+            body.set("unit_id", String(unitId));
+            body.set("model", model);
+            const response = await fetch(`/problem/${encodeURIComponent(problemId)}/fol-truth/prepare-reading`,
+              {method: "POST", body});
+            if (!response.ok) {
+              const payload = await response.json().catch(() => ({}));
+              throw new Error(`${problemId}, submission ${unitIds.indexOf(unitId) + 1}: ${payload.detail || response.status}`);
+            }
+            completed += 1;
+          }
+        }
+        answerStatus.className = "prepare-status success";
+        answerStatus.textContent = `All ${completed} preliminary readings are saved. Open Strip View to review them before grading.`;
+      } catch (error) {
+        answerStatus.className = "prepare-status error";
+        answerStatus.textContent = `Stopped after ${completed} readings: ${error.message}. Retry to skip saved readings.`;
+      } finally {
+        answerButton.disabled = false;
+      }
+    });
   </script>
   {% endif %}
 </body>

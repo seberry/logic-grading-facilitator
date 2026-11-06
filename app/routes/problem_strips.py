@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import asyncio
 import os
@@ -13,9 +14,13 @@ from fastapi import APIRouter, Form, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from PIL import Image
+import requests
 
 from app.helpers import _build_page_options, _is_image_filename, _select_display_filename
 from app.models import Session
+from app.fol_truth_assistance import (enabled as fol_truth_enabled,
+    question_context as fol_truth_question_context, prepare_vision_reading,
+    location_prompt as fol_truth_location_prompt)
 from app.fol_model_review import (
     check_fol_model_text,
     enqueue_fol_model_ocr_jobs,
@@ -41,6 +46,63 @@ from app.quiz_variants import (
 from app.rubric_assets import question_image_url
 
 router = APIRouter()
+
+
+def _fol_source_path(segment: dict | None) -> Path | None:
+    filename = segment.get("page_filename") if isinstance(segment, dict) else None
+    return RAW_SCANS_DIR / filename if isinstance(filename, str) and Path(filename).name == filename else None
+
+
+@router.post("/problem/{problem_id}/fol-truth/prepare-reading")
+def prepare_fol_truth_reading(problem_id: str, unit_id: int = Form(...),
+                              model: str = Form("gemma"), force: bool = Form(False)):
+    """Instructor-side bounded vision proposal; never computes or applies a grade."""
+    if os.getenv("TF_GRADER_MODE", "").strip().lower() in {"1", "true", "yes", "on"}:
+        raise HTTPException(status_code=403, detail="Vision preparation is unavailable in TF grader mode.")
+    session = get_session()
+    if not fol_truth_enabled(session.grading_key):
+        raise HTTPException(status_code=404, detail="FOL truth assistance is not enabled.")
+    spec = next((p for p in session.grading_key.problems if p.id == problem_id), None)
+    unit = next((wu for wu in session.work_units if wu.unit_id == unit_id), None)
+    if spec is None or unit is None:
+        raise HTTPException(status_code=404, detail="Unknown question or submission.")
+    segments = ensure_segments_cached(session, spec, blocking=True)
+    segment = next((row for row in (segments or []) if row.get("unit_id") == unit_id), None)
+    context = fol_truth_question_context(session.grading_key, problem_id,
+        normalize_quiz_version(unit.quiz_version), segment, _fol_source_path(segment))
+    if context is None or not segment or not segment.get("present"):
+        raise HTTPException(status_code=400, detail="Confirm the quiz version and question crop first.")
+    prior = unit.fol_truth_reviews.get(problem_id, {})
+    if (not force and prior.get("fingerprint") == context["fingerprint"]
+            and prior.get("proposed_truth") in {"true", "false", "blank", "unclear"}):
+        return {"status": "cached", "proposal": {key: prior.get(key) for key in
+                ("proposed_truth", "proposed_object", "proposed_raw_object")}}
+    filename = segment.get("page_filename")
+    if not isinstance(filename, str) or Path(filename).name != filename or filename not in unit.page_filenames:
+        raise HTTPException(status_code=400, detail="Saved crop points to an invalid scan.")
+    try:
+        client = create_vlm_client(model)
+        proposal = prepare_vision_reading(client, RAW_SCANS_DIR / filename,
+            segment.get("bbox"), context["asks_object"])
+    except (ValueError, OSError, RuntimeError, requests.RequestException) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+    with _session_lock:
+        current = get_session()
+        current_unit = next((wu for wu in current.work_units if wu.unit_id == unit_id), None)
+        current_segments = ensure_segments_cached(current, spec, blocking=True)
+        current_segment = next((row for row in (current_segments or []) if row.get("unit_id") == unit_id), None)
+        current_context = fol_truth_question_context(current.grading_key, problem_id,
+            normalize_quiz_version(current_unit.quiz_version) if current_unit else None,
+            current_segment, _fol_source_path(current_segment))
+        if current_context is None or current_context["fingerprint"] != context["fingerprint"]:
+            raise HTTPException(status_code=409, detail="Version or crop changed during reading; retry after review.")
+        prior = current_unit.fol_truth_reviews.get(problem_id, {})
+        confirmed = {k: v for k, v in prior.items() if k in {"confirmed_truth", "confirmed_object", "raw_object"}}
+        if prior.get("fingerprint") != context["fingerprint"]:
+            confirmed = {}
+        current_unit.fol_truth_reviews[problem_id] = {**confirmed, **proposal, "fingerprint": context["fingerprint"]}
+        persist_session()
+    return {"status": "proposed", "proposal": proposal}
 
 TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -160,6 +222,8 @@ def _compute_segments_data(session: Session, spec, cache_path: Path, model: Opti
                 problem_id=problem_id,
                 problem_description=_build_segmentation_description(spec),
                 client=client,
+                **({"prompt_override": fol_truth_location_prompt(problem_id)}
+                   if fol_truth_enabled(getattr(session, "grading_key", None)) and problem_id in {f"Q{i}" for i in range(1, 8)} else {}),
             )
 
             if seg.present and seg.bbox:
@@ -534,17 +598,114 @@ def ensure_segments_cached(
 
 
 @router.post("/problem/{problem_id}/prefetch")
-def prefetch_problem(problem_id: str):
+def prefetch_problem(problem_id: str, vlm_model: str = "gemma"):
+    if os.getenv("TF_GRADER_MODE", "").strip().lower() in {"1", "true", "yes", "on"}:
+        raise HTTPException(status_code=403, detail="Question-location preparation is unavailable in TF grader mode.")
     session = get_session()
     spec = next((p for p in session.grading_key.problems if p.id == problem_id), None)
     if spec is None:
         raise HTTPException(status_code=404, detail=f"Unknown problem id {problem_id!r}")
 
-    segments_data = ensure_segments_cached(session, spec, refresh=False, blocking=False)
+    if vlm_model not in {"gemma", "qwen"}:
+        raise HTTPException(status_code=400, detail="Choose IU Gemma or IU Qwen for location preparation.")
+    try:
+        segments_data = ensure_segments_cached(session, spec, refresh=False, blocking=False,
+                                               model=vlm_model)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=_safe_preparation_detail(exc)) from exc
     if segments_data is None:
         return Response(content="Busy", status_code=429)
 
     return {"status": "cached", "segments": len(segments_data)}
+
+
+def _safe_preparation_detail(exc: RuntimeError) -> str:
+    detail = str(exc)
+    if not detail.startswith(("Question-location request", "IU REALLMS returned HTTP",
+                              "The model returned invalid")) or len(detail) > 400:
+        return "Question-location preparation failed. Saved locations were preserved. Retry with IU Qwen or check the server log."
+    return detail
+
+
+@router.post("/problem/{problem_id}/prefetch-unit")
+def prefetch_problem_unit(problem_id: str, unit_id: int, vlm_model: str = "gemma"):
+    """Prepare one submission per request and checkpoint successful locations."""
+    if os.getenv("TF_GRADER_MODE", "").strip().lower() in {"1", "true", "yes", "on"}:
+        raise HTTPException(status_code=403, detail="Question-location preparation is unavailable in TF grader mode.")
+    if vlm_model not in {"gemma", "qwen"}:
+        raise HTTPException(status_code=400, detail="Choose IU Gemma or IU Qwen for location preparation.")
+    session = get_session()
+    spec = next((p for p in session.grading_key.problems if p.id == problem_id), None)
+    unit = next((wu for wu in session.work_units if wu.unit_id == unit_id), None)
+    if spec is None or unit is None:
+        raise HTTPException(status_code=404, detail="Unknown problem or submission.")
+    if not _segmentation_lock.acquire(blocking=False):
+        raise HTTPException(status_code=429, detail="Another question-location job is running. Retry shortly.")
+    try:
+        cache_path = GRADES_DIR / f"segments_{problem_id}.json"
+        if cache_path.is_file():
+            try:
+                full_rows = json.loads(cache_path.read_text(encoding="utf-8"))
+                if _segments_cache_matches_session(session, full_rows):
+                    return {"status": "ready", "completed": len(full_rows), "total": len(session.work_units)}
+            except (OSError, ValueError):
+                pass
+        revision = {
+            "problem": problem_id,
+            "description": _build_segmentation_description(spec),
+            "units": [(wu.unit_id, [(filename,
+                (RAW_SCANS_DIR / filename).stat().st_size if (RAW_SCANS_DIR / filename).is_file() else None,
+                (RAW_SCANS_DIR / filename).stat().st_mtime_ns if (RAW_SCANS_DIR / filename).is_file() else None)
+                for filename in wu.page_filenames]) for wu in session.work_units],
+        }
+        digest = hashlib.sha256(json.dumps(revision, sort_keys=True).encode()).hexdigest()[:16]
+        partial_path = GRADES_DIR / f"segments_{problem_id}.partial_{digest}.json"
+        items = {}
+        if partial_path.is_file():
+            try:
+                parsed = json.loads(partial_path.read_text(encoding="utf-8"))
+                if isinstance(parsed, dict):
+                    items = {str(k): v for k, v in parsed.items() if isinstance(v, dict)}
+            except (OSError, ValueError):
+                pass
+        if str(unit_id) not in items:
+            client = create_vlm_client(vlm_model)
+            row = {"unit_id": unit_id, "present": False, "bbox": None}
+            for index, filename in enumerate(unit.page_filenames):
+                if not _is_image_filename(filename):
+                    continue
+                path = RAW_SCANS_DIR / filename
+                try:
+                    segment = segment_page_for_problem(path, problem_id,
+                        _build_segmentation_description(spec), client=client,
+                        **({"prompt_override": fol_truth_location_prompt(problem_id)}
+                           if fol_truth_enabled(session.grading_key) and problem_id in {f"Q{i}" for i in range(1, 8)} else {}))
+                except RuntimeError as exc:
+                    raise HTTPException(status_code=502, detail=_safe_preparation_detail(exc)) from exc
+                if segment.present and segment.bbox:
+                    row = {"unit_id": unit_id, "page_filename": filename, "page_index": index,
+                           "bbox": segment.bbox, "present": True, "comment": segment.comment,
+                           "confidence": segment.confidence}
+                    break
+            row["recognition_model"] = client.model
+            row["recognition_provider"] = getattr(client, "provider", "lmstudio")
+            items[str(unit_id)] = row
+            GRADES_DIR.mkdir(parents=True, exist_ok=True)
+            temp_path = partial_path.with_suffix(partial_path.suffix + ".tmp")
+            temp_path.write_text(json.dumps(items, indent=2), encoding="utf-8")
+            os.replace(temp_path, partial_path)
+        complete = len(items) == len(session.work_units)
+        if complete:
+            rows = [items[str(wu.unit_id)] for wu in session.work_units]
+            if not _segments_cache_matches_session(session, rows):
+                raise HTTPException(status_code=500, detail="Prepared locations failed validation; no full cache was written.")
+            temp_path = cache_path.with_suffix(cache_path.suffix + ".tmp")
+            temp_path.write_text(json.dumps(rows, indent=2), encoding="utf-8")
+            os.replace(temp_path, cache_path)
+        return {"status": "ready" if complete else "partial", "completed": len(items),
+                "total": len(session.work_units)}
+    finally:
+        _segmentation_lock.release()
 
 
 @router.get("/problem/{problem_id}/fitch_ocr/status")
@@ -713,6 +874,10 @@ def get_problem_strips(
     if spec is None:
         raise HTTPException(status_code=404, detail=f"Unknown problem id {problem_id!r}")
 
+    if refresh and getattr(grading_key, "quiz_id", None) == "quiz9_monadic_fol_truth":
+        raise HTTPException(status_code=409, detail=
+            "Quiz 9 locations were registered from the blank PDF. Adjust individual crops in strip view.")
+
     segments_data = ensure_segments_cached(
         session=session,
         spec=spec,
@@ -809,6 +974,11 @@ def get_problem_strips(
                 "fol_model": fol_model_review,
                 "quiz_version": normalize_quiz_version(wu.quiz_version),
                 "variant_context": resolved_problem_context(spec, wu.quiz_version),
+                "fol_truth": fol_truth_question_context(
+                    grading_key, problem_id, normalize_quiz_version(wu.quiz_version), seg_data,
+                    _fol_source_path(seg_data)
+                ) if fol_truth_enabled(grading_key) else None,
+                "fol_truth_review": wu.fol_truth_reviews.get(problem_id, {}),
             }
         )
 
@@ -882,6 +1052,8 @@ def get_problem_strips(
             "problem_note": session.problem_notes.get(problem_id, ""),
             "problem_reference_pins": _valid_reference_pins(session, problem_id),
             "problem_type": effective_problem_type,
+            "fol_truth_enabled": fol_truth_enabled(grading_key),
+            "fol_truth_can_prepare": fol_truth_enabled(grading_key) and os.getenv("TF_GRADER_MODE", "").strip().lower() not in {"1", "true", "yes", "on"},
             "problem_type_options": PROBLEM_TYPE_OPTIONS,
             "next_problem_id": next_problem_id,
             "next_view_url": next_view_url,
@@ -1058,6 +1230,21 @@ async def post_problem_strips(
 
             if wu.unit_id in score_updates:
                 wu.per_problem[problem_id] = score_updates[wu.unit_id]
+
+            review_raw = form.get(f"fol_truth_review_{wu.unit_id}")
+            if review_raw is not None and fol_truth_enabled(session.grading_key):
+                try:
+                    review = json.loads(review_raw)
+                except json.JSONDecodeError:
+                    raise HTTPException(status_code=400, detail="Invalid FOL truth review data.")
+                if not isinstance(review, dict):
+                    raise HTTPException(status_code=400, detail="Invalid FOL truth review data.")
+                # Store the transcription only. The browser recalculates from
+                # current configuration; never trust persisted derived results.
+                allowed = {"proposed_truth", "proposed_object", "proposed_raw_object", "confirmed_truth", "confirmed_object", "raw_object", "fingerprint"}
+                clean = {key: value for key, value in review.items() if key in allowed and isinstance(value, (str, type(None)))}
+                if clean:
+                    wu.fol_truth_reviews[problem_id] = clean
 
         # A reference selected under Version A must not remain labeled A after
         # that work unit is corrected to another version.

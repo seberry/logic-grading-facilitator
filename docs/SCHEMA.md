@@ -1,4 +1,33 @@
 This document defines the core data structures that all parts of the system agree on.
+
+## Incremental question-location preparation
+
+Instructor preparation checkpoints each problem under
+`data/grades/segments_<problem_id>.partial_<revision>.json`. This is a JSON
+object keyed by string work-unit ID; each value uses the same location row shape
+as the final `segments_<problem_id>.json` list, including `unit_id`, `present`,
+`bbox`, and recognition model/provider. The revision is a hash of the current
+question description and work-unit scan file metadata. Partial files are
+private preparation state and are never included in a TF bundle. Once all
+work units have valid rows, the app writes the standard full list cache.
+
+## Quiz 9 FOL truth assistance (schema 1)
+
+`grading_key.fol_truth_assistance` is absent for ordinary quizzes. The Quiz 9
+opt-in shape is `{ "schema": 1, "assessment": "quiz9_monadic_fol_truth" }`.
+The optional `scoring` map has per-question `truth` and, for Q2–5, `object`
+points plus `blank_na_credit` (false in the approved Quiz 9 rubric). Each
+rule's parts must sum to that question's `points`.
+`work_units[].fol_truth_reviews` maps question IDs to records with optional
+`proposed_truth`, `proposed_object`, `proposed_raw_object`, `confirmed_truth`, `confirmed_object`,
+`raw_object`, and `fingerprint`. Proposed readings are distinct from human
+confirmations. Truth readings use `true`, `false`, `blank`, or `unclear`;
+written answers use `1`, `2`, `3`, `na`, `blank`, or `unclear`. Derived verdicts
+and draft feedback are recalculated, never authoritative persisted grades.
+The ordinary `per_problem` score and `per_problem_comments` contain the human
+result. Opted-in TF manifests declare schema 1, required grader feature
+`quiz9_fol_truth_assistance_v1`, and upstream module commit. Legacy
+answer-key fields remain stripped.
 All examples are canonical; when writing new code, verify output conforms to these formats.
 
 ---

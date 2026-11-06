@@ -39,6 +39,7 @@ from ..storage import GRADES_DIR, RAW_SCANS_DIR, RUBRIC_ASSETS_DIR, archive_curr
 from ..classwork_core import _render_feedback_image_bytes, _render_feedback_pdf_bytes
 from ..quiz_variants import available_quiz_versions, normalize_quiz_version
 from ..rubric_assets import existing_question_assets
+from ..fol_truth_assistance import enabled as fol_truth_enabled, SCHEMA as FOL_TRUTH_SCHEMA
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 'templates'))
@@ -257,6 +258,20 @@ $resolvedCode = (Resolve-Path -LiteralPath $CodeDir).Path
 if (-not (Test-Path -LiteralPath (Join-Path $resolvedCode "app\server.py"))) {
     throw "That folder does not contain app\server.py."
 }
+$manifest = Get-Content -LiteralPath (Join-Path $bundleRoot "bundle_manifest.json") -Raw | ConvertFrom-Json
+if ($manifest.fol_truth_assistance) {
+    if (-not (Test-Path -LiteralPath (Join-Path $resolvedCode "app\fol_truth_assistance.py")) -or
+        -not (Test-Path -LiteralPath (Join-Path $resolvedCode "app\assets\fol_truth_review.mjs")) -or
+        -not (Test-Path -LiteralPath (Join-Path $resolvedCode "app\assets\fol_truth_scoring.mjs")) -or
+        -not (Test-Path -LiteralPath (Join-Path $resolvedCode "app\assets\vendor\fol-explanations\index.mjs")) -or
+        -not (Test-Path -LiteralPath (Join-Path $resolvedCode "app\assets\vendor\fol-explanations\SOURCE.json"))) {
+        throw "This Quiz 9 bundle needs grader code with FOL truth assistance schema 1 and its shared browser module. Extract the matching updated code ZIP."
+    }
+    $sharedSource = Get-Content -LiteralPath (Join-Path $resolvedCode "app\assets\vendor\fol-explanations\SOURCE.json") -Raw | ConvertFrom-Json
+    if ($sharedSource.commit -ne $manifest.fol_truth_assistance.shared_module_commit) {
+        throw "The grader code has a different FOL explanation module revision. Extract the matching updated code ZIP."
+    }
+}
 $env:DATA_DIR = (Resolve-Path -LiteralPath (Join-Path $bundleRoot "data")).Path
 $env:DATA_ARCHIVE_DIR = Join-Path $bundleRoot "archive"
 $env:ENV_MODE = "PRODUCTION"
@@ -293,6 +308,21 @@ if [ ! -f "$CODE_DIR/app/server.py" ]; then
   echo "That folder does not contain app/server.py."
   exit 1
 fi
+if grep -q '"fol_truth_assistance"' "$BUNDLE_ROOT/bundle_manifest.json"; then
+  if [ ! -f "$CODE_DIR/app/fol_truth_assistance.py" ] ||
+     [ ! -f "$CODE_DIR/app/assets/fol_truth_review.mjs" ] ||
+     [ ! -f "$CODE_DIR/app/assets/fol_truth_scoring.mjs" ] ||
+     [ ! -f "$CODE_DIR/app/assets/vendor/fol-explanations/index.mjs" ] ||
+     [ ! -f "$CODE_DIR/app/assets/vendor/fol-explanations/SOURCE.json" ]; then
+    echo "This Quiz 9 bundle needs grader code with FOL truth assistance schema 1 and its shared browser module. Extract the matching updated code ZIP."
+    exit 1
+  fi
+  REQUIRED_COMMIT="$(grep -o '"shared_module_commit": "[^"]*"' "$BUNDLE_ROOT/bundle_manifest.json" | head -1 | cut -d '"' -f 4)"
+  if [ -z "$REQUIRED_COMMIT" ] || ! grep -Fq "$REQUIRED_COMMIT" "$CODE_DIR/app/assets/vendor/fol-explanations/SOURCE.json"; then
+    echo "The grader code has a different FOL explanation module revision. Extract the matching updated code ZIP."
+    exit 1
+  fi
+fi
 
 export DATA_DIR="$BUNDLE_ROOT/data"
 export DATA_ARCHIVE_DIR="$BUNDLE_ROOT/archive"
@@ -326,7 +356,15 @@ def _write_executable_zip_text(zf: zipfile.ZipFile, name: str, text: str) -> Non
     zf.writestr(info, text)
 
 
-def _tf_bundle_readme(quiz_id: str) -> str:
+def _tf_bundle_readme(quiz_id: str, fol_truth: bool = False) -> str:
+    key_guidance = (
+        "Quiz 9 deterministic FOL assistance is enabled. Confirm all proposed readings "
+        "against the scan and enter human-approved scores/comments. If grading is unclear, "
+        "contact the instructor."
+        if fol_truth else
+        "No supplied answer key is included. If the intended grading is unclear, "
+        "stop and contact the instructor rather than asking a model to decide."
+    )
     return f"""TF GRADING BUNDLE: {quiz_id}
 
 This bundle already contains the roster-derived names, scans, quiz versions,
@@ -368,8 +406,7 @@ Use the A/B/C tabs to grade one problem/version across its students. The blank
 printed question stays at the top. Check a response's version badge if it looks
 out of place, optionally pin a response you judge correct as that version's
 visual reference, enter any partial-credit score you judge appropriate, and use
-Save & Next. No supplied answer key is included. If the intended grading is
-unclear, stop and contact the instructor rather than asking a model to decide.
+Save & Next. {key_guidance}
 If a crop is wrong, use Show Full Page or Fix Crop. Do not click the global
 Segmentation refresh link because this handoff intentionally has no model.
 
@@ -420,7 +457,9 @@ def finish_page(
             "location_ready_count": len(location_ready_ids),
             "location_total_count": len(problems),
             "location_missing_ids": location_missing_ids,
+            "location_unit_ids": [wu.unit_id for wu in session.work_units],
             "locations_all_ready": bool(problems) and not location_missing_ids,
+            "fol_truth_enabled": fol_truth_enabled(grading_key),
             "message": request.query_params.get("message"),
             "incomplete_grades": _incomplete_regular_scores(session),
         },
@@ -640,8 +679,16 @@ def export_tf_bundle(allow_duplicates: bool = False):
         "contains_protected_student_data": True,
         "local_model_required": False,
         "answer_keys_included": False,
+        "deterministic_grading_assistance_included": fol_truth_enabled(session.grading_key),
         "blank_question_image_count": len(question_assets),
     }
+    if fol_truth_enabled(session.grading_key):
+        manifest["fol_truth_assistance"] = {
+            "schema": FOL_TRUTH_SCHEMA,
+            "assessment": session.grading_key.fol_truth_assistance["assessment"],
+            "required_grader_feature": "quiz9_fol_truth_assistance_v1",
+            "shared_module_commit": "9d3dcdf744d4bbc1ac523a434c1cf633ffe71a9e",
+        }
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -657,7 +704,18 @@ def export_tf_bundle(allow_duplicates: bool = False):
             f"{root}/START_TF_GRADER.command",
             _tf_mac_launcher_text(),
         )
-        zf.writestr(f"{root}/READ_ME_FIRST.txt", _tf_bundle_readme(session.grading_key.quiz_id))
+        readme = _tf_bundle_readme(session.grading_key.quiz_id,
+                                  fol_truth=fol_truth_enabled(session.grading_key))
+        if fol_truth_enabled(session.grading_key):
+            readme += (
+                "\nQUIZ 9 FOL TRUTH ASSISTANCE\n"
+                "The updated code ZIP must include FOL truth assistance schema 1 and the\n"
+                "pinned explanation module. The strip view shows proposed vision readings\n"
+                "when available. Confirm each reading against the scan, choose whether\n"
+                "to use or edit draft feedback, and enter each score yourself. Do not\n"
+                "run vision preparation or refresh crops in TF mode.\n"
+            )
+        zf.writestr(f"{root}/READ_ME_FIRST.txt", readme)
 
         for cache_path in cache_paths:
             zf.write(cache_path, f"{root}/data/grades/{cache_path.name}")

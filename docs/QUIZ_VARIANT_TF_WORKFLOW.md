@@ -1,5 +1,146 @@
 # Versioned Paper Quiz: Instructor Workflow
 
+## Quiz 9 handoff status (November 6, 2026)
+
+**Working in the active private Quiz 9 session:** 32 submissions have confirmed
+A/B/C versions, seven complete question-location caches, and 224 preliminary
+IU Gemma answer readings (one per question and submission). All 224 answer
+requests completed and the saved proposal fingerprints matched their current
+version, crop, and source scan. No scores were set by preparation. These counts
+describe request completion and storage, not transcription accuracy. The live
+student scans, session, and caches remain under the private `DATA_DIR`; do not
+copy them into Git or test fixtures.
+
+The seven location caches were computed from the blank three-page PDF using
+`scripts/prepare_quiz9_template_locations.py`. Registration succeeded on every
+scan (minimum 367 inlier features and 0.557 inlier ratio). A prior IU Gemma
+location request failed because it returned `[115,285,335,333]` even though the
+prompt required normalized 0–1 coordinates; that response cannot safely be
+used as a box on the original 1190×1684 scan. The template caches now supply
+locations without a model. The partial Q1 model cache was preserved but is not
+used while the complete cache is valid.
+
+The first IU answer request failed because Gemma wrapped valid JSON in a
+`json` code fence. The answer parser now accepts that wrapper. The active
+instructor server at port 5003 was restarted with this fix, the Finish bulk
+reading control, and the strip proposal controls; a live request and the full
+224-request run succeeded. IU connectivity and JSON parsing were thus verified,
+but handwritten-choice accuracy was not measured against human transcription.
+
+**Main remaining product problem:** the current strip UI expects the TF to
+inspect the scan, accept or correct the proposed T/F and written response,
+fill the suggested score, optionally copy feedback, and save. That sequence
+can cost as much time as grading directly. The user wants a faster review flow
+for this cut-and-dry quiz. A fresh session should inspect the actual strip
+workflow, decide which clear proposals can be prefilled as *provisional* scores,
+and make exceptions/unclear readings the main review queue. Keep a way to
+correct mistakes and avoid treating unverified model output as a final grade.
+At handoff, all ordinary `per_problem` score fields were still empty.
+
+Code entry points: `app/fol_truth_assistance.py` (Quiz 9 models, formulas,
+prompt, answer parser), `app/assets/fol_truth_review.mjs` and
+`fol_truth_scoring.mjs` (browser review and scoring),
+`app/routes/problem_strips.py` (proposal endpoint and strip persistence),
+`app/templates/finish.html` (bulk preparation), and
+`app/routes/exam_exports.py` (bundle export). The approved points are Q1=2;
+Q2–5=2 each, split 1 T/F plus 1 written response; Q6–7=1 extra credit each,
+with the total capped at 10. Empty writing receives 0 when N/A is expected.
+The 21 blank question images and reviewed rubric are prepared outside Git from
+the blank PDF. The TF bundle includes the stored proposals and fixed crops,
+while TF mode has no model calls.
+
+Useful checks: `pytest tests/test_fol_truth_assistance.py
+tests/test_quiz9_preparation_provider.py tests/test_exam_exports_routes.py -q`
+and `node --test tests/fol_truth_scoring.test.mjs`. The private session can be
+audited locally by counting `fol_truth_reviews` records and confirming that
+`per_problem` values remain unset, without printing student responses.
+
+## Opt-in Quiz 9 FOL truth assistance
+
+The example rubric is `docs/quiz9_fol_truth_rubric.yaml`. Its explicit
+`fol_truth_assistance: {schema: 1, assessment: quiz9_monadic_fol_truth}` enables
+the review panel for the seven questions in the supplied three-version blank
+quiz. The printed models and formulas are transcribed in
+`app/fol_truth_assistance.py`; compact formulas are checked with
+`app/fol_model_checker.py`. The browser imports the approved upstream module
+from `app/assets/vendor/fol-explanations/` at commit
+`9d3dcdf744d4bbc1ac523a434c1cf633ffe71a9e`. Refresh it with
+`python scripts/vendor_fol_explanations.py --source <source-checkout> --revision <approved-commit>`
+and review `SOURCE.json` and wording approval before release.
+
+The instructor-ready rubric is `DATA_DIR/rubric/quiz9_monadic_fol_truth.yaml`;
+its 21 version/question blank images are under
+`DATA_DIR/rubric_assets/quiz9_monadic_fol_truth/`. Select that rubric in Setup
+when preparing Quiz 9; the export includes the rubric and referenced assets.
+Rebuild the ready set from the blank three-page PDF with
+`python -m scripts.prepare_quiz9_fol_truth_rubric --pdf <blank-quiz.pdf> --output-dir <new-output-folder>`.
+The script refuses to overwrite existing output. Compare the crops and point
+rules before replacing an instructor-ready set.
+
+For a fake-data review, run `python -m scripts.make_quiz9_fol_truth_demo`
+(it refuses to overwrite an existing demo). In a new PowerShell window set
+`$env:ENV_MODE='DEMO'; $env:DATA_DIR='working/quiz9_fol_truth_demo_scored'; $env:TF_GRADER_MODE='1'`
+and run `python -m uvicorn app.server:app --port 5001`. Open
+`http://127.0.0.1:5001/problem/Q2/strips?version=A`. This uses synthetic scans
+under ignored `working/` and does not access an active grading session.
+
+Instructor-approved scoring: Q1 is 2 points; Q2–5 are 2 each,
+split 1 for truth and 1 for the written response. This is 10 regular points.
+Q6 and Q7 are 1 extra-credit point each; the existing total caps at 10. When
+N/A is required, a blank written field receives 0 for that field. The rubric
+stores this split under `fol_truth_assistance.scoring`. The UI suggests a score
+only after clear TF confirmation, and applies it only when the TF clicks
+“Use suggested score”; the ordinary score field stays editable.
+
+After locations are ready, the instructor can use “Prepare preliminary answer
+readings” on Finish. IU Gemma (or Qwen) reads each saved crop, one request at a
+time; successful proposals are saved in the session and retries skip them.
+The individual “Prepare vision reading” button can rerun one crop. Model replies
+wrapped in a JSON code fence are accepted. The model supplies only a proposed
+T/F choice and short written response; it does not decide a grade.
+
+The TF reviews the scan, selects the confirmed truth value and, for Q2–5,
+records the exact short writing plus a confirmed object/N/A. The strip shows a
+preliminary score from any clear proposal, marked unconfirmed. “Accept proposed
+answer and fill score” copies that reading and score into the editable grading
+fields after the TF checks the scan; the TF can also correct either field
+manually. The page shows truth and written-response correctness separately.
+“Use draft comment” copies feedback into the ordinary editable per-problem
+comment. Saving persists the human-approved score/comment and a separate
+transcription. Accepted comments appear in exported feedback PDFs. Blank,
+unclear, or conflicting responses require human review. Vision preparation is
+unavailable in model-free TF mode. Do not represent an unreviewed scan as
+machine-transcribed.
+
+The review fingerprint includes assessment configuration, question, version,
+saved segment, and source file size/modification time. A changed version, crop,
+source scan, or configuration marks saved
+readings stale on reload; the TF must reconfirm them. Opted-in private bundles
+include configuration and review state in `session.json`, declare schema 1 and
+the pinned shared-module commit in `bundle_manifest.json`, and their launchers
+check required assets. Older ordinary bundles keep their behavior. The TF
+needs updated grader code, with no Node or model connection for review.
+
+For this Quiz 9 batch, prepare locations from the three-page blank PDF with
+`python -m scripts.prepare_quiz9_template_locations --pdf <blank-quiz.pdf>`.
+The default run validates the scan-to-blank alignment and prints aggregate
+geometry only. Repeat with `--write` to save `segments_Q1.json` through
+`segments_Q7.json` in the private `DATA_DIR/grades/` directory. The script
+requires the expected Quiz 9 session, confirmed A/B/C versions, one scan per
+submission, strong image registration, and no existing full location caches.
+It does not call a model or save student crops. The Finish page then reads
+those caches and shows the question locations as ready. The TF can adjust any
+crop in strip view. The earlier IU-based partial Q1 cache is preserved and is
+not used while the complete cache is valid.
+
+For other quizzes without template caches, instructor-side question-location
+preparation uses IU REALLMS Gemma by default, with an IU Qwen retry choice.
+The Finish page prepares one submission per request and checkpoints each
+successful location in a private partial cache; retrying skips completed
+submissions. The final `segments_Q*.json` cache is written only after every
+work unit for that question is valid. A failed IU request returns an actionable
+502 without exposing model output or student text.
+
 This is the operating note for paper quizzes that have multiple printed
 versions, are photographed or scanned, and are handed to one TF for grading.
 IU REALLMS Gemma performs name/version recognition and question location by
@@ -120,6 +261,9 @@ ask a model to settle it.
 
 ## Prepare the assignment
 
+The Quiz 9 opt-in stores its reviewed deterministic model/formula configuration
+in the explicit `fol_truth_assistance` field; it is not placed in legacy
+`answer_key` fields and is declared separately in the bundle manifest.
 1. Use an external production `DATA_DIR`; do not put real scans in Git.
 2. Download a current Canvas gradebook CSV and upload it in Setup as the roster.
    Keep the original full gradebook on the instructor's machine.
