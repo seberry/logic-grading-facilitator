@@ -2,18 +2,15 @@
 
 ## If the bundle says Quiz 9 FOL truth assistance
 
-The instructor may have prepared a proposed vision reading for each question.
-Compare it with the scan, then choose the confirmed True/False answer and, for
-Q2–5, the confirmed witness/counterexample or N/A. Record unusual writing in
-the “Written response as seen” box. “Unclear” and complicated answers need
-your judgment. The panel checks truth and written answers separately. Its
-recursive explanation is a draft: use “Use draft comment” only if you approve
-it, and edit the ordinary comment if needed. “Accept proposed answer and fill
-score” copies a clear proposal into the review and editable score fields only
-when you click it. Check and adjust both fields. Save
-before moving on. The bundle launcher checks that your code ZIP contains the
-matching explanation module. No model or Node installation is needed on your
-computer for this review.
+For each question and version, use the optional scratchpad to work out the
+answer, then select **Check the suggested answer**. Confirm the key if it is
+correct; if it looks wrong, contact the instructor or grade manually. The
+scratchpad is temporary and clears when you leave the page.
+
+Compare each interpreted student answer with its scan and correct the choices
+as needed. Confirming the key enables automatic scores and bracketed feedback;
+review and edit them before saving. Add your own comments outside the brackets.
+Save the page before moving on. No model or Node installation is needed.
 
 This is a local viewer for grading a paper quiz. The instructor has already
 matched the scans to students, identified quiz versions, and located each

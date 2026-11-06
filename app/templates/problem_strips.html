@@ -779,6 +779,40 @@
       border-color: #2563eb;
       color: #1d4ed8;
       font-weight: 600;
+    .fol-review-instructions { font-size: 0.8rem; color: #475569 !important; margin-top: 0.65rem !important; }
+    .fol-review-page .controls { gap: 0.45rem; }
+    .fol-review-page .student-card { border: 0; padding: 0; }
+    .fol-review-page .student-name { font-size: 0.85rem; font-weight: 400; color: #64748b; }
+    .fol-review-page .student-card .unit-id, .fol-review-page .student-card .version-badge { display: none; }
+    .fol-review-page .score-group { padding: 0.4rem 0.5rem; }
+    .fol-review-page .score-group > strong { font-size: 0.85rem; font-weight: 400; }
+    .fol-review-page .comment-input { min-height: 2.5rem; box-sizing: border-box; }
+    .fol-question-key { font-size: 0.92rem; line-height: 1.5; }
+    .fol-question-model, .fol-question-sentence { color: #0f172a; font-size: 1.2rem; font-weight: 700; line-height: 1.45; }
+    .fol-question-model { margin-bottom: 0.4rem; }
+    .fol-question-sentence { margin-bottom: 0.6rem; }
+    .fol-key-note { font-size: 0.85rem; color: #475569; margin: 0.3rem 0; }
+    .fol-answer-reveal > summary { display: inline-block; padding: 0.55rem 0.8rem; border-radius: 6px; background: #1d4ed8; color: #fff !important; font-size: 1rem !important; font-weight: 600; }
+    .fol-key-step { margin: 0.5rem 0; color: #1e3a8a; font-weight: 600; }
+    [data-key-state="confirmed"] .fol-answer-reveal > summary { background: #e2e8f0; color: #334155 !important; }
+    .fol-key-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.65rem 0; }
+    .fol-key-status { margin-top: 0.4rem; color: #334155; font-size: 0.85rem; }
+    .fol-key-status[data-state="rejected"] { color: #9a3412; font-weight: 600; }
+    .fol-key-manual { margin-top: 0.4rem; background: none; border: 0; padding: 0; text-decoration: underline; color: #475569; cursor: pointer; font: inherit; font-size: 0.85rem; }
+    .fol-key-answer { margin-top: 0.4rem; font-weight: 600; }
+    .fol-question-key pre { white-space: pre-wrap; max-height: 40vh; overflow: auto; font: inherit; font-size: 0.9rem; }
+    .fol-question-key summary, .fol-reading-details summary, .fol-strip-tools summary { cursor: pointer; color: #475569; font-size: 0.85rem; }
+    .fol-truth-panel { border-top: 1px solid #e2e8f0; padding-top: 0.5rem; }
+    .fol-reading-caption { color: #64748b; font-size: 0.78rem; }
+    .fol-reading-answer { font-size: 1.6rem; line-height: 1.25; margin: 0.2rem 0 0.5rem; color: #0f172a; }
+    .fol-choice-row { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-bottom: 0.4rem; }
+    .fol-choice { cursor: pointer; border: 1px solid #cbd5e1; border-radius: 5px; background: white; color: #475569; padding: 0.35rem 0.6rem; font: inherit; font-size: 0.85rem; }
+    .fol-choice[aria-pressed="true"] { background: #e2e8f0; border-color: #475569; color: #0f172a; }
+    .fol-choice:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+    .fol-reading-missing { color: #92400e; font-size: 0.85rem; margin-bottom: 0.5rem; }
+    .fol-truth-panel[data-needs-reading="true"] { border-left: 3px solid #d97706; padding-left: 0.6rem; background: #fffbeb; }
+    .fol-reading-details { margin-top: 0.5rem; font-size: 0.85rem; }
+    .fol-reading-details label { display: block; margin: 0.4rem 0; }
     }
     .type-badge {
       display: inline-flex;
@@ -809,10 +843,15 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
 </head>
-<body>
+<body{% if fol_truth_enabled %} class="fol-review-page"{% endif %}>
 
   <header id="grading-header" class="grading-header">
     <div class="grading-header-top">
+    {# An already-running server may not yet supply the separate header context.
+       Its strip contexts have the same checked question/version data. #}
+    {% if not fol_truth_question and fol_truth_enabled and strips and strips[0].quiz_version == active_version %}
+      {% set fol_truth_question = strips[0].fol_truth %}
+    {% endif %}
       <h1>{{ problem_id }} — {{ problem_label }}{% if active_version %} · Version {{ active_version }}{% endif %}</h1>
       <p class="header-links">
         <a href="?{% if active_version %}version={{ active_version }}&amp;{% endif %}refresh=1">↻ Locations with Gemma</a>
@@ -841,7 +880,8 @@
         </a>
       {% endif %}
       <div class="question-text">
-        {% if question_image_url %}
+        {% if fol_truth_question %}
+        {% elif question_image_url %}
           <p><strong>Blank printed question</strong><br><small>Click the image to open it full-size.</small></p>
         {% elif active_problem_context.prompt %}
           <p><strong>Question:</strong> {{ active_problem_context.prompt }}</p>
@@ -849,7 +889,29 @@
           <p><strong>Question:</strong> No prompt image or text is saved for this version yet.</p>
         {% endif %}
         {% if fol_truth_enabled %}
-          <p class="grader-escalation compact">Quiz 9 deterministic assistance is enabled. Confirm each reading against the scan before using feedback.</p>
+          {% if fol_truth_question %}
+          <section class="fol-question-key" data-fol-truth-question data-context='{{ fol_truth_question | tojson }}'>
+            <div class="fol-question-model">Model: D = {{ fol_truth_question.model.domain }}, c = {{ fol_truth_question.model.constants.c }};
+              P = {{ fol_truth_question.model.predicates.P }}, Q = {{ fol_truth_question.model.predicates.Q }}, R = {{ fol_truth_question.model.predicates.R }}</div>
+            <div class="fol-question-sentence">Sentence: {{ active_problem_context.prompt or fol_truth_question.formula }}</div>
+            <div class="fol-key-step" data-fol-key-step>First, check the answer key for this question and version.</div>
+            <label style="display:block; margin: 0.6rem 0;">Optional scratchpad (cleared when you leave this page)
+              <textarea rows="3" style="display:block; width:100%; box-sizing:border-box;" placeholder="Work out your answer here"></textarea>
+            </label>
+            <details class="fol-answer-reveal">
+              <summary data-fol-key-reveal>Check the suggested answer</summary>
+              <div class="fol-key-answer">Code's answer: <span data-fol-truth-expected>Checking…</span></div>
+              <details><summary>Why?</summary><pre data-fol-truth-explanation></pre></details>
+              <div class="fol-key-actions">
+                <button type="button" class="btn btn-primary" data-fol-key-confirm>Answer is correct — prefill grades</button>
+                <button type="button" class="btn btn-secondary" data-fol-key-reject>Something looks wrong</button>
+              </div>
+            </details>
+            <div class="fol-key-status" data-fol-key-status role="status">Confirm the key to prefill scores and explanations. Student readings are ready to check below.</div>
+            <button type="button" class="fol-key-manual" data-fol-key-manual>Grade manually instead</button>
+          </section>
+          {% endif %}
+          <p class="fol-review-instructions">Once the interpreted answers and comments look good, click <b>Save &amp; Next</b> or <b>Save &amp; Back</b> to approve and save all answers on this page at once.</p>
         {% else %}
           <p class="grader-escalation compact"><strong>No supplied answer key.</strong> If grading is unclear, contact the instructor promptly.</p>
         {% endif %}
@@ -1150,52 +1212,51 @@
           <section class="fol-truth-panel" data-fol-truth-panel
                    data-context='{{ item.fol_truth | tojson }}'
                    data-review='{{ item.fol_truth_review | tojson }}'
-                   style="border:1px solid #94a3b8; padding:0.8rem; margin:0.8rem 0; background:#f8fafc;">
-            <strong>FOL truth review</strong>
-            <div>Model: D = {{ item.fol_truth.model.domain }}, c = {{ item.fol_truth.model.constants.c }};
-              P = {{ item.fol_truth.model.predicates.P }}, Q = {{ item.fol_truth.model.predicates.Q }},
-              R = {{ item.fol_truth.model.predicates.R }}</div>
-            <div class="muted">Confirm the answer against the scan. Suggestions do not set a score.</div>
-            {% if fol_truth_can_prepare %}
-              <button type="button" class="btn btn-secondary" data-fol-truth-prepare
-                      data-unit-id="{{ wu.unit_id }}" data-problem-id="{{ problem_id }}">Prepare vision reading</button>
-            {% endif %}
-            <div data-fol-truth-stale style="color:#9a3412;" hidden>Saved reading is stale after a version, crop, or configuration change. Recheck the scan.</div>
-            <div>Proposed vision reading: <span data-fol-truth-proposal>{% if item.fol_truth_review.proposed_truth %}Truth: {{ item.fol_truth_review.proposed_truth }}; written: {{ item.fol_truth_review.proposed_raw_object or item.fol_truth_review.proposed_object or 'unclear' }}{% else %}None prepared{% endif %}</span></div>
-            <div>Preliminary score from proposal: <strong data-fol-truth-proposal-score>Needs reading</strong></div>
-            <button type="button" class="btn btn-secondary" data-fol-truth-accept-proposal>Accept proposed answer and fill score</button>
-            <label>Confirmed truth value
-              <select data-fol-truth-confirmed>
-                <option value="">Unreviewed</option><option value="true">True</option>
-                <option value="false">False</option><option value="blank">Blank</option>
-                <option value="unclear">Unclear</option>
-              </select>
-            </label>
+                   aria-label="Student answer reading">
+            <div class="fol-reading-caption">Interpreted student answer</div>
+            <div class="fol-reading-answer"><strong data-fol-truth-interpreted></strong></div>
+            <div class="fol-reading-missing" data-fol-truth-missing hidden>Needs reading — choose the answer shown in the scan.</div>
+            <div data-fol-truth-stale class="fol-reading-missing" hidden>Reading changed after a version, crop, or configuration correction. Recheck the scan.</div>
+            <div class="fol-choice-row" role="group" aria-label="Interpreted truth value">
+              {% for value, label in [('true', 'True'), ('false', 'False'), ('unclear', 'Other')] %}
+              <button type="button" class="fol-choice" data-fol-choice="truth" data-value="{{ value }}" aria-pressed="false">{{ label }}</button>
+              {% endfor %}
+            </div>
             {% if item.fol_truth.asks_object %}
-              <label>Written response as seen
-                <input type="text" data-fol-truth-raw placeholder="Exact short response or leave blank">
-              </label>
-              <label>Confirmed object / N/A
-                <select data-fol-truth-object>
-                  <option value="">Unreviewed</option><option value="1">1</option>
-                  <option value="2">2</option><option value="3">3</option>
-                  <option value="na">N/A</option><option value="blank">Blank</option>
-                  <option value="unclear">Unclear or needs interpretation</option>
+            <div class="fol-choice-row" role="group" aria-label="Interpreted written response">
+              {% for value, label in [('1', '1'), ('2', '2'), ('3', '3'), ('na', 'N/A'), ('unclear', 'Other')] %}
+              <button type="button" class="fol-choice" data-fol-choice="object" data-value="{{ value }}" aria-pressed="false">{{ label }}</button>
+              {% endfor %}
+            </div>
+            {% endif %}
+            <details class="fol-reading-details" data-fol-truth-details>
+              <summary>Other / reading details</summary>
+              <label>Truth reading
+                <select data-fol-truth-confirmed aria-label="Truth reading details">
+                  <option value="">Needs reading</option><option value="true">True</option>
+                  <option value="false">False</option><option value="blank">Blank</option><option value="unclear">Other / unclear</option>
                 </select>
               </label>
-            {% endif %}
-            <div data-fol-truth-verdict></div>
-            {% if item.fol_truth.score_rule %}
-              <div>Suggested score: <strong data-fol-truth-score>Needs confirmed reading</strong></div>
-              <button type="button" class="btn btn-secondary" data-fol-truth-apply-score>Use suggested score</button>
-            {% endif %}
-            <details><summary>Recursive explanation</summary><pre data-fol-truth-explanation style="white-space:pre-wrap;"></pre></details>
-            <textarea data-fol-truth-draft readonly style="width:100%; min-height:5rem;" aria-label="Draft FOL feedback"></textarea>
-            <button type="button" class="btn btn-secondary" data-fol-truth-apply>Use draft comment</button>
+              {% if item.fol_truth.asks_object %}
+              <label>Written reading
+                <select data-fol-truth-object aria-label="Written reading details">
+                  <option value="">Needs reading</option><option value="1">1</option><option value="2">2</option><option value="3">3</option>
+                  <option value="na">N/A</option><option value="blank">Blank</option><option value="unclear">Other / unclear</option>
+                </select>
+              </label>
+              <label>Exact writing <input type="text" data-fol-truth-raw placeholder="Short written response"></label>
+              {% endif %}
+              <div>Original vision reading: <span data-fol-truth-proposal></span></div>
+              <div data-fol-truth-verdict></div>
+              {% if fol_truth_can_prepare %}
+              <button type="button" class="btn btn-secondary" data-fol-truth-prepare data-unit-id="{{ wu.unit_id }}" data-problem-id="{{ problem_id }}">Reread this scan</button>
+              {% endif %}
+            </details>
             <input type="hidden" name="fol_truth_review_{{ wu.unit_id }}" data-fol-truth-storage>
           </section>
         {% endif %}
 
+          {% if fol_truth_enabled %}<details class="fol-strip-tools"><summary>Scan / version tools</summary>{% endif %}
             <div class="fol-model-verdict" data-fol-model-verdict>
               {{ fol.summary or "No checker result yet." }}
             </div>
@@ -1270,6 +1331,7 @@
               data-unit-id="{{ wu.unit_id }}"
               onclick="togglePin(this)"
               tabindex="-1"> Pin as reference
+          {% if fol_truth_enabled %}</details>{% endif %}
       </button>
   </div>
 
@@ -1319,7 +1381,7 @@
                       placeholder="Note for {{ problem_id }} (optional)">{{ wu.per_problem_comments.get(problem_id) or '' }}</textarea>
           </label>
 
-        {% if seg and seg.comment %}
+        {% if seg and seg.comment and not fol_truth_enabled %}
           <div style="font-size:0.85rem; color:#666; background:#f0f0f0; padding:0.5rem; border-radius:4px;">
             <em>AI Note:</em> {{ seg.comment }}
           </div>

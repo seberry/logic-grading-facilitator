@@ -27,15 +27,24 @@ reading control, and the strip proposal controls; a live request and the full
 224-request run succeeded. IU connectivity and JSON parsing were thus verified,
 but handwritten-choice accuracy was not measured against human transcription.
 
-**Main remaining product problem:** the current strip UI expects the TF to
-inspect the scan, accept or correct the proposed T/F and written response,
-fill the suggested score, optionally copy feedback, and save. That sequence
-can cost as much time as grading directly. The user wants a faster review flow
-for this cut-and-dry quiz. A fresh session should inspect the actual strip
-workflow, decide which clear proposals can be prefilled as *provisional* scores,
-and make exceptions/unclear readings the main review queue. Keep a way to
-correct mistakes and avoid treating unverified model output as a final grade.
-At handoff, all ordinary `per_problem` score fields were still empty.
+**TF review flow:** fresh saved proposals prefill the interpreted choices.
+The prominent Check the suggested answer control starts an explicit answer-key
+review for the current question/version. Confirming the key enables score and
+wrong-answer feedback prefilling on this page; a rejected key asks the TF to
+email the instructor and stops automatic grading. Grade manually instead keeps
+manual score/comment entry available. Confirmation is per page visit; saved
+grades and comments are preserved when the page is reopened. The shared question/version
+header emphasizes the model and sentence. An optional scratchpad above the review control is cleared when leaving the page. The code's answer and Why? explanation
+are behind the review control; suspected key errors should be emailed to the
+instructor rather than edited in the TF interface.
+Each strip emphasizes only the bold interpreted student answer, with quick
+True/False/Other and object/N/A/Other buttons. Amber means an unresolved reading,
+not an incorrect answer; all clear readings still need checking against the scan. Correct the choices against the scan; the score
+and generated comment update together, retaining text appended by the TF. Saved
+manual grades and comments are preserved on reload. Save & Next or Save & Back
+approves all readings on the current page together; no individual acceptance is
+required. Stale or unclear readings do not get an automatic score. Preparation
+still leaves persisted grades unset until the TF saves the grading page.
 
 Code entry points: `app/fol_truth_assistance.py` (Quiz 9 models, formulas,
 prompt, answer parser), `app/assets/fol_truth_review.mjs` and
@@ -88,9 +97,8 @@ Instructor-approved scoring: Q1 is 2 points; Q2–5 are 2 each,
 split 1 for truth and 1 for the written response. This is 10 regular points.
 Q6 and Q7 are 1 extra-credit point each; the existing total caps at 10. When
 N/A is required, a blank written field receives 0 for that field. The rubric
-stores this split under `fol_truth_assistance.scoring`. The UI suggests a score
-only after clear TF confirmation, and applies it only when the TF clicks
-“Use suggested score”; the ordinary score field stays editable.
+stores this split under `fol_truth_assistance.scoring`. Clear fresh readings prefill the ordinary editable score and comment fields;
+the TF reviews them against the scan before saving the page.
 
 After locations are ready, the instructor can use “Prepare preliminary answer
 readings” on Finish. IU Gemma (or Qwen) reads each saved crop, one request at a
@@ -99,18 +107,15 @@ The individual “Prepare vision reading” button can rerun one crop. Model rep
 wrapped in a JSON code fence are accepted. The model supplies only a proposed
 T/F choice and short written response; it does not decide a grade.
 
-The TF reviews the scan, selects the confirmed truth value and, for Q2–5,
-records the exact short writing plus a confirmed object/N/A. The strip shows a
-preliminary score from any clear proposal, marked unconfirmed. “Accept proposed
-answer and fill score” copies that reading and score into the editable grading
-fields after the TF checks the scan; the TF can also correct either field
-manually. The page shows truth and written-response correctness separately.
-“Use draft comment” copies feedback into the ordinary editable per-problem
-comment. Saving persists the human-approved score/comment and a separate
-transcription. Accepted comments appear in exported feedback PDFs. Blank,
-unclear, or conflicting responses require human review. Vision preparation is
-unavailable in model-free TF mode. Do not represent an unreviewed scan as
-machine-transcribed.
+The TF checks the bold interpreted answer against the scan and corrects the
+truth or object/N/A choices as needed. The shared header’s expected answer includes every valid
+object, so multiple acceptable witnesses or counterexamples remain visible.
+Wrong answers prefill feedback; correct answers leave the generated comment
+empty. The ordinary comment field accepts additional TF text, retained when the
+answer changes. Saving persists the score, comment, and transcription together.
+Generated explanations are enclosed in square brackets. Added TF text remains outside the brackets and survives answer corrections.
+Accepted comments appear in exported feedback PDFs. Unclear responses require
+human interpretation. Vision preparation is unavailable in model-free TF mode.
 
 The review fingerprint includes assessment configuration, question, version,
 saved segment, and source file size/modification time. A changed version, crop,
@@ -160,10 +165,11 @@ The intended workflow and product decisions are:
 - Canvas API access is not part of this path. Intake uses a downloaded Canvas
   gradebook CSV. Scores return through a Canvas gradebook upload; the instructor
   manually attaches one named scan-and-feedback PDF per student.
-- Human judgment is authoritative. Do not generate an answer key, solution, or
-  grading advice for the TA/TF. A grader may pin a student response they judge
-  correct as a visual reference and should contact the instructor if course
-  expectations are unclear.
+- Human judgment is authoritative. Ordinary bundles do not generate an answer
+  key, solution, or grading advice for the TA/TF. The instructor-approved Quiz 9
+  opt-in above adds deterministic suggestions that the TF confirms and accepts.
+  A grader may pin a student response they judge correct as a visual reference
+  and should contact the instructor if course expectations are unclear.
 - In strip view, the student answer crop is the visual focus. The blank printed
   question appears once, larger, and pinned at the top, with separate assets by
   question/version when needed.
@@ -260,10 +266,10 @@ from course knowledge, they should contact the instructor promptly rather than
 ask a model to settle it.
 
 ## Prepare the assignment
-
 The Quiz 9 opt-in stores its reviewed deterministic model/formula configuration
 in the explicit `fol_truth_assistance` field; it is not placed in legacy
 `answer_key` fields and is declared separately in the bundle manifest.
+
 1. Use an external production `DATA_DIR`; do not put real scans in Git.
 2. Download a current Canvas gradebook CSV and upload it in Setup as the roster.
    Keep the original full gradebook on the instructor's machine.

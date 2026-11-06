@@ -1,23 +1,73 @@
 import { explainTruth, explainCandidate } from './vendor/fol-explanations/index.mjs';
 import { scoreConfirmed } from './fol_truth_scoring.mjs';
 
+// One answer key for this question/version; student readings stay visually separate.
+const keyReviews = [];
+for (const question of document.querySelectorAll('[data-fol-truth-question]')) {
+  const context = JSON.parse(question.dataset.context);
+  const review = {context, state: 'pending', listeners: []};
+  keyReviews.push(review);
+  const status = question.querySelector('[data-fol-key-status]');
+  const confirm = question.querySelector('[data-fol-key-confirm]');
+  const reject = question.querySelector('[data-fol-key-reject]');
+  const manual = question.querySelector('[data-fol-key-manual]');
+  const setState = state => {
+    review.state = state;
+    question.dataset.keyState = state;
+    question.querySelector('[data-fol-key-step]').textContent = {
+      confirmed: 'Next, review the student readings below.',
+      rejected: 'Pause here: check with the instructor about this answer key.',
+      manual: 'Grade the responses below manually.',
+    }[state];
+    question.querySelector('[data-fol-key-reveal]').textContent = state === 'confirmed'
+      ? 'Answer key confirmed — view again' : 'Check the suggested answer';
+    if (state === 'confirmed' || state === 'manual') question.querySelector('.fol-answer-reveal').open = false;
+    status.dataset.state = state;
+    status.textContent = {
+      confirmed: 'Key confirmed. Now compare each scan with its bold reading; scores and explanations update as you correct choices.',
+      rejected: 'Email the instructor with this question and version before using this key. Automatic grades and explanations are off; manual grading is available.',
+      manual: 'Manual grading: enter scores and comments yourself. Automatic grades and explanations are off.',
+    }[state];
+    confirm.textContent = state === 'confirmed' ? 'Key confirmed' : 'Answer is correct — prefill grades';
+    confirm.disabled = state === 'confirmed';
+    for (const listener of review.listeners) listener();
+  };
+  try {
+    const truth = explainTruth(context.formula, context.model);
+    if (truth.value !== context.truth) throw new Error('Python and browser truth checks disagree.');
+    const candidates = context.asks_object && truth.requiredEvidence
+      ? context.model.domain.filter(value => explainCandidate(context.formula, context.model, Number(value)).valid).join(', ')
+      : 'N/A';
+    question.querySelector('[data-fol-truth-expected]').textContent =
+      `${truth.value ? 'True' : 'False'}${context.asks_object ? '; written response: ' + candidates : ''}`;
+    question.querySelector('[data-fol-truth-explanation]').textContent = truth.text;
+    confirm.addEventListener('click', () => setState('confirmed'));
+    reject.addEventListener('click', () => setState('rejected'));
+  } catch (error) {
+    review.state = 'unavailable';
+    confirm.disabled = true;
+    question.querySelector('[data-fol-truth-expected]').textContent = 'Check manually';
+    question.querySelector('[data-fol-truth-explanation]').textContent = error.message;
+    status.textContent = 'The answer key could not be checked. Email the instructor; manual grading is available.';
+  }
+  manual.addEventListener('click', () => setState('manual'));
+}
+
 for (const panel of document.querySelectorAll('[data-fol-truth-panel]')) {
   const context = JSON.parse(panel.dataset.context);
   const saved = JSON.parse(panel.dataset.review || '{}');
+  const keyReview = keyReviews.find(review => review.context.version === context.version &&
+    review.context.formula === context.formula && JSON.stringify(review.context.model) === JSON.stringify(context.model));
   const truthSelect = panel.querySelector('[data-fol-truth-confirmed]');
   const objectSelect = panel.querySelector('[data-fol-truth-object]');
   const rawInput = panel.querySelector('[data-fol-truth-raw]');
   const storage = panel.querySelector('[data-fol-truth-storage]');
   const verdict = panel.querySelector('[data-fol-truth-verdict]');
-  const explanation = panel.querySelector('[data-fol-truth-explanation]');
-  const draft = panel.querySelector('[data-fol-truth-draft]');
   const stale = panel.querySelector('[data-fol-truth-stale]');
   const proposal = panel.querySelector('[data-fol-truth-proposal]');
-  const proposalScore = panel.querySelector('[data-fol-truth-proposal-score]');
-  const acceptProposal = panel.querySelector('[data-fol-truth-accept-proposal]');
-  const apply = panel.querySelector('[data-fol-truth-apply]');
-  const scoreDisplay = panel.querySelector('[data-fol-truth-score]');
-  const applyScore = panel.querySelector('[data-fol-truth-apply-score]');
+  const choiceButtons = panel.querySelectorAll('[data-fol-choice]');
+  const missing = panel.querySelector('[data-fol-truth-missing]');
+  const details = panel.querySelector('[data-fol-truth-details]');
   const prepare = panel.querySelector('[data-fol-truth-prepare]');
   const strip = panel.closest('.strip');
   const versionSelect = strip.querySelector('select[name^="quiz_version_"]');
@@ -26,24 +76,38 @@ for (const panel of document.querySelectorAll('[data-fol-truth-panel]')) {
   const bboxUpdate = strip.querySelector('input[name^="bbox_update_"]');
   const pageUpdate = strip.querySelector('input[name^="page_update_"]');
   let fingerprint = saved.fingerprint || context.fingerprint;
-  let appliedDraft = null;
-  let suggestedScore = null;
   let appliedScore = null;
 
   proposal.textContent = saved.proposed_truth || saved.proposed_object
     ? `Truth: ${saved.proposed_truth || 'unclear'}; written: ${saved.proposed_raw_object || saved.proposed_object || 'unclear'}`
     : 'None prepared';
-  truthSelect.value = saved.confirmed_truth || '';
-  if (objectSelect) objectSelect.value = saved.confirmed_object || '';
-  if (rawInput) rawInput.value = saved.raw_object || '';
+  const fresh = !saved.fingerprint || saved.fingerprint === context.fingerprint;
+  truthSelect.value = saved.confirmed_truth ?? (fresh ? saved.proposed_truth : '') ?? '';
+  if (objectSelect) objectSelect.value = saved.confirmed_object ?? (fresh ? saved.proposed_object : '') ?? '';
+  if (rawInput) rawInput.value = saved.raw_object ?? (fresh ? saved.proposed_raw_object : '') ?? '';
 
-  function render() {
+  let previousDraft = null;
+  let initial = true;
+  function render(updateFields = false) {
     const changedVersion = versionSelect && versionSelect.value !== context.version;
     const sourceChanged = Boolean(bboxUpdate?.value.trim()) ||
       (pageUpdate && pageUpdate.value !== context.source_filename);
     const isStale = fingerprint !== context.fingerprint || changedVersion || sourceChanged;
     if (prepare) prepare.disabled = Boolean(changedVersion || sourceChanged);
     stale.hidden = !isStale;
+    const needsReading = !['true', 'false', 'blank'].includes(truthSelect.value) ||
+      (context.asks_object && !['1', '2', '3', 'na', 'blank'].includes(objectSelect.value));
+    panel.dataset.needsReading = String(Boolean(isStale || needsReading));
+    missing.hidden = isStale || !needsReading;
+    const display = value => ({true: 'True', false: 'False', na: 'N/A', blank: 'Blank', unclear: 'Other / unclear'}[value] || value || 'Needs reading');
+    panel.querySelector('[data-fol-truth-interpreted]').textContent =
+      !truthSelect.value && context.asks_object && !objectSelect.value ? 'Needs reading' :
+        `${display(truthSelect.value)}${context.asks_object ? ' · ' + display(objectSelect.value) : ''}`;
+    for (const button of choiceButtons) {
+      const value = button.dataset.folChoice === 'truth' ? truthSelect.value : objectSelect?.value;
+      button.setAttribute('aria-pressed', String(button.dataset.value === value ||
+        (button.dataset.value === 'unclear' && value === 'blank')));
+    }
     storage.value = JSON.stringify({
       proposed_truth: saved.proposed_truth || null,
       proposed_object: saved.proposed_object || null,
@@ -53,32 +117,21 @@ for (const panel of document.querySelectorAll('[data-fol-truth-panel]')) {
       raw_object: rawInput?.value || null,
       fingerprint,
     });
-    if (isStale) {
-      if (proposalScore) proposalScore.textContent = 'Stale reading';
-      if (acceptProposal) acceptProposal.disabled = true;
-      if (appliedDraft !== null && commentInput.value === appliedDraft) {
-        commentInput.value = '';
-        appliedDraft = null;
+    if (isStale || keyReview?.state !== 'confirmed') {
+      if (previousDraft && commentInput.value.startsWith(previousDraft)) {
+        commentInput.value = commentInput.value.slice(previousDraft.length).trimStart();
       }
       if (appliedScore !== null && scoreInput?.value === appliedScore) {
         scoreInput.value = '';
         appliedScore = null;
       }
-      verdict.textContent = 'Reconfirm this reading after saving the corrected version or crop.';
-      if (scoreDisplay) scoreDisplay.textContent = 'Stale reading';
-      if (applyScore) applyScore.disabled = true;
-      explanation.textContent = '';
-      draft.value = '';
-      apply.disabled = true;
+      verdict.textContent = isStale ? 'Reconfirm this reading after saving the corrected version or crop.' :
+        'Automatic scores and explanations wait for answer-key confirmation above. Manual grading is available.';
       return;
     }
     try {
       const truth = explainTruth(context.formula, context.model);
       if (truth.value !== context.truth) throw new Error('Python and browser truth checks disagree.');
-      const preliminary = scoreConfirmed(context, truth, saved.proposed_truth, saved.proposed_object);
-      if (proposalScore) proposalScore.textContent = preliminary
-        ? `${preliminary.points} / ${preliminary.maximum} (unconfirmed)` : 'Needs a clear reading';
-      if (acceptProposal) acceptProposal.disabled = !preliminary;
       const notes = [];
       const messages = [];
       const truthAnswer = truthSelect.value;
@@ -95,7 +148,8 @@ for (const panel of document.querySelectorAll('[data-fol-truth-panel]')) {
         if (!objectAnswer || objectAnswer === 'unclear') {
           notes.push('Written response needs review.');
         } else if (objectAnswer === 'blank') {
-          notes.push('Written response blank; score policy pending.');
+          notes.push('Written response blank: 0 written-response points.');
+          messages.push(expected ? `A ${expected} is required for this sentence.` : 'N/A is expected here; a blank response receives no written-response credit.');
         } else if (!expected) {
           notes.push(objectAnswer === 'na' ? 'N/A: correct.' : 'Written response: N/A expected.');
           if (objectAnswer !== 'na') messages.push('N/A is expected here because no witness or counterexample is required.');
@@ -113,62 +167,54 @@ for (const panel of document.querySelectorAll('[data-fol-truth-panel]')) {
         }
       }
       verdict.textContent = notes.join(' ');
-      if (context.score_rule && scoreDisplay && applyScore) {
-        const result = scoreConfirmed(context, truth, truthAnswer, objectSelect?.value);
-        if (result) {
-          suggestedScore = String(result.points);
-          scoreDisplay.textContent = `${result.points} / ${result.maximum}`;
-          applyScore.disabled = false;
-        } else {
-          suggestedScore = null;
-          scoreDisplay.textContent = 'Needs confirmed reading';
-          applyScore.disabled = true;
+      const explanationText = messages.join('\n\n');
+      const draft = explanationText ? `[${explanationText}]` : '';
+      const result = scoreConfirmed(context, truth, truthAnswer, objectSelect?.value);
+      if (initial || updateFields) {
+        if (scoreInput && (updateFields || scoreInput.value === '')) {
+          scoreInput.value = result ? String(result.points) : '';
+          appliedScore = scoreInput.value;
+          scoreInput.dispatchEvent(new Event('input', {bubbles: true}));
+        }
+        // Replace only our generated prefix; retain anything the TF added.
+        let extra = commentInput.value;
+        if (previousDraft && extra.startsWith(previousDraft)) extra = extra.slice(previousDraft.length).trimStart();
+        // Recognize the earlier unlabelled default without relabelling custom feedback.
+        const legacyPrefixes = explanationText ? [`[Default explainer (autogenerated)]\n${explanationText}`, explanationText] : [];
+        const legacyPrefix = initial && legacyPrefixes.find(prefix => extra.startsWith(prefix));
+        const legacyDefault = Boolean(legacyPrefix);
+        if (legacyPrefix) extra = extra.slice(legacyPrefix.length).trimStart();
+        if (extra.startsWith('[TF comment]\n')) extra = extra.slice('[TF comment]\n'.length).trimStart();
+        if (updateFields || !extra || legacyDefault) {
+          commentInput.value = [draft, extra].filter(Boolean).join('\n\n');
         }
       }
-      explanation.textContent = truth.text;
-      draft.value = messages.join('\n\n');
-      apply.disabled = !draft.value || !['true', 'false'].includes(truthAnswer) ||
-        (context.asks_object && !objectSelect.value) ||
-        (context.asks_object && ['unclear', 'blank'].includes(objectSelect.value));
+      previousDraft = draft;
+      initial = false;
     } catch (error) {
-      if (proposalScore) proposalScore.textContent = 'Assistance unavailable';
-      if (acceptProposal) acceptProposal.disabled = true;
-      verdict.textContent = `Assistance unavailable: ${error.message}`;
-      explanation.textContent = '';
-      draft.value = '';
-      apply.disabled = true;
-      suggestedScore = null;
-      if (scoreDisplay) scoreDisplay.textContent = 'Assistance unavailable';
-      if (applyScore) applyScore.disabled = true;
+      panel.dataset.needsReading = 'true';
+      missing.hidden = false;
+      missing.textContent = `Check manually: ${error.message}`;
+      verdict.textContent = missing.textContent;
     }
   }
   for (const input of [truthSelect, objectSelect, rawInput]) {
-    input?.addEventListener('input', () => { fingerprint = context.fingerprint; render(); });
+    input?.addEventListener('input', () => { fingerprint = context.fingerprint; render(true); });
   }
-  versionSelect?.addEventListener('change', render);
-  apply.addEventListener('click', () => {
-    if (apply.disabled) return;
-    commentInput.value = draft.value;
-    appliedDraft = draft.value;
-    commentInput.dispatchEvent(new Event('input', {bubbles: true}));
-    scoreInput?.focus();
-  });
-  applyScore?.addEventListener('click', () => {
-    if (applyScore.disabled || suggestedScore === null) return;
-    scoreInput.value = suggestedScore;
-    appliedScore = suggestedScore;
-    scoreInput.dispatchEvent(new Event('input', {bubbles: true}));
-  });
-  acceptProposal?.addEventListener('click', () => {
-    if (acceptProposal.disabled) return;
-    truthSelect.value = saved.proposed_truth;
-    if (objectSelect) objectSelect.value = saved.proposed_object || '';
-    if (rawInput) rawInput.value = saved.proposed_raw_object || '';
-    fingerprint = context.fingerprint;
+  versionSelect?.addEventListener('change', () => render());
+  for (const button of choiceButtons) {
+    button.addEventListener('click', () => {
+      const input = button.dataset.folChoice === 'truth' ? truthSelect : objectSelect;
+      input.value = button.dataset.value;
+      if (button.dataset.value === 'unclear') details.open = true;
+      input.dispatchEvent(new Event('input', {bubbles: true}));
+    });
+  }
+  strip.closest('form')?.addEventListener('submit', () => render());
+  keyReview?.listeners.push(() => {
+    if (keyReview.state === 'confirmed') initial = true;
     render();
-    applyScore?.click();
   });
-  strip.closest('form')?.addEventListener('submit', render);
   prepare?.addEventListener('click', async () => {
     prepare.disabled = true;
     verdict.textContent = 'Reading this one crop with vision…';
@@ -181,8 +227,12 @@ for (const panel of document.querySelectorAll('[data-fol-truth-panel]')) {
       const result = await response.json();
       if (!response.ok) throw new Error(result.detail || 'Vision reading failed.');
       Object.assign(saved, result.proposal);
+      truthSelect.value = saved.proposed_truth || '';
+      if (objectSelect) objectSelect.value = saved.proposed_object || '';
+      if (rawInput) rawInput.value = saved.proposed_raw_object || '';
+      fingerprint = context.fingerprint;
       proposal.textContent = `Truth: ${saved.proposed_truth || 'unclear'}; written: ${saved.proposed_raw_object || saved.proposed_object || 'unclear'}`;
-      render();
+      render(true);
       prepare.disabled = false;
     } catch (error) {
       verdict.textContent = error.message;

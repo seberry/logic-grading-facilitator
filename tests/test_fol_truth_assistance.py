@@ -16,6 +16,7 @@ import io
 import zipfile
 import fitz
 import hashlib
+import pytest
 from app.routes import exam_exports as exam_exports_routes
 from PIL import Image
 
@@ -100,7 +101,8 @@ def test_vendored_shared_module_matches_pinned_source_hashes():
         assert hashlib.sha256((root / name).read_bytes()).hexdigest() == expected
 
 
-def test_opted_in_strip_review_saves_transcription_and_human_comment():
+@pytest.mark.parametrize("legacy_header_context", [False, True])
+def test_opted_in_strip_review_saves_transcription_and_human_comment(legacy_header_context):
     key = GradingKey(quiz_id="fake", problems=[ProblemSpec(id="Q4", label="Q4", points=2,
                          variants={v: {"prompt": "printed Q4"} for v in MODELS})],
                      fol_truth_assistance={"schema": 1, "assessment": ASSESSMENT})
@@ -111,13 +113,32 @@ def test_opted_in_strip_review_saves_transcription_and_human_comment():
     segment = {"unit_id": 1, "page_filename": "fake.jpg", "page_index": 0,
                "bbox": [.1, .2, .9, .5], "present": True, "confidence": 1}
     client = TestClient(server.app)
+    from app.routes.problem_strips import templates
+    render_template = templates.TemplateResponse
+
+    def render_with_header_context(name, context):
+        if legacy_header_context:
+            context.pop("fol_truth_question", None)
+        return render_template(name, context)
+
     with (patch("app.routes.problem_strips.get_session", return_value=session),
           patch("app.routes.problem_strips.ensure_segments_cached", return_value=[segment]),
           patch("app.routes.problem_strips.question_image_url", return_value=None),
-          patch("app.routes.problem_strips.persist_session")):
+          patch("app.routes.problem_strips.persist_session"),
+          patch.object(templates, "TemplateResponse", side_effect=render_with_header_context)):
         page = client.get("/problem/Q4/strips")
         assert page.status_code == 200
-        assert "FOL truth review" in page.text
+        assert "Interpreted student answer" in page.text
+        assert page.text.count('data-fol-truth-question data-context=') == 1
+        assert page.text.count('data-fol-truth-expected') == 1
+        assert '<summary>Why?</summary>' in page.text
+        assert '<details class="fol-answer-reveal">' in page.text
+        assert "Optional scratchpad" in page.text
+        assert "Check the suggested answer" in page.text
+        assert "data-fol-key-confirm" in page.text
+        assert "data-fol-key-reject" in page.text
+        assert "Grade manually instead" in page.text
+        assert 'data-fol-choice="truth" data-value="true"' in page.text
         assert 'src="/proof_viewer_assets/fol_truth_review.mjs"' in page.text
         fingerprint = question_context(key, "Q4", "A", segment)["fingerprint"]
         review = {"proposed_truth": "true", "confirmed_truth": "false",

@@ -1052,6 +1052,7 @@ def get_problem_strips(
             "problem_note": session.problem_notes.get(problem_id, ""),
             "problem_reference_pins": _valid_reference_pins(session, problem_id),
             "problem_type": effective_problem_type,
+            "fol_truth_question": fol_truth_question_context(grading_key, problem_id, active_version, None) if fol_truth_enabled(grading_key) else None,
             "fol_truth_enabled": fol_truth_enabled(grading_key),
             "fol_truth_can_prepare": fol_truth_enabled(grading_key) and os.getenv("TF_GRADER_MODE", "").strip().lower() not in {"1", "true", "yes", "on"},
             "problem_type_options": PROBLEM_TYPE_OPTIONS,
