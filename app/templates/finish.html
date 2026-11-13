@@ -371,6 +371,13 @@
         <h2>Prepare TF handoff</h2>
         <p>The TF bundle needs saved question locations so the TF can grade without model access. You do not need to enter grades first.</p>
 
+        <div class="workflow-step"><span class="step-number">✓</span><div>
+          <h3>Review models and sentences for suggested feedback</h3>
+          <p>Read the fixed inputs from a blank quiz, correct them, and approve what the explanation code will use. Student answers are reviewed separately.</p>
+          {% if fol_truth_enabled %}<p>{{ 'Models and sentences approved.' if fol_truth_definitions_approved else 'Approval needed before exporting feedback.' }}</p>{% endif %}
+          <a class="btn btn-secondary" href="/prepare/fol-truth">Review models and sentences</a>
+        </div></div>
+
         <div class="workflow-step">
           <span class="step-number">1</span>
           <div>
@@ -412,12 +419,11 @@
           <span class="step-number">3</span>
           <div>
             <h3>Prepare preliminary answer readings</h3>
-            <p>IU reads the saved Quiz 9 crops and proposes T/F and any short written response. Each proposal is saved; the TF checks it against the scan and accepts or corrects the suggested score.</p>
+            <p>IU reads crops for questions with FOL truth assistance and proposes T/F and any short written response. Each proposal is saved; the TF checks it against the scan. You can also skip readings and let the TF enter answers manually.</p>
             <label for="answer-model">IU answer model</label>
             <select id="answer-model"><option value="gemma">Gemma</option><option value="qwen">Qwen</option></select>
             <button class="btn" type="button" id="prepare-all-answers"
-                    data-problems='{{ problems | map(attribute="id") | list | tojson }}'
-                    data-units='{{ location_unit_ids | tojson }}'
+                    data-tasks='{{ fol_truth_tasks | tojson }}'
                     {% if not locations_all_ready %}disabled{% endif %}>Prepare preliminary answer readings</button>
             <div id="prepare-answers-status" class="prepare-status" role="status" aria-live="polite"></div>
           </div>
@@ -429,7 +435,9 @@
           <div>
             <h3>Create the private TF bundle</h3>
             <p id="tf-bundle-readiness">
-              {% if locations_all_ready %}
+              {% if not fol_truth_definitions_approved %}
+                Review and approve the models and sentences before creating this bundle.
+              {% elif locations_all_ready %}
                 Question locations are ready. The export will run its final scan and version checks.
               {% else %}
                 Finish preparing question locations before creating the bundle.
@@ -437,9 +445,9 @@
             </p>
             <a
               id="tf-bundle-link"
-              class="btn {{ '' if locations_all_ready else 'btn-disabled' }}"
+              class="btn {{ '' if locations_all_ready and fol_truth_definitions_approved else 'btn-disabled' }}"
               href="/export_tf_bundle"
-              {% if not locations_all_ready %}aria-disabled="true" tabindex="-1"{% endif %}
+              {% if not locations_all_ready or not fol_truth_definitions_approved %}aria-disabled="true" tabindex="-1"{% endif %}
             >Create TF bundle</a>
           </div>
         </div>
@@ -567,7 +575,8 @@
     </div>
   </div>
   {% if not tf_grader_mode %}
-  <script>
+  <script type="module">
+    import {prepareAnswerReadings} from '/proof_viewer_assets/fol_truth_batch.mjs';
     const prepareButton = document.getElementById("prepare-all-locations");
     const prepareStatus = document.getElementById("prepare-all-status");
     const locationModel = document.getElementById("location-model");
@@ -611,14 +620,14 @@
           if (locationReadyCount) {
             locationReadyCount.textContent = "{{ location_total_count }} of {{ location_total_count }} ready";
           }
-          if (bundleLink) {
+          if (bundleLink && {{ fol_truth_definitions_approved | tojson }}) {
             bundleLink.classList.remove("btn-disabled");
             bundleLink.removeAttribute("aria-disabled");
             bundleLink.removeAttribute("tabindex");
           }
           if (bundleReadiness) {
             bundleReadiness.textContent =
-              "Question locations are ready. The export will run its final scan and version checks.";
+              {{ ('Question locations are ready. The export will run its final scan and version checks.' if fol_truth_definitions_approved else 'Question locations are ready. Review and approve the models and sentences before exporting.') | tojson }};
           }
         } catch (error) {
           prepareStatus.className = "prepare-status error";
@@ -632,33 +641,31 @@
     const answerButton = document.getElementById("prepare-all-answers");
     const answerStatus = document.getElementById("prepare-answers-status");
     answerButton?.addEventListener("click", async () => {
-      const problemIds = JSON.parse(answerButton.dataset.problems || "[]");
-      const unitIds = JSON.parse(answerButton.dataset.units || "[]");
+      const tasks = JSON.parse(answerButton.dataset.tasks || "[]");
       const model = document.getElementById("answer-model")?.value || "gemma";
       answerButton.disabled = true;
       answerStatus.className = "prepare-status";
-      let completed = 0;
       try {
-        for (const problemId of problemIds) {
-          for (const unitId of unitIds) {
-            answerStatus.textContent = `Preparing ${problemId}, submission ${unitIds.indexOf(unitId) + 1} of ${unitIds.length} (${completed} of ${problemIds.length * unitIds.length} complete)…`;
+        const result = await prepareAnswerReadings(tasks, async ({problem_id: problemId, unit_id: unitId}) => {
             const body = new FormData();
             body.set("unit_id", String(unitId));
             body.set("model", model);
-            const response = await fetch(`/problem/${encodeURIComponent(problemId)}/fol-truth/prepare-reading`,
+            return fetch(`/problem/${encodeURIComponent(problemId)}/fol-truth/prepare-reading`,
               {method: "POST", body});
-            if (!response.ok) {
-              const payload = await response.json().catch(() => ({}));
-              throw new Error(`${problemId}, submission ${unitIds.indexOf(unitId) + 1}: ${payload.detail || response.status}`);
-            }
-            completed += 1;
-          }
+        }, ({task, completed, failed, total}) => {
+          answerStatus.textContent = `Preparing ${task.problem_id} (${completed} saved, ${failed} need manual reading, ${total} requested)…`;
+        });
+        answerStatus.className = result.failed.length ? 'prepare-status error' : 'prepare-status success';
+        if (result.failed.length) {
+          answerButton.dataset.tasks = JSON.stringify(result.failed);
+          answerButton.textContent = 'Retry unread answers';
+          answerStatus.textContent = `${result.completed} readings saved; ${result.failed.length} could not be read. Retry those with Qwen, or let the TF fill them in manually. You can still create the bundle.`;
+        } else {
+          answerStatus.textContent = `All ${result.completed} preliminary readings are saved. Open Strip View to review them before grading.`;
         }
-        answerStatus.className = "prepare-status success";
-        answerStatus.textContent = `All ${completed} preliminary readings are saved. Open Strip View to review them before grading.`;
       } catch (error) {
         answerStatus.className = "prepare-status error";
-        answerStatus.textContent = `Stopped after ${completed} readings: ${error.message}. Retry to skip saved readings.`;
+        answerStatus.textContent = `Stopped after ${error.completed || 0} readings: ${error.message} Retry to skip saved readings.`;
       } finally {
         answerButton.disabled = false;
       }

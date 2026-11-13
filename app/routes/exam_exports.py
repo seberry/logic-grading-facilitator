@@ -39,7 +39,9 @@ from ..storage import GRADES_DIR, RAW_SCANS_DIR, RUBRIC_ASSETS_DIR, archive_curr
 from ..classwork_core import _render_feedback_image_bytes, _render_feedback_pdf_bytes
 from ..quiz_variants import available_quiz_versions, normalize_quiz_version
 from ..rubric_assets import existing_question_assets
-from ..fol_truth_assistance import enabled as fol_truth_enabled, SCHEMA as FOL_TRUTH_SCHEMA
+from ..fol_truth_assistance import (enabled as fol_truth_enabled, assistance_schema,
+    assert_supported as assert_fol_truth_supported, question_context as fol_truth_question_context)
+from ..fol_truth_preparation import definitions_approved
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 'templates'))
@@ -174,6 +176,12 @@ def _validate_tf_bundle(session) -> tuple[List[str], List[Path]]:
     """Check that the handoff can grade every problem without a local model."""
     errors: List[str] = []
     cache_paths: List[Path] = []
+    if not definitions_approved(session):
+        errors.append('Review and approve the models and sentences on the bundle preparation page before exporting FOL feedback.')
+    try:
+        assert_fol_truth_supported(session.grading_key)
+    except ValueError as exc:
+        errors.append(str(exc))
     units = {wu.unit_id: wu for wu in session.work_units}
 
     if not units:
@@ -265,7 +273,17 @@ if ($manifest.fol_truth_assistance) {
         -not (Test-Path -LiteralPath (Join-Path $resolvedCode "app\assets\fol_truth_scoring.mjs")) -or
         -not (Test-Path -LiteralPath (Join-Path $resolvedCode "app\assets\vendor\fol-explanations\index.mjs")) -or
         -not (Test-Path -LiteralPath (Join-Path $resolvedCode "app\assets\vendor\fol-explanations\SOURCE.json"))) {
-        throw "This Quiz 9 bundle needs grader code with FOL truth assistance schema 1 and its shared browser module. Extract the matching updated code ZIP."
+        throw "This bundle needs matching grader code with FOL truth assistance and its shared browser module. Extract the updated code ZIP."
+    }
+    if ($manifest.fol_truth_assistance.schema -ge 2) {
+        $capabilitiesPath = Join-Path $resolvedCode "app\\assets\\fol_truth_capabilities.json"
+        if (-not (Test-Path -LiteralPath $capabilitiesPath)) {
+            throw "This bundle needs rubric-driven FOL truth assistance schema 2. Extract the matching updated code ZIP."
+        }
+        $capabilities = Get-Content -LiteralPath $capabilitiesPath -Raw | ConvertFrom-Json
+        if ($manifest.fol_truth_assistance.schema -notin $capabilities.schemas) {
+            throw "This grader does not support the bundle's FOL truth assistance schema."
+        }
     }
     $sharedSource = Get-Content -LiteralPath (Join-Path $resolvedCode "app\assets\vendor\fol-explanations\SOURCE.json") -Raw | ConvertFrom-Json
     if ($sharedSource.commit -ne $manifest.fol_truth_assistance.shared_module_commit) {
@@ -314,7 +332,7 @@ if grep -q '"fol_truth_assistance"' "$BUNDLE_ROOT/bundle_manifest.json"; then
      [ ! -f "$CODE_DIR/app/assets/fol_truth_scoring.mjs" ] ||
      [ ! -f "$CODE_DIR/app/assets/vendor/fol-explanations/index.mjs" ] ||
      [ ! -f "$CODE_DIR/app/assets/vendor/fol-explanations/SOURCE.json" ]; then
-    echo "This Quiz 9 bundle needs grader code with FOL truth assistance schema 1 and its shared browser module. Extract the matching updated code ZIP."
+    echo "This bundle needs matching grader code with FOL truth assistance and its shared browser module. Extract the updated code ZIP."
     exit 1
   fi
   REQUIRED_COMMIT="$(grep -o '"shared_module_commit": "[^"]*"' "$BUNDLE_ROOT/bundle_manifest.json" | head -1 | cut -d '"' -f 4)"
@@ -342,6 +360,7 @@ else
 fi
 
 cd "$CODE_DIR"
+"$PYTHON_COMMAND" -c 'import json,sys,pathlib; m=json.load(open(sys.argv[1])); s=m.get("fol_truth_assistance",{}).get("schema"); p=pathlib.Path("app/assets/fol_truth_capabilities.json"); c=json.loads(p.read_text()) if p.is_file() else {"schemas":[1]}; sys.exit("This bundle needs matching updated FOL truth grader code.") if s and s not in c["schemas"] else None' "$BUNDLE_ROOT/bundle_manifest.json"
 echo "TF grader: http://127.0.0.1:$PORT/problem/Q1/strips"
 echo "Keep this window open while grading. Press Control-C to stop."
 "$PYTHON_COMMAND" -m uvicorn app.server:app --port "$PORT"
@@ -358,7 +377,7 @@ def _write_executable_zip_text(zf: zipfile.ZipFile, name: str, text: str) -> Non
 
 def _tf_bundle_readme(quiz_id: str, fol_truth: bool = False) -> str:
     key_guidance = (
-        "Quiz 9 deterministic FOL assistance is enabled. Confirm all proposed readings "
+        "Deterministic FOL truth assistance is enabled for configured questions. Confirm all proposed readings "
         "against the scan and enter human-approved scores/comments. If grading is unclear, "
         "contact the instructor."
         if fol_truth else
@@ -460,6 +479,12 @@ def finish_page(
             "location_unit_ids": [wu.unit_id for wu in session.work_units],
             "locations_all_ready": bool(problems) and not location_missing_ids,
             "fol_truth_enabled": fol_truth_enabled(grading_key),
+            "fol_truth_definitions_approved": definitions_approved(session),
+            "fol_truth_tasks": [
+                {"problem_id": p.id, "unit_id": wu.unit_id}
+                for p in problems for wu in session.work_units
+                if fol_truth_question_context(grading_key, p.id, normalize_quiz_version(wu.quiz_version), None) is not None
+            ],
             "message": request.query_params.get("message"),
             "incomplete_grades": _incomplete_regular_scores(session),
         },
@@ -684,10 +709,13 @@ def export_tf_bundle(allow_duplicates: bool = False):
     }
     if fol_truth_enabled(session.grading_key):
         manifest["fol_truth_assistance"] = {
-            "schema": FOL_TRUTH_SCHEMA,
-            "assessment": session.grading_key.fol_truth_assistance["assessment"],
-            "required_grader_feature": "quiz9_fol_truth_assistance_v1",
+            "schema": assistance_schema(session.grading_key),
+            "assessment": ((session.grading_key.fol_truth_assistance or {}).get("assessment")
+                           if assistance_schema(session.grading_key) == 1 else session.grading_key.quiz_id),
+            "required_grader_feature": ("fol_truth_assistance_v2" if assistance_schema(session.grading_key) == 2
+                                        else "quiz9_fol_truth_assistance_v1"),
             "shared_module_commit": "9d3dcdf744d4bbc1ac523a434c1cf633ffe71a9e",
+            "logical_inputs_reviewed": definitions_approved(session),
         }
 
     buf = io.BytesIO()
@@ -708,11 +736,11 @@ def export_tf_bundle(allow_duplicates: bool = False):
                                   fol_truth=fol_truth_enabled(session.grading_key))
         if fol_truth_enabled(session.grading_key):
             readme += (
-                "\nQUIZ 9 FOL TRUTH ASSISTANCE\n"
-                "The updated code ZIP must include FOL truth assistance schema 1 and the\n"
+                "\nFOL TRUTH ASSISTANCE\n"
+                "The updated code ZIP must support the manifest's assistance schema and the\n"
                 "pinned explanation module. The strip view shows proposed vision readings\n"
                 "when available. Confirm each reading against the scan, choose whether\n"
-                "to use or edit draft feedback, and enter each score yourself. Do not\n"
+                "to use or edit suggested feedback and scores. Do not\n"
                 "run vision preparation or refresh crops in TF mode.\n"
             )
         zf.writestr(f"{root}/READ_ME_FIRST.txt", readme)

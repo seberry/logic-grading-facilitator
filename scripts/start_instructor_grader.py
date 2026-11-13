@@ -160,7 +160,10 @@ def main() -> int:
         threading.Thread(target=_open_when_ready, args=(url,), daemon=True).start()
 
     try:
-        uvicorn.run("app.server:app", host=HOST, port=port, reload=False, access_log=False)
+        from app.instructor_lock import InstructorDataLock
+        from app.storage import DATA_DIR
+        with InstructorDataLock(DATA_DIR):
+            uvicorn.run("app.server:app", host=HOST, port=port, reload=False, access_log=False)
     except KeyboardInterrupt:
         # Windows can deliver Ctrl+C through both the console and a wrapping
         # shell. Treat that as an ordinary shutdown, not a startup failure.

@@ -674,17 +674,20 @@ def _parse_predicate_value(name: str, raw: str, domain: List[int]) -> PredicateI
 
     if "(" in inner or "<" in inner:
         tuples: Set[Tuple[int, ...]] = set()
+        arity = None
         for pair_text in re.findall(r"\([^()]+\)|<[^<>]+>", inner):
             members = [item.strip() for item in pair_text[1:-1].split(",")]
-            if len(members) != 2:
-                raise FolModelParseError(f"Predicate '{name}' only supports binary pairs in this checker.")
+            if arity is None:
+                arity = len(members)
+            if len(members) != arity:
+                raise FolModelParseError(f"Predicate '{name}' has tuples with inconsistent arity.")
             pair = tuple(_parse_int(item, f"predicate {name}") for item in members)
-            if pair[0] not in domain or pair[1] not in domain:
+            if any(value not in domain for value in pair):
                 raise FolModelParseError(f"Predicate '{name}' contains {pair}, which is outside the domain.")
             tuples.add(pair)
         if not tuples and inner.strip():
             raise FolModelParseError(f"Could not parse predicate '{name}' as a set of ordered pairs.")
-        return PredicateInterpretation(name=name, arity=2, tuples=tuples)
+        return PredicateInterpretation(name=name, arity=arity, tuples=tuples)
 
     unary_values = _parse_number_set(raw, f"predicate {name}")
     tuples = {(value,) for value in unary_values}

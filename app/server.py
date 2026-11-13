@@ -80,7 +80,7 @@ from docx import Document
 
 from .vlm_provider import create_vlm_client
 from .vlm_classifier import classify_page  # type: ignore
-from .quiz_variants import normalize_quiz_version
+from .quiz_variants import available_quiz_versions, normalize_quiz_version
 from .rubric_generation import (
     DEFAULT_RUBRIC_REQUEST,
     RubricGenerationError,
@@ -96,6 +96,7 @@ from .routes.flashcards import router as flashcards_router
 from .routes.problem_strips import router as problem_strips_router, _clear_segment_caches
 from .routes.classwork import router as classwork_router
 from .routes.exam_exports import router as exam_exports_router
+from .routes.fol_truth_preparation import router as fol_truth_preparation_router
 from .helpers import _unique_path, _is_image_filename, _select_display_filename, _build_page_options
 from .session_state import _session_lock, get_session, persist_session
 from .classwork_core import (
@@ -235,6 +236,7 @@ app.include_router(flashcards_router)
 app.include_router(problem_strips_router)
 app.include_router(classwork_router)
 app.include_router(exam_exports_router)
+app.include_router(fol_truth_preparation_router)
 
 PROBLEM_TYPE_OPTIONS = [
     {"id": "none", "label": "None"},
@@ -365,6 +367,22 @@ def name_review_cache_path(quiz: str, raw_scans_subdir: str) -> Path:
     # Collapse spaces & weird chars
     key = re.sub(r"\s+", "_", key)
     return NAME_REVIEW_CACHE_DIR / f"{key}.json"
+
+
+def _name_review_version_options(quiz: str, page_rows: List[Dict[str, Any]]) -> List[str]:
+    """Offer rubric versions and retain any different observed printed label."""
+    versions: List[str] = []
+    for candidate in (RUBRIC_DIR / f"{Path(quiz).name}.yaml", DEFAULT_GRADING_KEY_PATH):
+        if not candidate.is_file():
+            continue
+        key = load_grading_key(candidate)
+        if key.quiz_id == quiz:
+            versions = available_quiz_versions(key)
+            break
+    found = set(versions or ["A", "B", "C"])
+    found.update(version for row in page_rows
+                 if (version := normalize_quiz_version(row.get("quiz_version"))))
+    return sorted(found, key=lambda value: (len(value), value))
 
 
 def _has_existing_session_state() -> bool:
@@ -1718,6 +1736,7 @@ async def legacy_name_review_page(
         "roster": roster,
         "quiz_slug": quiz,
         "raw_scans_subdir": raw_scans_subdir,
+        "quiz_version_options": _name_review_version_options(quiz, page_rows),
     })
 
 
@@ -2206,6 +2225,7 @@ async def name_review_page(
             "raw_scans_subdir": raw_scans_subdir,
             "saved": saved,
             "recognition_model": create_vlm_client().model,
+            "quiz_version_options": _name_review_version_options(quiz, page_rows),
         },
     )
 

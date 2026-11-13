@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Review models and sentences</title>
+<style>
+body{font:16px/1.45 system-ui,sans-serif;color:#152438;background:#f2f5f9;margin:0;padding:24px}main{max-width:1200px;margin:auto}h1{margin-bottom:8px}a{color:#1758ad}section,details.question{background:white;border:1px solid #ced8e5;border-radius:10px;padding:20px;margin:18px 0}summary{cursor:pointer;font-weight:650}label{display:block;font-weight:600;margin:12px 0 5px}input[type=text],input[type=number],select,textarea{font:inherit;box-sizing:border-box;max-width:100%;padding:9px;border:1px solid #a7b7ca;border-radius:5px}input[type=text],textarea{width:100%;font-family:ui-monospace,monospace}textarea{min-height:180px}button{font:inherit;padding:10px 16px;border:1px solid #9bb1ce;border-radius:6px;background:white;cursor:pointer}button.primary{background:#1e5bb5;color:white;border-color:#1e5bb5}button:disabled{opacity:.5;cursor:default}.error{background:#fff0ed;border:1px solid #c74636;padding:14px}.approved{color:#14653a;font-weight:600}.columns{display:grid;grid-template-columns:1fr 1fr;gap:24px}.reference{max-width:100%;max-height:420px;object-fit:contain;object-position:left top}.preview{background:#eef5ff;border-left:4px solid #447abe;padding:12px;margin-top:16px}.preview pre{white-space:pre-wrap;overflow-wrap:anywhere;font:14px/1.5 ui-monospace,monospace}.inline{display:flex;gap:18px;flex-wrap:wrap}.inline label{font-weight:400}.actions{position:sticky;bottom:0;background:#fff;padding:16px;border:1px solid #ced8e5;display:flex;gap:12px;flex-wrap:wrap}.muted{color:#54657a}iframe{width:100%;height:650px;border:1px solid #b8c7d8}@media(max-width:760px){body{padding:12px}.columns{grid-template-columns:1fr}}
+</style></head><body><main>
+<a href="/finish?mode=tf-prep">← Back to bundle preparation</a>
+<h1>Review models and sentences</h1>
+<p>{{ quiz_id }} — check the fixed inputs the explanation code will use. You can correct the model, sentence, and response requirements here.</p>
+<p>The code checks the logic and writes explanations. Student answer readings are reviewed separately by the TF.</p>
+{% if approved %}<p class="approved">The saved definitions are approved. Changes require another check and approval.</p>{% endif %}
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+<section>
+<h2>Read from a blank quiz</h2>
+<p>Upload the blank assessment only. IU transcribes the printed model and logical sentence for each version; review the result below before enabling feedback.</p>
+<form method="post" action="/prepare/fol-truth/read-blank" enctype="multipart/form-data" id="read-blank-form">
+<input type="hidden" name="revision" value="{{ revision }}">
+<label for="blank-pdf">Blank quiz PDF</label><input id="blank-pdf" type="file" name="blank_pdf" accept="application/pdf" required>
+<label for="reading-model">IU reading model</label><select name="model" id="reading-model"><option value="gemma">Gemma</option><option value="qwen">Qwen</option></select>
+<button type="submit">Read models and sentences</button><span id="reading-status" role="status"></span>
+</form>
+</section>
+{% if source %}<section><h2>Uploaded blank quiz</h2><iframe title="Blank assessment source" src="/prepare/fol-truth/source/{{ source }}"></iframe><a href="/prepare/fol-truth/source/{{ source }}" target="_blank" rel="noopener">Open blank PDF separately</a></section>{% endif %}
+<form method="post" action="/prepare/fol-truth" id="definitions-form">
+<input type="hidden" name="revision" value="{{ revision }}"><input type="hidden" name="source" value="{{ source }}">
+<input type="hidden" name="row_count" value="{{ rows|length }}"><input type="hidden" name="preview_fingerprint" value="{{ preview_fingerprint }}">
+{% for row in rows %}{% set i=loop.index0 %}
+<details class="question"{% if row.enabled %} open{% endif %}>
+<summary>{{ row.problem_id }}{% if row.version %} · Version {{ row.version }}{% endif %} — {{ row.label }} ({{ row.points }} points)</summary>
+<input type="hidden" name="problem_id_{{ i }}" value="{{ row.problem_id }}"><input type="hidden" name="version_{{ i }}" value="{{ row.version or '' }}">
+<label><input type="checkbox" name="enabled_{{ i }}"{% if row.enabled %} checked{% endif %}> Offer truth-in-a-model feedback for this question/version</label>
+<div class="columns"><div>
+{% if row.question_image_url %}<p class="muted">Reference from the blank quiz</p><a href="{{ row.question_image_url }}" target="_blank" rel="noopener"><img class="reference" src="{{ row.question_image_url }}" alt="Blank {{ row.problem_id }}{% if row.version %}, Version {{ row.version }}{% endif %}"></a>{% endif %}
+<label for="model-{{ i }}">Model: domain, names, and predicate extensions</label>
+<textarea id="model-{{ i }}" name="model_text_{{ i }}" spellcheck="false">{{ row.model_text }}</textarea>
+<small class="muted">Use P: {1,3}, R: {(1,2),(2,2)}, and {} for an empty extension. Named-object models can use JSON.</small>
+</div><div>
+<label for="formula-{{ i }}">Logical sentence</label><input id="formula-{{ i }}" name="formula_{{ i }}" type="text" value="{{ row.formula }}" spellcheck="false">
+<label><input type="checkbox" name="asks_object_{{ i }}"{% if row.asks_object %} checked{% endif %}> Student must give a witness/counterexample, or N/A</label>
+<label for="scoring-{{ i }}">Suggested scores</label><select id="scoring-{{ i }}" name="scoring_mode_{{ i }}">
+{% for value,label in [('manual','Feedback only; enter scores manually'),('components','Separate truth and written-response credit'),('all_or_nothing','Full credit only when all required parts are correct')] %}<option value="{{ value }}"{% if row.scoring_mode==value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+<div class="inline"><label>Truth points (separate-credit mode)<br><input type="number" min="0" step="any" name="truth_points_{{ i }}" value="{{ row.truth_points }}"></label>
+<label>Written-response points (separate-credit mode)<br><input type="number" min="0" step="any" name="object_points_{{ i }}" value="{{ row.object_points }}"></label></div>
+<label><input type="checkbox" name="blank_na_credit_{{ i }}"{% if row.blank_na_credit %} checked{% endif %}> Accept blank writing when N/A is expected</label>
+{% if row.context %}<div class="preview" data-definition-preview data-context='{{ row.context|tojson }}'><strong>Code's check: <span data-definition-result>Checking…</span></strong><details><summary>Explanation</summary><pre data-definition-explanation></pre></details></div>{% endif %}
+</div></div></details>
+{% endfor %}
+<div class="actions"><button type="submit" name="action" value="preview">Check definitions</button>
+<button class="primary" id="approve-definitions" type="submit" name="action" value="approve"{% if not preview_fingerprint %} disabled{% endif %}>Approve definitions and enable feedback</button>
+<span id="definition-status" role="status">{% if preview_fingerprint %}Compare the model and sentence with the blank quiz, then approve.{% else %}Fix the definitions and check them before approving.{% endif %}</span></div>
+</form></main>
+<script type="module" src="/proof_viewer_assets/fol_truth_preparation.mjs"></script>
+</body></html>

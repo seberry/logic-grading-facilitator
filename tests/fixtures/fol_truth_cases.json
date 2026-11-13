@@ -1,0 +1,15 @@
+[
+  {"name":"new numeric model", "formula":"exists x R(x,x)", "model":{"domain":[2,4,7],"predicates":{"R":[[2,4],[4,4],[7,2]]}}, "truth":true, "candidates":[4]},
+  {"name":"changed retake model", "formula":"∃x Rxx", "model":{"domain":[2,4,7],"predicates":{"R":[[2,4],[4,7],[7,2]]}}, "truth":false, "candidates":[]},
+  {"name":"universal counterexamples", "formula":"∀x Rxx", "model":{"domain":[2,4,7],"predicates":{"R":[[2,4],[4,4],[7,2]]}}, "truth":false, "candidates":[2,7]},
+  {"name":"multiple witnesses", "formula":"∃x R(x,a)", "model":{"domain":[2,4,7],"constants":{"a":7},"predicates":{"R":[[2,7],[7,7]]}}, "truth":true, "candidates":[2,7]},
+  {"name":"nested counterexample", "formula":"∀x ∃y R(x,y)", "model":{"domain":[2,4,7],"predicates":{"R":[[2,4],[4,7]]}}, "truth":false, "candidates":[7]},
+  {"name":"nested witness", "formula":"∃x ∀y Rxy", "model":{"domain":[2,4],"predicates":{"R":[[2,2],[2,4],[4,2]]}}, "truth":true, "candidates":[2]},
+  {"name":"named objects", "formula":"∃x Rxx", "model":{"domain":["red","blue"],"predicates":{"R":[["blue","blue"]]}}, "truth":true, "candidates":["blue"]},
+  {"name":"reserved object names", "formula":"∃x Px", "model":{"domain":["na","blank"],"predicates":{"P":["na"]}}, "truth":true, "candidates":["na"]},
+  {"name":"identity", "formula":"∀x (x = a | R(x,a))", "model":{"domain":[2,4],"constants":{"a":2},"predicates":{"R":[[4,2]]}}, "truth":true, "candidates":[]},
+  {"name":"ternary relation", "formula":"∃x S(x,a,a)", "model":{"domain":[2,4],"constants":{"a":4},"predicates":{"S":[[2,4,4]]}}, "truth":true, "candidates":[2]},
+  {"name":"empty relation", "formula":"∃x R(x,x)", "model":{"domain":[0,5],"predicates":{"R":[]}}, "truth":false, "candidates":[]},
+  {"name":"negative object", "formula":"∃x Px", "model":{"domain":[-3,0,8],"predicates":{"P":[-3]}}, "truth":true, "candidates":[-3]},
+  {"name":"nonquantified formula", "formula":"~P(a) | Q(a) & P(a)", "model":{"domain":[2,4],"constants":{"a":2},"predicates":{"P":[2],"Q":[]}}, "truth":false, "candidates":[], "asks_object":false}
+]

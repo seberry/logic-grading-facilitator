@@ -8,7 +8,11 @@ class Field extends EventTarget {
   setAttribute(name, value) { this.attributes[name] = value; }
 }
 
-async function mount(saved, score = '', comment = '', confirmKey = true) {
+globalThis.Option = class {
+  constructor(text, value) { this.text = text; this.value = value; }
+};
+
+async function mount(saved, score = '', comment = '', confirmKey = true, contextOverride = {}) {
   const fields = new Map();
   const get = selector => {
     if (!fields.has(selector)) fields.set(selector, new Field());
@@ -16,7 +20,10 @@ async function mount(saved, score = '', comment = '', confirmKey = true) {
   };
   get('.score-input').value = score;
   get('.comment-input').value = comment;
-  get('select[name^="quiz_version_"]').value = 'A';
+  get('[data-fol-truth-object]').options = ['', '1', '2', '3', 'na', 'blank', 'unclear']
+    .map(value => new Option(value, value));
+  get('[data-fol-truth-object]').add = option => get('[data-fol-truth-object]').options.push(option);
+  get('select[name^="quiz_version_"]').value = 'version' in contextOverride ? contextOverride.version || '' : 'A';
   get('input[name^="page_update_"]').value = 'fake.jpg';
   const form = new Field();
   const strip = {querySelector: get, closest: () => form};
@@ -28,7 +35,7 @@ async function mount(saved, score = '', comment = '', confirmKey = true) {
   const panel = {
     dataset: {context: JSON.stringify({formula: questions[1].formula, model: versions.A,
       truth: true, asks_object: true, version: 'A', fingerprint: 'fresh', source_filename: 'fake.jpg',
-      score_rule: {truth: 1, object: 1, blank_na_credit: false}}), review: JSON.stringify(saved)},
+      score_rule: {truth: 1, object: 1, blank_na_credit: false}, ...contextOverride}), review: JSON.stringify(saved)},
     querySelector: get, querySelectorAll: () => buttons, closest: () => strip,
   };
   const question = {dataset: panel.dataset, querySelector: get};
@@ -133,4 +140,73 @@ test('answer-key confirmation gates automatic grades while OCR review remains us
   ui.get('[data-fol-key-manual]').dispatchEvent(new Event('click'));
   ui.form.dispatchEvent(new Event('submit'));
   assert.equal(ui.get('.score-input').value, '1.5');
+});
+
+test('manually filled general-model readings generate feedback and all-or-nothing scores', async () => {
+  const ui = await mount({}, '', '', true, {
+    formula: '∃x Rxx', truth: true, model: {domain: [2, 4, 7], predicates: {R: [[4, 4]]}},
+    score_rule: {mode: 'all_or_nothing', points: 1},
+  });
+  assert.equal(ui.get('.score-input').value, '');
+  ui.change('[data-fol-truth-confirmed]', 'true');
+  ui.change('[data-fol-truth-object]', '7');
+  assert.equal(ui.get('.score-input').value, '0');
+  assert.match(ui.get('.comment-input').value, /7 is not a witness/);
+  ui.get('.comment-input').value += '\n\nTF addition.';
+  ui.change('[data-fol-truth-raw]', '4');
+  assert.equal(ui.get('[data-fol-truth-object]').value, '4');
+  assert.equal(ui.get('.score-input').value, '1');
+  assert.equal(ui.get('.comment-input').value, 'TF addition.');
+});
+
+test('named witnesses can be filled manually, including reserved reading words', async () => {
+  const ui = await mount({}, '', '', true, {
+    formula: '∃x Px', truth: true, model: {domain: ['na', 'blank'], predicates: {P: ['na']}},
+    score_rule: {mode: 'all_or_nothing', points: 1},
+  });
+  ui.change('[data-fol-truth-confirmed]', 'true');
+  ui.change('[data-fol-truth-raw]', 'blank');
+  assert.equal(ui.get('.score-input').value, '0');
+  assert.equal(ui.get('[data-fol-truth-interpreted]').textContent, 'True · blank');
+  ui.change('[data-fol-truth-raw]', 'na');
+  assert.equal(ui.get('.score-input').value, '1');
+  assert.equal(ui.get('[data-fol-truth-interpreted]').textContent, 'True · na');
+  ui.change('[data-fol-truth-raw]', 'na or blank');
+  assert.equal(ui.panel.dataset.needsReading, 'true');
+  assert.equal(ui.get('.score-input').value, '');
+});
+
+test('feedback-only assistance never clears or replaces a manual score', async () => {
+  const ui = await mount({}, '0.5', '', true, {
+    formula: '∃x Rxx', truth: true, model: {domain: [2, 4], predicates: {R: [[4, 4]]}},
+    score_rule: null,
+  });
+  ui.change('[data-fol-truth-confirmed]', 'false');
+  ui.change('[data-fol-truth-object]', '2');
+  assert.match(ui.get('.comment-input').value, /You answered false/);
+  assert.equal(ui.get('.score-input').value, '0.5');
+  ui.change('[data-fol-truth-object]', '4');
+  ui.get('[data-fol-key-manual]').dispatchEvent(new Event('click'));
+  assert.equal(ui.get('.score-input').value, '0.5');
+});
+
+test('an entered object outside the domain is a clear wrong answer and survives the select control', async () => {
+  const ui = await mount({}, '', '', true, {
+    formula: '∃x Rxx', truth: true, model: {domain: [2, 4], predicates: {R: [[4, 4]]}},
+    score_rule: {mode: 'all_or_nothing', points: 1},
+  });
+  ui.change('[data-fol-truth-confirmed]', 'true');
+  ui.change('[data-fol-truth-raw]', '99');
+  assert.equal(ui.get('.score-input').value, '0');
+  assert.match(ui.get('.comment-input').value, /not an object in the domain/);
+  assert.ok(ui.get('[data-fol-truth-object]').options.some(option => option.value === '99'));
+  assert.equal(JSON.parse(ui.get('[data-fol-truth-storage]').value).confirmed_object, '99');
+});
+
+test('an assessment without printed versions can use assistance', async () => {
+  const ui = await mount({}, '', '', true, {version: null});
+  ui.change('[data-fol-truth-confirmed]', 'true');
+  ui.change('[data-fol-truth-object]', '1');
+  assert.equal(ui.get('.score-input').value, '2');
+  assert.equal(ui.panel.dataset.needsReading, 'false');
 });

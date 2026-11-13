@@ -5,6 +5,7 @@ from unittest.mock import patch
 from PIL import Image
 
 from app.vlm_client import LMStudioQwenClient
+from app.fol_truth_assistance import ANSWER_RESPONSE_FORMAT
 
 
 class _FakeResponse:
@@ -29,6 +30,22 @@ class _FakeResponse:
 
 
 class LMStudioQwenClientTests(unittest.TestCase):
+    def test_answer_reader_requests_strict_short_json_at_the_provider(self) -> None:
+        image = Path('working/test_vlm_client/answer.jpg')
+        image.parent.mkdir(parents=True, exist_ok=True)
+        Image.new('RGB', (8, 8), 'white').save(image)
+        captured = {}
+        def fake_post(url, json, timeout):
+            captured.update(json)
+            return _FakeResponse()
+        with patch('app.vlm_client.requests.post', side_effect=fake_post):
+            LMStudioQwenClient(base_url='http://example.test/v1').chat_with_image_json(
+                image, 'Read only the student answer.', ANSWER_RESPONSE_FORMAT)
+        self.assertEqual(captured['max_tokens'], 512)
+        self.assertEqual(captured['response_format'], ANSWER_RESPONSE_FORMAT)
+        self.assertEqual(captured['response_format']['json_schema']['schema']['properties']['truth']['enum'],
+                         ['true', 'false', 'blank', 'unclear'])
+
     def test_chat_merges_extra_payload_and_records_metadata(self) -> None:
         captured = {}
 

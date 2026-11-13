@@ -439,7 +439,7 @@
             <label for="quiz_version_{{ row.index }}">Quiz version:</label>
             <select id="quiz_version_{{ row.index }}" name="quiz_version_{{ row.index }}">
               <option value="">Unknown</option>
-              {% for version in ["A", "B", "C"] %}
+              {% for version in quiz_version_options or ["A", "B", "C"] %}
               <option value="{{ version }}" {% if row.quiz_version == version %}selected{% endif %}>
                 Version {{ version }}
               </option>

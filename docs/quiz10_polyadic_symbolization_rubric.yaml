@@ -1,0 +1,521 @@
+quiz_id: quiz10_polyadic_symbolization_ABC
+problems:
+- id: Q1
+  label: Symbolization 1
+  problem_number: '1'
+  points: 2
+  extra_credit: false
+  segmentation_hint: Printed question 1 on the single-page quiz version. Include its
+    whole answer area, even when blank; exclude neighboring questions and the shared
+    header.
+  variants:
+    A:
+      prompt: 'Domain:
+
+        All residents of a neighborhood
+
+        Names:
+
+        m = Maya     l = Leo
+
+        SYMBOLIZATION KEY
+
+        Rxy
+
+        x trusts y to care for the garden
+
+        Gx
+
+        x is a community garden member
+
+        Vx
+
+        x volunteers this Saturday
+
+        Sx
+
+        x signed up for a maintenance shift
+
+
+        Symbolize: Maya trusts Leo to care for the garden.'
+      question_image: quiz10_polyadic_symbolization_ABC/Q1_A.png
+    B:
+      prompt: 'Domain:
+
+        All animals currently cared for by the shelter
+
+        Names:
+
+        p = Pepper     s = Sunny
+
+        SYMBOLIZATION KEY
+
+        Rxy
+
+        x is comfortable around y
+
+        Cx
+
+        x is a cat
+
+        Dx
+
+        x is a dog
+
+        Fx
+
+        x lives in a foster home
+
+
+        Symbolize: Pepper is comfortable around Sunny.'
+      question_image: quiz10_polyadic_symbolization_ABC/Q1_B.png
+    C:
+      prompt: 'Domain:
+
+        All people attending or working at a music festival
+
+        Names:
+
+        l = Lena     n = Nico
+
+        SYMBOLIZATION KEY
+
+        Rxy
+
+        x admires y
+
+        Px
+
+        x is performing at the festival
+
+        Vx
+
+        x is volunteering at the festival
+
+        Bx
+
+        x has a backstage pass
+
+
+        Symbolize: Lena admires Nico.'
+      question_image: quiz10_polyadic_symbolization_ABC/Q1_C.png
+- id: Q2
+  label: Symbolization 2
+  problem_number: '2'
+  points: 2
+  extra_credit: false
+  segmentation_hint: Printed question 2 on the single-page quiz version. Include its
+    whole answer area, even when blank; exclude neighboring questions and the shared
+    header.
+  variants:
+    A:
+      prompt: 'Domain:
+
+        All residents of a neighborhood
+
+        Names:
+
+        m = Maya     l = Leo
+
+        SYMBOLIZATION KEY
+
+        Rxy
+
+        x trusts y to care for the garden
+
+        Gx
+
+        x is a community garden member
+
+        Vx
+
+        x volunteers this Saturday
+
+        Sx
+
+        x signed up for a maintenance shift
+
+
+        Symbolize: Maya trusts everyone to care for the garden.'
+      question_image: quiz10_polyadic_symbolization_ABC/Q2_A.png
+    B:
+      prompt: 'Domain:
+
+        All animals currently cared for by the shelter
+
+        Names:
+
+        p = Pepper     s = Sunny
+
+        SYMBOLIZATION KEY
+
+        Rxy
+
+        x is comfortable around y
+
+        Cx
+
+        x is a cat
+
+        Dx
+
+        x is a dog
+
+        Fx
+
+        x lives in a foster home
+
+
+        Symbolize: Pepper is comfortable around someone.'
+      question_image: quiz10_polyadic_symbolization_ABC/Q2_B.png
+    C:
+      prompt: 'Domain:
+
+        All people attending or working at a music festival
+
+        Names:
+
+        l = Lena     n = Nico
+
+        SYMBOLIZATION KEY
+
+        Rxy
+
+        x admires y
+
+        Px
+
+        x is performing at the festival
+
+        Vx
+
+        x is volunteering at the festival
+
+        Bx
+
+        x has a backstage pass
+
+
+        Symbolize: Everyone admires Lena.'
+      question_image: quiz10_polyadic_symbolization_ABC/Q2_C.png
+- id: Q3
+  label: Symbolization 3
+  problem_number: '3'
+  points: 2
+  extra_credit: false
+  segmentation_hint: Printed question 3 on the single-page quiz version. Include its
+    whole answer area, even when blank; exclude neighboring questions and the shared
+    header.
+  variants:
+    A:
+      prompt: 'Domain:
+
+        All residents of a neighborhood
+
+        Names:
+
+        m = Maya     l = Leo
+
+        SYMBOLIZATION KEY
+
+        Rxy
+
+        x trusts y to care for the garden
+
+        Gx
+
+        x is a community garden member
+
+        Vx
+
+        x volunteers this Saturday
+
+        Sx
+
+        x signed up for a maintenance shift
+
+
+        Symbolize: Maya trusts someone who volunteers this Saturday.'
+      question_image: quiz10_polyadic_symbolization_ABC/Q3_A.png
+    B:
+      prompt: 'Domain:
+
+        All animals currently cared for by the shelter
+
+        Names:
+
+        p = Pepper     s = Sunny
+
+        SYMBOLIZATION KEY
+
+        Rxy
+
+        x is comfortable around y
+
+        Cx
+
+        x is a cat
+
+        Dx
+
+        x is a dog
+
+        Fx
+
+        x lives in a foster home
+
+
+        Symbolize: Every dog is comfortable around some cat.'
+      question_image: quiz10_polyadic_symbolization_ABC/Q3_B.png
+    C:
+      prompt: 'Domain:
+
+        All people attending or working at a music festival
+
+        Names:
+
+        l = Lena     n = Nico
+
+        SYMBOLIZATION KEY
+
+        Rxy
+
+        x admires y
+
+        Px
+
+        x is performing at the festival
+
+        Vx
+
+        x is volunteering at the festival
+
+        Bx
+
+        x has a backstage pass
+
+
+        Symbolize: Lena admires someone who is volunteering at the festival.'
+      question_image: quiz10_polyadic_symbolization_ABC/Q3_C.png
+- id: Q4
+  label: Symbolization 4
+  problem_number: '4'
+  points: 2
+  extra_credit: false
+  segmentation_hint: Printed question 4 on the single-page quiz version. Include its
+    whole answer area, even when blank; exclude neighboring questions and the shared
+    header.
+  variants:
+    A:
+      prompt: 'Domain:
+
+        All residents of a neighborhood
+
+        Names:
+
+        m = Maya     l = Leo
+
+        SYMBOLIZATION KEY
+
+        Rxy
+
+        x trusts y to care for the garden
+
+        Gx
+
+        x is a community garden member
+
+        Vx
+
+        x volunteers this Saturday
+
+        Sx
+
+        x signed up for a maintenance shift
+
+
+        Symbolize: Everyone who trusts themselves to care for the garden trusts Maya.'
+      question_image: quiz10_polyadic_symbolization_ABC/Q4_A.png
+    B:
+      prompt: 'Domain:
+
+        All animals currently cared for by the shelter
+
+        Names:
+
+        p = Pepper     s = Sunny
+
+        SYMBOLIZATION KEY
+
+        Rxy
+
+        x is comfortable around y
+
+        Cx
+
+        x is a cat
+
+        Dx
+
+        x is a dog
+
+        Fx
+
+        x lives in a foster home
+
+
+        Symbolize: Every animal that is comfortable around itself is comfortable around
+        Pepper.'
+      question_image: quiz10_polyadic_symbolization_ABC/Q4_B.png
+    C:
+      prompt: 'Domain:
+
+        All people attending or working at a music festival
+
+        Names:
+
+        l = Lena     n = Nico
+
+        SYMBOLIZATION KEY
+
+        Rxy
+
+        x admires y
+
+        Px
+
+        x is performing at the festival
+
+        Vx
+
+        x is volunteering at the festival
+
+        Bx
+
+        x has a backstage pass
+
+
+        Symbolize: Everyone who admires themselves admires Lena.'
+      question_image: quiz10_polyadic_symbolization_ABC/Q4_C.png
+- id: Q5
+  label: Symbolization 5
+  problem_number: '5'
+  points: 2
+  extra_credit: false
+  segmentation_hint: Printed question 5 on the single-page quiz version. Include its
+    whole answer area, even when blank; exclude neighboring questions and the shared
+    header.
+  variants:
+    A:
+      prompt: 'Domain:
+
+        All residents of a neighborhood
+
+        Names:
+
+        m = Maya     l = Leo
+
+        SYMBOLIZATION KEY
+
+        Rxy
+
+        x trusts y to care for the garden
+
+        Gx
+
+        x is a community garden member
+
+        Vx
+
+        x volunteers this Saturday
+
+        Sx
+
+        x signed up for a maintenance shift
+
+
+        Symbolize: Everyone who signed up for a maintenance shift either volunteers
+        this Saturday or trusts someone who volunteers this Saturday.'
+      question_image: quiz10_polyadic_symbolization_ABC/Q5_A.png
+    B:
+      prompt: 'Domain:
+
+        All animals currently cared for by the shelter
+
+        Names:
+
+        p = Pepper     s = Sunny
+
+        SYMBOLIZATION KEY
+
+        Rxy
+
+        x is comfortable around y
+
+        Cx
+
+        x is a cat
+
+        Dx
+
+        x is a dog
+
+        Fx
+
+        x lives in a foster home
+
+
+        Symbolize: Some cat in a foster home is comfortable around a dog.'
+      question_image: quiz10_polyadic_symbolization_ABC/Q5_B.png
+    C:
+      prompt: 'Domain:
+
+        All people attending or working at a music festival
+
+        Names:
+
+        l = Lena     n = Nico
+
+        SYMBOLIZATION KEY
+
+        Rxy
+
+        x admires y
+
+        Px
+
+        x is performing at the festival
+
+        Vx
+
+        x is volunteering at the festival
+
+        Bx
+
+        x has a backstage pass
+
+
+        Symbolize: Everyone with a backstage pass is performing or admires someone
+        who is performing (or both).'
+      question_image: quiz10_polyadic_symbolization_ABC/Q5_C.png
+- id: Q6
+  label: 'Extra credit: truth in a polyadic model'
+  problem_number: '6'
+  points: 1
+  extra_credit: true
+  segmentation_hint: Printed question 6 on the single-page quiz version. Include its
+    whole answer area, even when blank; exclude neighboring questions and the shared
+    header.
+  variants:
+    A:
+      prompt: Is ∃x Rxx true in this model? Circle True or False and give a witness/counterexample
+        if appropriate; otherwise N/A.
+      question_image: quiz10_polyadic_symbolization_ABC/Q6_A.png
+    B:
+      prompt: Is ∀x Rxx true in this model? Circle True or False and give a witness/counterexample
+        if appropriate; otherwise N/A.
+      question_image: quiz10_polyadic_symbolization_ABC/Q6_B.png
+    C:
+      prompt: Is ∃x Rxa true in this model? Circle True or False and give a witness/counterexample
+        if appropriate; otherwise N/A.
+      question_image: quiz10_polyadic_symbolization_ABC/Q6_C.png

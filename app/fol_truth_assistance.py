@@ -1,4 +1,4 @@
-"""Opt-in Quiz 9 semantic configuration and independent Python checks.
+"""Rubric-driven truth-in-a-model assistance, with legacy Quiz 9 support.
 
 The browser's approved explanation text comes exclusively from the vendored
 JavaScript module. This module supplies the printed quiz facts and checks them
@@ -17,10 +17,22 @@ from typing import Any
 from PIL import Image
 
 from app.fol_model_checker import check_sentences
+from app.fol_truth_config import checker_model, normalize_formula, object_token, validate_model
+from app.quiz_variants import available_quiz_versions, problem_variant
 
 
 ASSESSMENT = "quiz9_monadic_fol_truth"
 SCHEMA = 1
+ANSWER_RESPONSE_FORMAT = {
+    'type': 'json_schema', 'json_schema': {'name': 'fol_answer_reading', 'strict': True,
+        'schema': {'type': 'object', 'properties': {
+            'truth': {'type': 'string', 'enum': ['true', 'false', 'blank', 'unclear']},
+            'written': {'type': 'string'}}, 'required': ['truth', 'written'], 'additionalProperties': False}}}
+
+
+class VisionReadingFormatError(ValueError):
+    """A malformed transcription reply, not a grade or a transport failure."""
+
 MODELS = {
     "A": {"domain": [1, 2, 3], "constants": {"c": 2}, "predicates": {"P": [1, 2], "Q": [1, 3], "R": [1]}},
     "B": {"domain": [1, 2, 3], "constants": {"c": 3}, "predicates": {"P": [1, 2, 3], "Q": [], "R": [1, 2]}},
@@ -39,11 +51,10 @@ QUESTIONS = {
 }
 
 
-def location_prompt(problem_id: str) -> str:
-    """Ask for the printed Quiz 9 answer area, including blank responses."""
-    number = int(problem_id[1:])
+def location_prompt(problem_id: str, description: str = "") -> str:
+    """Locate an assisted question, including its unanswered response area."""
     return (
-        f"Locate printed question {number} on this Quiz 9 page. Identify the entire answer area: "
+        f"Locate question {problem_id}: {description}. Identify the entire answer area: "
         "the printed number and sentence, both True and False choices, any circle or correction, "
         "and the witness/counterexample line when printed. A blank student answer still counts "
         "as a PRESENT printed question; include its blank answer area. Return present:false only "
@@ -56,29 +67,102 @@ def location_prompt(problem_id: str) -> str:
 
 def enabled(grading_key: Any) -> bool:
     config = getattr(grading_key, "fol_truth_assistance", None)
-    return isinstance(config, dict) and config.get("schema") == SCHEMA and config.get("assessment") == ASSESSMENT
+    legacy = isinstance(config, dict) and config.get("schema") == SCHEMA and config.get("assessment") == ASSESSMENT
+    return legacy or any(question_enabled(grading_key, p.id, legacy=False)
+                         for p in getattr(grading_key, "problems", []))
+
+
+def question_enabled(grading_key: Any, problem_id: str, *, legacy: bool = True) -> bool:
+    spec = next((p for p in getattr(grading_key, "problems", []) if p.id == problem_id), None)
+    if spec is not None and (spec.fol_truth is not None or
+                            any(v.fol_truth is not None for v in spec.variants.values())):
+        return True
+    config = getattr(grading_key, "fol_truth_assistance", None)
+    return (legacy and isinstance(config, dict) and config.get("schema") == SCHEMA
+            and config.get("assessment") == ASSESSMENT and problem_id in QUESTIONS)
+
+
+def assistance_schema(grading_key: Any) -> int:
+    return 2 if any(question_enabled(grading_key, p.id, legacy=False)
+                    for p in grading_key.problems) else 1
 
 
 def assert_supported(grading_key: Any) -> None:
-    config = grading_key.fol_truth_assistance
-    if config is not None and not enabled(grading_key):
+    config = getattr(grading_key, "fol_truth_assistance", None)
+    if config is not None and not (isinstance(config, dict) and config.get("schema") == SCHEMA
+                                   and config.get("assessment") == ASSESSMENT):
         raise ValueError(
             "This session requests unsupported FOL truth assistance. "
             "Use grader code with Quiz 9 FOL assistance schema 1, or remove the opt-in configuration."
         )
+    versions = available_quiz_versions(grading_key) or [None]
+    for spec in grading_key.problems:
+        if not question_enabled(grading_key, spec.id, legacy=False):
+            continue
+        for version in versions:
+            question_context(grading_key, spec.id, version, None)
 
 
 def model_text(model: dict) -> str:
     lines = ["DOMAIN: " + ",".join(map(str, model["domain"])), "CONSTANTS:"]
     lines += [f"{key}: {value}" for key, value in model["constants"].items()]
     lines.append("PREDICATES:")
-    lines += [f"{key}: " + (",".join(map(str, values)) if values else "{}") for key, values in model["predicates"].items()]
+    for key, values in model["predicates"].items():
+        members = ["(" + ",".join(map(str, value)) + ")" if isinstance(value, list) else str(value)
+                   for value in values]
+        lines.append(f"{key}: " + ("{" + ",".join(members) + "}" if members else "{}"))
     return "\n".join(lines)
+
+
+def model_display(model: dict) -> str:
+    def label(value):
+        return "(" + ", ".join(map(str, value)) + ")" if isinstance(value, list) else str(value)
+    parts = ["D = {" + ", ".join(map(str, model["domain"])) + "}"]
+    parts += [f"{key} = {value}" for key, value in model["constants"].items()]
+    parts += [f"{key} = {{" + ", ".join(label(x) for x in values) + "}"
+              for key, values in model["predicates"].items()]
+    return "; ".join(parts)
 
 
 def question_context(grading_key: Any, problem_id: str, version: str | None,
                      segment: dict | None, source_path: Path | None = None) -> dict | None:
+    spec = next((p for p in grading_key.problems if p.id == problem_id), None)
+    if spec is not None and question_enabled(grading_key, problem_id, legacy=False):
+        override = problem_variant(spec, version)
+        if spec.fol_truth is None and (override is None or override.fol_truth is None):
+            return None
+        config = {**(spec.fol_truth or {}), **((override.fol_truth or {}) if override else {})}
+        if set(config) - {"model", "formula", "asks_object", "scoring"}:
+            raise ValueError(f"Unknown FOL truth configuration field for {problem_id}.")
+        model = validate_model(config.get("model"))
+        formula = normalize_formula(config.get("formula"), len(model["domain"]))
+        asks_object = config.get("asks_object", False)
+        if not isinstance(asks_object, bool):
+            raise ValueError(f"asks_object must be true or false for {problem_id}.")
+        if asks_object and not formula.startswith(("∀", "∃")):
+            raise ValueError(f"{problem_id} requests an object but its outermost operator is not a quantifier.")
+        rule = config.get("scoring")
+        _validate_scoring(rule, spec.points, asks_object, problem_id)
+        result = check_sentences(model_text(checker_model(model)), formula).sentence_results[0]
+        if not result.parsed_ok or result.result is None:
+            raise ValueError(f"Invalid FOL sentence for {problem_id} {version or ''}: {result.error}")
+        revision = None
+        if source_path is not None and source_path.is_file():
+            stat = source_path.stat()
+            revision = [stat.st_size, stat.st_mtime_ns]
+        identity = {"schema": 2, "config": config, "points": spec.points, "version": version,
+                    "problem": problem_id, "segment": segment, "source_revision": revision}
+        fingerprint = hashlib.sha256(json.dumps(identity, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        return {"formula": formula, "model": model, "version": version, "truth": result.result,
+                "source_filename": segment.get("page_filename") if segment else None,
+                "score_rule": rule, "asks_object": asks_object, "fingerprint": fingerprint,
+                "object_choices": [{"value": object_token(x), "label": str(x)} for x in model["domain"]],
+                "model_display": model_display(model)}
     if not enabled(grading_key) or problem_id not in QUESTIONS or version not in MODELS:
+        return None
+    # A mixed assessment must not acquire Quiz 9 facts merely because it has Q1.
+    legacy = getattr(grading_key, "fol_truth_assistance", None)
+    if not isinstance(legacy, dict) or legacy.get("assessment") != ASSESSMENT:
         return None
     formula, python_formula, asks_object = QUESTIONS[problem_id]
     model = MODELS[version]
@@ -114,10 +198,34 @@ def question_context(grading_key: Any, problem_id: str, version: str | None,
     return {"formula": formula, "model": model, "version": version,
             "source_filename": segment.get("page_filename") if segment else None,
             "truth": result.result, "score_rule": score_rule,
-            "asks_object": asks_object, "fingerprint": fingerprint}
+            "asks_object": asks_object, "fingerprint": fingerprint,
+            "object_choices": [{"value": object_token(x), "label": str(x)} for x in model["domain"]],
+            "model_display": model_display(model)}
 
 
-def prepare_vision_reading(client: Any, image_path: Path, bbox: list, asks_object: bool) -> dict:
+def _validate_scoring(rule: Any, points: float, asks_object: bool, problem_id: str) -> None:
+    if not math.isfinite(points) or points < 0:
+        raise ValueError(f"Invalid points for assisted question {problem_id}.")
+    # Omitting scoring gives feedback assistance with manual score entry.
+    if rule is None:
+        return
+    if not isinstance(rule, dict):
+        raise ValueError(f"Invalid FOL scoring rule for {problem_id}.")
+    mode = rule.get("mode", "components")
+    if not isinstance(mode, str):
+        raise ValueError(f"Invalid FOL scoring mode for {problem_id}.")
+    fields = {"mode", "truth", "object", "blank_na_credit"} if mode == "components" else {"mode", "points", "blank_na_credit"}
+    values = [rule.get("truth"), rule.get("object", 0)] if mode == "components" else [rule.get("points")]
+    if (mode not in {"components", "all_or_nothing"} or set(rule) - fields or
+            any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0 for v in values) or
+            abs(sum(values) - points) > 1e-9 or
+            (mode == "components" and not asks_object and rule.get("object", 0) != 0) or
+            ("blank_na_credit" in rule and not isinstance(rule["blank_na_credit"], bool))):
+        raise ValueError(f"Invalid FOL scoring rule for {problem_id}; its maximum must match the question points.")
+
+
+def prepare_vision_reading(client: Any, image_path: Path, bbox: list, asks_object: bool,
+                          domain: list | None = None) -> dict:
     """Read a single saved crop, yielding only a proposal for TF confirmation."""
     if len(bbox) != 4 or any(not isinstance(v, (int, float)) or not 0 <= v <= 1 for v in bbox):
         raise ValueError("Saved question crop is invalid.")
@@ -139,13 +247,16 @@ def prepare_vision_reading(client: Any, image_path: Path, bbox: list, asks_objec
                 "a student may circle a word, circle a small bubble, cross out a mark, or leave it blank. "
                 "Transcribe the final unambiguous choice only. If both choices appear marked, a correction is "
                 "uncertain, or the choice is hard to see, use unclear. Do not solve the logic problem or infer "
-                "an answer from the printed sentence. Return only JSON with truth as true, false, blank, or "
-                "unclear, and written as the student's exact short writing or an empty string."
+                'an answer from the printed sentence. Return exactly one JSON object with two fields: '
+                '"truth" is one of the strings "true", "false", "blank", "unclear"; '
+                '"written" is the student\'s exact short writing or an empty string. '
+                'For example: {"truth":"false","written":""}. No prose or Markdown.'
             )
             if not asks_object:
                 prompt += " This question has no written response field; set written to an empty string."
-            raw = client.chat_with_image_prompt(path, prompt)
-    cleaned = raw.strip() if isinstance(raw, str) else raw
+            structured = getattr(client, 'chat_with_image_json', None)
+            raw = structured(path, prompt, ANSWER_RESPONSE_FORMAT, max_tokens=512) if callable(structured) else client.chat_with_image_prompt(path, prompt)
+    cleaned = raw.strip().lstrip('\ufeff') if isinstance(raw, str) else raw
     if isinstance(cleaned, str) and cleaned.startswith("```"):
         lines = cleaned.splitlines()
         if len(lines) >= 3 and lines[-1].strip() == "```":
@@ -153,10 +264,13 @@ def prepare_vision_reading(client: Any, image_path: Path, bbox: list, asks_objec
     try:
         parsed = json.loads(cleaned)
     except (ValueError, TypeError):
-        raise ValueError("Vision reading was not valid JSON; no proposal was saved.") from None
+        raise VisionReadingFormatError("Vision reading was not valid JSON; no proposal was saved.") from None
     if not isinstance(parsed, dict):
-        raise ValueError("Vision reading was not a JSON object; no proposal was saved.")
-    truth = str(parsed.get("truth") or "").strip().lower()
+        raise VisionReadingFormatError("Vision reading was not a JSON object; no proposal was saved.")
+    if set(parsed) != {'truth', 'written'} or not isinstance(parsed['written'], str):
+        raise VisionReadingFormatError("Vision reading had invalid answer fields; no proposal was saved.")
+    # JSON false is a legitimate reading; never discard it as a falsy value.
+    truth = str(parsed['truth']).strip().lower()
     if truth not in {"true", "false", "blank", "unclear"}:
         truth = "unclear"
     written = parsed.get("written")
@@ -165,7 +279,10 @@ def prepare_vision_reading(client: Any, image_path: Path, bbox: list, asks_objec
     written = written.strip()[:200] if asks_object else ""
     if not written:
         obj = "blank"
-    elif re.fullmatch(r"[123]", written):
+    elif domain is not None and written in [str(x) for x in domain]:
+        matches = [x for x in domain if str(x) == written]
+        obj = object_token(matches[0]) if len(matches) == 1 else "unclear"
+    elif re.fullmatch(r"-?(?:0|[1-9]\d*)", written) and abs(int(written)) <= 2**53 - 1:
         obj = written
     elif re.fullmatch(r"n\s*/?\s*a", written, flags=re.I):
         obj = "na"

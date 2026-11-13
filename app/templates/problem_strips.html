@@ -891,9 +891,8 @@
         {% if fol_truth_enabled %}
           {% if fol_truth_question %}
           <section class="fol-question-key" data-fol-truth-question data-context='{{ fol_truth_question | tojson }}'>
-            <div class="fol-question-model">Model: D = {{ fol_truth_question.model.domain }}, c = {{ fol_truth_question.model.constants.c }};
-              P = {{ fol_truth_question.model.predicates.P }}, Q = {{ fol_truth_question.model.predicates.Q }}, R = {{ fol_truth_question.model.predicates.R }}</div>
-            <div class="fol-question-sentence">Sentence: {{ active_problem_context.prompt or fol_truth_question.formula }}</div>
+            <div class="fol-question-model">Model: {{ fol_truth_question.model_display }}</div>
+            <div class="fol-question-sentence">Sentence: {{ fol_truth_question.formula }}</div>
             <div class="fol-key-step" data-fol-key-step>First, check the answer key for this question and version.</div>
             <label style="display:block; margin: 0.6rem 0;">Optional scratchpad (cleared when you leave this page)
               <textarea rows="3" style="display:block; width:100%; box-sizing:border-box;" placeholder="Work out your answer here"></textarea>
@@ -903,11 +902,11 @@
               <div class="fol-key-answer">Code's answer: <span data-fol-truth-expected>Checking…</span></div>
               <details><summary>Why?</summary><pre data-fol-truth-explanation></pre></details>
               <div class="fol-key-actions">
-                <button type="button" class="btn btn-primary" data-fol-key-confirm>Answer is correct — prefill grades</button>
+                <button type="button" class="btn btn-primary" data-fol-key-confirm>Answer is correct — {{ 'prefill grades' if fol_truth_question.score_rule else 'suggest feedback' }}</button>
                 <button type="button" class="btn btn-secondary" data-fol-key-reject>Something looks wrong</button>
               </div>
             </details>
-            <div class="fol-key-status" data-fol-key-status role="status">Confirm the key to prefill scores and explanations. Student readings are ready to check below.</div>
+            <div class="fol-key-status" data-fol-key-status role="status">Confirm the key to {{ 'prefill scores and explanations' if fol_truth_question.score_rule else 'suggest feedback' }}. Student readings are ready to check below.</div>
             <button type="button" class="fol-key-manual" data-fol-key-manual>Grade manually instead</button>
           </section>
           {% endif %}
@@ -1252,7 +1251,10 @@
             </div>
             {% if item.fol_truth.asks_object %}
             <div class="fol-choice-row" role="group" aria-label="Interpreted written response">
-              {% for value, label in [('1', '1'), ('2', '2'), ('3', '3'), ('na', 'N/A'), ('unclear', 'Other')] %}
+              {% for choice in item.fol_truth.object_choices %}
+              <button type="button" class="fol-choice" data-fol-choice="object" data-value="{{ choice.value }}" aria-pressed="false">{{ choice.label }}</button>
+              {% endfor %}
+              {% for value, label in [('na', 'N/A'), ('unclear', 'Other')] %}
               <button type="button" class="fol-choice" data-fol-choice="object" data-value="{{ value }}" aria-pressed="false">{{ label }}</button>
               {% endfor %}
             </div>
@@ -1268,7 +1270,8 @@
               {% if item.fol_truth.asks_object %}
               <label>Written reading
                 <select data-fol-truth-object aria-label="Written reading details">
-                  <option value="">Needs reading</option><option value="1">1</option><option value="2">2</option><option value="3">3</option>
+                  <option value="">Needs reading</option>
+                  {% for choice in item.fol_truth.object_choices %}<option value="{{ choice.value }}">{{ choice.label }}</option>{% endfor %}
                   <option value="na">N/A</option><option value="blank">Blank</option><option value="unclear">Other / unclear</option>
                 </select>
               </label>

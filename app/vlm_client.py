@@ -74,8 +74,9 @@ Your ONLY jobs in this task are:
   - If a name is visible, match it to a student in the provided roster.
   - If you cannot confidently match the name to a roster entry, say there is NO MATCH.
   - Read the clearly printed quiz/exam version label near the top of the page.
-    It will normally literally say "Version A", "Version B", or "Version C";
-    inspect the full header, including the upper-right corner.
+    Copy the printed identifier, for example A, B, C, D, or E after "Version";
+    other explicit identifiers are also valid. Inspect the full header,
+    including the upper-right corner.
 
 You MUST behave like a classifier, not a storyteller:
   - Do NOT invent new students that are not in the roster.
@@ -91,7 +92,7 @@ You will always respond with a single JSON object with these fields:
     "name_visible": true or false,
     "raw_name": string or null,
     "student_id": string or null,
-    "quiz_version": "A", "B", "C", or null,
+    "quiz_version": the printed version identifier as a string, or null,
     "confidence": float between 0.0 and 1.0
   }
 
@@ -111,7 +112,7 @@ NAME_RESPONSE_FORMAT: Dict[str, Any] = {
                 "name_visible": {"type": "boolean"},
                 "raw_name": {"type": ["string", "null"]},
                 "student_id": {"type": ["string", "null"]},
-                "quiz_version": {"type": ["string", "null"], "enum": ["A", "B", "C", None]},
+                "quiz_version": {"type": ["string", "null"]},
                 "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
             },
             "required": [
@@ -405,6 +406,9 @@ class LMStudioQwenClient:
         image_path: Path,
         prompt: str,
         system_prompt: str | None = None,
+        *,
+        response_format: Dict[str, Any] | None = None,
+        max_tokens: int | None = None,
     ) -> str:
         """
         Convenience: given a text prompt and an image, return the raw model reply.
@@ -420,7 +424,12 @@ class LMStudioQwenClient:
                 max_image_dim=dim,
             )
             try:
-                return self.chat(messages)
+                options = {}
+                if response_format is not None:
+                    options['extra_payload'] = {'response_format': response_format}
+                if max_tokens is not None:
+                    options['max_tokens'] = max_tokens
+                return self.chat(messages, **options)
             except requests.HTTPError as e:
                 response = getattr(e, "response", None)
                 body = (response.text or "").lower() if response is not None else ""
@@ -436,6 +445,12 @@ class LMStudioQwenClient:
         if last_err is not None:
             raise last_err
         raise RuntimeError("Unexpected VLM retry flow without error/result")
+
+    def chat_with_image_json(self, image_path: Path, prompt: str, response_format: Dict[str, Any],
+                             max_tokens: int = 512) -> str:
+        """Use the provider's structured-output contract as well as a JSON prompt."""
+        return self.chat_with_image_prompt(image_path, prompt, response_format=response_format,
+                                           max_tokens=max_tokens)
 
 
 def default_lmstudio_base_url() -> str:

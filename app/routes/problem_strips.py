@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, Form, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from PIL import Image
 import requests
@@ -19,8 +19,9 @@ import requests
 from app.helpers import _build_page_options, _is_image_filename, _select_display_filename
 from app.models import Session
 from app.fol_truth_assistance import (enabled as fol_truth_enabled,
+    question_enabled as fol_truth_question_enabled,
     question_context as fol_truth_question_context, prepare_vision_reading,
-    location_prompt as fol_truth_location_prompt)
+    location_prompt as fol_truth_location_prompt, VisionReadingFormatError)
 from app.fol_model_review import (
     check_fol_model_text,
     enqueue_fol_model_ocr_jobs,
@@ -83,7 +84,9 @@ def prepare_fol_truth_reading(problem_id: str, unit_id: int = Form(...),
     try:
         client = create_vlm_client(model)
         proposal = prepare_vision_reading(client, RAW_SCANS_DIR / filename,
-            segment.get("bbox"), context["asks_object"])
+            segment.get("bbox"), context["asks_object"], context["model"]["domain"])
+    except VisionReadingFormatError as exc:
+        return JSONResponse({'detail': str(exc), 'code': 'vision_reading_format'}, status_code=502)
     except (ValueError, OSError, RuntimeError, requests.RequestException) as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from None
     with _session_lock:
@@ -222,8 +225,8 @@ def _compute_segments_data(session: Session, spec, cache_path: Path, model: Opti
                 problem_id=problem_id,
                 problem_description=_build_segmentation_description(spec),
                 client=client,
-                **({"prompt_override": fol_truth_location_prompt(problem_id)}
-                   if fol_truth_enabled(getattr(session, "grading_key", None)) and problem_id in {f"Q{i}" for i in range(1, 8)} else {}),
+                **({"prompt_override": fol_truth_location_prompt(problem_id, _build_segmentation_description(spec))}
+                   if fol_truth_question_enabled(getattr(session, "grading_key", None), problem_id) else {}),
             )
 
             if seg.present and seg.bbox:
@@ -678,8 +681,8 @@ def prefetch_problem_unit(problem_id: str, unit_id: int, vlm_model: str = "gemma
                 try:
                     segment = segment_page_for_problem(path, problem_id,
                         _build_segmentation_description(spec), client=client,
-                        **({"prompt_override": fol_truth_location_prompt(problem_id)}
-                           if fol_truth_enabled(session.grading_key) and problem_id in {f"Q{i}" for i in range(1, 8)} else {}))
+                        **({"prompt_override": fol_truth_location_prompt(problem_id, _build_segmentation_description(spec))}
+                           if fol_truth_question_enabled(session.grading_key, problem_id) else {}))
                 except RuntimeError as exc:
                     raise HTTPException(status_code=502, detail=_safe_preparation_detail(exc)) from exc
                 if segment.present and segment.bbox:
@@ -1032,6 +1035,7 @@ def get_problem_strips(
         active_version,
     )
     active_problem_context = resolved_problem_context(spec, active_version)
+    active_truth = fol_truth_question_context(grading_key, problem_id, active_version, None)
 
     return templates.TemplateResponse(
         "problem_strips.html",
@@ -1052,9 +1056,9 @@ def get_problem_strips(
             "problem_note": session.problem_notes.get(problem_id, ""),
             "problem_reference_pins": _valid_reference_pins(session, problem_id),
             "problem_type": effective_problem_type,
-            "fol_truth_question": fol_truth_question_context(grading_key, problem_id, active_version, None) if fol_truth_enabled(grading_key) else None,
-            "fol_truth_enabled": fol_truth_enabled(grading_key),
-            "fol_truth_can_prepare": fol_truth_enabled(grading_key) and os.getenv("TF_GRADER_MODE", "").strip().lower() not in {"1", "true", "yes", "on"},
+            "fol_truth_question": active_truth,
+            "fol_truth_enabled": active_truth is not None,
+            "fol_truth_can_prepare": active_truth is not None and os.getenv("TF_GRADER_MODE", "").strip().lower() not in {"1", "true", "yes", "on"},
             "problem_type_options": PROBLEM_TYPE_OPTIONS,
             "next_problem_id": next_problem_id,
             "next_view_url": next_view_url,

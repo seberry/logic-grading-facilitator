@@ -11,18 +11,60 @@ cache only when a whole question is complete. A retry skips checkpointed rows.
 `app/segmentation_core.py` validates model output and reports sanitized provider
 errors as HTTP 502. The older per-problem `/prefetch` route remains available.
 
-## Opt-in Quiz 9 FOL truth review
+## Optional FOL truth review
 
-`app/fol_truth_assistance.py` maps the three printed models and seven formulas
-to `app/fol_model_checker.py` and computes a version/crop/config fingerprint.
+`app/routes/fol_truth_preparation.py` owns the instructor-only
+`/prepare/fol-truth` review page, blank-PDF transcription endpoint, and blank
+source viewer. `app/fol_truth_preparation.py` validates transcription proposals,
+builds edited rubric definitions, and fingerprints instructor approval. IU
+supplies only fixed model/formula transcription; the pinned FOL worksheet module
+continues to parse/evaluate and render explanations. The browser preview checks
+agreement with the independent Python checker. Edits disable approval until the
+new definitions have been checked. Approval saves configuration and an approval
+record under the session lock without changing grades or student transcriptions;
+schema-2 assisted bundle export rejects missing or stale approval. The Finish
+page links this review step for every assessment, including those whose active
+key lacks assistance but whose named saved rubric can supply draft definitions.
+
+`scripts/start_instructor_grader.py` uses `app/instructor_lock.py` to hold an OS
+lock on the production data directory while serving, preventing duplicate
+launcher instances from writing incompatible session copies on different ports.
+
+The name-classification response permits arbitrary explicit version labels
+(including D/E retakes). `app/server.py` resolves Name Review's version choices
+from the matching saved rubric, unions any observed labels so none are silently
+lost, and falls back to A/B/C only without configured versions.
+
+`ProblemSpec.fol_truth` and `ProblemVariantSpec.fol_truth` supply reviewed
+model/formula/response/scoring definitions for selected questions or versions.
+`app/fol_truth_config.py` validates finite models, normalizes common formula
+notation, and encodes named objects for the integer-domain Python checker.
+`app/fol_truth_assistance.py` resolves definitions, independently checks truth
+with `app/fol_model_checker.py`, and computes a version/crop/config fingerprint.
+Its legacy schema-1 adapter preserves the original Quiz 9 models and formulas;
+new assessments and retake models use rubric definitions rather than quiz IDs.
 `app/routes/problem_strips.py` supplies that context and persists separate TF
 transcriptions in `WorkUnit.fol_truth_reviews`. The browser asset
 `app/assets/fol_truth_review.mjs` calls the pinned upstream explanation module
-for feedback and candidate checks. The TF copies a draft into the ordinary
-editable comment and enters a score. `app/routes/exam_exports.py` includes
+for feedback and candidate checks. `fol_truth_answers.mjs` separates domain
+objects from reading-status tokens, and `fol_truth_scoring.mjs` handles optional
+component or all-or-nothing scoring. After key confirmation, interpreted answers
+(including manually entered readings) update editable feedback and optional
+scores. Feedback-only mode preserves manual scores. Ordinary question pages
+keep their existing controls; Finish prepares readings only for configured
+question/submission pairs. `app/routes/exam_exports.py` includes
 the opt-in configuration and readings in private TF bundles and declares the
-required feature in the manifest. No model or Node process runs during TF
+required feature/schema in the manifest; launchers reject incompatible code.
+No model or Node process runs during TF
 review.
+
+Instructor answer OCR uses `LMStudioQwenClient.chat_with_image_json` to send the
+strict `fol_answer_reading` response schema with a bounded output budget.
+`VisionReadingFormatError` maps to a sanitized 502 with code
+`vision_reading_format`; `fol_truth_batch.mjs` continues past only these
+per-reading format failures and returns the unread tasks for retry. Other
+provider/network failures stop preparation. TF feedback calculation continues
+to use editable interpreted answers even when no vision proposal exists.
 
 This document describes the high-level architecture of the Logic Grading Facilitator (v2), covering the core data models, the "Cyborg" workflow, and the backend data pipelines.
 

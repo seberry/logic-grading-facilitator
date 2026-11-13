@@ -1,6 +1,15 @@
 # TA/TF Quick Start: Paper Quiz Grader
 
-## If the bundle says Quiz 9 FOL truth assistance
+## Updating for Quiz 9 retakes and later FOL quizzes
+
+Use the updated grader code ZIP together with the freshly prepared private
+grading bundle. The original Quiz 9 code supports only its original models;
+retake bundles require rubric-driven FOL assistance schema 2. Extract the new
+code to its own folder, install its requirements as below, and give that folder
+to the bundle launcher when asked for the code location. Keep the old code and
+any already graded bundle separate.
+
+## If the bundle has FOL truth assistance
 
 For each question and version, use the optional scratchpad to work out the
 answer, then select **Check the suggested answer**. Confirm the key if it is
@@ -11,6 +20,9 @@ Compare each interpreted student answer with its scan and correct the choices
 as needed. Confirming the key enables automatic scores and bracketed feedback;
 review and edit them before saving. Add your own comments outside the brackets.
 Save the page before moving on. No model or Node installation is needed.
+Missing OCR is fine: enter the interpreted T/F and witness/counterexample or N/A
+yourself. Those corrected answers generate suggested scores and wrong-answer
+explanations locally, just like corrections to prepared OCR readings.
 
 This is a local viewer for grading a paper quiz. The instructor has already
 matched the scans to students, identified quiz versions, and located each

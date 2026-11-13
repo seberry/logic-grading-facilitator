@@ -1,0 +1,220 @@
+quiz_id: quiz9_retakes_DE_fol_truth
+problems:
+- id: Q1
+  label: Truth value 1
+  problem_number: '1'
+  points: 2
+  extra_credit: false
+  segmentation_hint: Printed question 1 on the single-page quiz version. Include its
+    whole answer area, even when blank; exclude neighboring questions and the shared
+    header.
+  variants:
+    D:
+      prompt: ¬P(c) ∨Q(c)
+      question_image: quiz9_retakes_DE_fol_truth/Q1_D.png
+      fol_truth:
+        formula: ¬P(c) ∨Q(c)
+        model: &id001
+          domain:
+          - 1
+          - 2
+          - 3
+          constants:
+            c: 1
+          predicates:
+            P:
+            - 1
+            - 3
+            Q:
+            - 3
+            R:
+            - 2
+            - 3
+    E:
+      prompt: ¬P(c) ∨Q(c)
+      question_image: quiz9_retakes_DE_fol_truth/Q1_E.png
+      fol_truth:
+        formula: ¬P(c) ∨Q(c)
+        model: &id002
+          domain:
+          - 1
+          - 2
+          - 3
+          constants:
+            c: 2
+          predicates:
+            P: []
+            Q:
+            - 1
+            - 3
+            R:
+            - 2
+  fol_truth:
+    asks_object: false
+    scoring:
+      mode: components
+      truth: 2
+- id: Q2
+  label: Truth value and witness 2
+  problem_number: '2'
+  points: 2
+  extra_credit: false
+  segmentation_hint: Printed question 2 on the single-page quiz version. Include its
+    whole answer area, even when blank; exclude neighboring questions and the shared
+    header.
+  variants:
+    D:
+      prompt: ∃x (P(x) ∧Q(x) ∧R(x)); witness or N/A
+      question_image: quiz9_retakes_DE_fol_truth/Q2_D.png
+      fol_truth:
+        formula: ∃x (P(x) ∧Q(x) ∧R(x))
+        model: *id001
+    E:
+      prompt: ∃x (P(x) ∧Q(x) ∧R(x)); witness or N/A
+      question_image: quiz9_retakes_DE_fol_truth/Q2_E.png
+      fol_truth:
+        formula: ∃x (P(x) ∧Q(x) ∧R(x))
+        model: *id002
+  fol_truth:
+    asks_object: true
+    scoring:
+      mode: components
+      truth: 1
+      object: 1
+      blank_na_credit: false
+- id: Q3
+  label: Truth value and witness 3
+  problem_number: '3'
+  points: 2
+  extra_credit: false
+  segmentation_hint: Printed question 3 on the single-page quiz version. Include its
+    whole answer area, even when blank; exclude neighboring questions and the shared
+    header.
+  variants:
+    D:
+      prompt: ∃x (P(x) ∧¬Q(x)); witness or N/A
+      question_image: quiz9_retakes_DE_fol_truth/Q3_D.png
+      fol_truth:
+        formula: ∃x (P(x) ∧¬Q(x))
+        model: *id001
+    E:
+      prompt: ∃x (P(x) ∧¬Q(x)); witness or N/A
+      question_image: quiz9_retakes_DE_fol_truth/Q3_E.png
+      fol_truth:
+        formula: ∃x (P(x) ∧¬Q(x))
+        model: *id002
+  fol_truth:
+    asks_object: true
+    scoring:
+      mode: components
+      truth: 1
+      object: 1
+      blank_na_credit: false
+- id: Q4
+  label: Truth value and counterexample 4
+  problem_number: '4'
+  points: 2
+  extra_credit: false
+  segmentation_hint: Printed question 4 on the single-page quiz version. Include its
+    whole answer area, even when blank; exclude neighboring questions and the shared
+    header.
+  variants:
+    D:
+      prompt: ∀x (P(x) →(Q(x) ∨R(x))); counterexample or N/A
+      question_image: quiz9_retakes_DE_fol_truth/Q4_D.png
+      fol_truth:
+        formula: ∀x (P(x) →(Q(x) ∨R(x)))
+        model: *id001
+    E:
+      prompt: ∀x (P(x) →(Q(x) ∨R(x))); counterexample or N/A
+      question_image: quiz9_retakes_DE_fol_truth/Q4_E.png
+      fol_truth:
+        formula: ∀x (P(x) →(Q(x) ∨R(x)))
+        model: *id002
+  fol_truth:
+    asks_object: true
+    scoring:
+      mode: components
+      truth: 1
+      object: 1
+      blank_na_credit: false
+- id: Q5
+  label: Truth value and counterexample 5
+  problem_number: '5'
+  points: 2
+  extra_credit: false
+  segmentation_hint: Printed question 5 on the single-page quiz version. Include its
+    whole answer area, even when blank; exclude neighboring questions and the shared
+    header.
+  variants:
+    D:
+      prompt: ∀x (P(x) ∨Q(x)); counterexample or N/A
+      question_image: quiz9_retakes_DE_fol_truth/Q5_D.png
+      fol_truth:
+        formula: ∀x (P(x) ∨Q(x))
+        model: *id001
+    E:
+      prompt: ∀x (P(x) ∨Q(x)); counterexample or N/A
+      question_image: quiz9_retakes_DE_fol_truth/Q5_E.png
+      fol_truth:
+        formula: ∀x (P(x) ∨Q(x))
+        model: *id002
+  fol_truth:
+    asks_object: true
+    scoring:
+      mode: components
+      truth: 1
+      object: 1
+      blank_na_credit: false
+- id: Q6
+  label: 'Extra credit: Truth value 6'
+  problem_number: '6'
+  points: 1
+  extra_credit: true
+  segmentation_hint: Printed question 6 on the single-page quiz version. Include its
+    whole answer area, even when blank; exclude neighboring questions and the shared
+    header.
+  variants:
+    D:
+      prompt: (∃x P(x)) ∧(∃x Q(x))
+      question_image: quiz9_retakes_DE_fol_truth/Q6_D.png
+      fol_truth:
+        formula: (∃x P(x)) ∧(∃x Q(x))
+        model: *id001
+    E:
+      prompt: (∃x P(x)) ∧(∃x Q(x))
+      question_image: quiz9_retakes_DE_fol_truth/Q6_E.png
+      fol_truth:
+        formula: (∃x P(x)) ∧(∃x Q(x))
+        model: *id002
+  fol_truth:
+    asks_object: false
+    scoring:
+      mode: components
+      truth: 1
+- id: Q7
+  label: 'Extra credit: Truth value 7'
+  problem_number: '7'
+  points: 1
+  extra_credit: true
+  segmentation_hint: Printed question 7 on the single-page quiz version. Include its
+    whole answer area, even when blank; exclude neighboring questions and the shared
+    header.
+  variants:
+    D:
+      prompt: (∀x P(x)) →(∃x Q(x))
+      question_image: quiz9_retakes_DE_fol_truth/Q7_D.png
+      fol_truth:
+        formula: (∀x P(x)) →(∃x Q(x))
+        model: *id001
+    E:
+      prompt: (∀x P(x)) →(∃x Q(x))
+      question_image: quiz9_retakes_DE_fol_truth/Q7_E.png
+      fol_truth:
+        formula: (∀x P(x)) →(∃x Q(x))
+        model: *id002
+  fol_truth:
+    asks_object: false
+    scoring:
+      mode: components
+      truth: 1

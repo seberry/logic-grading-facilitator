@@ -1,6 +1,7 @@
 from app.fol_truth_assistance import (
     ASSESSMENT, MODELS, QUESTIONS, assert_supported, model_text, question_context,
     prepare_vision_reading,
+    ANSWER_RESPONSE_FORMAT, VisionReadingFormatError,
 )
 from app.fol_model_checker import check_sentences
 from app.models import GradingKey, Session, WorkUnit
@@ -222,6 +223,73 @@ def test_vision_endpoint_is_forbidden_in_tf_mode(monkeypatch):
     monkeypatch.setenv("TF_GRADER_MODE", "1")
     response = TestClient(server.app).post("/problem/Q2/fol-truth/prepare-reading", data={"unit_id": "1"})
     assert response.status_code == 403
+
+
+@pytest.mark.parametrize('truth, expected', [(False, 'false'), (True, 'true'), ('false', 'false')])
+def test_json_boolean_false_is_a_clear_reading_not_unclear(tmp_path, truth, expected):
+    image = tmp_path / 'synthetic.jpg'
+    Image.new('RGB', (100, 100), 'white').save(image)
+    class Client:
+        def chat_with_image_prompt(self, path, prompt):
+            return json.dumps({'truth': truth, 'written': ''})
+    assert prepare_vision_reading(Client(), image, [0, 0, 1, 1], False)['proposed_truth'] == expected
+
+
+def test_structured_answer_reading_uses_json_schema(tmp_path):
+    image = tmp_path / 'synthetic.jpg'
+    Image.new('RGB', (100, 100), 'white').save(image)
+    class Client:
+        def chat_with_image_json(self, path, prompt, response_format, max_tokens):
+            assert response_format == ANSWER_RESPONSE_FORMAT and max_tokens == 512
+            assert '{"truth":"false","written":""}' in prompt
+            return '{"truth":"false","written":"N/A"}'
+        def chat_with_image_prompt(self, *args):
+            pytest.fail('Structured reading should not use the unconstrained path.')
+    assert prepare_vision_reading(Client(), image, [0, 0, 1, 1], True)['proposed_object'] == 'na'
+
+
+@pytest.mark.parametrize('reply', [
+    'False', 'The answer is {"truth":"false","written":""}',
+    '{"truth":"false","written":""', '[{"truth":"false","written":""}]',
+    '{"truth":"false"}', '{"truth":"false","written":2}',
+])
+def test_malformed_readings_are_rejected_instead_of_inferred(tmp_path, reply):
+    image = tmp_path / 'synthetic.jpg'
+    Image.new('RGB', (100, 100), 'white').save(image)
+    class Client:
+        def chat_with_image_prompt(self, path, prompt):
+            return reply
+    with pytest.raises(VisionReadingFormatError):
+        prepare_vision_reading(Client(), image, [0, 0, 1, 1], True)
+
+
+def test_format_failure_is_retryable_and_saved_reading_does_not_call_a_model(monkeypatch):
+    monkeypatch.delenv('TF_GRADER_MODE', raising=False)
+    key = GradingKey(quiz_id='fake', problems=[ProblemSpec(id='Q1', label='Q1', points=2)],
+                    fol_truth_assistance={'schema': 1, 'assessment': ASSESSMENT})
+    unit = WorkUnit(unit_id=1, student_id=None, page_filenames=['fake.jpg'], quiz_version='A',
+                    per_problem={'Q1': None}, comment=None)
+    session = Session(roster=[], grading_key=key, work_units=[unit], unclaimed_pages=[])
+    segment = {'unit_id': 1, 'page_filename': 'fake.jpg', 'bbox': [.1, .2, .9, .5], 'present': True}
+    with (patch('app.routes.problem_strips.get_session', return_value=session),
+          patch('app.routes.problem_strips.ensure_segments_cached', return_value=[segment]),
+          patch('app.routes.problem_strips._fol_source_path', return_value=None),
+          patch('app.routes.problem_strips.create_vlm_client') as client,
+          patch('app.routes.problem_strips.prepare_vision_reading', side_effect=VisionReadingFormatError('Invalid JSON.')),
+          patch('app.routes.problem_strips.persist_session') as save):
+        api = TestClient(server.app)
+        failed = api.post('/problem/Q1/fol-truth/prepare-reading', data={'unit_id': 1})
+        assert failed.status_code == 502 and failed.json()['code'] == 'vision_reading_format'
+        assert unit.fol_truth_reviews == {} and unit.per_problem['Q1'] is None
+        save.assert_not_called()
+        prior = {'proposed_truth': 'false', 'proposed_object': None, 'proposed_raw_object': None,
+                 'fingerprint': question_context(key, 'Q1', 'A', segment)['fingerprint']}
+        unit.fol_truth_reviews['Q1'] = prior
+        client.reset_mock()
+        cached = api.post('/problem/Q1/fol-truth/prepare-reading', data={'unit_id': 1})
+        assert cached.status_code == 200 and cached.json()['status'] == 'cached'
+        client.assert_not_called()
+        assert unit.fol_truth_reviews['Q1'] == prior
 
 
 def test_instructor_vision_endpoint_saves_only_proposal(tmp_path, monkeypatch):

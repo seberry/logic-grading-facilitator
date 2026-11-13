@@ -11,7 +11,101 @@ question description and work-unit scan file metadata. Partial files are
 private preparation state and are never included in a TF bundle. Once all
 work units have valid rows, the app writes the standard full list cache.
 
-## Quiz 9 FOL truth assistance (schema 1)
+## Rubric-driven FOL truth assistance (bundle schema 2)
+
+Any problem may supply an optional `fol_truth` mapping. It is independent of
+`problem_type` and does not require the legacy top-level opt-in. For example:
+
+```yaml
+quiz_id: synthetic_mixed_example
+problems:
+  - id: Q1
+    label: Manual symbolization
+    points: 2
+  - id: EC
+    label: Truth in a model
+    points: 1
+    extra_credit: true
+    fol_truth:
+      model:
+        domain: [2, 4, 7]
+        constants: {a: 7}
+        predicates: {R: [[2, 7], [4, 4], [7, 7]]}
+      formula: "∃x R(x,a)"
+      asks_object: true
+      scoring: {mode: all_or_nothing, points: 1}
+    variants:
+      A: {prompt: "Is ∃x Rxa true? Give a witness or N/A."}
+      B:
+        prompt: "Is ∀x Rxx true? Give a counterexample or N/A."
+        fol_truth:
+          formula: "∀x Rxx"
+          model:
+            domain: [2, 4, 7]
+            predicates: {R: [[2, 2], [4, 4]]}
+```
+
+`variants.<version>.fol_truth` overrides individual fields of the base mapping;
+an overridden `model` or `scoring` replaces that entire field. A question may
+instead configure only selected variants, leaving the others manual. Empty or
+invalid configurations are rejected when the rubric/session loads. Ordinary
+questions remain manual, even when their IDs match legacy Quiz 9 question IDs.
+
+The model has a nonempty domain of distinct integers or nonempty strings,
+optional single-letter constants `a`–`t`, and uppercase single-letter predicates.
+Unary extensions are lists of objects; higher-arity extensions are lists of
+equal-length ordered tuples (JSON/YAML lists). Empty extensions are `[]`.
+Objects must belong to the domain; booleans and integers beyond JavaScript's
+safe-integer range are rejected. Variables are `x`, `y`, `z`; predicates,
+identity, negation, connectives, and nested quantifiers are supported, without
+function symbols. Both `Rxy` and `R(x,y)` notation are accepted. Connective
+precedence is negation/quantification, conjunction, disjunction, implication,
+biconditional; quantifiers bind the next unary formula. Parenthesize the intended
+scope explicitly. The normalizer emits one canonical formula for both checkers.
+Definitions requiring more than 50,000 evaluation trace nodes are rejected.
+
+`asks_object` defaults to false. If true, the sentence must have an outermost
+quantifier: a true existential requires a witness; a false universal requires a
+counterexample; otherwise N/A is required. One object instantiates only that
+outermost quantifier; inner quantifiers remain in scope when checking evidence.
+
+Omit `scoring` for suggested feedback with entirely manual scores. Otherwise use
+`{mode: components, truth: 1, object: 1}` (mode defaults to `components`) or
+`{mode: all_or_nothing, points: 1}`. The configured maximum must match the
+question's points. `blank_na_credit` defaults to false; setting it true permits
+a blank written response when N/A is expected. An unclear response never yields
+a score suggestion. Extra credit still uses the ordinary overall cap.
+
+The existing `work_units[].fol_truth_reviews` contract below is reused.
+Numeric objects use their decimal strings, named objects use
+`object:<JSON string>` (for example `object:"red"`), and `na`, `blank`, and
+`unclear` retain their reading-status meanings. Domain-derived buttons/selects
+and exact-writing entry support manual corrections without vision proposals.
+The fingerprint includes the resolved definition, question points, version,
+crop, and source revision. Final scores and comments remain the ordinary human
+grade records. Bundles preserve definitions and readings and declare schema 2,
+`fol_truth_assistance_v2`, and the pinned shared explanation-module commit.
+Launchers check schema compatibility using `app/assets/fol_truth_capabilities.json`.
+
+`Session.fol_truth_definition_review` records instructor approval as
+`{schema: 1, approved: true, fingerprint: <sha256>}`. The fingerprint covers the
+resolved logical inputs and score rules for all assisted question/version pairs,
+including their maximum points. Changes invalidate approval; ordinary student
+grades, OCR corrections, and crop changes do not invalidate this definition
+approval (their existing answer-reading fingerprints still apply). Export of a
+new schema-2 assisted bundle requires matching approval and sets
+`bundle_manifest.fol_truth_assistance.logical_inputs_reviewed` to true.
+
+`grades/fol_truth_preparation_draft.json` stores an unapproved draft containing
+`revision` (the active grading-key hash), `rows` (editable logical inputs and
+score policies by question/version), and `source` (the blank PDF's SHA-256).
+`grades/blank_fol_sources/<sha256>.pdf` contains only the uploaded blank source.
+Drafts for another key revision are ignored. Explicit approval backs up the
+current session under `grades/fol_truth_definition_backups/`, replaces only its
+grading key and approval record, and preserves human grades, comments, and
+reading state. Blank-source/draft/backup files are not part of TF exports.
+
+## Legacy Quiz 9 FOL truth assistance (schema 1)
 
 `grading_key.fol_truth_assistance` is absent for ordinary quizzes. The Quiz 9
 opt-in shape is `{ "schema": 1, "assessment": "quiz9_monadic_fol_truth" }`.
@@ -91,7 +185,7 @@ Invariants:
 - The problem `label` is also used as a natural-language hint when the model searches for the answer region in strip view, so match the wording on the exam if possible.
 - `variants` is optional. Keys are normalized printed version identifiers such as
   `A`, `B`, or `C`; each value may override `label`, `prompt`,
-  `question_image`, `rubric_notes`, and `segmentation_hint`.
+  `question_image`, `rubric_notes`, `segmentation_hint`, and `fol_truth`.
 - `question_image` is an optional relative path below
   `DATA_DIR/rubric_assets/`. It must be a crop of the blank assessment, not a
   student scan or solution. If omitted, the strip page checks the conventional

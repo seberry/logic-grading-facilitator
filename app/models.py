@@ -1,5 +1,5 @@
 from typing import Any, List, Dict, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class RosterEntry(BaseModel):
@@ -20,6 +20,9 @@ class ProblemVariantSpec(BaseModel):
     rubric_notes: Optional[str] = None
     segmentation_hint: Optional[str] = None
 
+    # Rubric-supplied logical inputs for optional truth-in-a-model assistance.
+    fol_truth: Optional[Dict[str, Any]] = None
+
 
 class ProblemSpec(BaseModel):
     """Single problem on the quiz/exam."""
@@ -37,6 +40,7 @@ class ProblemSpec(BaseModel):
     problem_type: Optional[str] = None
     autograde: Dict[str, Any] = Field(default_factory=dict)
     variants: Dict[str, ProblemVariantSpec] = Field(default_factory=dict)
+    fol_truth: Optional[Dict[str, Any]] = None
 
 
 class GradingKey(BaseModel):
@@ -45,6 +49,12 @@ class GradingKey(BaseModel):
     problems: List[ProblemSpec]
     # Explicit opt-in. Never infer an answer key from a printed prompt.
     fol_truth_assistance: Optional[Dict[str, Any]] = None
+
+    @model_validator(mode="after")
+    def validate_fol_truth(self) -> "GradingKey":
+        from app.fol_truth_assistance import assert_supported
+        assert_supported(self)
+        return self
 
 
 class WorkUnit(BaseModel):
@@ -143,6 +153,8 @@ class Session(BaseModel):
     # normalized quiz version (for example {"Q1": {"A": 7, "B": 12}}).
     # Values are WorkUnit ids; the scan/crop remains the source of truth.
     reference_pins: Dict[str, Dict[str, int]] = Field(default_factory=dict)
+    # Instructor approval applies to the exact model/formula/scoring definitions.
+    fol_truth_definition_review: Optional[Dict[str, Any]] = None
     # Optional per-problem type tags for autograde workflows (e.g., "fitch_proof")
     problem_types: Dict[str, Optional[str]] = Field(default_factory=dict)
     # Optional effort-grading mode state for classwork/attendance assignments.

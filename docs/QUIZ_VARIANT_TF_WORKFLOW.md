@@ -1,5 +1,159 @@
 # Versioned Paper Quiz: Instructor Workflow
 
+## General truth-in-a-model assistance
+
+Use optional `fol_truth` data on each assisted rubric problem, with overrides
+under its existing `variants` entries. The rubric supplies the actual model,
+formula, whether an object response is requested, and an optional scoring rule.
+See [the schema and complete mixed-assessment example](SCHEMA.md#rubric-driven-fol-truth-assistance-bundle-schema-2).
+The rubric maker still drafts printed assessment structure; it does not solve
+questions or invent assistance policies. On Finish, **Review models and
+sentences** opens `/prepare/fol-truth`. Upload a blank PDF there to have IU
+transcribe its fixed models/formulas (embedded PDF text where available, vision
+for image-only PDFs). The instructor can correct model notation, formulas,
+response requirements, selected questions/versions, and score policies, then
+check the deterministic preview and explicitly approve the definitions.
+Unapproved drafts survive reloads in the private grades directory. New schema-2
+assisted bundles require approval of the current definitions; changing a model,
+formula, response requirement, or scoring policy invalidates approval. The
+legacy original Quiz 9 bundle behavior is retained. Saving/loading also validates
+rubric definitions before they can be used for grading.
+
+The existing TF answer controls work for any configured domain, including named
+objects. The TF can fill in T/F and a witness/counterexample directly, or correct
+an instructor-prepared reading. Exact-writing entry recognizes simple object
+answers and N/A; ambiguous prose remains for human interpretation. After the
+existing key-confirmation control, deterministic feedback updates with those
+answers. Scoring can be separate truth/evidence credit, all-or-nothing, or
+entirely manual while still suggesting feedback. Added TF comments and saved
+manual grades retain the existing preservation behavior.
+
+For Quiz 9 retakes with new models, enter the new facts in `fol_truth`; do not
+reuse the old schema-1 model tables. Quiz 10 currently uses ordinary manual
+grading for all six questions, including EC, at the instructor's request. If
+assistance is wanted later, Q6 can use `asks_object: true` and
+`scoring: {mode: all_or_nothing, points: 1}`. Quiz 11 and selected final-exam questions use
+the same configuration and controls, including nested quantifiers and polyadic
+relations. Object evidence currently means one outer-quantifier witness or
+counterexample, rather than a list of assignments or a prose proof.
+
+Finish's optional answer-reading preparation skips ordinary questions and
+unconfigured versions. A TF bundle contains the resolved rubric source and
+reading state, declares assistance schema 2, and requires updated grader code.
+Existing Quiz 9 schema-1 sessions/bundles remain supported. Student data and
+active grading sessions are not migrated or rewritten automatically.
+
+Preliminary answer reading requests strict provider JSON with string-valued
+`truth` (`true`, `false`, `blank`, `unclear`) and `written` fields. Older valid
+JSON boolean truth values are also accepted; false must not become unclear.
+Malformed replies are rejected without saving a proposal and reported with
+`vision_reading_format`. Bulk preparation continues past those individual
+format errors, offers a retry of only the unread items, and leaves them available
+for manual TF entry. Transport/provider outages still stop the batch to avoid
+repeated failed calls. Saved fresh proposals are skipped on retry. Missing or
+unclear OCR does not prevent bundle export or local default-feedback generation
+once the TF supplies a clear reading and confirms the key. The private data ZIP
+must be accompanied by matching updated grader code, which supplies the local
+browser explanation/scoring modules; no model connection is required by the TF.
+
+Offline checks: `python -m pytest tests/test_fol_truth_general.py
+tests/test_fol_truth_assistance.py tests/test_quiz9_preparation_provider.py
+tests/test_exam_exports_routes.py tests/test_fol_model_checker.py
+tests/test_quiz_variant_tf_handoff.py -q` and `node --test
+tests/fol_truth_general.test.mjs tests/fol_truth_review.test.mjs
+tests/fol_truth_scoring.test.mjs`.
+
+## Prepared Quiz 9 retakes and Quiz 10 (November 13, 2026)
+
+The reviewed blank-assessment definitions are
+[`quiz9_retakes_DE_rubric.yaml`](quiz9_retakes_DE_rubric.yaml) and
+[`quiz10_polyadic_symbolization_rubric.yaml`](quiz10_polyadic_symbolization_rubric.yaml).
+Their selectable filenames in `DATA_DIR/rubric/` are
+`quiz9_retakes_DE_fol_truth.yaml` and `quiz10_polyadic_symbolization_ABC.yaml`.
+The matching 14 and 18 blank reference images live in the respective
+`DATA_DIR/rubric_assets/<quiz_id>/` directories. Reference images include the
+printed model or symbolization key; these are display assets, not saved student
+question-location caches.
+
+Retakes use Versions D/E and the new printed models. They retain the approved
+original Quiz 9 policy: Q1=2; Q2–5=2 each (1 truth plus 1 object/N/A);
+Q6–7=1 extra credit each; final maximum 10. Those point rules are carried over
+from the instructor-approved original, because the D/E PDF does not print them.
+Quiz 10 uses its printed policy: Q1–5=2 each, Q6=1 extra credit requiring both
+parts, final maximum 10. Assistance is enabled for all seven retake questions.
+Quiz 10's saved rubric was subsequently switched to manual grading throughout,
+including EC, without changing points, version prompts, or reference images.
+It therefore needs no model/sentence approval or preliminary answer readings.
+The same updated grader code handles both assessments; each needs a separate
+private grading bundle. Name recognition accepts explicit labels beyond A/B/C;
+Name Review offers the selected rubric's versions and preserves any different
+observed label for correction.
+
+For each new assignment/batch:
+
+1. Prepare the blank assessment once, before collecting scans. Supply its
+   versions, points/extra-credit rules, and which questions should offer
+   feedback. Review the saved rubric, model/formula definitions, and reference
+   images. The built-in rubric draft supplies question structure; the separate
+   **Review models and sentences** step transcribes and reviews logical inputs.
+2. Start the updated instructor app. After code changes, stop the existing
+   grader before reopening the launcher; an already-running process does not
+   reload the changed Python code automatically.
+3. Preserve/export the current session, then use **Archive & Reset** to begin
+   the next batch. This keeps saved rubrics, reference images, and the roster.
+   Prepare retakes and Quiz 10 as separate sessions and separate TF bundles.
+4. In Setup, upload that batch's student scans, choose **Saved rubric**, and
+   click **Load saved rubric** for the matching filename. Confirm the quiz ID,
+   run auto-grouping, review names and printed versions, and start the session.
+   Each supplied blank PDF has one page per version; a student's submission
+   normally consists of one such page, not every version in the blank PDF.
+5. On Finish / Prepare TF bundle, prepare all question locations and spot-check
+   each problem/version, including blank and extra-credit responses. Optionally
+   prepare preliminary answer readings for assisted questions. These are
+   transcriptions for TF review; preparation leaves grades unset. Use **Review
+   models and sentences** to correct/approve the inputs before exporting an
+   assisted bundle. It changes logical configuration only, preserving names,
+   grades, comments, and scan/crop state.
+6. Export the private TF bundle and provide matching updated grader code. The
+   TF confirms the suggested key, corrects or fills in interpreted answers,
+   reviews feedback/scores, and saves. No model connection is needed for TF
+   grading. Receive the scores, feedback PDFs, and recovery session as described
+   below before merging grades into Canvas.
+
+For future quizzes, reuse an existing rubric only when its printed content,
+models, versions, and point rules still match. New models require updated rubric
+definitions, not new checker code. Each scan batch still needs its own saved
+question locations and any optional answer readings.
+
+If a stale instructor process was used to select a new assisted rubric, it can
+silently drop the unfamiliar `fol_truth` fields from the selected setup copy and
+session. An older name classifier can also lose D/E labels. Preserve the named
+saved rubric as the recovery source; do not archive/reset or re-upload the scans
+to fix this. `scripts/repair_assisted_quiz_session.py` recovers only assistance
+fields and missing versions, backs up the replaced private files, and refuses
+changes to unrelated rubric content or session state. Its version reader asks
+IU REALLMS for only printed labels and saves proposals privately; it does not
+display scans or handwritten responses. Stop the server before applying a
+repair and restart it afterward. Original name assignments, scores, comments,
+and saved question locations must survive unchanged.
+
+The D/E retake batch was recovered this way: 14 submissions, seven D and seven E.
+Q1–6 locations and six Q7 checkpoints were retained; IU Qwen supplied the eight
+missing Q7 locations after Gemma returned invalid bounds. All seven full caches
+then passed bundle validation. No grades or preliminary answer readings were
+created. The running grader was restarted with the updated code. Model-read
+version labels and crops still warrant the instructor/TF's ordinary visual check.
+
+A second older instructor process on port 5002 subsequently stripped assistance
+fields again while sharing the same private data directory. That duplicate was
+stopped, the definitions restored, and the scheduled port-5001 grader restarted.
+The instructor launcher now holds an OS file lock on its data directory, refusing
+a second writer even if its initial running-server probe misses a busy server.
+Do not run direct alternate-port servers against the same active data directory.
+The blank D/E PDF was transcribed through the new review page: all 14 proposed
+question/version definitions matched the reviewed source, with approval left for
+the instructor. No student scan was displayed during this recovery.
+
 ## Quiz 9 handoff status (November 6, 2026)
 
 **Working in the active private Quiz 9 session:** 32 submissions have confirmed
@@ -257,6 +411,10 @@ or `answer_key` fields. The Setup generator defaults to IU Gemma; its draft
 omits `rubric_notes` even if the model tries to supply them. Legacy answer keys
 are not displayed in strip view, and both answer keys and rubric notes are
 removed when a TF bundle is exported.
+Reviewed per-question `fol_truth` definitions (and the legacy Quiz 9
+`fol_truth_assistance` opt-in) are preserved separately from legacy `answer_key`
+fields and declared in the bundle manifest. They supply inputs to deterministic
+checking rather than model-generated solutions or partial-credit policies.
 
 During grading, the instructor or TF may pin a student response they judge
 correct. Pins are stored in `session.json` by problem and version, survive page
@@ -280,7 +438,7 @@ in the explicit `fol_truth_assistance` field; it is not placed in legacy
 4. Run name recognition with IU Gemma.
    Before recognition starts, any exact duplicates left by an older app version
    are moved—not deleted—to `DATA_DIR/duplicate_scans_quarantine/<timestamp>/`.
-5. On Name Review, correct every student and Version A/B/C guess. For a lower
+5. On Name Review, correct every student and printed-version guess. For a lower
    name line, use **Move name preview down** to shift every preview together;
    **Show more of each page** makes the previews taller. These display settings
    are remembered per quiz and scan subfolder in this browser, without rerunning

@@ -1,5 +1,6 @@
 import { explainTruth, explainCandidate } from './vendor/fol-explanations/index.mjs';
 import { scoreConfirmed } from './fol_truth_scoring.mjs';
+import { candidateValue, clearObjectAnswer, objectLabel, readingFromWriting } from './fol_truth_answers.mjs';
 
 // One answer key for this question/version; student readings stay visually separate.
 const keyReviews = [];
@@ -24,11 +25,14 @@ for (const question of document.querySelectorAll('[data-fol-truth-question]')) {
     if (state === 'confirmed' || state === 'manual') question.querySelector('.fol-answer-reveal').open = false;
     status.dataset.state = state;
     status.textContent = {
-      confirmed: 'Key confirmed. Now compare each scan with its bold reading; scores and explanations update as you correct choices.',
+      confirmed: context.score_rule
+        ? 'Key confirmed. Now compare each scan with its bold reading; scores and explanations update as you correct choices.'
+        : 'Key confirmed. Now compare each scan with its bold reading; explanations update as you correct choices. Enter scores manually.',
       rejected: 'Email the instructor with this question and version before using this key. Automatic grades and explanations are off; manual grading is available.',
       manual: 'Manual grading: enter scores and comments yourself. Automatic grades and explanations are off.',
     }[state];
-    confirm.textContent = state === 'confirmed' ? 'Key confirmed' : 'Answer is correct — prefill grades';
+    confirm.textContent = state === 'confirmed' ? 'Key confirmed' : context.score_rule
+      ? 'Answer is correct — prefill grades' : 'Answer is correct — suggest feedback';
     confirm.disabled = state === 'confirmed';
     for (const listener of review.listeners) listener();
   };
@@ -36,7 +40,7 @@ for (const question of document.querySelectorAll('[data-fol-truth-question]')) {
     const truth = explainTruth(context.formula, context.model);
     if (truth.value !== context.truth) throw new Error('Python and browser truth checks disagree.');
     const candidates = context.asks_object && truth.requiredEvidence
-      ? context.model.domain.filter(value => explainCandidate(context.formula, context.model, Number(value)).valid).join(', ')
+      ? context.model.domain.filter(value => explainCandidate(context.formula, context.model, value).valid).join(', ')
       : 'N/A';
     question.querySelector('[data-fol-truth-expected]').textContent =
       `${truth.value ? 'True' : 'False'}${context.asks_object ? '; written response: ' + candidates : ''}`;
@@ -78,28 +82,36 @@ for (const panel of document.querySelectorAll('[data-fol-truth-panel]')) {
   let fingerprint = saved.fingerprint || context.fingerprint;
   let appliedScore = null;
 
+  function setObjectReading(value) {
+    if (!objectSelect) return;
+    if (value && objectSelect.options && ![...objectSelect.options].some(option => option.value === value)) {
+      objectSelect.add(new Option(objectLabel(value), value));
+    }
+    objectSelect.value = value || '';
+  }
+
   proposal.textContent = saved.proposed_truth || saved.proposed_object
     ? `Truth: ${saved.proposed_truth || 'unclear'}; written: ${saved.proposed_raw_object || saved.proposed_object || 'unclear'}`
     : 'None prepared';
   const fresh = !saved.fingerprint || saved.fingerprint === context.fingerprint;
   truthSelect.value = saved.confirmed_truth ?? (fresh ? saved.proposed_truth : '') ?? '';
-  if (objectSelect) objectSelect.value = saved.confirmed_object ?? (fresh ? saved.proposed_object : '') ?? '';
+  setObjectReading(saved.confirmed_object ?? (fresh ? saved.proposed_object : '') ?? '');
   if (rawInput) rawInput.value = saved.raw_object ?? (fresh ? saved.proposed_raw_object : '') ?? '';
 
   let previousDraft = null;
   let initial = true;
   function render(updateFields = false) {
-    const changedVersion = versionSelect && versionSelect.value !== context.version;
+    const changedVersion = versionSelect && (versionSelect.value || null) !== (context.version || null);
     const sourceChanged = Boolean(bboxUpdate?.value.trim()) ||
       (pageUpdate && pageUpdate.value !== context.source_filename);
     const isStale = fingerprint !== context.fingerprint || changedVersion || sourceChanged;
     if (prepare) prepare.disabled = Boolean(changedVersion || sourceChanged);
     stale.hidden = !isStale;
     const needsReading = !['true', 'false', 'blank'].includes(truthSelect.value) ||
-      (context.asks_object && !['1', '2', '3', 'na', 'blank'].includes(objectSelect.value));
+      (context.asks_object && !clearObjectAnswer(objectSelect.value));
     panel.dataset.needsReading = String(Boolean(isStale || needsReading));
     missing.hidden = isStale || !needsReading;
-    const display = value => ({true: 'True', false: 'False', na: 'N/A', blank: 'Blank', unclear: 'Other / unclear'}[value] || value || 'Needs reading');
+    const display = value => ({true: 'True', false: 'False', na: 'N/A', blank: 'Blank', unclear: 'Other / unclear'}[value] || objectLabel(value) || 'Needs reading');
     panel.querySelector('[data-fol-truth-interpreted]').textContent =
       !truthSelect.value && context.asks_object && !objectSelect.value ? 'Needs reading' :
         `${display(truthSelect.value)}${context.asks_object ? ' · ' + display(objectSelect.value) : ''}`;
@@ -157,12 +169,12 @@ for (const panel of document.querySelectorAll('[data-fol-truth-panel]')) {
           notes.push(`${expected}: N/A is incorrect.`);
           messages.push(`A ${expected} is required for this sentence.`);
         } else {
-          const candidate = explainCandidate(context.formula, context.model, Number(objectAnswer));
+          const candidate = explainCandidate(context.formula, context.model, candidateValue(objectAnswer).value);
           notes.push(`${expected}: ${candidate.valid ? 'correct' : 'incorrect'}.`);
           if (!candidate.valid) messages.push(candidate.text);
         }
         const raw = rawInput.value.trim();
-        if (raw && !/^(?:[123]|n\s*\/?\s*a)$/i.test(raw)) {
+        if (raw && readingFromWriting(context.model, raw) === 'unclear') {
           notes.push('The written form needs TF interpretation; check the confirmed choice against the scan.');
         }
       }
@@ -171,7 +183,7 @@ for (const panel of document.querySelectorAll('[data-fol-truth-panel]')) {
       const draft = explanationText ? `[${explanationText}]` : '';
       const result = scoreConfirmed(context, truth, truthAnswer, objectSelect?.value);
       if (initial || updateFields) {
-        if (scoreInput && (updateFields || scoreInput.value === '')) {
+        if (scoreInput && context.score_rule && (updateFields || scoreInput.value === '')) {
           scoreInput.value = result ? String(result.points) : '';
           appliedScore = scoreInput.value;
           scoreInput.dispatchEvent(new Event('input', {bubbles: true}));
@@ -198,9 +210,14 @@ for (const panel of document.querySelectorAll('[data-fol-truth-panel]')) {
       verdict.textContent = missing.textContent;
     }
   }
-  for (const input of [truthSelect, objectSelect, rawInput]) {
+  for (const input of [truthSelect, objectSelect]) {
     input?.addEventListener('input', () => { fingerprint = context.fingerprint; render(true); });
   }
+  rawInput?.addEventListener('input', () => {
+    setObjectReading(readingFromWriting(context.model, rawInput.value));
+    fingerprint = context.fingerprint;
+    render(true);
+  });
   versionSelect?.addEventListener('change', () => render());
   for (const button of choiceButtons) {
     button.addEventListener('click', () => {
@@ -228,7 +245,7 @@ for (const panel of document.querySelectorAll('[data-fol-truth-panel]')) {
       if (!response.ok) throw new Error(result.detail || 'Vision reading failed.');
       Object.assign(saved, result.proposal);
       truthSelect.value = saved.proposed_truth || '';
-      if (objectSelect) objectSelect.value = saved.proposed_object || '';
+      setObjectReading(saved.proposed_object || '');
       if (rawInput) rawInput.value = saved.proposed_raw_object || '';
       fingerprint = context.fingerprint;
       proposal.textContent = `Truth: ${saved.proposed_truth || 'unclear'}; written: ${saved.proposed_raw_object || saved.proposed_object || 'unclear'}`;
