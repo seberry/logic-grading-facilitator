@@ -4,10 +4,11 @@
 
 Use the updated grader code ZIP together with the freshly prepared private
 grading bundle. The original Quiz 9 code supports only its original models;
-retake bundles require rubric-driven FOL assistance schema 2. Extract the new
-code to its own folder, install its requirements as below, and give that folder
-to the bundle launcher when asked for the code location. Keep the old code and
-any already graded bundle separate.
+retake bundles use rubric-driven FOL assistance schema 2. Quiz 11 and other
+bundles with the full-or-half-credit policy need schema 3. Extract the code
+ZIP named by the instructor or in the bundle's README to its own folder,
+install its requirements as below, and give that folder to the bundle launcher
+when asked for the code location.
 
 ## If the bundle has FOL truth assistance
 
@@ -20,8 +21,8 @@ Compare each interpreted student answer with its scan and correct the choices
 as needed. Confirming the key enables automatic scores and bracketed feedback;
 review and edit them before saving. Add your own comments outside the brackets.
 Save the page before moving on. No model or Node installation is needed.
-Missing OCR is fine: enter the interpreted T/F and witness/counterexample or N/A
-yourself. Those corrected answers generate suggested scores and wrong-answer
+If OCR is missing or unclear, enter the interpreted truth value and any
+requested written response yourself. Those corrected answers generate suggested scores and wrong-answer
 explanations locally, just like corrections to prepared OCR readings.
 
 This is a local viewer for grading a paper quiz. The instructor has already
@@ -33,7 +34,7 @@ needed.
 
 You need two separate downloads:
 
-1. **Grader code ZIP** — downloaded from the GitHub release.
+1. **Grader code ZIP** — shared by the instructor or downloaded from the GitHub release.
 2. **Private grading bundle ZIP** — sent separately by the instructor. This
    contains the scans and saved grading data.
 

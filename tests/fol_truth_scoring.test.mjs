@@ -41,3 +41,22 @@ test('unclear or unconfirmed fields produce no score suggestion', () => {
   assert.equal(check('A', 2, 'true', ''), null);
   assert.equal(check('A', 2, '', '1'), null);
 });
+
+test('quiz-wide full or half credit depends on correct truth and applicable evidence', () => {
+  const q = questions[1];
+  const context = {formula: q.formula, model: versions.A, asks_object: true,
+    score_rule: {mode: 'half_for_truth', points: 1}};
+  const truth = explainTruth(q.formula, context.model);
+  const points = (answer, written) => scoreConfirmed(context, truth, answer, written)?.points;
+  assert.equal(points('true', '1'), 1);
+  assert.equal(points('true', '2'), 0.5);
+  assert.equal(points('true', 'blank'), 0.5);
+  assert.equal(points('true', 'na'), 0.5);
+  assert.equal(points('true', 'unclear'), undefined);
+  assert.equal(points('false', '1'), 0);
+  assert.equal(points('blank', 'unclear'), 0);
+  const falseExistential = {...context, model: versions.B};
+  const falseTruth = explainTruth(q.formula, falseExistential.model);
+  assert.equal(scoreConfirmed(falseExistential, falseTruth, 'false').points, 1);
+  assert.equal(scoreConfirmed({...context, asks_object: false}, truth, 'true').points, 1);
+});

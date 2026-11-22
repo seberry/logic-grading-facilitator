@@ -23,6 +23,7 @@ from app.quiz_variants import available_quiz_versions, problem_variant
 
 ASSESSMENT = "quiz9_monadic_fol_truth"
 SCHEMA = 1
+HALF_FOR_TRUTH = "half_for_truth"
 ANSWER_RESPONSE_FORMAT = {
     'type': 'json_schema', 'json_schema': {'name': 'fol_answer_reading', 'strict': True,
         'schema': {'type': 'object', 'properties': {
@@ -83,8 +84,17 @@ def question_enabled(grading_key: Any, problem_id: str, *, legacy: bool = True) 
 
 
 def assistance_schema(grading_key: Any) -> int:
-    return 2 if any(question_enabled(grading_key, p.id, legacy=False)
-                    for p in grading_key.problems) else 1
+    versions = available_quiz_versions(grading_key) or [None]
+    schema = 1
+    for spec in grading_key.problems:
+        for version in versions:
+            config = _rubric_config(spec, version)
+            if config is None:
+                continue
+            schema = 2
+            if config.get("manual_evidence") or (config.get("scoring") or {}).get("mode") == HALF_FOR_TRUTH:
+                return 3
+    return schema
 
 
 def assert_supported(grading_key: Any) -> None:
@@ -124,15 +134,22 @@ def model_display(model: dict) -> str:
     return "; ".join(parts)
 
 
+def _rubric_config(spec, version):
+    override = problem_variant(spec, version)
+    variant_config = override.fol_truth if override else None
+    if spec.fol_truth is None and variant_config is None:
+        return None
+    return {**(spec.fol_truth or {}), **(variant_config or {})}
+
+
 def question_context(grading_key: Any, problem_id: str, version: str | None,
                      segment: dict | None, source_path: Path | None = None) -> dict | None:
     spec = next((p for p in grading_key.problems if p.id == problem_id), None)
     if spec is not None and question_enabled(grading_key, problem_id, legacy=False):
-        override = problem_variant(spec, version)
-        if spec.fol_truth is None and (override is None or override.fol_truth is None):
+        config = _rubric_config(spec, version)
+        if config is None:
             return None
-        config = {**(spec.fol_truth or {}), **((override.fol_truth or {}) if override else {})}
-        if set(config) - {"model", "formula", "asks_object", "scoring"}:
+        if set(config) - {"model", "formula", "asks_object", "scoring", "manual_evidence"}:
             raise ValueError(f"Unknown FOL truth configuration field for {problem_id}.")
         model = validate_model(config.get("model"))
         formula = normalize_formula(config.get("formula"), len(model["domain"]))
@@ -142,10 +159,19 @@ def question_context(grading_key: Any, problem_id: str, version: str | None,
         if asks_object and not formula.startswith(("∀", "∃")):
             raise ValueError(f"{problem_id} requests an object but its outermost operator is not a quantifier.")
         rule = config.get("scoring")
+        manual_evidence = config.get("manual_evidence", False)
+        if not isinstance(manual_evidence, bool) or (manual_evidence and (asks_object or rule is not None)):
+            raise ValueError(f"{problem_id} with manual evidence review can suggest truth-value feedback only.")
         _validate_scoring(rule, spec.points, asks_object, problem_id)
         result = check_sentences(model_text(checker_model(model)), formula).sentence_results[0]
         if not result.parsed_ok or result.result is None:
             raise ValueError(f"Invalid FOL sentence for {problem_id} {version or ''}: {result.error}")
+        evidence = {}
+        if manual_evidence:
+            evidence["manual_evidence"] = True
+        if rule and rule.get("mode") == HALF_FOR_TRUTH:
+            evidence["asks_object_when_applicable"] = asks_object
+            asks_object = asks_object and formula.startswith("∃" if result.result else "∀")
         revision = None
         if source_path is not None and source_path.is_file():
             stat = source_path.stat()
@@ -157,7 +183,7 @@ def question_context(grading_key: Any, problem_id: str, version: str | None,
                 "source_filename": segment.get("page_filename") if segment else None,
                 "score_rule": rule, "asks_object": asks_object, "fingerprint": fingerprint,
                 "object_choices": [{"value": object_token(x), "label": str(x)} for x in model["domain"]],
-                "model_display": model_display(model)}
+                "model_display": model_display(model), **evidence}
     if not enabled(grading_key) or problem_id not in QUESTIONS or version not in MODELS:
         return None
     # A mixed assessment must not acquire Quiz 9 facts merely because it has Q1.
@@ -215,8 +241,10 @@ def _validate_scoring(rule: Any, points: float, asks_object: bool, problem_id: s
     if not isinstance(mode, str):
         raise ValueError(f"Invalid FOL scoring mode for {problem_id}.")
     fields = {"mode", "truth", "object", "blank_na_credit"} if mode == "components" else {"mode", "points", "blank_na_credit"}
+    if mode == HALF_FOR_TRUTH:
+        fields = {"mode", "points"}
     values = [rule.get("truth"), rule.get("object", 0)] if mode == "components" else [rule.get("points")]
-    if (mode not in {"components", "all_or_nothing"} or set(rule) - fields or
+    if (mode not in {"components", "all_or_nothing", HALF_FOR_TRUTH} or set(rule) - fields or
             any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) or v < 0 for v in values) or
             abs(sum(values) - points) > 1e-9 or
             (mode == "components" and not asks_object and rule.get("object", 0) != 0) or

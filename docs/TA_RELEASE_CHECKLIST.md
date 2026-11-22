@@ -34,12 +34,21 @@ explicitly attached audited ZIP, whose contents you checked.
 Build the audited ZIP reproducibly after committing the intended version:
 
 ```powershell
-python scripts/build_ta_release.py --output-dir working/release_<version>
+python scripts/build_ta_release.py --output-dir working/ta_releases/<release-date>
 ```
 
 The builder includes committed code, tests, docs, and notices, excludes data,
 working outputs and binary sample artifacts, and writes `SHA256SUMS.txt`.
-Extract and smoke-test the ZIP before uploading it and the checksum file.
+Extract and smoke-test the ZIP with a TF bundle. Then register the tested
+archive so Finish can show the matching code download before handoff.
+
+```powershell
+python scripts/build_ta_release.py --record-tested working/ta_releases/<release-date>/logic-grading-facilitator-<commit>.zip
+```
+
+Finish checks the registered ZIP's checksum, supported FOL schemas, and
+explanation-module revision. Its download is for the instructor to share.
+Upload the same tested ZIP and checksum if publishing the code on GitHub.
 
 Suggested release text:
 

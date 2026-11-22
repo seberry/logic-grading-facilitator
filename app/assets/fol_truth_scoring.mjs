@@ -1,12 +1,21 @@
 import { explainCandidate } from './vendor/fol-explanations/index.mjs';
 import { candidateValue, clearObjectAnswer } from './fol_truth_answers.mjs';
 
-/** Return null until both requested fields have a clear TF-confirmed reading. */
+/** Return null when the score depends on an unclear or unconfirmed reading. */
 export function scoreConfirmed(context, truth, truthAnswer, objectAnswer) {
   const rule = context.score_rule;
   if (!rule || !['true', 'false', 'blank'].includes(truthAnswer)) return null;
-  if (context.asks_object && !clearObjectAnswer(objectAnswer)) return null;
   const truthCorrect = truthAnswer !== 'blank' && (truthAnswer === 'true') === truth.value;
+  if (rule.mode === 'half_for_truth') {
+    const maximum = rule.points;
+    if (!truthCorrect) return {points: 0, maximum};
+    if (!context.asks_object || !truth.requiredEvidence) return {points: maximum, maximum};
+    if (!clearObjectAnswer(objectAnswer)) return null;
+    const candidate = candidateValue(objectAnswer);
+    const correct = candidate.clear && explainCandidate(context.formula, context.model, candidate.value).valid;
+    return {points: correct ? maximum : maximum / 2, maximum};
+  }
+  if (context.asks_object && !clearObjectAnswer(objectAnswer)) return null;
   let objectCorrect = true;
   if (context.asks_object) {
     let correct = false;

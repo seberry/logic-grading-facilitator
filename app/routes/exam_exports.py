@@ -12,7 +12,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import APIRouter, Form, HTTPException, Request, Response
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from ..exam_exports_core import (
@@ -42,6 +42,7 @@ from ..rubric_assets import existing_question_assets
 from ..fol_truth_assistance import (enabled as fol_truth_enabled, assistance_schema,
     assert_supported as assert_fol_truth_supported, question_context as fol_truth_question_context)
 from ..fol_truth_preparation import definitions_approved
+from ..ta_releases import explainer_revision, tested_releases
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 'templates'))
@@ -49,6 +50,26 @@ templates = Jinja2Templates(directory=str(Path(__file__).resolve().parents[1] / 
 
 def _tf_grader_mode_enabled() -> bool:
     return os.getenv("TF_GRADER_MODE", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _tf_code_requirement(grading_key) -> tuple[int | None, str | None]:
+    if fol_truth_enabled(grading_key):
+        return assistance_schema(grading_key), explainer_revision()
+    return None, None
+
+
+def _matching_code_release(schema, revision):
+    return next((release for release in tested_releases() if release.supports(schema, revision)), None)
+
+
+@router.get("/tf-grader-code/{filename}")
+def download_tf_grader_code(filename: str) -> Response:
+    if _tf_grader_mode_enabled():
+        raise HTTPException(403, "Code release downloads are available in instructor mode.")
+    release = next((item for item in tested_releases() if item.archive.name == filename), None)
+    if release is None:
+        raise HTTPException(404, "That tested grader code ZIP is unavailable.")
+    return FileResponse(release.archive, filename=release.archive.name, media_type="application/zip")
 
 
 def _duplicate_submission_rows(
@@ -278,7 +299,7 @@ if ($manifest.fol_truth_assistance) {
     if ($manifest.fol_truth_assistance.schema -ge 2) {
         $capabilitiesPath = Join-Path $resolvedCode "app\\assets\\fol_truth_capabilities.json"
         if (-not (Test-Path -LiteralPath $capabilitiesPath)) {
-            throw "This bundle needs rubric-driven FOL truth assistance schema 2. Extract the matching updated code ZIP."
+            throw "This bundle needs updated rubric-driven FOL truth assistance. Extract the matching code ZIP."
         }
         $capabilities = Get-Content -LiteralPath $capabilitiesPath -Raw | ConvertFrom-Json
         if ($manifest.fol_truth_assistance.schema -notin $capabilities.schemas) {
@@ -452,6 +473,8 @@ def finish_page(
     rows = sorted(rows_by_student.values(), key=lambda r: r["student_name"])
     duplicate_rows = _duplicate_submission_rows(session, scale_to=scale_to)
     tf_grader_mode = _tf_grader_mode_enabled()
+    schema, revision = _tf_code_requirement(grading_key) if not tf_grader_mode else (None, None)
+    code_release = _matching_code_release(schema, revision) if not tf_grader_mode else None
     location_ready_ids = [
         problem.id
         for problem in problems
@@ -465,6 +488,7 @@ def finish_page(
         "finish.html",
         {
             "request": request,
+            "quiz_id": grading_key.quiz_id,
             "problems": problems,
             "total_max": total_max,
             "scale_to": scale_to,
@@ -478,6 +502,8 @@ def finish_page(
             "location_missing_ids": location_missing_ids,
             "location_unit_ids": [wu.unit_id for wu in session.work_units],
             "locations_all_ready": bool(problems) and not location_missing_ids,
+            "tf_code_schema": schema,
+            "tf_code_release": code_release.archive.name if code_release else None,
             "fol_truth_enabled": fol_truth_enabled(grading_key),
             "fol_truth_definitions_approved": definitions_approved(session),
             "fol_truth_tasks": [
@@ -707,14 +733,18 @@ def export_tf_bundle(allow_duplicates: bool = False):
         "deterministic_grading_assistance_included": fol_truth_enabled(session.grading_key),
         "blank_question_image_count": len(question_assets),
     }
-    if fol_truth_enabled(session.grading_key):
+    schema, revision = _tf_code_requirement(session.grading_key)
+    code_release = _matching_code_release(schema, revision)
+    if code_release:
+        manifest["grader_code_release"] = {"archive": code_release.archive.name, "sha256": code_release.sha256}
+    if schema is not None:
         manifest["fol_truth_assistance"] = {
-            "schema": assistance_schema(session.grading_key),
+            "schema": schema,
             "assessment": ((session.grading_key.fol_truth_assistance or {}).get("assessment")
-                           if assistance_schema(session.grading_key) == 1 else session.grading_key.quiz_id),
-            "required_grader_feature": ("fol_truth_assistance_v2" if assistance_schema(session.grading_key) == 2
-                                        else "quiz9_fol_truth_assistance_v1"),
-            "shared_module_commit": "9d3dcdf744d4bbc1ac523a434c1cf633ffe71a9e",
+                           if schema == 1 else session.grading_key.quiz_id),
+            "required_grader_feature": ("quiz9_fol_truth_assistance_v1" if schema == 1
+                                        else f"fol_truth_assistance_v{schema}"),
+            "shared_module_commit": revision,
             "logical_inputs_reviewed": definitions_approved(session),
         }
 
@@ -734,6 +764,8 @@ def export_tf_bundle(allow_duplicates: bool = False):
         )
         readme = _tf_bundle_readme(session.grading_key.quiz_id,
                                   fol_truth=fol_truth_enabled(session.grading_key))
+        if code_release:
+            readme += f"\nMATCHING GRADER CODE\nUse {code_release.archive.name} with this private bundle.\n"
         if fol_truth_enabled(session.grading_key):
             readme += (
                 "\nFOL TRUTH ASSISTANCE\n"

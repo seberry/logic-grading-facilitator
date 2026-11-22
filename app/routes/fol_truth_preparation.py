@@ -10,9 +10,10 @@ from uuid import uuid4
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from pydantic import ValidationError
 from starlette.concurrency import run_in_threadpool
 
-from app.fol_truth_assistance import enabled, question_context
+from app.fol_truth_assistance import HALF_FOR_TRUTH, enabled, question_context
 from app.fol_truth_preparation import (definition_fingerprint, definitions_approved, key_from_rows,
     key_revision, preparation_rows, transcribe_blank_assessment)
 from app.rubric_assets import question_image_url
@@ -41,16 +42,25 @@ def _source_key(session):
     return key
 
 
-def _render(request, session, rows=None, source='', error=None, status=200):
+def _review_error(exc):
+    if isinstance(exc, ValidationError):
+        return exc.errors(include_url=False, include_context=False, include_input=False)[0]['msg'].removeprefix('Value error, ')
+    return str(exc)
+
+
+def _render(request, session, rows=None, source='', error=None, status=200, score_policy=None):
     source_key = _source_key(session)
     rows = rows if rows is not None else preparation_rows(source_key)
+    if score_policy is None:
+        modes = {row['scoring_mode'] for row in rows if row['enabled'] and not row.get('manual_evidence')}
+        score_policy = HALF_FOR_TRUTH if modes == {HALF_FOR_TRUTH} else 'keep'
     fingerprint = ''
     try:
-        candidate = key_from_rows(session.grading_key, rows)
+        candidate = key_from_rows(session.grading_key, rows, score_policy)
         fingerprint = definition_fingerprint(candidate)
     except (ValueError, TypeError, KeyError) as exc:
         candidate = None
-        error = error or str(exc)
+        error = error or _review_error(exc)
     specs = {p.id: p for p in source_key.problems}
     display = []
     for row in rows:
@@ -58,7 +68,7 @@ def _render(request, session, rows=None, source='', error=None, status=200):
         display.append({**row, 'context': context,
             'question_image_url': question_image_url(source_key, specs[row['problem_id']], row['version'])})
     return templates.TemplateResponse('fol_truth_preparation.html', {
-        'request': request, 'quiz_id': session.grading_key.quiz_id, 'rows': display,
+        'request': request, 'quiz_id': session.grading_key.quiz_id, 'rows': display, 'score_policy': score_policy,
         'revision': key_revision(session.grading_key), 'preview_fingerprint': fingerprint,
         'approved': definitions_approved(session) and enabled(session.grading_key)
                     and fingerprint == definition_fingerprint(session.grading_key),
@@ -66,27 +76,34 @@ def _render(request, session, rows=None, source='', error=None, status=200):
     }, status_code=status)
 
 
+def _active_draft(session):
+    path = GRADES_DIR / 'fol_truth_preparation_draft.json'
+    try:
+        draft = json.loads(path.read_text(encoding='utf-8'))
+        if isinstance(draft, dict) and draft.get('revision') == key_revision(session.grading_key) and 'rows' in draft:
+            return draft
+    except (OSError, ValueError):
+        pass
+    return {}
+
+
 @router.get('/prepare/fol-truth')
 def get_review(request: Request):
     instructor_only()
     session = get_session()
-    path = GRADES_DIR / 'fol_truth_preparation_draft.json'
-    if path.is_file():
-        try:
-            draft = json.loads(path.read_text(encoding='utf-8'))
-            if draft.get('revision') == key_revision(session.grading_key):
-                return _render(request, session, draft['rows'], draft.get('source', ''))
-        except (ValueError, TypeError, KeyError):
-            pass
+    draft = _active_draft(session)
+    if draft:
+        return _render(request, session, draft['rows'], draft.get('source', ''),
+                       score_policy=draft.get('score_policy'))
     return _render(request, session)
 
 
-def _save_draft(session, rows, source):
+def _save_draft(session, rows, source, score_policy=None):
     GRADES_DIR.mkdir(parents=True, exist_ok=True)
     path = GRADES_DIR / 'fol_truth_preparation_draft.json'
     temporary = path.with_suffix('.tmp')
     temporary.write_text(json.dumps({'revision': key_revision(session.grading_key), 'rows': rows,
-                                     'source': source}, ensure_ascii=False), encoding='utf-8')
+                                     'source': source, 'score_policy': score_policy}, ensure_ascii=False), encoding='utf-8')
     temporary.replace(path)
 
 
@@ -103,7 +120,7 @@ async def read_blank(request: Request, blank_pdf: UploadFile = File(...), model:
     try:
         rows = await run_in_threadpool(transcribe_blank_assessment, data, _source_key(session), create_vlm_client(model))
     except Exception as exc:
-        detail = str(exc) if isinstance(exc, ValueError) else 'IU could not read the blank quiz. Retry with Qwen or edit the definitions below.'
+        detail = _review_error(exc) if isinstance(exc, ValueError) else 'IU could not read the blank quiz. Retry with Qwen or edit the definitions below.'
         return _render(request, session, error=detail, status=400)
     if revision != key_revision(get_session().grading_key):
         raise HTTPException(409, 'The assessment changed during reading. Reload the review page.')
@@ -113,8 +130,9 @@ async def read_blank(request: Request, blank_pdf: UploadFile = File(...), model:
     target = directory / (token + '.pdf')
     if not target.exists():
         target.write_bytes(data)
-    _save_draft(session, rows, token)
-    return _render(request, session, rows, token)
+    score_policy = _active_draft(session).get('score_policy')
+    _save_draft(session, rows, token, score_policy)
+    return _render(request, session, rows, token, score_policy=score_policy)
 
 
 @router.get('/prepare/fol-truth/source/{token}')
@@ -135,6 +153,7 @@ async def post_review(request: Request):
     session = get_session()
     if form.get('revision') != key_revision(session.grading_key):
         raise HTTPException(409, 'The assessment changed. Reload the review page before approving.')
+    score_policy = form.get('score_policy', 'keep')
     try:
         count = int(form.get('row_count', 0))
         if count != len(preparation_rows(session.grading_key)):
@@ -144,19 +163,21 @@ async def post_review(request: Request):
             row = {name: form.get(f'{name}_{i}', '') for name in (
                 'problem_id', 'version', 'formula', 'model_text', 'scoring_mode', 'truth_points', 'object_points')}
             row['version'] = row['version'] or None
-            row.update({name: form.get(f'{name}_{i}') == 'on' for name in ('enabled', 'asks_object', 'blank_na_credit')})
+            row.update({name: form.get(f'{name}_{i}') == 'on' for name in (
+                'enabled', 'asks_object', 'manual_evidence', 'blank_na_credit')})
             spec = next(p for p in session.grading_key.problems if p.id == row['problem_id'])
             row.update(label=spec.label, points=spec.points)
             rows.append(row)
-        candidate = key_from_rows(session.grading_key, rows)
+        candidate = key_from_rows(session.grading_key, rows, score_policy)
     except (ValueError, TypeError, StopIteration, KeyError) as exc:
-        return _render(request, session, locals().get('rows') or None, form.get('source', ''), error=str(exc), status=400)
+        return _render(request, session, locals().get('rows') or None, form.get('source', ''),
+                       error=_review_error(exc), status=400, score_policy=score_policy)
     if form.get('action') != 'approve':
-        _save_draft(session, rows, form.get('source', ''))
-        return _render(request, session, rows, form.get('source', ''))
+        _save_draft(session, rows, form.get('source', ''), score_policy)
+        return _render(request, session, rows, form.get('source', ''), score_policy=score_policy)
     if form.get('preview_fingerprint') != definition_fingerprint(candidate):
         return _render(request, session, rows, form.get('source', ''),
-                       error='Check the changed definitions before approving them.', status=400)
+                       error='Check the changed definitions before approving them.', status=400, score_policy=score_policy)
     with _session_lock:
         current = get_session()
         if form.get('revision') != key_revision(current.grading_key):

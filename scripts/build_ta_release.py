@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import subprocess
+import sys
 import zipfile
 from pathlib import Path
 
@@ -46,7 +48,30 @@ def build(output_dir: Path) -> Path:
     return archive
 
 
+def record_tested(archive: Path) -> Path:
+    """Register the exact code ZIP after running the extracted handoff smoke test."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from app.ta_releases import inspect_code_zip
+
+    release = inspect_code_zip(archive)
+    expected = f"{release.sha256}  {archive.name}"
+    if expected not in (archive.parent / "SHA256SUMS.txt").read_text(encoding="utf-8").splitlines():
+        raise ValueError("The tested ZIP must match the release builder's checksum.")
+    receipt = archive.with_suffix(".tested.json")
+    temporary = receipt.with_suffix(".tmp")
+    temporary.write_text(json.dumps({"sha256": release.sha256}) + "\n", encoding="utf-8")
+    temporary.replace(receipt)
+    print(f"Recorded tested code ZIP: {archive}")
+    return receipt
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--output-dir', type=Path, required=True)
-    build(parser.parse_args().output_dir)
+    operation = parser.add_mutually_exclusive_group(required=True)
+    operation.add_argument('--output-dir', type=Path)
+    operation.add_argument('--record-tested', type=Path, metavar="CODE_ZIP")
+    args = parser.parse_args()
+    if args.output_dir:
+        build(args.output_dir)
+    else:
+        record_tested(args.record_tested)

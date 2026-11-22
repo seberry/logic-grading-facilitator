@@ -6,8 +6,7 @@ body{font:16px/1.45 system-ui,sans-serif;color:#152438;background:#f2f5f9;margin
 </style></head><body><main>
 <a href="/finish?mode=tf-prep">← Back to bundle preparation</a>
 <h1>Review models and sentences</h1>
-<p>{{ quiz_id }} — check the fixed inputs the explanation code will use. You can correct the model, sentence, and response requirements here.</p>
-<p>The code checks the logic and writes explanations. Student answer readings are reviewed separately by the TF.</p>
+<p>{{ quiz_id }}. Check the drafted models and sentences against the blank quiz. Open a question to make a correction.</p>
 {% if approved %}<p class="approved">The saved definitions are approved. Changes require another check and approval.</p>{% endif %}
 {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 <section>
@@ -24,24 +23,43 @@ body{font:16px/1.45 system-ui,sans-serif;color:#152438;background:#f2f5f9;margin
 <form method="post" action="/prepare/fol-truth" id="definitions-form">
 <input type="hidden" name="revision" value="{{ revision }}"><input type="hidden" name="source" value="{{ source }}">
 <input type="hidden" name="row_count" value="{{ rows|length }}"><input type="hidden" name="preview_fingerprint" value="{{ preview_fingerprint }}">
+<section>
+<h2>Scoring for this quiz</h2>
+<label for="score-policy">Apply to questions eligible for suggested scores</label>
+<select id="score-policy" name="score_policy" aria-describedby="score-policy-description">
+  {% for value,label in [('keep','Keep the question settings'),('half_for_truth','Full or half credit based on truth and evidence'),('manual','Suggest feedback only')] %}
+  <option value="{{ value }}"{% if score_policy == value %} selected{% endif %}>{{ label }}</option>
+  {% endfor %}
+</select>
+<p id="score-policy-description"><strong>Full-or-half-credit policy.</strong> When the question asks for one object, check the outermost quantifier. A true existential calls for a witness and a false universal calls for a counterexample. Give full credit for the correct truth value with valid evidence where required. Give half credit for the correct truth value when required evidence is missing or incorrect. An incorrect truth value earns zero. If the question requires no evidence, the correct truth value earns full credit and the written space can be blank.</p>
+</section>
 {% for row in rows %}{% set i=loop.index0 %}
-<details class="question"{% if row.enabled %} open{% endif %}>
-<summary>{{ row.problem_id }}{% if row.version %} · Version {{ row.version }}{% endif %} — {{ row.label }} ({{ row.points }} points)</summary>
+<details class="question" data-question-id="{{ row.problem_id }}">
+<summary>{{ row.problem_id }}{% if row.version %} · Version {{ row.version }}{% endif %} · {{ row.label }}
+{% if row.formula %} · <span data-summary-formula>{{ row.formula }}</span>{% endif %}{% if row.enabled %}
+{% if row.manual_evidence %} · Manual evidence and scoring{% endif %}<span data-summary-result></span>{% else %} · Manual{% endif %}</summary>
 <input type="hidden" name="problem_id_{{ i }}" value="{{ row.problem_id }}"><input type="hidden" name="version_{{ i }}" value="{{ row.version or '' }}">
 <label><input type="checkbox" name="enabled_{{ i }}"{% if row.enabled %} checked{% endif %}> Offer truth-in-a-model feedback for this question/version</label>
 <div class="columns"><div>
 {% if row.question_image_url %}<p class="muted">Reference from the blank quiz</p><a href="{{ row.question_image_url }}" target="_blank" rel="noopener"><img class="reference" src="{{ row.question_image_url }}" alt="Blank {{ row.problem_id }}{% if row.version %}, Version {{ row.version }}{% endif %}"></a>{% endif %}
 <label for="model-{{ i }}">Model: domain, names, and predicate extensions</label>
 <textarea id="model-{{ i }}" name="model_text_{{ i }}" spellcheck="false">{{ row.model_text }}</textarea>
-<small class="muted">Use P: {1,3}, R: {(1,2),(2,2)}, and {} for an empty extension. Named-object models can use JSON.</small>
+<small class="muted">Include each predicate used in the sentence, including its extension. Use JSON for named-object models.</small>
 </div><div>
-<label for="formula-{{ i }}">Logical sentence</label><input id="formula-{{ i }}" name="formula_{{ i }}" type="text" value="{{ row.formula }}" spellcheck="false">
-<label><input type="checkbox" name="asks_object_{{ i }}"{% if row.asks_object %} checked{% endif %}> Student must give a witness/counterexample, or N/A</label>
-<label for="scoring-{{ i }}">Suggested scores</label><select id="scoring-{{ i }}" name="scoring_mode_{{ i }}">
-{% for value,label in [('manual','Feedback only; enter scores manually'),('components','Separate truth and written-response credit'),('all_or_nothing','Full credit only when all required parts are correct')] %}<option value="{{ value }}"{% if row.scoring_mode==value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
+<label for="formula-{{ i }}">Logical sentence</label><input id="formula-{{ i }}" name="formula_{{ i }}" type="text" value="{{ row.formula }}" spellcheck="false" data-question-formula>
+{% if row.version and row.enabled %}<button type="button" data-apply-formula>Use this sentence for all assisted versions of this question</button>{% endif %}
+<details>
+<summary>Question settings</summary>
+<label><input type="checkbox" name="asks_object_{{ i }}"{% if row.asks_object %} checked{% endif %}> The printed directions ask for one witness or counterexample</label>
+<label><input type="checkbox" name="manual_evidence_{{ i }}"{% if row.manual_evidence %} checked{% endif %}> Grade evidence and scores manually, with truth-value feedback only</label>
+<div data-question-scoring{% if score_policy != 'keep' %} hidden{% endif %}>
+<label for="scoring-{{ i }}">Score for this question and version</label><select id="scoring-{{ i }}" name="scoring_mode_{{ i }}">
+{% for value,label in [('manual','Feedback only'),('half_for_truth','Full or half credit based on truth and evidence'),('components','Separate truth and written-response credit'),('all_or_nothing','Full credit only when all required parts are correct')] %}<option value="{{ value }}"{% if row.scoring_mode==value %} selected{% endif %}>{{ label }}</option>{% endfor %}</select>
 <div class="inline"><label>Truth points (separate-credit mode)<br><input type="number" min="0" step="any" name="truth_points_{{ i }}" value="{{ row.truth_points }}"></label>
 <label>Written-response points (separate-credit mode)<br><input type="number" min="0" step="any" name="object_points_{{ i }}" value="{{ row.object_points }}"></label></div>
 <label><input type="checkbox" name="blank_na_credit_{{ i }}"{% if row.blank_na_credit %} checked{% endif %}> Accept blank writing when N/A is expected</label>
+</div>
+</details>
 {% if row.context %}<div class="preview" data-definition-preview data-context='{{ row.context|tojson }}'><strong>Code's check: <span data-definition-result>Checking…</span></strong><details><summary>Explanation</summary><pre data-definition-explanation></pre></details></div>{% endif %}
 </div></div></details>
 {% endfor %}

@@ -893,6 +893,7 @@
           <section class="fol-question-key" data-fol-truth-question data-context='{{ fol_truth_question | tojson }}'>
             <div class="fol-question-model">Model: {{ fol_truth_question.model_display }}</div>
             <div class="fol-question-sentence">Sentence: {{ fol_truth_question.formula }}</div>
+            {% if fol_truth_question.manual_evidence %}<p>Use the truth-value feedback and grade the written evidence and score manually.</p>{% endif %}
             <div class="fol-key-step" data-fol-key-step>First, check the answer key for this question and version.</div>
             <label style="display:block; margin: 0.6rem 0;">Optional scratchpad (cleared when you leave this page)
               <textarea rows="3" style="display:block; width:100%; box-sizing:border-box;" placeholder="Work out your answer here"></textarea>
@@ -1254,7 +1255,8 @@
               {% for choice in item.fol_truth.object_choices %}
               <button type="button" class="fol-choice" data-fol-choice="object" data-value="{{ choice.value }}" aria-pressed="false">{{ choice.label }}</button>
               {% endfor %}
-              {% for value, label in [('na', 'N/A'), ('unclear', 'Other')] %}
+              {% set empty_choice = ('blank', 'Blank') if item.fol_truth.score_rule and item.fol_truth.score_rule.mode == 'half_for_truth' else ('na', 'N/A') %}
+              {% for value, label in [empty_choice, ('unclear', 'Other')] %}
               <button type="button" class="fol-choice" data-fol-choice="object" data-value="{{ value }}" aria-pressed="false">{{ label }}</button>
               {% endfor %}
             </div>

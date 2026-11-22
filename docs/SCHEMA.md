@@ -11,7 +11,7 @@ question description and work-unit scan file metadata. Partial files are
 private preparation state and are never included in a TF bundle. Once all
 work units have valid rows, the app writes the standard full list cache.
 
-## Rubric-driven FOL truth assistance (bundle schema 2)
+## Rubric-driven FOL truth assistance (bundle schemas 2 and 3)
 
 Any problem may supply an optional `fol_truth` mapping. It is independent of
 `problem_type` and does not require the legacy top-level opt-in. For example:
@@ -76,6 +76,18 @@ question's points. `blank_na_credit` defaults to false; setting it true permits
 a blank written response when N/A is expected. An unclear response never yields
 a score suggestion. Extra credit still uses the ordinary overall cap.
 
+Use `{mode: half_for_truth, points: 1}` for full credit on a correct truth
+value with any required single-object evidence, half credit when that evidence
+is missing or incorrect, and zero for an incorrect truth value. In this mode
+`asks_object: true` requests an object only for a true existential or false
+universal. The grader accepts a blank response when the sentence requires no
+evidence. An unclear response delays suggestions that depend on reading it.
+
+Use `manual_evidence: true` with `asks_object: false` and omit `scoring`
+for truth-value feedback on questions requiring multiple objects. The TF
+reviews the written evidence and enters the score manually. A quiz-wide
+score policy leaves these questions in this mode.
+
 The existing `work_units[].fol_truth_reviews` contract below is reused.
 Numeric objects use their decimal strings, named objects use
 `object:<JSON string>` (for example `object:"red"`), and `na`, `blank`, and
@@ -83,8 +95,9 @@ Numeric objects use their decimal strings, named objects use
 and exact-writing entry support manual corrections without vision proposals.
 The fingerprint includes the resolved definition, question points, version,
 crop, and source revision. Final scores and comments remain the ordinary human
-grade records. Bundles preserve definitions and readings and declare schema 2,
-`fol_truth_assistance_v2`, and the pinned shared explanation-module commit.
+grade records. Bundles preserve definitions and readings and declare schema 2
+with `fol_truth_assistance_v2`, or schema 3 with `fol_truth_assistance_v3`
+when any question uses `half_for_truth` or `manual_evidence`. Both pin the shared explanation-module commit.
 Launchers check schema compatibility using `app/assets/fol_truth_capabilities.json`.
 
 `Session.fol_truth_definition_review` records instructor approval as
@@ -93,12 +106,13 @@ resolved logical inputs and score rules for all assisted question/version pairs,
 including their maximum points. Changes invalidate approval; ordinary student
 grades, OCR corrections, and crop changes do not invalidate this definition
 approval (their existing answer-reading fingerprints still apply). Export of a
-new schema-2 assisted bundle requires matching approval and sets
+new rubric-driven assisted bundle requires matching approval and sets
 `bundle_manifest.fol_truth_assistance.logical_inputs_reviewed` to true.
 
 `grades/fol_truth_preparation_draft.json` stores an unapproved draft containing
 `revision` (the active grading-key hash), `rows` (editable logical inputs and
-score policies by question/version), and `source` (the blank PDF's SHA-256).
+score policies by question/version), `score_policy` (an optional quiz-wide
+selection), and `source` (the blank PDF's SHA-256).
 `grades/blank_fol_sources/<sha256>.pdf` contains only the uploaded blank source.
 Drafts for another key revision are ignored. Explicit approval backs up the
 current session under `grades/fol_truth_definition_backups/`, replaces only its

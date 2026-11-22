@@ -9,7 +9,7 @@ import tempfile
 import fitz
 
 from app.fol_model_checker import parse_model_text
-from app.fol_truth_assistance import assistance_schema, enabled, model_text, question_context
+from app.fol_truth_assistance import HALF_FOR_TRUTH, assistance_schema, enabled, model_text, question_context
 from app.fol_truth_config import validate_model
 from app.models import GradingKey
 from app.quiz_variants import available_quiz_versions
@@ -25,8 +25,10 @@ def definition_fingerprint(key):
         for version in available_quiz_versions(key) or [None]:
             context = question_context(key, problem.id, version, None)
             if context:
-                definitions.append({name: context[name] for name in ('model', 'formula', 'asks_object', 'score_rule')} |
-                                   {'problem': problem.id, 'version': version, 'points': problem.points})
+                definitions.append({name: context[name] for name in ('model', 'formula', 'score_rule')} |
+                                   {'problem': problem.id, 'version': version, 'points': problem.points,
+                                    'asks_object': context.get('asks_object_when_applicable', context['asks_object'])} |
+                                   ({'manual_evidence': True} if context.get('manual_evidence') else {}))
     return hashlib.sha256(json.dumps({'quiz': key.quiz_id, 'definitions': definitions}, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
 
@@ -63,9 +65,9 @@ def preparation_rows(key):
             rows.append({'problem_id': problem.id, 'version': version, 'label': problem.label,
                          'points': problem.points, 'enabled': context is not None,
                          'formula': context['formula'] if context else '',
-                         'model_text': display_review_model(context['model']) if context else
-                             'DOMAIN: 1,2,3\nCONSTANTS:\n\nPREDICATES:\n',
-                         'asks_object': bool(context and context['asks_object']),
+                         'model_text': display_review_model(context['model']) if context else '',
+                         'asks_object': bool(context and context.get('asks_object_when_applicable', context['asks_object'])),
+                         'manual_evidence': bool(context and context.get('manual_evidence')),
                          'scoring_mode': rule.get('mode', 'components') if rule else 'manual',
                          'truth_points': rule.get('truth', problem.points),
                          'object_points': rule.get('object', 0),
@@ -73,7 +75,9 @@ def preparation_rows(key):
     return rows
 
 
-def key_from_rows(key, rows):
+def key_from_rows(key, rows, score_policy='keep'):
+    if score_policy not in {'keep', HALF_FOR_TRUTH, 'manual'}:
+        raise ValueError('Choose a quiz-wide scoring policy.')
     data = key.model_dump()
     data['fol_truth_assistance'] = None
     problems = {p['id']: p for p in data['problems']}
@@ -90,17 +94,26 @@ def key_from_rows(key, rows):
         seen.add(identity)
         if not row['enabled']:
             continue
-        config = {'model': parse_review_model(row['model_text']), 'formula': row['formula'],
-                  'asks_object': row['asks_object']}
-        mode = row['scoring_mode']
+        row_label = ' '.join(part for part in identity if part)
+        try:
+            model = parse_review_model(row['model_text'])
+        except ValueError as exc:
+            raise ValueError(f'Check the printed model for {row_label}. {exc}') from exc
+        config = {'model': model, 'formula': row['formula'], 'asks_object': row['asks_object']}
+        mode = row['scoring_mode'] if score_policy == 'keep' else score_policy
+        if row.get('manual_evidence'):
+            config.update(asks_object=False, manual_evidence=True)
+            mode = 'manual'
         if mode == 'components':
             config['scoring'] = {'mode': mode, 'truth': float(row['truth_points']),
                                  'object': float(row['object_points']), 'blank_na_credit': row['blank_na_credit']}
         elif mode == 'all_or_nothing':
             config['scoring'] = {'mode': mode, 'points': problems[row['problem_id']]['points'],
                                  'blank_na_credit': row['blank_na_credit']}
+        elif mode == HALF_FOR_TRUTH:
+            config['scoring'] = {'mode': mode, 'points': problems[row['problem_id']]['points']}
         elif mode != 'manual':
-            raise ValueError('Choose manual, component, or both-parts-required scoring.')
+            raise ValueError('Choose a supported scoring policy.')
         problem = problems[row['problem_id']]
         if row['version'] is None:
             problem['fol_truth'] = config
@@ -126,9 +139,13 @@ def transcribe_blank_assessment(data: bytes, key, client):
             'inputs give a model and a formula whose truth the student must judge. Read each printed version separately; '
             'do not reuse another version\'s model. Copy empty predicate extensions as []. '
             'Return ONLY JSON {"questions":[{"problem_id":"Q1","version":"D","model":{"domain":[1,2,3],'
-            '"constants":{"c":1},"predicates":{"P":[1],"R":[[1,2]]}},"formula":"∃x Px","asks_object":false}]}. '
-            'The example is a format example, not assessment content. asks_object is true only if that printed question '
-            'requires a witness/counterexample or N/A field. Use null for version only for an unversioned assessment. '
+            '"constants":{"c":1},"predicates":{"P":[1],"R":[[1,2]]}},"formula":"∃x Px",'
+            '"asks_object":true,"manual_evidence":false}]}. '
+            'The example is a format example, not assessment content. Set asks_object to true if the printed directions '
+            'ask for one witness or counterexample when applicable, or require an explicit N/A. '
+            'Also transcribe questions that ask for a pair or a list of witnesses. '
+            'For these use manual_evidence:true and asks_object:false. Otherwise use manual_evidence:false. '
+            'Use null for version only for an unversioned assessment. '
             'Match these existing question IDs/numbers and versions: ' + json.dumps({
                 'questions': [{'id': p.id, 'printed_number': p.problem_number, 'label': p.label} for p in key.problems],
                 'versions': available_quiz_versions(key)}, ensure_ascii=False))
@@ -158,7 +175,9 @@ def transcribe_blank_assessment(data: bytes, key, client):
         row['enabled'] = False
     seen = set()
     for definition in payload['questions']:
-        if not isinstance(definition, dict) or set(definition) != {'problem_id', 'version', 'model', 'formula', 'asks_object'}:
+        if not isinstance(definition, dict) or set(definition) - {'manual_evidence'} != {
+            'problem_id', 'version', 'model', 'formula', 'asks_object'
+        }:
             raise ValueError('A transcribed definition had invalid fields.')
         identity = (definition['problem_id'], definition['version'])
         if identity not in lookup or identity in seen:
@@ -166,9 +185,12 @@ def transcribe_blank_assessment(data: bytes, key, client):
         seen.add(identity)
         if not isinstance(definition['asks_object'], bool):
             raise ValueError('Invalid witness/counterexample response requirement.')
+        manual_evidence = definition.get('manual_evidence', False)
+        if not isinstance(manual_evidence, bool) or (manual_evidence and definition['asks_object']):
+            raise ValueError('Use manual evidence review for responses with multiple objects.')
         row = lookup[identity]
         row.update(enabled=True, formula=definition['formula'], asks_object=definition['asks_object'],
-                   model_text=display_review_model(validate_model(definition['model'])))
+                   manual_evidence=manual_evidence, model_text=display_review_model(validate_model(definition['model'])))
         # New extraction must not invent a partial-credit policy.
         if row['scoring_mode'] == 'components' and row['asks_object'] and not row['object_points']:
             row['scoring_mode'] = 'manual'

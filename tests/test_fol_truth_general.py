@@ -1,5 +1,6 @@
 """Synthetic, offline coverage for rubric-driven FOL truth assistance."""
 from copy import deepcopy
+import hashlib
 import html
 import io
 import json
@@ -12,7 +13,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 import pytest
 
-from app import server
+from app import server, ta_releases
 from app.fol_truth_assistance import (assistance_schema, enabled, question_context,
                                       question_enabled, prepare_vision_reading)
 from app.fol_truth_config import normalize_formula, object_token
@@ -156,9 +157,10 @@ def test_general_vision_reading_preserves_uncertainty_and_named_objects(tmp_path
     assert prepare_vision_reading(client, image, [0, 0, 1, 1], True, [2, 4, 7])["proposed_object"] == "unclear"
 
 
-def test_mixed_strip_ui_and_manual_answer_save_without_vision(monkeypatch):
+@pytest.mark.parametrize("mode", ["all_or_nothing", "half_for_truth"])
+def test_mixed_strip_ui_and_manual_answer_save_without_vision(monkeypatch, mode):
     monkeypatch.setenv("TF_GRADER_MODE", "1")
-    key = key_with()
+    key = key_with({**config(), "scoring": {"mode": mode, "points": 1}})
     session = session_with(key)
     segment = {"unit_id": 1, "page_filename": "fake.jpg", "page_index": 0,
                "bbox": [.1, .2, .9, .5], "present": True, "confidence": 1}
@@ -175,6 +177,7 @@ def test_mixed_strip_ui_and_manual_answer_save_without_vision(monkeypatch):
         assert 'data-fol-truth-question data-context=' in assisted.text
         assert 'data-fol-choice="object" data-value="4"' in assisted.text
         assert 'data-fol-choice="object" data-value="3"' not in assisted.text
+        assert ('data-fol-choice="object" data-value="blank"' in assisted.text) == (mode == "half_for_truth")
         assert 'D = {2, 4, 7}; R = {(2, 4), (4, 4), (7, 2)}' in assisted.text
         review = {"confirmed_truth": "true", "confirmed_object": "4",
                   "fingerprint": question_context(key, "EC", None, segment)["fingerprint"]}
@@ -187,9 +190,10 @@ def test_mixed_strip_ui_and_manual_answer_save_without_vision(monkeypatch):
         vision.assert_not_called()
 
 
-def test_finish_targets_assisted_questions_and_bundle_preserves_rubric(tmp_path, monkeypatch):
+@pytest.mark.parametrize("mode, schema", [("all_or_nothing", 2), ("half_for_truth", 3)])
+def test_finish_targets_assisted_questions_and_bundle_preserves_rubric(tmp_path, monkeypatch, mode, schema):
     monkeypatch.delenv("TF_GRADER_MODE", raising=False)
-    session = session_with(key_with())
+    session = session_with(key_with({**config(), "scoring": {"mode": mode, "points": 1}}))
     from app.fol_truth_preparation import definition_fingerprint
     session.fol_truth_definition_review = {'schema': 1, 'approved': True,
         'fingerprint': definition_fingerprint(session.grading_key)}
@@ -214,10 +218,47 @@ def test_finish_targets_assisted_questions_and_bundle_preserves_rubric(tmp_path,
     with zipfile.ZipFile(io.BytesIO(bundle.content)) as archive:
         root = "synthetic_mixed_tf_bundle"
         manifest = json.loads(archive.read(f"{root}/bundle_manifest.json"))
-        assert manifest["fol_truth_assistance"]["schema"] == 2
-        assert manifest["fol_truth_assistance"]["required_grader_feature"] == "fol_truth_assistance_v2"
+        assert manifest["fol_truth_assistance"]["schema"] == schema
+        assert manifest["fol_truth_assistance"]["required_grader_feature"] == f"fol_truth_assistance_v{schema}"
         restored = Session.model_validate_json(archive.read(f"{root}/data/grades/session.json"))
         assert restored.grading_key.problems[1].fol_truth == session.grading_key.problems[1].fol_truth
         assert question_context(restored.grading_key, "EC", None, None)["truth"] is True
         assert "fol_truth_capabilities.json" in archive.read(f"{root}/START_TF_GRADER.ps1").decode()
         assert "fol_truth_capabilities.json" in archive.read(f"{root}/START_TF_GRADER.command").decode()
+
+
+def test_finish_links_to_the_verified_compatible_code_zip(tmp_path, monkeypatch):
+    monkeypatch.delenv("TF_GRADER_MODE", raising=False)
+    monkeypatch.setattr(ta_releases, "TA_RELEASE_ROOT", tmp_path)
+    key = key_with({**config(), "scoring": {"mode": "half_for_truth", "points": 1}})
+    revision = ta_releases.explainer_revision()
+
+    def register(folder, commit, schemas, pin):
+        directory = tmp_path / folder
+        directory.mkdir()
+        path = directory / f"logic-grading-facilitator-{commit}.zip"
+        with zipfile.ZipFile(path, "w") as archive:
+            prefix = path.stem + "/"
+            for name in ("app/server.py", "app/fol_truth_assistance.py", "app/assets/fol_truth_review.mjs",
+                         "app/assets/fol_truth_scoring.mjs", "app/assets/vendor/fol-explanations/index.mjs"):
+                archive.writestr(prefix + name, "")
+            archive.writestr(prefix + ta_releases.CAPABILITIES, json.dumps({"schemas": schemas}))
+            archive.writestr(prefix + ta_releases.EXPLAINER_SOURCE, json.dumps({"commit": pin}))
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        path.with_suffix(".tested.json").write_text(json.dumps({"sha256": digest}), encoding="utf-8")
+        return path
+
+    match = register("01", "0000001", [1, 2, 3], revision)
+    register("02", "0000002", [1, 2, 3], "different-explanation-revision")
+    register("03", "0000003", [1, 2], revision)
+    with patch.object(exam_exports, "get_session", return_value=session_with(key)):
+        client = TestClient(server.app)
+        path = f"/tf-grader-code/{match.name}"
+        assert f'href="{path}"' in client.get("/finish?mode=tf-prep").text
+        download = client.get(path)
+        assert download.status_code == 200
+        assert download.content == match.read_bytes()
+        with match.open("ab") as stream:
+            stream.write(b"this changes the tested checksum")
+        assert "No tested grader ZIP is registered" in client.get("/finish?mode=tf-prep").text
+        assert client.get(path).status_code == 404

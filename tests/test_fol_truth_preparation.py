@@ -95,8 +95,35 @@ def test_invalid_logical_inputs_never_change_active_key(tmp_path, monkeypatch):
         response = client.post('/prepare/fol-truth', data={**fields, 'action': 'preview'})
         assert response.status_code == 400
         assert 'not in the domain' in response.text
+        assert 'errors.pydantic.dev' not in response.text
         assert session.model_dump() == before
         save.assert_not_called()
+
+
+def test_one_quiz_policy_applies_to_assisted_versions_only(tmp_path, monkeypatch):
+    monkeypatch.delenv('TF_GRADER_MODE', raising=False)
+    session = sample()
+    with (patch.object(routes, 'get_session', return_value=session),
+          patch.object(routes, 'GRADES_DIR', tmp_path), patch.object(routes, 'RUBRIC_DIR', tmp_path),
+          patch.object(routes, 'question_image_url', return_value=None), patch.object(routes, 'persist_session')):
+        client = TestClient(server.app)
+        page = client.get('/prepare/fol-truth')
+        assert len(BeautifulSoup(page.text, 'html.parser').select('select[name="score_policy"]')) == 1
+        fields = form_fields(page.text)
+        preview = client.post('/prepare/fol-truth', data={
+            **fields, 'score_policy': 'half_for_truth', 'action': 'preview'})
+        assert preview.status_code == 200
+        restored = form_fields(client.get('/prepare/fol-truth').text)
+        assert restored['score_policy'] == 'half_for_truth'
+        accepted = client.post('/prepare/fol-truth', data={**restored, 'action': 'approve'}, follow_redirects=False)
+        assert accepted.status_code == 303
+    assert definitions_approved(session)
+    assert question_context(session.grading_key, 'Q2', 'D', None) is None
+    assert question_context(session.grading_key, 'Q1', 'D', None)['asks_object'] is True
+    e = question_context(session.grading_key, 'Q1', 'E', None)
+    assert e['score_rule'] == {'mode': 'half_for_truth', 'points': 2}
+    assert e['asks_object'] is False
+    assert preparation_rows(session.grading_key)[1]['asks_object'] is True
 
 
 def test_named_source_can_recover_stripped_definitions_for_instructor_review(tmp_path, monkeypatch):
@@ -154,6 +181,21 @@ def test_transcription_reads_embedded_blank_text_and_proposes_no_grades():
     assert question_context(candidate, 'Q1', 'D', None)['model']['predicates']['P'] == [2]
     assert question_context(candidate, 'Q1', 'E', None) is None
     assert session.model_dump() == before
+
+
+def test_transcribed_multi_object_evidence_keeps_truth_feedback_and_manual_scores():
+    session = sample()
+    pair = {**extracted()['questions'][0], 'formula': '∃x∃y Rxy', 'asks_object': False, 'manual_evidence': True,
+            'model': {'domain': [1, 2], 'predicates': {'R': [[1, 2]]}}}
+    rows = transcribe_blank_assessment(pdf_bytes('Blank finite-model assessment with embedded text.'),
+                                      session.grading_key, FakeReader({'questions': [pair]}))
+    candidate = key_from_rows(session.grading_key, rows, 'half_for_truth')
+    context = question_context(candidate, 'Q1', 'D', None)
+    assert context['truth'] is True
+    assert context['manual_evidence'] is True
+    assert context['asks_object'] is False
+    assert context['score_rule'] is None
+    assert preparation_rows(candidate)[0]['manual_evidence'] is True
 
 
 def test_image_only_blank_pdf_uses_iu_vision():

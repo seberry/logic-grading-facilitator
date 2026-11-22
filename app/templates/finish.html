@@ -369,14 +369,20 @@
     {% if not tf_grader_mode %}
       <section class="workflow {{ 'workflow-focus' if tf_prep_mode else '' }}">
         <h2>Prepare TF handoff</h2>
-        <p>The TF bundle needs saved question locations so the TF can grade without model access. You do not need to enter grades first.</p>
+        <p>Active rubric <strong>{{ quiz_id }}</strong>. The TF bundle needs saved question locations so the TF can grade without model access.</p>
 
-        <div class="workflow-step"><span class="step-number">✓</span><div>
+        {% if fol_truth_enabled %}
+        <div class="workflow-step"><span class="step-number">{{ '✓' if fol_truth_definitions_approved else '!' }}</span><div>
           <h3>Review models and sentences for suggested feedback</h3>
-          <p>Read the fixed inputs from a blank quiz, correct them, and approve what the explanation code will use. Student answers are reviewed separately.</p>
-          {% if fol_truth_enabled %}<p>{{ 'Models and sentences approved.' if fol_truth_definitions_approved else 'Approval needed before exporting feedback.' }}</p>{% endif %}
+          <p>{{ 'Models and sentences approved.' if fol_truth_definitions_approved else 'Check and approve the models and sentences before exporting feedback.' }}</p>
           <a class="btn btn-secondary" href="/prepare/fol-truth">Review models and sentences</a>
         </div></div>
+        {% elif problems %}
+        <details>
+          <summary>Optional grading assistance</summary>
+          <p><a href="/prepare/fol-truth">Set up truth-in-a-model feedback</a></p>
+        </details>
+        {% endif %}
 
         <div class="workflow-step">
           <span class="step-number">1</span>
@@ -434,6 +440,13 @@
           <span class="step-number">{{ 4 if fol_truth_enabled else 3 }}</span>
           <div>
             <h3>Create the private TF bundle</h3>
+            {% if tf_code_release %}
+              <p>Matching tested grader code <a href="{{ request.url_for('download_tf_grader_code', filename=tf_code_release).path }}">{{ tf_code_release }}</a></p>
+            {% elif tf_code_schema %}
+              <p>No tested grader ZIP is registered for this bundle’s FOL schema {{ tf_code_schema }} and explanation revision. Pair the bundle with compatible code before sending it to the TF.</p>
+            {% else %}
+              <p>No tested grader ZIP is registered. Pair the bundle with a tested grader release before sending it to the TF.</p>
+            {% endif %}
             <p id="tf-bundle-readiness">
               {% if not fol_truth_definitions_approved %}
                 Review and approve the models and sentences before creating this bundle.

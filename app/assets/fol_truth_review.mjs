@@ -70,6 +70,8 @@ for (const panel of document.querySelectorAll('[data-fol-truth-panel]')) {
   const stale = panel.querySelector('[data-fol-truth-stale]');
   const proposal = panel.querySelector('[data-fol-truth-proposal]');
   const choiceButtons = panel.querySelectorAll('[data-fol-choice]');
+  const explicitBlank = new Set(Array.from(choiceButtons).filter(button => button.dataset.value === 'blank')
+    .map(button => button.dataset.folChoice));
   const missing = panel.querySelector('[data-fol-truth-missing]');
   const details = panel.querySelector('[data-fol-truth-details]');
   const prepare = panel.querySelector('[data-fol-truth-prepare]');
@@ -118,7 +120,7 @@ for (const panel of document.querySelectorAll('[data-fol-truth-panel]')) {
     for (const button of choiceButtons) {
       const value = button.dataset.folChoice === 'truth' ? truthSelect.value : objectSelect?.value;
       button.setAttribute('aria-pressed', String(button.dataset.value === value ||
-        (button.dataset.value === 'unclear' && value === 'blank')));
+        (button.dataset.value === 'unclear' && value === 'blank' && !explicitBlank.has(button.dataset.folChoice))));
     }
     storage.value = JSON.stringify({
       proposed_truth: saved.proposed_truth || null,

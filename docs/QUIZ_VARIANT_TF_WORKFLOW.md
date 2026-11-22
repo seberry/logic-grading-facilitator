@@ -5,7 +5,7 @@
 Use optional `fol_truth` data on each assisted rubric problem, with overrides
 under its existing `variants` entries. The rubric supplies the actual model,
 formula, whether an object response is requested, and an optional scoring rule.
-See [the schema and complete mixed-assessment example](SCHEMA.md#rubric-driven-fol-truth-assistance-bundle-schema-2).
+See [the schema and complete mixed-assessment example](SCHEMA.md#rubric-driven-fol-truth-assistance-bundle-schemas-2-and-3).
 The rubric maker still drafts printed assessment structure; it does not solve
 questions or invent assistance policies. On Finish, **Review models and
 sentences** opens `/prepare/fol-truth`. Upload a blank PDF there to have IU
@@ -13,8 +13,13 @@ transcribe its fixed models/formulas (embedded PDF text where available, vision
 for image-only PDFs). The instructor can correct model notation, formulas,
 response requirements, selected questions/versions, and score policies, then
 check the deterministic preview and explicitly approve the definitions.
-Unapproved drafts survive reloads in the private grades directory. New schema-2
-assisted bundles require approval of the current definitions; changing a model,
+The review page can apply one scoring policy across assisted questions. Its
+full-or-half-credit option uses the correct truth value as the condition for
+credit and checks required single-object evidence for full credit. When the
+printed directions require no object for a sentence, the correct truth value
+earns full credit by itself.
+Unapproved drafts survive reloads in the private grades directory. New
+rubric-driven assisted bundles require approval of the current definitions; changing a model,
 formula, response requirement, or scoring policy invalidates approval. The
 legacy original Quiz 9 bundle behavior is retained. Saving/loading also validates
 rubric definitions before they can be used for grading.
@@ -39,7 +44,9 @@ counterexample, rather than a list of assignments or a prose proof.
 
 Finish's optional answer-reading preparation skips ordinary questions and
 unconfigured versions. A TF bundle contains the resolved rubric source and
-reading state, declares assistance schema 2, and requires updated grader code.
+reading state. It declares assistance schema 3 when using the full-or-half-credit
+policy, otherwise schema 2 for rubric-driven assistance. Each requires grader
+code that supports its schema.
 Existing Quiz 9 schema-1 sessions/bundles remain supported. Student data and
 active grading sessions are not migrated or rewritten automatically.
 
